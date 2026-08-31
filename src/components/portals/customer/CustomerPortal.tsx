@@ -1412,7 +1412,8 @@ export function CustomerPortal() {
         : 0,
       casesAffected: isDiscountEligible ? discountCasesAffected : 0,
       totalDiscount,
-      finalTotal: Math.max(0, selectedSubtotal - totalDiscount - selectedDepositRefunded),
+      // Fix: the payable total includes the new deposit after any existing-empty credit.
+      finalTotal: Math.max(0, selectedSubtotal - totalDiscount + selectedDepositCharged - selectedDepositRefunded),
     }
   }, [
     customerDiscountOption,

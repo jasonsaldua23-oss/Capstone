@@ -45,7 +45,9 @@ import {
   isValidPhilippineDriverLicense,
   formatPhilippineDriverLicenseInput,
 } from '@/lib/driver-license-restrictions'
-import { getDriverAssignmentIssue } from '@/lib/driver-eligibility'
+import { getDriverAssignmentIssue, getDriverVehicleLicenseIssue } from '@/lib/driver-eligibility'
+import { getRequiredLicenseCodeForVehicle } from '@/lib/driver-license-restrictions'
+import { formatFullName, splitFullName } from '@/lib/person-name'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -93,9 +95,9 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   const [deleteVehicleOpen, setDeleteVehicleOpen] = useState(false)
   const [vehicleToDelete, setVehicleToDelete] = useState<any | null>(null)
   const [isDeletingVehicle, setIsDeletingVehicle] = useState(false)
-  const [deleteDriverOpen, setDeleteDriverOpen] = useState(false)
-  const [driverToDelete, setDriverToDelete] = useState<any | null>(null)
-  const [isDeletingDriver, setIsDeletingDriver] = useState(false)
+  const [driverStatusDialogOpen, setDriverStatusDialogOpen] = useState(false)
+  const [driverPendingStatusChange, setDriverPendingStatusChange] = useState<any | null>(null)
+  const [isChangingDriverStatus, setIsChangingDriverStatus] = useState(false)
   const [vehicleForm, setVehicleForm] = useState({
     licensePlate: '',
     brand: '',
@@ -109,7 +111,10 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     isActive: true,
   })
   const [driverForm, setDriverForm] = useState({
-    name: '',
+    firstName: '',
+    middleName: '',
+    lastName: '',
+    suffix: '',
     email: '',
     phoneNumber: '',
     licenseNumber: '',
@@ -204,6 +209,11 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   // assigned to a truck, so the problem is caught before a delivery is accepted.
   const getDriverAssignmentBlocker = (driver: any) => getDriverAssignmentIssue(driver)
   const isDriverAssignable = (driver: any) => !getDriverAssignmentBlocker(driver)
+
+  // Added: the driver's LTO restriction code has to cover the vehicle. A Code A
+  // holder cannot be put on a tricycle or a truck — both require Code C.
+  const getVehicleLicenseBlocker = (driver: any, vehicleType: any) =>
+    getDriverVehicleLicenseIssue(driver, { type: vehicleType })
 
   // Added: drivers already linked to another vehicle stay visible but cannot be selected.
   const getDriverAssignedVehicle = (driverId: string) => vehicles.find((vehicle) => {
@@ -305,6 +315,13 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         toast.error(`Selected driver cannot be assigned: ${driverBlocker}.`)
         return
       }
+      const licenseIssue = selectedDriverRecord
+        ? getVehicleLicenseBlocker(selectedDriverRecord, vehicleForm.type)
+        : ''
+      if (licenseIssue) {
+        toast.error(licenseIssue)
+        return
+      }
       const existingVehicleWithDriver = getDriverAssignedVehicle(vehicleForm.driverId)
       if (existingVehicleWithDriver) {
         toast.error(`Driver is already assigned to vehicle ${existingVehicleWithDriver.licensePlate || 'another vehicle'}.`)
@@ -357,13 +374,16 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       return
     }
 
-    const name = (driverForm.name || '').trim()
+    const firstName = (driverForm.firstName || '').trim()
+    const middleName = (driverForm.middleName || '').trim()
+    const lastName = (driverForm.lastName || '').trim()
+    const suffix = (driverForm.suffix || '').trim()
     const email = (driverForm.email || '').trim()
     const phoneNumber = (driverForm.phoneNumber || '').trim()
     const licenseNumber = (driverForm.licenseNumber || '').trim()
 
-    if (!name || !email || !phoneNumber) {
-      toast.error('Name, email, and phone number are required')
+    if (!firstName || !lastName || !email || !phoneNumber) {
+      toast.error('First name, last name, email, and phone number are required')
       return
     }
     if (!isValidPhilippinePhone(phoneNumber)) {
@@ -389,6 +409,15 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         toast.error('Selected vehicle is inactive and cannot be assigned')
         return
       }
+      // The restriction code being saved is the one that has to cover the vehicle.
+      const licenseIssue = getVehicleLicenseBlocker(
+        { licenseType: driverForm.licenseType },
+        selectedVehicleRecord?.type
+      )
+      if (licenseIssue) {
+        toast.error(licenseIssue)
+        return
+      }
       const existingVehicleWithDriver = vehicles.find(
         (v) => (v.driverId === selectedDriver.id || v.driver?.id === selectedDriver.id) && v.id !== driverForm.vehicleId
       )
@@ -406,7 +435,10 @@ export function TransportationView({ notificationReferenceType = '', notificatio
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name,
+            firstName,
+            middleName: middleName || null,
+            lastName,
+            suffix: suffix || null,
             email,
             phone: phoneNumber,
             isActive: driverForm.isActive,
@@ -474,36 +506,48 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     }
   }
 
-  const promptDeleteDriver = (driver: any) => {
-    setDriverToDelete(driver)
-    setDeleteDriverOpen(true)
+  const promptDriverStatusChange = (driver: any) => {
+    setDriverPendingStatusChange(driver)
+    setDriverStatusDialogOpen(true)
   }
 
-  const deleteDriver = async () => {
-    if (!driverToDelete?.id) return
-    setIsDeletingDriver(true)
+  // Drivers are never deleted — they are deactivated, so their delivery history and
+  // trip records stay intact. The same action reactivates an inactive driver.
+  const isDeactivatingDriver = driverPendingStatusChange?.isActive !== false
+
+  const applyDriverStatusChange = async () => {
+    if (!driverPendingStatusChange?.id) return
+    const nextIsActive = !isDeactivatingDriver
+    setIsChangingDriverStatus(true)
     try {
       const response = await fetch('/api/drivers', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: driverToDelete.id, isActive: false }),
+        body: JSON.stringify({ id: driverPendingStatusChange.id, isActive: nextIsActive }),
       })
-      if (response.ok) {
-        await fetchData()
-        setDeleteDriverOpen(false)
-        setDriverToDelete(null)
-        toast.success('Driver deactivated successfully')
+      const payload = await response.json().catch(() => ({}))
+      // Fix: a failed response used to leave the dialog open with no explanation.
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.error || `Failed to ${nextIsActive ? 'activate' : 'deactivate'} driver`)
       }
-    } catch (error) {
-      toast.error('Failed to delete driver')
+      await fetchData()
+      setDriverStatusDialogOpen(false)
+      setDriverPendingStatusChange(null)
+      emitDataSync(['drivers'])
+      toast.success(`Driver ${nextIsActive ? 'activated' : 'deactivated'} successfully`)
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update driver status')
     } finally {
-      setIsDeletingDriver(false)
+      setIsChangingDriverStatus(false)
     }
   }
 
   const resetDriverForm = () => {
     setDriverForm({
-      name: '',
+      firstName: '',
+      middleName: '',
+      lastName: '',
+      suffix: '',
       email: '',
       phoneNumber: '',
       licenseNumber: '',
@@ -516,13 +560,28 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     setSelectedDriver(null)
   }
 
+  const driverDisplayName = formatFullName(
+    driverForm.firstName,
+    driverForm.middleName,
+    driverForm.lastName,
+    driverForm.suffix,
+    selectedDriver?.user?.name || selectedDriver?.name || ''
+  )
+
   const openEditDriver = (driver: any) => {
     const rawExpiry = String(driver.licenseExpiry || driver.license_expiry || '')
     // Fix: date inputs only accept YYYY-MM-DD, while the API returns full ISO timestamps.
     const licenseExpiry = rawExpiry ? rawExpiry.slice(0, 10) : ''
     setSelectedDriver(driver)
+    // Older records only ever stored the flat display name, so seed the structured
+    // fields from it when they are empty.
+    const source = driver.user || driver
+    const fallbackParts = splitFullName(source?.name || driver.name)
     setDriverForm({
-      name: driver.user?.name || driver.name || '',
+      firstName: source?.firstName || source?.first_name || fallbackParts.firstName,
+      middleName: source?.middleName || source?.middle_name || '',
+      lastName: source?.lastName || source?.last_name || fallbackParts.lastName,
+      suffix: source?.suffix || '',
       email: driver.user?.email || driver.email || '',
       phoneNumber: driver.phone || driver.user?.phone || driver.phoneNumber || '',
       licenseNumber: driver.licenseNumber || driver.license_number || '',
@@ -845,7 +904,11 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                           <option value="">Unassigned</option>
                           {drivers.map((driver: any) => {
                             const assignedVehicle = getDriverAssignedVehicle(driver.id)
-                            const blocker = getDriverAssignmentBlocker(driver)
+                            const blocker =
+                              getDriverAssignmentBlocker(driver) ||
+                              (getVehicleLicenseBlocker(driver, vehicleForm.type)
+                                ? `Needs Code ${getRequiredLicenseCodeForVehicle(vehicleForm.type)}`
+                                : '')
                             const disabled = Boolean(blocker) || Boolean(assignedVehicle)
                             const suffix = blocker ? ` (${blocker})` : assignedVehicle ? ' (Assigned)' : ''
                             return (
@@ -1120,25 +1183,39 @@ export function TransportationView({ notificationReferenceType = '', notificatio
               <DialogHeader>
                 <DialogTitle>Edit Driver</DialogTitle>
               </DialogHeader>
+                  {/* The header previews the display name the API will derive from the
+                      structured fields below, so the two can never disagree. */}
                   <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <Avatar className="h-14 w-14 border border-slate-200">
                       {selectedDriver?.user?.avatar || selectedDriver?.avatar ? (
-                        <AvatarImage src={selectedDriver?.user?.avatar || selectedDriver?.avatar} alt={`${driverForm.name || 'Driver'} avatar`} className="object-cover" />
+                        <AvatarImage src={selectedDriver?.user?.avatar || selectedDriver?.avatar} alt={`${driverDisplayName || 'Driver'} avatar`} className="object-cover" />
                       ) : null}
                       <AvatarFallback className="bg-blue-600 font-semibold text-white">
-                        {(driverForm.name || 'D').charAt(0).toUpperCase()}
+                        {(driverDisplayName || 'D').charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-slate-900">{driverForm.name || 'Driver'}</p>
+                      <p className="truncate font-semibold text-slate-900">{driverDisplayName || 'Driver'}</p>
                       <p className="truncate text-sm text-slate-500">{driverForm.email || 'No email'}</p>
                       <p className="text-sm text-slate-500">{driverForm.phoneNumber || 'No phone number'}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-sm font-medium text-gray-700">Name</label>
-                      <Input placeholder="Name" value={driverForm.name} onChange={(e) => setDriverForm({...driverForm, name: e.target.value})} />
+                      <label className="text-sm font-medium text-gray-700">First Name</label>
+                      <Input placeholder="First Name" value={driverForm.firstName} onChange={(e) => setDriverForm({...driverForm, firstName: e.target.value})} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-gray-700">Middle Name</label>
+                      <Input placeholder="Optional" value={driverForm.middleName} onChange={(e) => setDriverForm({...driverForm, middleName: e.target.value})} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-gray-700">Last Name</label>
+                      <Input placeholder="Last Name" value={driverForm.lastName} onChange={(e) => setDriverForm({...driverForm, lastName: e.target.value})} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-gray-700">Suffix</label>
+                      <Input placeholder="Jr., III (optional)" value={driverForm.suffix} onChange={(e) => setDriverForm({...driverForm, suffix: e.target.value})} />
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Email</label>
@@ -1200,11 +1277,27 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                         className="w-full px-3 py-2 border rounded-md"
                       >
                         <option value="">Unassigned</option>
-                        {vehicles.map((vehicle: any) => (
-                          <option key={vehicle.id} value={vehicle.id} disabled={!isVehicleAssignable(vehicle)}>
-                            {vehicle.licensePlate} - {vehicle.type || 'VEHICLE'}{!isVehicleAssignable(vehicle) ? ' (Unavailable)' : ''}
-                          </option>
-                        ))}
+                        {vehicles.map((vehicle: any) => {
+                          const licenseIssue = getVehicleLicenseBlocker(
+                            { licenseType: driverForm.licenseType },
+                            vehicle.type
+                          )
+                          const unavailable = !isVehicleAssignable(vehicle)
+                          const suffix = unavailable
+                            ? ' (Unavailable)'
+                            : licenseIssue
+                              ? ` (Needs Code ${getRequiredLicenseCodeForVehicle(vehicle.type)})`
+                              : ''
+                          return (
+                            <option
+                              key={vehicle.id}
+                              value={vehicle.id}
+                              disabled={unavailable || Boolean(licenseIssue)}
+                            >
+                              {vehicle.licensePlate} - {vehicle.type || 'VEHICLE'}{suffix}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                     <div className="col-span-2 flex items-center gap-2">
@@ -1256,19 +1349,19 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                           </div>
                         </div>
                       </div>
-                      <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <span className="text-gray-500">Rating:</span>
-                          <span className="ml-1 font-medium">{Number(driver.rating || 0).toFixed(1)}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Deliveries:</span>
-                          <span className="ml-1 font-medium">{driver.totalDeliveries || 0}</span>
-                        </div>
+                      <div className="mt-4 text-sm">
+                        <span className="text-gray-500">Deliveries:</span>
+                        <span className="ml-1 font-medium">{driver.totalDeliveries || 0}</span>
                       </div>
                       <div className="mt-4 flex gap-2">
                         <Button size="sm" variant="outline" className="flex-1" onClick={() => openEditDriver(driver)}>Edit</Button>
-                        <Button size="sm" variant="destructive" onClick={() => promptDeleteDriver(driver)}>Delete</Button>
+                        <Button
+                          size="sm"
+                          variant={driver.isActive !== false ? 'destructive' : 'outline'}
+                          onClick={() => promptDriverStatusChange(driver)}
+                        >
+                          {driver.isActive !== false ? 'Deactivate' : 'Activate'}
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -1530,27 +1623,31 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       </Dialog>
 
 
-      <AlertDialog open={deleteDriverOpen} onOpenChange={setDeleteDriverOpen}>
+      <AlertDialog open={driverStatusDialogOpen} onOpenChange={setDriverStatusDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-red-600">Deactivate Driver?</AlertDialogTitle>
+            <AlertDialogTitle className={isDeactivatingDriver ? 'text-red-600' : undefined}>
+              {isDeactivatingDriver ? 'Deactivate Driver?' : 'Activate Driver?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will deactivate{' '}
+              This will {isDeactivatingDriver ? 'deactivate' : 'activate'}{' '}
               <span className="font-semibold text-foreground">
-                {driverToDelete?.user?.name || driverToDelete?.name || 'this driver'}
+                {driverPendingStatusChange?.user?.name || driverPendingStatusChange?.name || 'this driver'}
               </span>
-              . They will no longer appear as active. You can reactivate them later.
+              {isDeactivatingDriver
+                ? '. They will no longer be available for vehicle or trip assignment, and their delivery history is kept. You can reactivate them later.'
+                : '. They will be available for vehicle and trip assignment again.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingDriver}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isChangingDriverStatus}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={deleteDriver}
-              disabled={isDeletingDriver}
-              className="bg-red-600 hover:bg-red-700"
+              onClick={applyDriverStatusChange}
+              disabled={isChangingDriverStatus}
+              className={isDeactivatingDriver ? 'bg-red-600 hover:bg-red-700' : undefined}
             >
-              {isDeletingDriver ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Deactivate Driver
+              {isChangingDriverStatus ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              {isDeactivatingDriver ? 'Deactivate Driver' : 'Activate Driver'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

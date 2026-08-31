@@ -203,6 +203,13 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Uploaded images are stored in a Supabase Storage bucket rather than on the API
+# server's filesystem, which does not survive a redeploy. Without these the upload
+# endpoints fall back to writing under MEDIA_ROOT, which is fine for local work.
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+SUPABASE_UPLOADS_BUCKET = os.getenv("SUPABASE_UPLOADS_BUCKET", "uploads").strip()
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CORS_ALLOW_ALL_ORIGINS = _bool("DJANGO_CORS_ALLOW_ALL", True)

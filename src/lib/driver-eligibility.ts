@@ -1,7 +1,13 @@
 // Added: one shared eligibility rule keeps every "assign a driver" surface consistent
 // (vehicle/truck assignment, trip assignment) so an incomplete or invalid license
 // profile blocks the assignment before the driver ever tries to accept a delivery.
-import { isValidPhilippineDriverLicense, isValidDriverLicenseRestriction } from './driver-license-restrictions'
+import {
+  isValidPhilippineDriverLicense,
+  isValidDriverLicenseRestriction,
+  isLicenseCodeAllowedForVehicle,
+  getRequiredLicenseCodeForVehicle,
+  notQualifiedForVehicleMessage,
+} from './driver-license-restrictions'
 
 const todayIsoDate = () => new Date().toISOString().slice(0, 10)
 
@@ -51,6 +57,29 @@ export function getDriverAssignmentIssue(driver: any): string {
   const status = String(driver?.status || '').toUpperCase()
   if (driver?.isActive === false || status === 'INACTIVE') return 'Inactive'
   return getDriverProfileCompletenessIssue(driver)
+}
+
+/**
+ * Reason the driver's registered license restriction does not cover this vehicle,
+ * or '' when it does. A driver holding only Code A, for example, cannot be put on a
+ * tricycle or a truck — both require Code C.
+ */
+export function getDriverVehicleLicenseIssue(driver: any, vehicle: any): string {
+  if (!driver || !vehicle) return ''
+  const vehicleType = String(vehicle?.type || vehicle?.vehicleType || '').trim()
+  const requiredCode = getRequiredLicenseCodeForVehicle(vehicleType)
+  if (!requiredCode) return ''
+  const licenseType = readField(driver, 'licenseType', 'license_type')
+  if (isLicenseCodeAllowedForVehicle(licenseType, vehicleType)) return ''
+  return notQualifiedForVehicleMessage(requiredCode)
+}
+
+/**
+ * Full check for putting this driver behind the wheel of this vehicle: the driver's
+ * own profile has to be valid AND their license code has to cover the vehicle.
+ */
+export function getDriverVehicleAssignmentIssue(driver: any, vehicle: any): string {
+  return getDriverAssignmentIssue(driver) || getDriverVehicleLicenseIssue(driver, vehicle)
 }
 
 export function isDriverAssignable(driver: any): boolean {

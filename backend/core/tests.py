@@ -3,7 +3,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from .auth import create_token
@@ -1360,6 +1360,48 @@ class CustomerOrdersPostApiContractTests(TestCase):
             type="RESERVE",
         ).count()
         self.assertEqual(reserve_count, 0)
+
+    def test_customer_orders_post_adds_standard_case_deposit_to_total(self) -> None:
+        container_type = ContainerType.objects.create(
+            code="RGB-TOTAL-330",
+            name="330ml Returnable Glass Bottle",
+            deposit_amount=2,
+        )
+        self.product.category = "Carbonated (Glass)"
+        self.product.packaging_type = "RETURNABLE"
+        self.product.quantity_per_unit = 24
+        self.product.price = 240
+        self.product.save(update_fields=["category", "packaging_type", "quantity_per_unit", "price", "updated_at"])
+        ProductPackaging.objects.create(
+            product=self.product,
+            container_type=container_type,
+            containers_per_case=24,
+            is_primary=True,
+            is_returnable=True,
+            deposit_amount=2,
+            case_deposit_amount=42,
+        )
+
+        response = self.client.post(
+            "/api/customer/orders",
+            data={
+                "warehouseId": self.warehouse.id,
+                "shippingLatitude": 10.67,
+                "shippingLongitude": 122.95,
+                "shippingCity": "Talisay",
+                "shippingProvince": "Negros Occidental",
+                "items": [{"productId": self.product.id, "quantity": 1}],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        created_order = Order.objects.get(id=response.json()["order"]["id"])
+        # The product subtotal and new container deposit must both be payable.
+        self.assertEqual(created_order.subtotal, 240)
+        self.assertEqual(created_order.total_amount, 282)
+        self.assertEqual(created_order.items.get().net_deposit, 42)
 
     @patch("core.views_api._email_new_order_to_warehouse_staff")
     @patch("core.views_api._email_order_confirmed_to_customer")
@@ -2846,6 +2888,10 @@ class TripStopAliasContractTests(TestCase):
         self.assertEqual(forbidden.status_code, 403)
 
 
+# These assert the authentication contract and the local-disk fallback, so the object
+# storage bucket is pinned off. Without this the suite picks up whatever Supabase
+# credentials happen to be in the developer's .env and tries to reach the network.
+@override_settings(SUPABASE_URL="", SUPABASE_SERVICE_ROLE_KEY="")
 class UploadEndpointsAuthContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()

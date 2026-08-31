@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner'
 import {
   getDriverProfileCompletenessIssue as getDriverProfileIssue,
+  getDriverVehicleLicenseIssue,
   summarizeDriverAvailability,
 } from '@/lib/driver-eligibility'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
@@ -1182,10 +1183,13 @@ export function WarehousePortal() {
   const isDriverSelectableForTrip = (driver: DriverOption | undefined, options?: { allowDriverId?: string | null; allowVehicleId?: string | null }) => {
     if (!driver || driver?.isActive === false) return false
     if (getDriverProfileCompletenessIssue(driver)) return false
-    if (options?.allowDriverId && String(driver.id || '').trim() === String(options.allowDriverId).trim()) {
-      return Boolean(getDriverAssignedVehicle(driver, { allowVehicleId: options.allowVehicleId })?.id)
-    }
-    return Boolean(getDriverAssignedVehicle(driver)?.id)
+    const eligibleVehicle = options?.allowDriverId && String(driver.id || '').trim() === String(options.allowDriverId).trim()
+      ? getDriverAssignedVehicle(driver, { allowVehicleId: options.allowVehicleId })
+      : getDriverAssignedVehicle(driver)
+    if (!eligibleVehicle?.id) return false
+    // Vehicles assigned before the licence rule existed can still be mismatched,
+    // so the driver's restriction code is re-checked here too.
+    return !getDriverVehicleLicenseIssue(driver, eligibleVehicle)
   }
   const getDriverTripEligibilityLabel = (driver: DriverOption | undefined, options?: { allowDriverId?: string | null; allowVehicleId?: string | null }) => {
     if (driver?.isActive === false) return 'Inactive'
@@ -1193,6 +1197,8 @@ export function WarehousePortal() {
     if (profileIssue) return profileIssue
     const assignedVehicle = (driver?.vehicles || []).find((item) => item?.vehicle?.id)?.vehicle
     if (!assignedVehicle?.id) return 'No assigned vehicle'
+    const licenseIssue = getDriverVehicleLicenseIssue(driver, assignedVehicle)
+    if (licenseIssue) return licenseIssue
     if (!isDriverSelectableForTrip(driver, options)) return 'Assigned vehicle unavailable'
     return ''
   }

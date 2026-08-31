@@ -86,3 +86,8 @@ dev_stdout.log
 mobile/customer-app/.expo-export-check/
 mobile/customer-app/.expo-export-design-check*/
 mobile/customer-app/.expo/
+
+# Uploaded media lives in the Supabase Storage bucket, not the repository. Committing
+# uploads meant a deploy that resets the working tree restored the committed images
+# and deleted every photo uploaded through the portal since the last commit.
+backend/media/

@@ -21,7 +21,7 @@ from google.oauth2 import id_token as google_id_token
 
 from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import ProtectedError
-from django.db.models import F, Max, Prefetch, Q, Sum
+from django.db.models import Count, F, Max, Prefetch, Q, Sum
 from django.conf import settings
 from django.core import signing
 from django.core.mail import send_mail
@@ -34,6 +34,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .beverage_categories import category_spec
+from .driver_license import driver_vehicle_license_error, license_code_vehicle_error
+from . import object_storage
 from .product_weights import resolve_product_weight
 from .auth import (
     REMEMBER_ME_EXP_HOURS,
@@ -77,6 +79,8 @@ from .models import (
     SalesChannel,
     StockBatch,
     Trip,
+    DropPointStatus,
+    DropPointType,
     TripDropPoint,
     TripStatus,
     User,
@@ -278,6 +282,34 @@ def _active_driver_trip(driver: User | None) -> Trip | None:
     )
 
 
+# A completed DELIVERY drop point on one of the driver's trips is one delivery. The
+# stored User.total_deliveries column is never incremented anywhere, so it reads 0 for
+# every driver; the number reported to the portals is derived from real trip data
+# instead, which also makes it correct for deliveries completed before this change.
+COMPLETED_DELIVERY_FILTER = Q(
+    trips__drop_points__status=DropPointStatus.COMPLETED,
+    trips__drop_points__drop_point_type=DropPointType.DELIVERY,
+)
+
+
+def _annotate_driver_delivery_counts(qs):
+    """Add `completed_delivery_count` to a queryset of driver Users."""
+    return qs.annotate(
+        completed_delivery_count=Count("trips__drop_points", filter=COMPLETED_DELIVERY_FILTER, distinct=True)
+    )
+
+
+def _driver_delivery_count(driver: User | None) -> int:
+    """Deliveries completed by one driver, for the single-record endpoints."""
+    if driver is None:
+        return 0
+    return TripDropPoint.objects.filter(
+        trip__driver=driver,
+        status=DropPointStatus.COMPLETED,
+        drop_point_type=DropPointType.DELIVERY,
+    ).count()
+
+
 def _driver_unassignment_error(driver: User | None) -> str | None:
     """Explain why removing a driver from their vehicle would disrupt delivery."""
     active_trip = _active_driver_trip(driver)
@@ -446,7 +478,9 @@ def _driver_assignment_blocker(driver: User) -> str | None:
     """Reason a driver cannot be assigned to a vehicle, or None when assignable.
 
     Mirrors src/lib/driver-eligibility.ts so an incomplete or invalid license
-    profile is rejected server-side too, not just hidden in the UI.
+    profile is rejected server-side too, not just hidden in the UI. The
+    licence-code-vs-vehicle rule lives in driver_license.py and is applied by the
+    callers, which know the target vehicle.
     """
     if driver is None:
         return "Driver not found"
@@ -653,7 +687,7 @@ def _create_order_from_checkout_payload(
     )
 
     allocation_policy = _resolve_allocation_policy(body)
-    mixed_case_net_deposit = 0.0
+    total_net_deposit = 0.0
     for item in normalized_items:
         if str(item.get("itemType") or "").strip().upper() == OrderItemType.MIXED_CASE:
             order_item = OrderItem.objects.create(
@@ -729,7 +763,7 @@ def _create_order_from_checkout_payload(
             # when the transaction can validate the latest inventory state.
             order_item.notes = f"{order_item.notes or ''}\nAllocationPolicy={allocation_policy}".strip()
             order_item.save(update_fields=["notes"])
-            mixed_case_net_deposit += item_deposit
+            total_net_deposit += item_deposit
             continue
 
         pid = str(item.get("productId") or "").strip()
@@ -756,6 +790,8 @@ def _create_order_from_checkout_payload(
         deposit_charged = (qty * case_deposit) if is_case else (qty * deposit_per_unit)
         deposit_refunded = ((empty_returned // containers_per_case) * case_deposit) if is_case else (empty_returned * deposit_per_unit)
         net_deposit = max(0.0, deposit_charged - deposit_refunded)
+        # Fix: standard returnable-item deposits are part of the amount payable.
+        total_net_deposit += net_deposit
 
         order_item = OrderItem.objects.create(
             order=order,
@@ -786,8 +822,8 @@ def _create_order_from_checkout_payload(
 
     order.subtotal = subtotal
     order.tax = tax
-    # Mixed-case deposits are server-priced from the component packaging records.
-    order.total_amount = total_amount + mixed_case_net_deposit
+    # Deposits are server-priced from product packaging records for every item type.
+    order.total_amount = total_amount + total_net_deposit
     order.shipping_name = body.get("shippingName") or customer.name
     order.shipping_phone = body.get("shippingPhone") or customer.phone or ""
     order.shipping_address = _strip_default_country_suffix(body.get("shippingAddress") or customer.address or "")
@@ -5543,6 +5579,15 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     role_id = str(body.get("roleId", "")).strip()
     phone = _normalize_philippine_phone(body.get("phone"))
     email_verification_token = str(body.get("emailVerificationToken", "")).strip()
+    # Fix: the structured name parts were accepted from the client and then dropped,
+    # leaving every new user with a display name and no first/last name. The profile
+    # editors then had to guess the parts back out of it.
+    first_name = str(body.get("firstName") or "").strip() or None
+    middle_name = str(body.get("middleName") or "").strip() or None
+    last_name = str(body.get("lastName") or "").strip() or None
+    suffix = str(body.get("suffix") or "").strip() or None
+    if first_name or middle_name or last_name or suffix:
+        name = _format_display_name(first_name, middle_name, last_name, suffix, name)
     if not email or not name or not password or not role_id:
         return _err("name, email, password and roleId are required")
     if not phone:
@@ -5564,6 +5609,10 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         email=email,
         password=hash_password(password),
         name=name,
+        first_name=first_name,
+        middle_name=middle_name,
+        last_name=last_name,
+        suffix=suffix,
         phone=phone,
         avatar=body.get("avatar"),
         role=role,
@@ -7310,6 +7359,9 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             blocker = _driver_assignment_blocker(driver)
             if blocker:
                 return _err(f"Driver cannot be assigned: {blocker}", 400)
+            license_error = license_code_vehicle_error(driver.license_type, body.get("type"))
+            if license_error:
+                return _err(license_error, 400)
             existing_veh = Vehicle.objects.filter(driver=driver).first()
             if existing_veh:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
@@ -7363,6 +7415,9 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             blocker = _driver_assignment_blocker(driver)
             if blocker:
                 return _err(f"Driver cannot be assigned: {blocker}", 400)
+            license_error = driver_vehicle_license_error(driver, v)
+            if license_error:
+                return _err(license_error, 400)
             existing_veh = Vehicle.objects.filter(driver=driver).exclude(id=v.id).first()
             if existing_veh:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
@@ -7410,7 +7465,9 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         page, size, off = _pagination(request)
         show_sample = str(request.GET.get("includeSample") or request.GET.get("showSample") or "").strip().lower() in {"1", "true", "yes", "on"}
-        base_qs = User.objects.prefetch_related("assigned_vehicles").filter(role="DRIVER")
+        base_qs = _annotate_driver_delivery_counts(
+            User.objects.prefetch_related("assigned_vehicles").filter(role="DRIVER")
+        )
         qs = (base_qs if show_sample else _real_drivers(base_qs)).order_by("-created_at")
         if request.GET.get("active") == "true":
             qs = qs.filter(is_active=True)
@@ -7420,7 +7477,9 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         for driver in rows:
             row = _serialize_model(driver, exclude={"password"})
             row["phone"] = driver.phone
+            row["totalDeliveries"] = int(getattr(driver, "completed_delivery_count", 0) or 0)
             row["user"] = _serialize_model(driver, exclude={"password"})
+            row["user"]["totalDeliveries"] = row["totalDeliveries"]
             vehicles = list(driver.assigned_vehicles.all())
             row["vehicles"] = [_serialize_driver_vehicle_link(vehicle) for vehicle in vehicles]
             data.append(row)
@@ -7479,11 +7538,12 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         if lic_err:
             return _err(lic_err, 400)
         d.license_number = lic_number
+    # totalDeliveries is derived from completed delivery drop points, so it is not
+    # accepted here — writing it would only desynchronise it from the trip records.
     mapping = [
         ("licenseType", "license_type"),
         ("emergencyContact", "emergency_contact"),
         ("rating", "rating"),
-        ("totalDeliveries", "total_deliveries"),
     ]
     for key, attr in mapping:
         if key in body:
@@ -7509,6 +7569,16 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         d.phone = normalized_phone
     if "isActive" in body:
         d.is_active = bool(body.get("isActive"))
+    if "licenseType" in body and "vehicleId" not in body:
+        # Downgrading the code must not leave the driver holding a vehicle they are
+        # no longer qualified for; the vehicle has to be released first.
+        current_vehicle = Vehicle.objects.filter(driver=d).first()
+        if driver_vehicle_license_error(d, current_vehicle):
+            return _err(
+                f"Driver is not qualified to drive vehicle {current_vehicle.license_plate} with License Code "
+                f"{str(d.license_type or '').strip().upper()}. Unassign the vehicle before changing the license code.",
+                400,
+            )
     if "vehicleId" in body:
         vehicle_id = str(body.get("vehicleId") or "").strip()
         if vehicle_id:
@@ -7518,6 +7588,9 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             blocker = _driver_assignment_blocker(d)
             if blocker:
                 return _err(f"Driver cannot be assigned: {blocker}", 400)
+            license_error = driver_vehicle_license_error(d, vehicle)
+            if license_error:
+                return _err(license_error, 400)
             existing_veh = Vehicle.objects.filter(driver=d).exclude(id=vehicle.id).first()
             if existing_veh:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
@@ -8671,6 +8744,9 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             "Driver cannot be assigned to trip because driver's license is not yet verified or filled out. Missing/Invalid: " + ", ".join(missing_driver_fields),
             400,
         )
+    license_error = driver_vehicle_license_error(driver, vehicle)
+    if license_error:
+        return _err(license_error, 400)
     requested_order_ids = [str(oid) for oid in (body.get("orderIds") or []) if str(oid).strip()]
     requested_warehouse_id = str(body.get("warehouseId") or "").strip()
     if not requested_warehouse_id:
@@ -8870,6 +8946,9 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                     "Selected driver profile is incomplete. Missing: " + ", ".join(missing_driver_fields),
                     400,
                 )
+            license_error = driver_vehicle_license_error(next_driver, next_vehicle)
+            if license_error:
+                return _err(license_error, 400)
             if str(next_vehicle.driver_id or "").strip() != str(next_driver.id or "").strip():
                 return _err("Selected vehicle is not assigned to the selected driver", 400)
             driver_changed = (
@@ -10161,7 +10240,9 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         row = _serialize_model(d, exclude={"password"})
         row["phone"] = d.phone
+        row["totalDeliveries"] = _driver_delivery_count(d)
         row["user"] = _serialize_model(d, exclude={"password"})
+        row["user"]["totalDeliveries"] = row["totalDeliveries"]
         return _ok({"success": True, "driver": row})
     body = _json_body(request)
     next_license_number: str | None = None
@@ -10200,6 +10281,17 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         ).exclude(id=d.id).exists()
         if duplicate:
             return _err("License number is already used by another driver", 409)
+
+    if "licenseType" in body:
+        # A driver editing their own restriction code must not end up holding a
+        # vehicle their new code does not cover.
+        current_vehicle = Vehicle.objects.filter(driver=d).first()
+        if driver_vehicle_license_error(d, current_vehicle):
+            return _err(
+                f"Driver is not qualified to drive vehicle {current_vehicle.license_plate} with License Code "
+                f"{str(d.license_type or '').strip().upper()}. Ask an administrator to unassign the vehicle first.",
+                400,
+            )
 
     if "firstName" in body:
         d.first_name = str(body.get("firstName") or "").strip() or None
@@ -10501,7 +10593,7 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     p, err = _require_staff(request)
     if err:
         return err
-    t = Trip.objects.prefetch_related("drop_points__order").filter(id=trip_id).first()
+    t = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").filter(id=trip_id).first()
     if not t:
         return _err("Trip not found", 404)
     if p.get("role") == "DRIVER" and p.get("userId") != t.driver_id:
@@ -10513,6 +10605,12 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     # confirmation, so calling the endpoint directly cannot bypass the check.
     if body.get("confirmLoad") is not True:
         return _err("Confirm Load is required before starting the trip", 400)
+
+    # The licence can change (or expire into a different code) after the trip was
+    # planned, so the qualification is re-checked at the moment of driving.
+    license_error = driver_vehicle_license_error(t.driver, t.vehicle)
+    if license_error:
+        return _err(license_error, 400)
 
     now = timezone.now()
     with transaction.atomic():
@@ -10735,21 +10833,48 @@ def trip_stop_update(request: HttpRequest, trip_id: str, stop_id: str) -> JsonRe
     return trip_drop_point_update(request, trip_id, stop_id)
 
 
+def _store_upload_bytes(data: bytes, folder: str, prefix: str, ext: str, content_type: str | None = None) -> str:
+    """Persist raw bytes and return the URL to record, bucket first, disk as fallback."""
+    name = f"{prefix}-{int(timezone.now().timestamp() * 1000)}{ext}"
+    if object_storage.is_configured():
+        return object_storage.upload_bytes(f"{folder}/{name}", data, content_type=content_type)
+    # Same root the /uploads/ route serves from, so a locally stored file is reachable.
+    media_root = Path(settings.MEDIA_ROOT) / "uploads" / folder
+    media_root.mkdir(parents=True, exist_ok=True)
+    (media_root / name).write_bytes(data)
+    return f"/uploads/{folder}/{name}"
+
+
+def _store_upload(file_obj, folder: str, prefix: str, default_ext: str) -> str:
+    """Persist an uploaded file and return the URL to record in the database.
+
+    Prefers the object storage bucket, because a file written to the API server's own
+    disk is lost the next time the service is redeployed — which is what made product
+    photos, PODs and evidence images vanish. Falls back to the local media directory
+    so a checkout without storage credentials still works for development.
+    """
+    ext = (Path(file_obj.name).suffix or default_ext).lower()
+    return _store_upload_bytes(
+        file_obj.read(),
+        folder,
+        prefix,
+        ext,
+        content_type=str(file_obj.content_type or "") or None,
+    )
+
+
 def _handle_image_upload(request: HttpRequest, folder: str, prefix: str) -> JsonResponse:
     file_obj = request.FILES.get("file")
     if not file_obj:
         return _err("Image file is required")
     if not str(file_obj.content_type or "").lower().startswith("image/"):
         return _err("Only image files are allowed")
-    media_root = Path(__file__).resolve().parents[1] / "media" / "uploads" / folder
-    media_root.mkdir(parents=True, exist_ok=True)
-    ext = (Path(file_obj.name).suffix or ".png").lower()
-    name = f"{prefix}-{int(timezone.now().timestamp() * 1000)}{ext}"
-    target = media_root / name
-    with target.open("wb") as f:
-        for chunk in file_obj.chunks():
-            f.write(chunk)
-    return _ok({"success": True, "imageUrl": f"/uploads/{folder}/{name}"})
+    try:
+        url = _store_upload(file_obj, folder, prefix, ".png")
+    except object_storage.ObjectStorageError:
+        logger.exception("Image upload to object storage failed folder=%s", folder)
+        return _err("Could not store the image right now. Please try again.", 502)
+    return _ok({"success": True, "imageUrl": url})
 
 
 def _handle_evidence_upload(request: HttpRequest, folder: str, prefix: str) -> JsonResponse:
@@ -10759,15 +10884,12 @@ def _handle_evidence_upload(request: HttpRequest, folder: str, prefix: str) -> J
     content_type = str(file_obj.content_type or "").lower()
     if not (content_type.startswith("image/") or content_type.startswith("video/")):
         return _err("Only image or video files are allowed")
-    media_root = Path(__file__).resolve().parents[1] / "media" / "uploads" / folder
-    media_root.mkdir(parents=True, exist_ok=True)
-    ext = (Path(file_obj.name).suffix or ".bin").lower()
-    name = f"{prefix}-{int(timezone.now().timestamp() * 1000)}{ext}"
-    target = media_root / name
-    with target.open("wb") as f:
-        for chunk in file_obj.chunks():
-            f.write(chunk)
-    return _ok({"success": True, "fileUrl": f"/uploads/{folder}/{name}"})
+    try:
+        url = _store_upload(file_obj, folder, prefix, ".bin")
+    except object_storage.ObjectStorageError:
+        logger.exception("Evidence upload to object storage failed folder=%s", folder)
+        return _err("Could not store the file right now. Please try again.", 502)
+    return _ok({"success": True, "fileUrl": url})
 
 
 @csrf_exempt
@@ -10805,11 +10927,12 @@ def upload_pod_image(request: HttpRequest) -> JsonResponse:
             stamped, extension = burn_pod_overlay(file_obj.read(), overlay, build_driver_full_name(driver))
         except ValueError as exc:
             return _err(str(exc))
-        media_root = Path(__file__).resolve().parents[1] / "media" / "uploads" / "pods"
-        media_root.mkdir(parents=True, exist_ok=True)
-        name = f"pod-{int(timezone.now().timestamp() * 1000)}{extension}"
-        (media_root / name).write_bytes(stamped)
-        return _ok({"success": True, "imageUrl": f"/uploads/pods/{name}"})
+        try:
+            url = _store_upload_bytes(stamped, "pods", "pod", extension)
+        except object_storage.ObjectStorageError:
+            logger.exception("Stamped POD upload to object storage failed")
+            return _err("Could not store the proof of delivery right now. Please try again.", 502)
+        return _ok({"success": True, "imageUrl": url})
     return _handle_image_upload(request, "pods", "pod")
 
 

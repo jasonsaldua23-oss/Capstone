@@ -59,6 +59,10 @@ export function FeedbackView() {
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [ratingFilter, setRatingFilter] = useState('all')
+  const [trendMonthStart, setTrendMonthStart] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+  })
 
   useEffect(() => {
     async function fetchFeedbacks() {
@@ -88,6 +92,17 @@ export function FeedbackView() {
       }
     }
     fetchFeedbacks()
+  }, [])
+
+  useEffect(() => {
+    // Keep the rolling chart aligned when an open dashboard crosses into a new month.
+    const refreshTrendMonth = () => {
+      const now = new Date()
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+      setTrendMonthStart((current) => current === nextMonthStart ? current : nextMonthStart)
+    }
+    const intervalId = window.setInterval(refreshTrendMonth, 60 * 60 * 1000)
+    return () => window.clearInterval(intervalId)
   }, [])
 
   const deliveredOrderIds = new Set(
@@ -122,11 +137,10 @@ export function FeedbackView() {
   }))
 
   const satisfactionTrend = useMemo(() => {
-    const now = new Date()
-    // Updated: keep the six-month chart centered on the current period,
-    // starting two months ago and including the next three months.
+    const currentMonth = new Date(trendMonthStart)
+    // Show two prior months, the current month, and the next three rolling months.
     const months = Array.from({ length: 6 }).map((_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - 2 + index, 1)
+      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 2 + index, 1)
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       return {
         key,
@@ -137,8 +151,9 @@ export function FeedbackView() {
     return months.map((month) => {
       const monthRatings = rated
         .filter((item) => {
-          if (!item?.createdAt) return false
-          const createdAt = new Date(String(item.createdAt))
+          const createdAtValue = item?.createdAt || item?.created_at
+          if (!createdAtValue) return false
+          const createdAt = new Date(String(createdAtValue))
           if (Number.isNaN(createdAt.getTime())) return false
           const itemKey = `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}`
           return itemKey === month.key
@@ -155,7 +170,7 @@ export function FeedbackView() {
         avgScore,
       }
     })
-  }, [rated])
+  }, [rated, trendMonthStart])
 
   const filteredFeedbacks = feedbacks.filter((item) => {
     const search = searchTerm.trim().toLowerCase()

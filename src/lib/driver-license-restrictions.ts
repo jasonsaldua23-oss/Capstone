@@ -42,3 +42,47 @@ export function formatPhilippineDriverLicenseInput(value: string): string {
   }
   return formatted
 }
+
+// Added: which vehicles each LTO restriction code covers. Mirrors
+// backend/core/driver_license.py so the portal blocks an unqualified driver at the
+// same point the API would, with the same message.
+//
+// TRUCK is Code C: C is goods vehicles above 3,500 kg GVW, and every truck class this
+// system can register carries 2,500 kg or more of payload, so all of them clear that
+// threshold once the vehicle's own weight is counted. CE (heavy articulated) covers
+// the truck it tows, so it is accepted too.
+//
+// TRICYCLE is Code A1, the LTO code for motorized tricycles, and the codes are treated
+// as a seniority ladder: a driver cleared for the heavier vehicle is also cleared for the
+// lighter one, so every code that qualifies for a truck qualifies for a tricycle too. A1
+// stays the code the rejection message names, since it is the entry-level qualification
+// for the vehicle.
+//
+// Only the two types the system can actually register are ruled on. Legacy VAN, CAR and
+// MOTORCYCLE rows are deliberately left unruled: no new one can be created, and
+// inventing a code requirement for them would invalidate existing assignments.
+const TRUCK_CODES = ['C', 'CE']
+const TRICYCLE_CODES = ['A1', ...TRUCK_CODES]
+
+export const VEHICLE_LICENSE_RULES: Record<string, { required: string; accepted: string[] }> = {
+  TRUCK: { required: 'C', accepted: TRUCK_CODES },
+  TRICYCLE: { required: 'A1', accepted: TRICYCLE_CODES },
+}
+
+export const notQualifiedForVehicleMessage = (requiredCode: string) =>
+  `Driver is not qualified to drive this vehicle. License Code ${requiredCode} is required.`
+
+const normalizeCode = (value: unknown) => String(value ?? '').trim().toUpperCase()
+
+/** The restriction code a driver must hold for this vehicle type, or '' when unruled. */
+export function getRequiredLicenseCodeForVehicle(vehicleType: unknown): string {
+  return VEHICLE_LICENSE_RULES[normalizeCode(vehicleType)]?.required || ''
+}
+
+export function isLicenseCodeAllowedForVehicle(licenseCode: unknown, vehicleType: unknown): boolean {
+  const rule = VEHICLE_LICENSE_RULES[normalizeCode(vehicleType)]
+  // An unmapped legacy type is not something this rule can judge, so it is left to
+  // the other profile checks rather than blocking every driver.
+  if (!rule) return true
+  return rule.accepted.includes(normalizeCode(licenseCode))
+}

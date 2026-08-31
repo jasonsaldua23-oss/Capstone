@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
+import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
@@ -579,7 +580,11 @@ export function CustomerOrderDetailPage(props: any) {
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <p className="text-xs font-semibold text-slate-700">Proof of Delivery (POD)</p>
               {podUrl ? (
-                <img src={podUrl} alt="Proof of delivery" className="mt-2 h-52 w-full rounded-lg border border-slate-200 object-cover" />
+                <PodImagePreview
+                  src={podUrl}
+                  alt="Proof of delivery"
+                  className="mt-2 h-52 w-full rounded-lg border border-slate-200 object-cover"
+                />
               ) : (
                 <p className="mt-2 text-xs text-slate-600">No POD uploaded yet</p>
               )}

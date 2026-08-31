@@ -21,6 +21,8 @@ import {
   formatVehicleClassification,
   formatVehicleStatus,
 } from '@/lib/vehicle-config'
+import { getDriverVehicleLicenseIssue } from '@/lib/driver-eligibility'
+import { getRequiredLicenseCodeForVehicle } from '@/lib/driver-license-restrictions'
 
 export function VehiclesView() {
   const [vehicles, setVehicles] = useState<any[]>([])
@@ -146,6 +148,10 @@ export function VehiclesView() {
     return driver?.isActive !== false && status !== 'INACTIVE'
   }
 
+  // Added: a driver's LTO restriction code has to cover the vehicle being edited —
+  // a Code A holder cannot be put on a tricycle or a truck.
+  const getDriverLicenseIssue = (driver: any) => getDriverVehicleLicenseIssue(driver, { type: form.type })
+
   // Added: drivers already linked to another vehicle stay visible but cannot be selected.
   const getDriverAssignedVehicle = (driverId: string) => vehicles.find((vehicle) => {
     const assignedDriverId = vehicle?.driverId || vehicle?.driver?.id || vehicle?.drivers?.[0]?.driver?.id
@@ -181,6 +187,11 @@ export function VehiclesView() {
       const selectedDriverRecord = drivers.find((driver) => driver.id === form.driverId)
       if (selectedDriverRecord && !isDriverAssignable(selectedDriverRecord)) {
         toast.error('Selected driver is inactive and cannot be assigned')
+        return
+      }
+      const licenseIssue = selectedDriverRecord ? getDriverLicenseIssue(selectedDriverRecord) : ''
+      if (licenseIssue) {
+        toast.error(licenseIssue)
         return
       }
       const existingVehicleWithDriver = getDriverAssignedVehicle(form.driverId)
@@ -512,8 +523,15 @@ export function VehiclesView() {
                       <option value="">Unassigned</option>
                       {drivers.map((driver: any) => {
                         const assignedVehicle = getDriverAssignedVehicle(driver.id)
-                        const disabled = !isDriverAssignable(driver) || Boolean(assignedVehicle)
-                        const suffix = !isDriverAssignable(driver) ? ' (Inactive)' : assignedVehicle ? ' (Assigned)' : ''
+                        const licenseIssue = getDriverLicenseIssue(driver)
+                        const disabled = !isDriverAssignable(driver) || Boolean(assignedVehicle) || Boolean(licenseIssue)
+                        const suffix = !isDriverAssignable(driver)
+                          ? ' (Inactive)'
+                          : assignedVehicle
+                            ? ' (Assigned)'
+                            : licenseIssue
+                              ? ` (Needs Code ${getRequiredLicenseCodeForVehicle(form.type)})`
+                              : ''
                         return (
                           <option key={driver.id} value={driver.id} disabled={disabled}>
                             {(driver.user?.name || driver.name || driver.email || driver.id) + suffix}

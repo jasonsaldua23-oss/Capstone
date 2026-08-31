@@ -1305,7 +1305,7 @@ export function CustomerOrdersView(props: any) {
                       </div>
                       {String(replacementPod.deliveryPhoto || '').trim() ? (
                         <div className="mt-4">
-                          <img
+                          <PodImagePreview
                             src={String(replacementPod.deliveryPhoto || '')}
                             alt="Replacement proof of delivery"
                             className="max-h-[320px] w-full rounded-xl border border-slate-200 bg-white object-contain p-2"

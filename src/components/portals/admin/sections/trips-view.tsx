@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import {
   getDriverProfileCompletenessIssue as getDriverProfileIssue,
+  getDriverVehicleLicenseIssue,
   summarizeDriverAvailability,
 } from '@/lib/driver-eligibility'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -141,6 +142,9 @@ export function TripsView() {
     if (getDriverProfileCompletenessIssue(driver)) return false
     const assignedVehicle = getDriverAssignedVehicle(driver)
     if (!assignedVehicle?.id) return false
+    // Vehicles assigned before the licence rule existed can still be mismatched,
+    // so the driver's restriction code is re-checked here too.
+    if (getDriverVehicleLicenseIssue(driver, assignedVehicle)) return false
     return availableVehicleIdSet.has(String(assignedVehicle.id).trim())
   }
   const getDriverTripEligibilityLabel = (driver: any) => {
@@ -149,6 +153,8 @@ export function TripsView() {
     if (profileIssue) return profileIssue
     const assignedVehicle = getDriverAssignedVehicle(driver)
     if (!assignedVehicle?.id) return 'No assigned vehicle'
+    const licenseIssue = getDriverVehicleLicenseIssue(driver, assignedVehicle)
+    if (licenseIssue) return licenseIssue
     if (!availableVehicleIdSet.has(String(assignedVehicle.id).trim())) return 'Assigned vehicle unavailable'
     return ''
   }

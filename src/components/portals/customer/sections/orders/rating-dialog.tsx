@@ -68,7 +68,7 @@ export function CustomerRatingDialog(props: any) {
   return (
     <Dialog open={!!ratingDialogOrder} onOpenChange={(open) => !open && setRatingDialogOrder(null)}>
       {ratingDialogOrder && (
-        <DialogContent className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-md p-3 md:w-full md:max-h-[92vh] md:p-6">
+        <DialogContent showCloseButton={false} className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-md p-3 md:w-full md:max-h-[92vh] md:p-6">
           <motion.div
             initial={{ opacity: 0, y: 8, scale: 0.99 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -77,8 +77,10 @@ export function CustomerRatingDialog(props: any) {
           >
             {/* Close button */}
             <button
+              type="button"
+              aria-label="Close"
               onClick={() => setRatingDialogOrder(null)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"
+              className="absolute right-4 top-4 text-slate-400 transition-colors hover:text-slate-600 disabled:pointer-events-none disabled:opacity-50"
               disabled={isSubmittingRating}
             >
               <X className="h-4 w-4 md:h-5 md:w-5" />

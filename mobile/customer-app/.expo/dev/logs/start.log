@@ -5138,3 +5138,15 @@
 {"_e":"metro:client_log","_t":1788175838960,"level":"info","data":["%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools","font-weight:bold"]}
 {"_e":"metro:client_log","_t":1788175838961,"level":"info","data":["[google-sign-in] redirect_uri = http://localhost:8081 (must be registered on the OAuth client)"]}
 {"_e":"metro:client_log","_t":1788175838961,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
+{"_e":"root:init","_t":1788184456355,"format":"v0-jsonl","version":"57.0.16"}
+{"_e":"env:mode","_t":1788184456358,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1788184456379,"mode":"development","files":["../..\\..\\.env"],"env":{"EXPO_PUBLIC_GOOGLE_CLIENT_ID":"39666838434-939qeikmkjdk3e4uv95mr8qg6q7hh0c3.apps.googleusercontent.com"}}
+{"_e":"devserver:start","_t":1788184459559,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1788184462404,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"root:init","_t":1788184477508,"format":"v0-jsonl","version":"57.0.16"}
+{"_e":"env:mode","_t":1788184477511,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1788184477526,"mode":"development","files":["../..\\..\\.env"],"env":{"EXPO_PUBLIC_GOOGLE_CLIENT_ID":"39666838434-939qeikmkjdk3e4uv95mr8qg6q7hh0c3.apps.googleusercontent.com"}}
+{"_e":"devserver:start","_t":1788184478524,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1788184479779,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"expo:dev-tools-plugin:load","_t":1788184481204,"plugins":[]}
+{"_e":"metro:instantiate","_t":1788184510174,"atlas":false,"workers":6,"host":"::","port":8081}

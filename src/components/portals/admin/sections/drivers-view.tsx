@@ -8,7 +8,8 @@ import {
   isValidPhilippineDriverLicense,
   formatPhilippineDriverLicenseInput,
 } from '@/lib/driver-license-restrictions'
-import { getDriverAssignmentIssue } from '@/lib/driver-eligibility'
+import { getDriverAssignmentIssue, getDriverVehicleLicenseIssue } from '@/lib/driver-eligibility'
+import { getRequiredLicenseCodeForVehicle } from '@/lib/driver-license-restrictions'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -283,6 +284,13 @@ export function DriversView() {
       toast.error('Selected vehicle is unavailable and cannot be assigned')
       return
     }
+    // Added: the driver's LTO restriction code has to cover this vehicle — a Code A
+    // holder cannot be put on a tricycle or a truck.
+    const licenseIssue = getDriverVehicleLicenseIssue(assignDriver, selectedVehicle)
+    if (licenseIssue) {
+      toast.error(licenseIssue)
+      return
+    }
     if (selectedVehicle && selectedVehicle.driverId && selectedVehicle.driverId !== assignDriver.id) {
       toast.error(`Vehicle is already assigned to driver ${selectedVehicle.driver?.name || selectedVehicle.driver?.email || 'another driver'}.`)
       return
@@ -355,15 +363,9 @@ export function DriversView() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-gray-500">Rating:</span>
-                    <span className="ml-1 font-medium">{Number(driver.rating || 0).toFixed(1)}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Deliveries:</span>
-                    <span className="ml-1 font-medium">{driver.totalDeliveries || 0}</span>
-                  </div>
+                <div className="mt-4 text-sm">
+                  <span className="text-gray-500">Deliveries:</span>
+                  <span className="ml-1 font-medium">{driver.totalDeliveries || 0}</span>
                 </div>
                 <div className="mt-4 flex gap-2">
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => setProfileDriver(driver)}>View Profile</Button>
@@ -556,7 +558,6 @@ export function DriversView() {
                   <p><span className="text-gray-500">Phone:</span> {profileDriver.phone || profileDriver.user?.phone || 'N/A'}</p>
                   <p><span className="text-gray-500">License:</span> {profileDriver.licenseNumber || 'N/A'} ({profileDriver.licenseType || 'N/A'})</p>
                   <p><span className="text-gray-500">License Expiry:</span> {profileDriver.licenseExpiry ? new Date(profileDriver.licenseExpiry).toLocaleDateString() : 'N/A'}</p>
-                  <p><span className="text-gray-500">Rating:</span> {Number(profileDriver.rating || 0).toFixed(1)}</p>
                   <p><span className="text-gray-500">Total Deliveries:</span> {profileDriver.totalDeliveries || 0}</p>
                   <p><span className="text-gray-500">Address:</span> {[profileDriver.address, profileDriver.city, profileDriver.province, profileDriver.zipCode].filter(Boolean).join(', ') || 'N/A'}</p>
                 </div>
@@ -585,11 +586,24 @@ export function DriversView() {
                     onChange={(e) => setAssignVehicleId(e.target.value)}
                   >
                     <option value="">Select vehicle</option>
-                    {vehicles.map((vehicle) => (
-                        <option key={vehicle.id} value={vehicle.id} disabled={!isVehicleAssignable(vehicle)}>
-                          {vehicle.licensePlate} - {vehicle.type}{!isVehicleAssignable(vehicle) ? ' (Unavailable)' : ''}
-                      </option>
-                    ))}
+                    {vehicles.map((vehicle) => {
+                      const licenseIssue = getDriverVehicleLicenseIssue(assignDriver, vehicle)
+                      const unavailable = !isVehicleAssignable(vehicle)
+                      const suffix = unavailable
+                        ? ' (Unavailable)'
+                        : licenseIssue
+                          ? ` (Needs Code ${getRequiredLicenseCodeForVehicle(vehicle.type)})`
+                          : ''
+                      return (
+                        <option
+                          key={vehicle.id}
+                          value={vehicle.id}
+                          disabled={unavailable || Boolean(licenseIssue)}
+                        >
+                          {vehicle.licensePlate} - {vehicle.type}{suffix}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 <div className="flex gap-2">

@@ -19,6 +19,14 @@ services:
         sync: false
       - key: APP_DB_TARGET
         value: supa
+      # Uploaded images go to a Supabase Storage bucket. Without these the API falls
+      # back to its own disk, which this platform wipes on every deploy.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_UPLOADS_BUCKET
+        value: uploads
       - key: JWT_SECRET
         sync: false
       - key: OTP_GMAIL_USER

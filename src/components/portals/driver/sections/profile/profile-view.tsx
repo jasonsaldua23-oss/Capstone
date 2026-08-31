@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PortalProfileSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
+import { formatFullName, splitFullName } from '@/lib/person-name'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Bell, ChevronRight, FileText, Loader2, LogOut, PencilLine, ShieldCheck, Camera, Lock, HelpCircle, MessageSquare, Info, ArrowLeft, KeyRound, Phone } from 'lucide-react'
@@ -80,38 +81,6 @@ function timeAgo(dateString: string) {
   }
 }
 
-function formatFullName(
-  firstName?: string | null,
-  middleName?: string | null,
-  lastName?: string | null,
-  suffix?: string | null,
-  fallback?: string
-): string {
-  const first = (firstName || '').trim()
-  const middle = (middleName || '').trim()
-  const last = (lastName || '').trim()
-  const suf = (suffix || '').trim()
-
-  const parts: string[] = []
-  if (first) parts.push(first)
-  if (middle) {
-    const cleanM = middle.replace(/\.+$/, '')
-    if (cleanM) parts.push(`${cleanM.charAt(0).toUpperCase()}.`)
-  }
-  if (last) parts.push(last)
-
-  let result = parts.join(' ')
-  if (suf) result = result ? `${result} ${suf}` : suf
-  return result || fallback || ''
-}
-
-function splitProfileName(value: unknown) {
-  const parts = String(value || '').trim().split(/\s+/).filter(Boolean)
-  return {
-    firstName: parts[0] || '',
-    lastName: parts.slice(1).join(' '),
-  }
-}
 
 export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChange, onDidMount, onNavigateNotification }: ProfileViewProps) {
   const [isLoading, setIsLoading] = useState(true)
@@ -310,7 +279,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
             nestedUser?.license_type ??
             ''
         )
-        const nameParts = splitProfileName(profile?.user?.name || profile?.name || user?.name)
+        const nameParts = splitFullName(profile?.user?.name || profile?.name || user?.name)
         setForm({
           name: profile?.user?.name || user?.name || '',
           avatar: profile?.user?.avatar || profile?.avatar || user?.avatar || '',
