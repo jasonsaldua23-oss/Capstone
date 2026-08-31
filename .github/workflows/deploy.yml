@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+# Two pushes deploying onto the same box at once meant two `next build` runs
+# competing for the same RAM, which is how a deploy took the API down with it.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -16,10 +22,61 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 30m
           script: |
+            set -euo pipefail
             cd ${{ secrets.VPS_APP_DIR }}
+
+            # Refuse to build without swap. `next build` on this instance peaks
+            # well above the resident set the box has free; with no swap the kernel
+            # OOM killer picks the largest RSS process, which has repeatedly been
+            # gunicorn or Nginx. The API then "goes down" during a FRONTEND deploy.
+            # deploy/lightsail/server-hardening.sh provisions the swapfile once.
+            if [ "$(free -m | awk '/^Swap:/ {print $2}')" -lt 1024 ]; then
+              echo "ERROR: less than 1GB swap present; run deploy/lightsail/server-hardening.sh first." >&2
+              exit 1
+            fi
+
+            PREV_LOCK_HASH="$(sha1sum package-lock.json | cut -d' ' -f1)"
             git pull origin main
-            npm ci
-            npm run build
+            NEW_LOCK_HASH="$(sha1sum package-lock.json | cut -d' ' -f1)"
+
+            # `npm ci` deletes node_modules before reinstalling, so running it on
+            # every deploy left the live app with no dependencies for minutes.
+            # Only pay that cost when the lockfile actually changed.
+            if [ "$PREV_LOCK_HASH" != "$NEW_LOCK_HASH" ] || [ ! -d node_modules ]; then
+              npm ci
+            fi
+
+            npx prisma generate
             npx prisma migrate deploy
-            pm2 restart logistics || pm2 start "npm run start" --name logistics
+
+            # Cap V8's heap so the build fails cleanly instead of dragging the whole
+            # instance into swap-thrash and taking the API with it.
+            NODE_OPTIONS="--max-old-space-size=1024" npm run build
+
+            # reload, not restart: keeps the old process serving until the new one
+            # is listening, so /api/* (proxied through Next rewrites) never gaps.
+            pm2 reload logistics --update-env || pm2 start "npm run start" --name logistics
+            pm2 save
+
+            # The Django API is deployed from this same checkout but was never
+            # restarted here, so backend changes silently did not ship until
+            # someone restarted it by hand.
+            if [ -d backend ]; then
+              /srv/aabtrading/.venv/bin/pip install -q -r backend/requirements.txt
+              (cd backend && /srv/aabtrading/.venv/bin/python manage.py migrate --noinput)
+              sudo systemctl restart aabtrading-django
+            fi
+
+            # Readiness, not liveness: /api/health answers 200 with a dead database.
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              if curl -fsS --max-time 15 http://127.0.0.1:8000/api/health/ready > /dev/null; then
+                echo "backend ready after ${attempt} attempt(s)"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "ERROR: backend did not become ready after deploy." >&2
+            sudo systemctl status aabtrading-django --no-pager --lines 50 >&2 || true
+            exit 1

@@ -5,6 +5,9 @@ from . import views_api as v
 urlpatterns = [
     path("", v.api_root),
     path("health", v.health),
+    # Liveness above answers 200 even with a dead database; point uptime monitors
+    # and the platform health check at readiness so an outage is actually detected.
+    path("health/ready", v.health_ready),
     path("auth/login", v.auth_login),
     path("auth/login/verify-otp", v.auth_login_verify_otp),
     path("auth/staff/google", v.auth_staff_google),

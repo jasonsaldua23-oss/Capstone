@@ -12,8 +12,15 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
 
-load_dotenv(REPO_ROOT / ".env", override=True)
-load_dotenv(BASE_DIR / ".env", override=True)
+# override=True is right for local development, where editing .env should win over
+# whatever is stale in the shell. It is dangerous in production: the deployed tree
+# is the same checkout, so a .env accidentally copied to the server silently
+# outranks the systemd EnvironmentFile and can repoint DATABASE_URL, re-enable
+# DEBUG, or widen ALLOWED_HOSTS with nothing in the logs to say so.
+# Production sets DOTENV_OVERRIDE=0 so the real process environment always wins.
+_DOTENV_OVERRIDE = str(os.getenv("DOTENV_OVERRIDE", "1")).strip().lower() not in {"0", "false", "no", "off"}
+load_dotenv(REPO_ROOT / ".env", override=_DOTENV_OVERRIDE)
+load_dotenv(BASE_DIR / ".env", override=_DOTENV_OVERRIDE)
 
 # Web Push uses an ignored local key on localhost; deployments can override it
 # with environment variables without committing private credentials.

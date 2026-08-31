@@ -2,9 +2,17 @@
 Description=AAB Trading Django API
 After=network-online.target
 Wants=network-online.target
+# Restart=always alone turned a crash loop into a silent one: systemd kept
+# restarting a process that died on every request and nothing ever surfaced it.
+# Rate-limit the restarts so a genuinely broken deploy lands in "failed" state and
+# is visible in `systemctl status` instead of flapping forever.
+# (These two directives belong in [Unit], not [Service], on systemd 229+.)
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 User=ubuntu
 Group=www-data
 WorkingDirectory=/srv/aabtrading/backend
@@ -12,10 +20,46 @@ EnvironmentFile=/etc/aabtrading-backend.env
 EnvironmentFile=/etc/aabtrading-backend-production.env
 # Keep PostgreSQL and other user-level configuration under the service account.
 Environment=HOME=/home/ubuntu
-# Gunicorn is bound to loopback so only Nginx can expose the Django service.
-ExecStart=/srv/aabtrading/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 2 --timeout 120 --access-logfile - --error-logfile -
+
+# Why gthread and not the previous "--workers 2" sync default:
+#
+# Sync workers handle exactly one request each, start to finish. Several endpoints
+# block on remote I/O for seconds at a time - OTP mail is sent inside the request
+# (EMAIL_TIMEOUT=10s, Gmail API token 15s + send 20s), image uploads accept 25MB
+# and run them through Pillow, and every query crosses the network to the Supabase
+# pooler in ap-southeast-1. Two of those in flight occupied BOTH workers, and every
+# other request - including the health check - queued behind them until Nginx hit
+# proxy_read_timeout. The service was alive the whole time; it just could not answer,
+# which is indistinguishable from "the backend is down".
+#
+# gthread keeps 3 processes but gives each 8 threads, so a thread parked on a socket
+# no longer costs a whole worker. Effective concurrency goes from 2 to 24.
+# On a 512MB instance drop to --workers 2 --threads 6; see MEMORY.md before raising.
+ExecStart=/srv/aabtrading/.venv/bin/gunicorn config.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --worker-class gthread \
+    --workers 3 \
+    --threads 8 \
+    --timeout 120 \
+    --graceful-timeout 30 \
+    --keep-alive 5 \
+    --max-requests 800 \
+    --max-requests-jitter 200 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info
+
+# Recycle workers on a schedule (--max-requests above) so a slow leak is reclaimed
+# by gunicorn before the kernel OOM killer reclaims the whole process for us.
+ExecReload=/bin/kill -s HUP $MAINPID
+KillSignal=SIGTERM
 Restart=always
 RestartSec=5
+
+# Memory limits are deliberately NOT set here: a MemoryMax low enough to matter
+# would have the cgroup OOM killer stop the service, which is the outage we are
+# trying to prevent. Size the instance and add swap instead - see
+# deploy/lightsail/server-hardening.sh.
 
 [Install]
 WantedBy=multi-user.target

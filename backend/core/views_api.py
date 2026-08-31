@@ -4991,7 +4991,46 @@ def api_root(_request: HttpRequest) -> JsonResponse:
 
 @require_GET
 def health(_request: HttpRequest) -> JsonResponse:
+    """Liveness only: is the WSGI process answering? Never touches the database."""
     return _ok({"success": True, "service": "django-backend", "status": "ok"})
+
+
+@require_GET
+def health_ready(_request: HttpRequest) -> JsonResponse:
+    """Readiness: the process is only useful if it can still reach Postgres.
+
+    The plain /api/health probe answers 200 even when every real endpoint is
+    failing on a dead Supabase pooler connection, so uptime monitors stayed green
+    through outages that users saw immediately. Point monitors at this instead.
+    """
+    from django.db import connection
+
+    started = monotonic()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+    except Exception as exc:  # noqa: BLE001 - any driver error means "not ready"
+        logger.exception("Readiness probe failed to reach the database")
+        return _ok(
+            {
+                "success": False,
+                "service": "django-backend",
+                "status": "degraded",
+                "database": "unreachable",
+                "error": str(exc)[:200],
+            },
+            503,
+        )
+    return _ok(
+        {
+            "success": True,
+            "service": "django-backend",
+            "status": "ok",
+            "database": "ok",
+            "dbLatencyMs": round((monotonic() - started) * 1000, 1),
+        }
+    )
 
 
 @csrf_exempt
