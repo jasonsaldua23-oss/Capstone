@@ -66,6 +66,14 @@ jobs:
             fi
 
             # --- source and dependencies -----------------------------------------
+            # `next build` registers the active distDir in tsconfig.json's include
+            # list. The committed tsconfig already lists .next.build so there is
+            # normally nothing for it to add, but any stray rewrite would leave the
+            # tree dirty and make this pull abort with "local changes would be
+            # overwritten by merge", breaking every deploy after the first. The
+            # server checkout has no hand edits worth keeping, so discard them.
+            git checkout -- tsconfig.json next-env.d.ts 2>/dev/null || true
+
             PREV_LOCK_HASH="$(sha1sum package-lock.json | cut -d' ' -f1)"
             git pull origin main
             NEW_LOCK_HASH="$(sha1sum package-lock.json | cut -d' ' -f1)"

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { CHUNK_RECOVERY_SCRIPT } from "@/lib/chunk-recovery-script";
 
 export const metadata: Metadata = {
   title: "Ann Ann's Beverages Trading",
@@ -32,6 +33,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/*
+          Must run before Next's own chunk scripts, and must not itself be a chunk:
+          when the initial chunks 404 nothing hydrates, so an error boundary or a
+          client component would never get the chance to react. See the module for
+          why cross-instance chunk mismatches happen at all.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: CHUNK_RECOVERY_SCRIPT }} />
+      </head>
       <body
         suppressHydrationWarning
         className="antialiased bg-background text-foreground"

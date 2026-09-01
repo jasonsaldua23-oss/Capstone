@@ -102,3 +102,9 @@ NUL
 # Local APK/AAB build output and the unpacked APK used for asset verification.
 dist-apk/
 **/.expo-apk-check/
+
+# Staging and rollback copies used by the atomic deploy in
+# .github/workflows/deploy.yml, plus the local build-verification copy.
+/.next.build/
+/.next.prev/
+/.next.verify/
