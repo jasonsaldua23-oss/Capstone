@@ -10,6 +10,11 @@ const djangoApiOrigin = /^https?:\/\//i.test(configuredDjangoApiOrigin)
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Production deploys build into a staging directory and rename it into place only
+  // once the output is verified complete, so a build that dies partway (OOM, full
+  // disk) can never leave the live .next half-written. Unset outside the deploy
+  // script, so local and CI builds still use the default .next.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   devIndicators: false,
   allowedDevOrigins: [
     "localhost",
