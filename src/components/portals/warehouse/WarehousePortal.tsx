@@ -5425,7 +5425,7 @@ export function WarehousePortal() {
             <DialogTitle className="sr-only">{editingTripState ? 'Edit Trip' : 'Create Trip'}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-row w-full h-full">
-            <div className="flex flex-col bg-white border-r p-2.5 min-w-[260px] max-w-[300px] w-[280px]">
+            <div className="flex min-h-0 flex-col overflow-hidden bg-white border-r p-2.5 min-w-[260px] max-w-[300px] w-[280px]">
               <h2 className="mb-2 text-lg font-bold">{editingTripState ? `Edit ${editingTripState.tripNumber}` : 'Create Trip'}</h2>
               <div className="mb-2">
                 <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">
@@ -5452,7 +5452,8 @@ export function WarehousePortal() {
                 </div>
               )}
 
-              <div className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-gray-50 p-2.5">
+              {/* Fix: keep the order results in their own mouse/touch scroll area. */}
+              <div className="min-h-[120px] flex-1 overflow-y-scroll overscroll-contain touch-pan-y rounded-lg bg-gray-50 p-2.5">
                 <h3 className="mb-1.5 text-base font-semibold">Orders by City</h3>
                 {routePlans.length === 0 ? (
                   <div className="flex items-center justify-center text-sm text-gray-400 min-h-[80px]">
