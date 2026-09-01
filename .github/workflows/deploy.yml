@@ -31,7 +31,17 @@ jobs:
             # requirements cannot prevent API and email changes from reaching production.
             git pull --ff-only origin main
             /srv/aabtrading/.venv/bin/pip install -q -r backend/requirements.txt
-            (cd backend && /srv/aabtrading/.venv/bin/python manage.py migrate --noinput)
+
+            # Fix: run migrations with the same protected environment files used by
+            # Gunicorn, without copying production database credentials into Actions.
+            sudo systemd-run --wait --pipe --collect \
+              --unit=aabtrading-migrate \
+              --property=Type=oneshot \
+              --property=User=ubuntu \
+              --property=WorkingDirectory=/srv/aabtrading/backend \
+              --property=EnvironmentFile=/etc/aabtrading-backend.env \
+              --property=EnvironmentFile=/etc/aabtrading-backend-production.env \
+              /srv/aabtrading/.venv/bin/python manage.py migrate --noinput
             sudo systemctl restart aabtrading-django
 
             # Verify database-backed readiness before reporting a successful deploy.
