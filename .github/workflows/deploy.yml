@@ -5,8 +5,7 @@ on:
     branches:
       - main
 
-# Two pushes deploying onto the same box at once meant two `next build` runs
-# competing for the same RAM, which is how a deploy took the API down with it.
+# Prevent concurrent migrations and service restarts on the production API.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -16,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy over SSH
+      - name: Deploy backend over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -27,170 +26,29 @@ jobs:
             set -euo pipefail
             cd ${{ secrets.VPS_APP_DIR }}
 
-            # The live build is only ever replaced by an atomic rename of a fully
-            # verified staging directory. Until that rename every failure below
-            # leaves the running site exactly as it was. A previous version of this
-            # workflow ran `next build` straight over the live .next, so a build that
-            # died partway deleted chunks out from under the running server and the
-            # site white-screened with ChunkLoadError while the deploy showed red.
-            cleanup() {
-              rc=$?
-              if [ "$rc" -ne 0 ] && [ -d .next.prev ]; then
-                echo "ERROR: deploy failed after the swap; rolling back frontend." >&2
-                rm -rf .next
-                mv .next.prev .next
-                pm2 reload logistics --update-env || true
-              fi
-              rm -rf .next.build .next.prev
-              exit "$rc"
-            }
-            trap cleanup EXIT
+            # Fix: Lightsail serves the Django API; the public frontend is hosted
+            # separately. Deploy only the backend here so obsolete Prisma/Next.js
+            # requirements cannot prevent API and email changes from reaching production.
+            git pull --ff-only origin main
+            /srv/aabtrading/.venv/bin/pip install -q -r backend/requirements.txt
+            (cd backend && /srv/aabtrading/.venv/bin/python manage.py migrate --noinput)
+            sudo systemctl restart aabtrading-django
 
-            # --- preflight -------------------------------------------------------
-            # Refuse to build without swap. `next build` on this instance peaks well
-            # above the resident set the box has free; with no swap the kernel OOM
-            # killer picks the largest RSS process, which has repeatedly been
-            # gunicorn or Nginx. The API then "goes down" during a FRONTEND deploy.
-            # deploy/lightsail/server-hardening.sh provisions the swapfile once.
-            if [ "$(free -m | awk '/^Swap:/ {print $2}')" -lt 1024 ]; then
-              echo "ERROR: less than 1GB swap present; run deploy/lightsail/server-hardening.sh first." >&2
-              exit 1
-            fi
-
-            # A full disk produces the same half-written build as an OOM kill, but
-            # silently: Turbopack workers simply fail to write some chunks.
-            AVAIL_MB="$(df -Pm . | awk 'NR==2 {print $4}')"
-            if [ "$AVAIL_MB" -lt 3072 ]; then
-              echo "ERROR: only ${AVAIL_MB}MB free; need 3GB to build a staging copy." >&2
-              exit 1
-            fi
-
-            # --- source and dependencies -----------------------------------------
-            # `next build` registers the active distDir in tsconfig.json's include
-            # list. The committed tsconfig already lists .next.build so there is
-            # normally nothing for it to add, but any stray rewrite would leave the
-            # tree dirty and make this pull abort with "local changes would be
-            # overwritten by merge", breaking every deploy after the first. The
-            # server checkout has no hand edits worth keeping, so discard them.
-            git checkout -- tsconfig.json next-env.d.ts 2>/dev/null || true
-
-            PREV_LOCK_HASH="$(sha1sum package-lock.json | cut -d' ' -f1)"
-            git pull origin main
-            NEW_LOCK_HASH="$(sha1sum package-lock.json | cut -d' ' -f1)"
-
-            # `npm ci` deletes node_modules before reinstalling, so running it on
-            # every deploy left the live app with no dependencies for minutes.
-            # Only pay that cost when the lockfile actually changed.
-            if [ "$PREV_LOCK_HASH" != "$NEW_LOCK_HASH" ] || [ ! -d node_modules ]; then
-              npm ci
-            fi
-
-            npx prisma generate
-            npx prisma migrate deploy
-
-            # --- build into staging ----------------------------------------------
-            # NEXT_DIST_DIR is read by next.config.ts. The live .next is untouched
-            # for the whole build, so the site keeps serving the previous release.
-            rm -rf .next.build
-            # Cap the V8 heap so the build fails cleanly instead of dragging the whole
-            # instance into swap-thrash and taking the API with it. If builds start
-            # dying here, raise this before removing it: an uncapped build on this box
-            # is what the swap requirement above exists to survive.
-            NEXT_DIST_DIR=.next.build NODE_OPTIONS="--max-old-space-size=1024" npm run build
-
-            # --- verify the build is complete ------------------------------------
-            # Turbopack writes chunks from parallel workers. A worker killed by the
-            # OOM killer loses its chunks while the parent process can still exit 0,
-            # so a zero exit status is NOT evidence of a complete build. Check that
-            # every chunk the build output references actually landed on disk.
-            test -f .next.build/BUILD_ID || { echo "ERROR: build produced no BUILD_ID." >&2; exit 1; }
-
-            # Scan only server/ and static/: a bare `grep -r` over the whole build dir
-            # also reads Turbopack's binary cache under .next.build/cache, where grep
-            # emits "Binary file ... matches" lines that then read as chunk names and
-            # fail the check on every deploy. -I skips any binary that slips through.
-            find .next.build/server .next.build/static -type f \
-              \( -name '*.js' -o -name '*.json' -o -name '*.html' \) -print0 2>/dev/null \
-              | xargs -0 grep -hoIE 'static/chunks/[A-Za-z0-9._/-]+\.js' 2>/dev/null \
-              | sort -u > /tmp/deploy-chunks.txt
-            if [ ! -s /tmp/deploy-chunks.txt ]; then
-              echo "ERROR: no chunk references found in build output; build is not usable." >&2
-              exit 1
-            fi
-
-            MISSING=0
-            while IFS= read -r rel; do
-              if [ ! -f ".next.build/$rel" ]; then
-                echo "MISSING CHUNK: $rel" >&2
-                MISSING=$((MISSING + 1))
-              fi
-            done < /tmp/deploy-chunks.txt
-            if [ "$MISSING" -gt 0 ]; then
-              echo "ERROR: build is incomplete ($MISSING chunks missing); refusing to deploy it." >&2
-              exit 1
-            fi
-            echo "build verified: $(wc -l < /tmp/deploy-chunks.txt) chunk references resolved"
-
-            # --- backend ----------------------------------------------------------
-            # Deployed before the frontend swap so a backend that will not come up
-            # aborts while the previous frontend is still the live one. The Django API
-            # is deployed from this same checkout but was never restarted here, so
-            # backend changes silently did not ship until someone restarted it by hand.
-            if [ -d backend ]; then
-              /srv/aabtrading/.venv/bin/pip install -q -r backend/requirements.txt
-              (cd backend && /srv/aabtrading/.venv/bin/python manage.py migrate --noinput)
-              sudo systemctl restart aabtrading-django
-
-              # Readiness, not liveness: /api/health answers 200 with a dead database.
-              READY=0
-              for attempt in 1 2 3 4 5 6 7 8 9 10; do
-                if curl -fsS --max-time 15 http://127.0.0.1:8000/api/health/ready > /dev/null; then
-                  echo "backend ready after ${attempt} attempt(s)"
-                  READY=1
-                  break
-                fi
-                sleep 5
-              done
-              if [ "$READY" -ne 1 ]; then
-                echo "ERROR: backend did not become ready; frontend left on the previous build." >&2
-                sudo systemctl status aabtrading-django --no-pager --lines 50 >&2 || true
-                exit 1
-              fi
-            fi
-
-            # --- swap the frontend in --------------------------------------------
-            # Two renames on the same filesystem: the window where .next does not
-            # exist is sub-millisecond, and the trap above restores .next.prev if
-            # anything below fails.
-            rm -rf .next.prev
-            if [ -d .next ]; then mv .next .next.prev; fi
-            mv .next.build .next
-
-            # reload, not restart: keeps the old process serving until the new one
-            # is listening, so /api/* (proxied through Next rewrites) never gaps.
-            pm2 reload logistics --update-env || pm2 start "npm run start" --name logistics
-            pm2 save
-
-            # Smoke test the release we just swapped in. A 200 on / whose chunks 404
-            # is the exact failure this workflow exists to prevent, so fetch a real
-            # chunk rather than trusting the status code of the document.
-            SMOKE=0
+            # Verify database-backed readiness before reporting a successful deploy.
+            READY=0
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              if curl -fsS --max-time 15 http://127.0.0.1:3000/ > /tmp/deploy-smoke.html; then
-                SMOKE=1
+              if curl -fsS --max-time 15 http://127.0.0.1:8000/api/health/ready > /dev/null; then
+                echo "backend ready after ${attempt} attempt(s)"
+                READY=1
                 break
               fi
-              sleep 3
+              sleep 5
             done
-            if [ "$SMOKE" -ne 1 ]; then
-              echo "ERROR: frontend did not answer after reload." >&2
+
+            if [ "$READY" -ne 1 ]; then
+              echo "ERROR: backend did not become ready." >&2
+              sudo systemctl status aabtrading-django --no-pager --lines 50 >&2 || true
               exit 1
             fi
 
-            CHUNK="$(grep -oE '/_next/static/chunks/[A-Za-z0-9._-]+\.js' /tmp/deploy-smoke.html | head -1)"
-            if [ -n "$CHUNK" ] && ! curl -fsS --max-time 15 "http://127.0.0.1:3000${CHUNK}" > /dev/null; then
-              echo "ERROR: served page references ${CHUNK} but it 404s; rolling back." >&2
-              exit 1
-            fi
-
-            echo "deploy complete: $(git rev-parse --short HEAD)"
+            echo "backend deploy complete: $(git rev-parse --short HEAD)"
