@@ -20,3 +20,13 @@ export function resolvePortalFromUser(user: AuthUser): LoginPortal {
 
   return 'admin'
 }
+
+/**
+ * Link to a portal's forgot-password page, carrying over whatever address is
+ * already typed in the login form so the reset does not start from an empty field.
+ */
+export function forgotPasswordHref(portal: LoginPortal, email?: string): string {
+  const trimmed = String(email || '').trim()
+  const query = trimmed ? `?email=${encodeURIComponent(trimmed)}` : ''
+  return `/login/${portal}/forgot-password${query}`
+}

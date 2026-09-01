@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
-import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
-import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
+import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
@@ -16,7 +16,7 @@ function DriverRouteArtwork() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       <div className="absolute inset-0 bg-white" />
-      <div className="absolute inset-y-[4.5%] right-[6%] w-[38%] rounded-[2.2rem] bg-[linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,0.12))] opacity-90" />
+      <div className="absolute inset-y-[4.5%] right-[6%] w-[38%] rounded-[2.2rem] bg-white/10" />
       <svg
         aria-hidden="true"
         className="absolute right-[2.5%] top-[1.5%] h-[58%] w-[42%] opacity-[0.68]"
@@ -54,14 +54,12 @@ function DriverRouteArtwork() {
 function DriverLoginBackdrop() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.96),rgba(246,252,248,0.94)_34%,rgba(237,249,243,0.9)_58%,rgba(230,246,239,0.86)_100%)]" />
+      <div className="absolute inset-0 bg-[#f2f9f5]" />
       <div className="absolute left-[-9rem] top-[5%] h-[18rem] w-[18rem] rounded-full bg-white/88 blur-[26px]" />
       <div className="absolute right-[-10rem] top-[8%] h-[28rem] w-[28rem] rounded-full bg-emerald-100/40 blur-[54px]" />
       <div className="absolute bottom-[-10rem] left-[-8rem] h-[21rem] w-[21rem] rounded-full bg-[#dff5ea]/80 blur-[22px]" />
       <div className="absolute bottom-[-12rem] right-[-10rem] h-[31rem] w-[31rem] rounded-full bg-[#dff7ea]/58 blur-[28px]" />
 
-      <div className="absolute -left-[16rem] top-[25%] h-[40rem] w-[40rem] rounded-full opacity-65 [background-image:radial-gradient(circle,rgba(174,231,205,0.7)_0_2px,transparent_2.8px)] [background-size:16px_16px] [mask-image:radial-gradient(circle_at_58%_50%,transparent_0_49%,black_52%_65%,transparent_68%)]" />
-      <div className="absolute right-[-11rem] top-[-11rem] h-[28rem] w-[28rem] rounded-full opacity-65 [background-image:radial-gradient(circle,rgba(174,231,205,0.68)_0_2px,transparent_2.8px)] [background-size:16px_16px] [mask-image:radial-gradient(circle_at_32%_68%,transparent_0_44%,black_49%_61%,transparent_66%)]" />
       <div className="absolute bottom-[-11rem] right-[-11rem] h-[32rem] w-[32rem] rounded-full border-[3.2rem] border-emerald-100/55" />
       <div className="absolute bottom-[-8rem] left-[-9rem] h-[22rem] w-[22rem] rounded-full border-[2.25rem] border-emerald-100/48" />
     </div>
@@ -375,7 +373,7 @@ export function DriverLoginPage() {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="flex h-12 w-full items-center justify-center rounded-[999px] bg-[linear-gradient(90deg,#17b058,#119a4a)] px-4 text-white shadow-[0_14px_30px_rgba(22,168,80,0.28)] transition hover:brightness-[1.02] disabled:cursor-not-allowed disabled:opacity-80"
+                  className="flex h-12 w-full items-center justify-center rounded-[999px] bg-[#17b058] px-4 text-white shadow-[0_14px_30px_rgba(22,168,80,0.24)] transition-colors hover:bg-[#119a4a] disabled:cursor-not-allowed disabled:opacity-80"
                 >
                   <span className="flex items-center justify-center gap-2 text-[1.05rem] font-bold">
                     {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -384,18 +382,13 @@ export function DriverLoginPage() {
                 </button>
 
                 <div className="flex justify-center pt-1">
-                  <ForgotPasswordDialog
-                    accountType="staff"
-                    portal="driver"
-                    initialEmail={email}
-                    triggerClassName="inline-flex items-center gap-2.5 text-[0.9rem] font-medium text-[#16984e] transition hover:text-[#107e41]"
-                    triggerContent={
-                      <>
-                        <LockKeyhole className="h-5 w-5" strokeWidth={2.1} />
-                        <span>Forgot password?</span>
-                      </>
-                    }
-                  />
+                  <Link
+                    href={forgotPasswordHref('driver', email)}
+                    className="inline-flex items-center gap-2.5 text-[0.9rem] font-medium text-[#16984e] transition hover:text-[#107e41]"
+                  >
+                    <LockKeyhole className="h-5 w-5" strokeWidth={2.1} />
+                    <span>Forgot password?</span>
+                  </Link>
                 </div>
               </form>
             </div>

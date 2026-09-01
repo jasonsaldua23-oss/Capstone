@@ -34,6 +34,14 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .beverage_categories import category_spec
+from .email_templates import (
+    EmailBody,
+    ProductLine,
+    format_quantity,
+    render_html,
+    render_text,
+    time_greeting,
+)
 from .driver_license import driver_vehicle_license_error, license_code_vehicle_error
 from . import object_storage
 from .product_weights import resolve_product_weight
@@ -3797,6 +3805,15 @@ def _mark_order_delivered(order: Order, performed_by: str | None, delivered_at: 
         reference_type="order",
         reference_id=order.id,
     )
+    try:
+        delivered_for_mail = (
+            Order.objects.select_related("customer", "timeline")
+            .prefetch_related("items__product")
+            .get(id=order.id)
+        )
+        _email_order_delivered_to_customer(delivered_for_mail)
+    except Exception:
+        logger.exception("Failed to email the completed delivery for order %s", order.id)
 
 
 def _reconcile_replacement_bottle_remainder_on_delivery(order: Order, performed_by: str | None) -> None:
@@ -4359,90 +4376,308 @@ def _email_public_url(path: Any) -> str:
     return ""
 
 
-def _render_order_product_rows(order: Order | None) -> str:
+def _get_product_size_label(product: Any) -> str:
+    """Return a human-readable size string from a Product's sizes JSONField."""
+    sizes = getattr(product, "sizes", None)
+    if isinstance(sizes, list):
+        parts = [str(s).strip() for s in sizes if str(s).strip()]
+        if parts:
+            return ", ".join(parts)
+    return ""
+
+
+def _order_product_lines(order: Order | None) -> list[ProductLine]:
+    """Read the products of a transaction straight off its saved order items.
+
+    Every product email is built from this, so what the recipient reads is always
+    the record itself rather than a summary written at the call site.
+    """
     if order is None or not hasattr(order, "items"):
-        return ""
-    rows: list[str] = []
-    for item in order.items.select_related("product").all():
+        return []
+    lines: list[ProductLine] = []
+    for item in order.items.select_related("product").prefetch_related("mixed_case_components__product").all():
         product = getattr(item, "product", None)
-        name = str(getattr(product, "name", "") or getattr(item, "product_name", "") or "Product").strip()
+        name = str(getattr(item, "product_name", "") or getattr(product, "name", "") or "Product").strip()
+        category = str(getattr(item, "product_category", "") or getattr(product, "category", "") or "").strip()
         size = _get_product_size_label(product)
-        quantity = max(0, _int(getattr(item, "quantity", 0), 0))
-        total = float(getattr(item, "total_price", 0) or (quantity * float(getattr(item, "unit_price", 0) or 0)))
-        image_url = _email_public_url(getattr(product, "image_url", ""))
-        image = (
-            f'<img src="{escape(image_url)}" alt="{escape(name)}" width="64" height="64" '
-            'style="display:block;width:64px;height:64px;border-radius:12px;object-fit:cover;border:1px solid #e2e8f0;">'
-            if image_url else
-            '<div style="width:64px;height:64px;border-radius:12px;background:#eff6ff;border:1px solid #dbeafe;text-align:center;line-height:64px;color:#0b3b82;font-weight:700;">AAB</div>'
+        unit = str(getattr(item, "product_unit", "") or getattr(product, "unit", "") or "case").strip()
+
+        if str(getattr(item, "item_type", "") or "").upper() == OrderItemType.MIXED_CASE:
+            # A mixed case is stored as one line named "Mixed Case", which tells the
+            # recipient nothing. List what is actually inside it instead.
+            components = list(item.mixed_case_components.all())
+            case_count = max(1, _int(getattr(item, "quantity", 0), 0))
+            for component in components:
+                component_product = getattr(component, "product", None)
+                lines.append(
+                    ProductLine(
+                        name=f"{str(getattr(component, 'product_name', '') or getattr(component_product, 'name', '') or 'Product').strip()} (in mixed case)",
+                        category=str(
+                            getattr(component, "product_category", "")
+                            or getattr(component_product, "category", "")
+                            or ""
+                        ).strip(),
+                        size=_get_product_size_label(component_product),
+                        quantity=format_quantity(
+                            getattr(component, "total_base_units", 0),
+                            str(getattr(component, "base_unit_label", "") or "unit"),
+                        ),
+                    )
+                )
+            if components:
+                lines.append(
+                    ProductLine(
+                        name=name or "Mixed Case",
+                        category=category,
+                        size=size,
+                        quantity=format_quantity(case_count, "mixed case"),
+                    )
+                )
+                continue
+            unit = "mixed case"
+
+        lines.append(
+            ProductLine(
+                name=name,
+                category=category,
+                size=size,
+                quantity=format_quantity(getattr(item, "quantity", 0), unit),
+            )
         )
-        rows.append(
-            '<tr><td style="padding:10px 0;border-bottom:1px solid #e8eef6;width:76px;vertical-align:middle;">'
-            f'{image}</td><td style="padding:10px 0;border-bottom:1px solid #e8eef6;vertical-align:middle;">'
-            f'<div style="font-size:15px;font-weight:700;color:#102a56;">{escape(name)}</div>'
-            f'<div style="font-size:13px;color:#64748b;margin-top:3px;">{escape(size) if size else "Beverage"} &nbsp;&middot;&nbsp; Qty {quantity}</div>'
-            f'</td><td style="padding:10px 0;border-bottom:1px solid #e8eef6;text-align:right;vertical-align:middle;font-size:14px;font-weight:700;color:#102a56;">PHP {total:,.2f}</td></tr>'
+    return lines
+
+
+def _replacement_product_lines(replacement: Replacement | None) -> list[ProductLine]:
+    """Read the products of a replacement request off its saved lines."""
+    if replacement is None:
+        return []
+    lines: list[ProductLine] = []
+    try:
+        rows = list(replacement.lines.select_related("product").all())
+    except Exception:
+        rows = []
+    for row in rows:
+        product = getattr(row, "product", None)
+        lines.append(
+            ProductLine(
+                name=str(getattr(row, "product_name", "") or getattr(product, "name", "") or "Product").strip(),
+                category=str(getattr(product, "category", "") or "").strip(),
+                size=_get_product_size_label(product),
+                quantity=format_quantity(
+                    getattr(row, "requested_base_units", 0),
+                    str(getattr(row, "base_unit_label", "") or "unit"),
+                ),
+            )
         )
-    if not rows:
-        return ""
-    return (
-        '<div style="margin-top:24px;"><div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2fa913;margin-bottom:8px;">Order products</div>'
-        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">{"".join(rows)}</table></div>'
+    if lines:
+        return lines
+
+    # Older single-product claims carry the product on the replacement itself.
+    product = Product.objects.filter(id=str(getattr(replacement, "replacement_product_id", "") or "")).first()
+    if product is None:
+        return []
+    return [
+        ProductLine(
+            name=str(getattr(product, "name", "") or "Product").strip(),
+            category=str(getattr(product, "category", "") or "").strip(),
+            size=_get_product_size_label(product),
+            quantity=format_quantity(getattr(replacement, "replacement_quantity", 0), str(getattr(product, "unit", "") or "unit")),
+        )
+    ]
+
+
+def _trip_product_lines(trip: Trip | None) -> list[ProductLine]:
+    """Combine the products across every delivery stop on a trip."""
+    if trip is None:
+        return []
+    totals: dict[tuple[str, str, str, str], int] = {}
+    order_ids = [str(point.order_id) for point in trip.drop_points.all() if point.order_id]
+    if not order_ids:
+        return []
+    items = (
+        OrderItem.objects.select_related("product")
+        .prefetch_related("mixed_case_components__product")
+        .filter(order_id__in=order_ids)
+    )
+    for item in items:
+        product = getattr(item, "product", None)
+        unit = str(getattr(item, "product_unit", "") or getattr(product, "unit", "") or "case").strip()
+        if str(getattr(item, "item_type", "") or "").upper() == OrderItemType.MIXED_CASE:
+            # The driver loads the bottles inside the mixed case, not a product
+            # called "Mixed Case", so the components are what the list must show.
+            components = list(item.mixed_case_components.all())
+            for component in components:
+                component_product = getattr(component, "product", None)
+                component_key = (
+                    f"{str(getattr(component, 'product_name', '') or getattr(component_product, 'name', '') or 'Product').strip()} (in mixed case)",
+                    str(getattr(component, "product_category", "") or getattr(component_product, "category", "") or "").strip(),
+                    _get_product_size_label(component_product),
+                    str(getattr(component, "base_unit_label", "") or "unit").strip(),
+                )
+                totals[component_key] = totals.get(component_key, 0) + max(
+                    0, _int(getattr(component, "total_base_units", 0), 0)
+                )
+            if components:
+                continue
+            unit = "mixed case"
+        key = (
+            str(getattr(item, "product_name", "") or getattr(product, "name", "") or "Product").strip(),
+            str(getattr(item, "product_category", "") or getattr(product, "category", "") or "").strip(),
+            _get_product_size_label(product),
+            unit,
+        )
+        totals[key] = totals.get(key, 0) + max(0, _int(getattr(item, "quantity", 0), 0))
+    return [
+        ProductLine(name=name, category=category, size=size, quantity=format_quantity(quantity, unit))
+        for (name, category, size, unit), quantity in sorted(totals.items())
+    ]
+
+
+def _order_delivery_address(order: Order | None) -> str:
+    """Join the address parts, skipping any the street address already spells out.
+
+    Saved addresses often already end in the city and province, and repeating them
+    produces "Silay, Negros Occidental, Silay, Negros Occidental" in the email.
+    """
+    parts = [
+        str(getattr(order, "shipping_address", "") or "").strip(),
+        str(getattr(order, "shipping_city", "") or "").strip(),
+        str(getattr(order, "shipping_province", "") or "").strip(),
+    ]
+    joined: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if any(part.casefold() in existing.casefold() for existing in joined):
+            continue
+        joined.append(part)
+    return ", ".join(joined)
+
+
+def _order_reference_details(order: Order, *, include_amount: bool = True) -> list[tuple[str, str]]:
+    """Reference rows shared by the purchase-request and order emails."""
+    details: list[tuple[str, str]] = []
+    pr_number = str(getattr(order, "purchase_request_number", "") or "").strip()
+    po_number = str(getattr(order, "purchase_order_number", "") or "").strip()
+    order_number = str(getattr(order, "order_number", "") or "").strip()
+    if pr_number:
+        details.append(("Purchase Request No.", pr_number))
+    if po_number:
+        details.append(("Purchase Order No.", po_number))
+    if order_number and order_number not in {pr_number, po_number}:
+        details.append(("Order No.", order_number))
+    if include_amount:
+        details.append(("Total amount", f"PHP {float(getattr(order, 'total_amount', 0) or 0):,.2f}"))
+    return details
+
+
+def _email_logo_src() -> str:
+    return _email_public_url("/email-assets/ann-anns-logo.png")
+
+
+def _render_email_parts(body: EmailBody, *, heading: str, preheader: str = "") -> tuple[str, str]:
+    """Return the (plain text, HTML) pair for one message."""
+    text = render_text(body, heading=heading)
+    html = render_html(body, heading=heading, preheader=preheader or heading, logo_src=_email_logo_src())
+    return text, html
+
+
+_sender_identity_checked = False
+
+
+def _warn_on_mismatched_sender_identity() -> None:
+    """Warn once when the transports would send from different From addresses.
+
+    Receiving providers weigh a consistent sender identity heavily. Gmail API,
+    Brevo and SMTP each read their own setting, so a half-configured environment
+    silently alternates between addresses and pushes mail towards spam.
+    """
+    global _sender_identity_checked
+    if _sender_identity_checked:
+        return
+    _sender_identity_checked = True
+    addresses = {
+        "GMAIL_API_SENDER_EMAIL": _normalize_email(getattr(settings, "GMAIL_API_SENDER_EMAIL", "")),
+        "OTP_FROM_EMAIL": _normalize_email(getattr(settings, "OTP_FROM_EMAIL", "")),
+        "OTP_SMTP_FROM_EMAIL": _normalize_email(getattr(settings, "OTP_SMTP_FROM_EMAIL", "")),
+    }
+    configured = {name: value for name, value in addresses.items() if value}
+    if len(set(configured.values())) > 1:
+        logger.warning(
+            "Outgoing mail is configured with more than one sender address (%s). "
+            "Point these settings at the same mailbox so recipients and spam filters "
+            "always see one sender.",
+            ", ".join(f"{name}={value}" for name, value in sorted(configured.items())),
+        )
+
+
+def _dispatch_email(*, subject: str, text: str, html: str, recipient: str) -> None:
+    """Send one message through the first transport that is configured and healthy."""
+    _warn_on_mismatched_sender_identity()
+    gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
+    if gmail_refresh and _gmail_api_available():
+        try:
+            if _send_via_gmail_api(subject=subject, message=text, recipient=recipient, html_message=html):
+                return
+        except Exception:
+            _mark_gmail_api_failed()
+            logger.exception("Gmail API send failed for %s; falling back", recipient)
+
+    if str(getattr(settings, "BREVO_API_KEY", "") or "").strip():
+        try:
+            if _send_via_brevo(subject=subject, message=text, recipient=recipient, html_message=html):
+                return
+        except Exception:
+            logger.exception("Brevo send failed for %s; falling back to SMTP", recipient)
+
+    send_mail(
+        subject=subject,
+        message=text,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[recipient],
+        fail_silently=False,
+        html_message=html,
     )
 
 
-def _build_branded_email_html(*, subject: str, message: str, otp_code: str | None = None, order: Order | None = None) -> str:
-    """Create one responsive, email-client-safe AAB design for every outgoing message."""
-    title = subject.split(" - ")[-1].strip() or subject
-    subject_key = subject.casefold()
-    # Match the reference's direct, human-readable headline style.
-    if "password reset" in subject_key:
-        title = "Reset Your Password"
-    elif "email verification" in subject_key:
-        title = "Verify Your Email"
-    elif "login verification" in subject_key:
-        title = "Verify Your Login"
-    logo_url = _email_public_url("/email-assets/ann-anns-logo.png")
-    logo = (
-        f'<img src="{escape(logo_url)}" alt="AAB Trading" width="180" style="display:block;width:180px;height:auto;margin:0 auto;">'
-        if logo_url else
-        '<div style="text-align:center;padding:8px 0 2px;"><div style="font-size:38px;line-height:1;font-weight:900;letter-spacing:.06em;color:#073783;display:inline-block;">A<span style="color:#43b51a;">A</span>B</div><div style="margin-top:4px;color:#073783;font-size:15px;font-weight:800;letter-spacing:.28em;">TRADING</div></div>'
-    )
-    visible_message = message
-    if otp_code:
-        # The reference places the code and expiry exclusively inside the OTP panel.
-        visible_message = "\n".join(
-            line for line in message.splitlines()
-            if not line.strip().lower().startswith(("otp:", "verification code:", "expires in"))
-        ).strip()
-    body_html = escape(visible_message).replace("\n", "<br>")
-    otp_html = ""
-    if otp_code:
-        digits = "&nbsp; ".join(escape(character) for character in str(otp_code))
-        otp_html = (
-            '<div style="margin:26px 0 22px;border:2px solid #0a3e91;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(7,55,131,.10);">'
-            '<div style="background:#073783;padding:15px 20px;text-align:center;color:#ffffff;font-size:16px;font-weight:800;letter-spacing:.04em;">&#128274;&nbsp;&nbsp; YOUR OTP CODE</div>'
-            f'<div style="padding:28px 18px 20px;text-align:center;background:#ffffff;font-size:43px;line-height:1.2;font-weight:800;letter-spacing:.13em;color:#35ad15;">{digits}</div>'
-            '<div style="margin:0 24px;border-top:2px dashed #b4c9eb;"></div>'
-            f'<div style="padding:18px;text-align:center;color:#17233b;font-size:16px;">&#9201;&nbsp; Expires in <strong style="color:#35ad15;">{OTP_EXPIRY_MINUTES} minutes.</strong></div></div>'
-        )
-    products_html = _render_order_product_rows(order)
-    year = timezone.localtime(timezone.now()).year
-    return f'''<!doctype html><html><body style="margin:0;padding:0;background:#e7edf7;font-family:Arial,Helvetica,sans-serif;color:#17233b;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#e7edf7;"><tr><td align="center" style="padding:20px 10px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;background:#ffffff;overflow:hidden;box-shadow:0 18px 48px rgba(2,35,91,.20);">
-<tr><td style="height:76px;background:#063784;font-size:0;line-height:0;">&nbsp;</td></tr>
-<tr><td style="height:12px;background:#42b719;font-size:0;line-height:0;">&nbsp;</td></tr>
-<tr><td align="center" style="padding:0 28px 18px;background:#ffffff;">{logo}</td></tr>
-<tr><td style="padding:0 42px 32px;background:#ffffff;"><h1 style="margin:0;text-align:center;color:#073783;font-size:40px;line-height:1.16;font-weight:800;">{escape(title)}</h1>
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:22px 0 26px;"><tr><td style="height:2px;background:#65c945;font-size:0;">&nbsp;</td><td align="center" width="76" style="color:#43b719;font-size:25px;line-height:1;">&#9679;</td><td style="height:2px;background:#65c945;font-size:0;">&nbsp;</td></tr></table>
-<div style="font-size:17px;line-height:1.72;color:#151b27;"><strong style="color:#073783;">Hello,</strong><br>{body_html}</div>{otp_html}{products_html}
-<div style="margin-top:26px;padding:18px 20px;border:1px solid #71c953;border-radius:14px;background:#f8fcf6;color:#17233b;font-size:15px;line-height:1.55;">&#9432;&nbsp;&nbsp; If you did not request this, <strong style="color:#35ad15;">you can ignore this email.</strong></div>
-</td></tr>
-<tr><td style="height:11px;background:#43b719;font-size:0;line-height:0;">&nbsp;</td></tr>
-<tr><td style="height:28px;background:#063784;font-size:0;line-height:0;">&nbsp;</td></tr>
-<tr><td align="center" style="padding:22px 24px;background:#ffffff;color:#17233b;font-size:13px;line-height:1.7;">&copy; {year} Ann Ann's Beverages Trading. All rights reserved.<br><span style="color:#35ad15;font-weight:700;font-style:italic;">Moving fresh ideas, <span style="color:#073783;">delivering great service.</span></span></td></tr>
-</table></td></tr></table></body></html>'''
+def _send_transactional_email(
+    *,
+    subject: str,
+    message: str,
+    recipients: list[str],
+    order: Order | None = None,
+    html_message: str | None = None,
+) -> None:
+    """Deliver one message to every recipient, never raising into the request.
+
+    This stays the single delivery point for the whole system: the structured
+    senders below render their parts and hand them here.
+    """
+    cleaned = [str(x or "").strip().lower() for x in recipients if str(x or "").strip()]
+    if not cleaned:
+        return
+    if html_message is None:
+        # Legacy callers pass plain text only; give it the standard shell.
+        body = EmailBody(paragraphs=[line for line in str(message or "").split("\n\n") if line.strip()])
+        heading = subject.split(" - ")[-1].strip() or subject
+        message, html_message = _render_email_parts(body, heading=heading)
+    for recipient in cleaned:
+        try:
+            _dispatch_email(subject=subject, text=message, html=html_message, recipient=recipient)
+        except Exception:
+            logger.exception("Failed to send email: subject=%s recipient=%s", subject, recipient)
+
+
+def _send_structured_email(
+    *,
+    subject: str,
+    heading: str,
+    body: EmailBody,
+    recipients: list[str],
+    preheader: str = "",
+) -> None:
+    text, html = _render_email_parts(body, heading=heading, preheader=preheader)
+    _send_transactional_email(subject=subject, message=text, recipients=recipients, html_message=html)
 
 
 def _get_reset_account(account_type: str, email: str) -> User | Customer | None:
@@ -4453,157 +4688,108 @@ def _get_reset_account(account_type: str, email: str) -> User | Customer | None:
     return None
 
 
-def _send_reset_otp_email(email: str, otp_code: str) -> None:
-    subject = "Ann Ann's Beverages Trading - Password Reset OTP"
-    message = (
-        "Use this OTP to reset your account password.\n\n"
-        f"OTP: {otp_code}\n"
-        f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
-        "If you did not request this, you can ignore this email."
+def _account_display_name(email: str) -> str:
+    """Best-effort first name for an address, so security mail is not anonymous."""
+    normalized = _normalize_email(email)
+    if not normalized:
+        return ""
+    holder = (
+        User.objects.filter(email=normalized).values_list("name", flat=True).first()
+        or Customer.objects.filter(email=normalized).values_list("name", flat=True).first()
     )
-    html_message = _build_branded_email_html(subject=subject, message=message, otp_code=otp_code)
-    gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
-    if gmail_refresh and _gmail_api_available():
-        try:
-            if _send_via_gmail_api(subject=subject, message=message, recipient=email, html_message=html_message):
-                return
-        except Exception:
-            _mark_gmail_api_failed()
-            logger.exception("Gmail API OTP send failed for password reset; falling back")
-    brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
-    if brevo_key:
-        try:
-            if _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message):
-                return
-        except Exception:
-            logger.exception("Brevo OTP send failed for password reset; falling back to SMTP")
-    send_mail(
-        subject=subject,
-        message=message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-        fail_silently=False,
-        html_message=html_message,
+    return str(holder or "").strip()
+
+
+def _send_reset_otp_email(email: str, otp_code: str) -> None:
+    heading = "Password reset code"
+    body = EmailBody(
+        recipient_name=_account_display_name(email),
+        time_greeting=time_greeting(),
+        paragraphs=["We received a request to reset the password for this account."],
+        code=otp_code,
+        code_label="Password reset code",
+        code_note=f"This code expires in {OTP_EXPIRY_MINUTES} minutes.",
+        next_step="Enter the code on the password reset page to choose a new password.",
+        closing="Thank you.",
+        note="If you did not request a password reset, you can ignore this email and your password will stay the same.",
+    )
+    _send_structured_email(
+        subject="Password reset code for your account",
+        heading=heading,
+        body=body,
+        recipients=[email],
+        preheader="Use this code to reset your password.",
     )
 
 
 def _send_email_verification_otp(email: str, otp_code: str) -> None:
-    subject = "Ann Ann's Beverages Trading - Email Verification Code"
-    message = (
-        "Use this code to verify that your email address is active and can receive mail.\n\n"
-        f"Verification code: {otp_code}\n"
-        f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
-        "If you did not request this, you can ignore this email."
+    heading = "Verify your email address"
+    body = EmailBody(
+        recipient_name=_account_display_name(email),
+        time_greeting=time_greeting(),
+        paragraphs=["Please confirm that this email address belongs to you and can receive mail."],
+        code=otp_code,
+        code_label="Email verification code",
+        code_note=f"This code expires in {OTP_EXPIRY_MINUTES} minutes.",
+        next_step="Enter the code on the verification page to finish setting up your account.",
+        closing="Thank you.",
+        note="If you did not create an account with us, you can ignore this email.",
     )
-    html_message = _build_branded_email_html(subject=subject, message=message, otp_code=otp_code)
-    gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
-    if gmail_refresh:
-        try:
-            if _send_via_gmail_api(subject=subject, message=message, recipient=email, html_message=html_message):
-                return
-        except Exception:
-            logger.exception("Gmail API OTP send failed for email verification; falling back")
-    brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
-    if brevo_key:
-        try:
-            if _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message):
-                return
-        except Exception:
-            logger.exception("Brevo OTP send failed for email verification; falling back to SMTP")
-    send_mail(
-        subject=subject,
-        message=message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-        fail_silently=False,
-        html_message=html_message,
+    _send_structured_email(
+        subject="Email verification code for your account",
+        heading=heading,
+        body=body,
+        recipients=[email],
+        preheader="Use this code to verify your email address.",
     )
 
 
 def _send_login_otp_email(email: str, otp_code: str) -> None:
-    subject = "Ann Ann's Beverages Trading - Login Verification Code"
-    message = (
-        "Use this one-time code to complete your login.\n\n"
-        f"Verification code: {otp_code}\n"
-        f"Expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
-        "If you did not attempt to login, please reset your password immediately."
+    heading = "Verify your login"
+    body = EmailBody(
+        recipient_name=_account_display_name(email),
+        time_greeting=time_greeting(),
+        paragraphs=["A login to your account needs to be confirmed with a one-time code."],
+        code=otp_code,
+        code_label="Login verification code",
+        code_note=f"This code expires in {OTP_EXPIRY_MINUTES} minutes.",
+        next_step="Enter the code on the login page to continue.",
+        closing="Thank you.",
+        note="If you did not try to log in, please reset your password as soon as possible.",
     )
-    html_message = _build_branded_email_html(subject=subject, message=message, otp_code=otp_code)
-    gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
-    if gmail_refresh:
-        try:
-            if _send_via_gmail_api(subject=subject, message=message, recipient=email, html_message=html_message):
-                return
-        except Exception:
-            logger.exception("Gmail API OTP send failed for login verification; falling back")
-    brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
-    if brevo_key:
-        try:
-            if _send_via_brevo(subject=subject, message=message, recipient=email, html_message=html_message):
-                return
-        except Exception:
-            logger.exception("Brevo OTP send failed for login verification; falling back to SMTP")
-    send_mail(
-        subject=subject,
-        message=message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-        fail_silently=False,
-        html_message=html_message,
+    _send_structured_email(
+        subject="Login verification code for your account",
+        heading=heading,
+        body=body,
+        recipients=[email],
+        preheader="Use this code to complete your login.",
     )
 
 
-def _send_transactional_email(*, subject: str, message: str, recipients: list[str], order: Order | None = None) -> None:
-    cleaned = [str(x or "").strip().lower() for x in recipients if str(x or "").strip()]
-    if not cleaned:
+def _email_login_alert(user: User) -> None:
+    recipient = _normalize_email(getattr(user, "email", ""))
+    if not recipient:
         return
-    html_message = _build_branded_email_html(subject=subject, message=message, order=order)
-    try:
-        gmail_refresh = str(getattr(settings, "GMAIL_API_REFRESH_TOKEN", "") or "").strip()
-        if gmail_refresh:
-            for recipient in cleaned:
-                try:
-                    _send_via_gmail_api(subject=subject, message=message, recipient=recipient, html_message=html_message)
-                except Exception:
-                    logger.exception("Gmail API transactional send failed for %s; falling back", recipient)
-                    send_mail(
-                        subject=subject,
-                        message=message,
-                        from_email=settings.DEFAULT_FROM_EMAIL,
-                        recipient_list=[recipient],
-                        fail_silently=False,
-                        html_message=html_message,
-                    )
-            return
-
-        brevo_key = str(getattr(settings, "BREVO_API_KEY", "") or "").strip()
-        if brevo_key:
-            for recipient in cleaned:
-                try:
-                    if not _send_via_brevo(subject=subject, message=message, recipient=recipient, html_message=html_message):
-                        raise BrevoUnavailable("Brevo reported no send")
-                except Exception:
-                    logger.exception("Brevo transactional send failed for %s; falling back to SMTP", recipient)
-                    send_mail(
-                        subject=subject,
-                        message=message,
-                        from_email=settings.DEFAULT_FROM_EMAIL,
-                        recipient_list=[recipient],
-                        fail_silently=False,
-                        html_message=html_message,
-                    )
-            return
-
-        send_mail(
-            subject=subject,
-            message=message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=cleaned,
-            fail_silently=False,
-            html_message=html_message,
-        )
-    except Exception:
-        logger.exception("Failed to send transactional email: subject=%s recipients=%s", subject, cleaned)
+    signed_in_at = timezone.localtime(timezone.now()).strftime("%B %d, %Y at %I:%M %p")
+    body = EmailBody(
+        recipient_name=str(getattr(user, "name", "") or "").strip(),
+        time_greeting=time_greeting(),
+        paragraphs=["Your account was used to sign in."],
+        details=[
+            ("Date and time", signed_in_at),
+            ("Account", recipient),
+        ],
+        details_heading="Sign-in details",
+        next_step="If this was you, no action is needed. If it was not, reset your password right away.",
+        closing="Thank you.",
+    )
+    _send_structured_email(
+        subject="New sign-in to your account",
+        heading="New sign-in to your account",
+        body=body,
+        recipients=[recipient],
+        preheader="A sign-in to your account was recorded.",
+    )
 
 
 def _warehouse_staff_emails() -> list[str]:
@@ -4629,39 +4815,684 @@ def _ops_staff_emails() -> list[str]:
     return sorted(set(out))
 
 
-def _get_product_size_label(product: Any) -> str:
-    """Return a human-readable size string from a Product's sizes JSONField."""
-    sizes = getattr(product, "sizes", None)
-    if isinstance(sizes, list):
-        parts = [str(s).strip() for s in sizes if str(s).strip()]
-        if parts:
-            return ", ".join(parts)
-    return ""
+def _customer_email_and_name(order: Order | None) -> tuple[str, str]:
+    customer = getattr(order, "customer", None)
+    email = _normalize_email(getattr(customer, "email", ""))
+    name = str(getattr(customer, "name", "") or getattr(order, "shipping_name", "") or "").strip()
+    return email, name
 
 
 def _email_new_order_to_warehouse_staff(order: Order) -> None:
+    """Tell the warehouse a customer has submitted a new purchase request."""
     recipients = _warehouse_staff_emails()
     if not recipients:
         return
-    customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
-    shipping_address_parts = [
-        str(getattr(order, "shipping_address", "") or "").strip(),
-        str(getattr(order, "shipping_city", "") or "").strip(),
-        str(getattr(order, "shipping_province", "") or "").strip(),
-    ]
-    shipping_address = ", ".join([part for part in shipping_address_parts if part]) or "N/A"
-    shipping_phone = str(getattr(order, "shipping_phone", "") or "").strip() or "N/A"
-    subject = f"New order received: {order.order_number}"
-    message = (
-        f"A new order has been created.\n\n"
-        f"Order Number: {order.order_number}\n"
-        f"Customer: {customer_name}\n"
-        f"Status: {order.status}\n"
-        f"Total Amount: PHP {float(order.total_amount or 0):.2f}\n\n"
-        f"Delivery Address: {shipping_address}\n"
-        f"Customer Contact: {shipping_phone}\n"
+    _, customer_name = _customer_email_and_name(order)
+    customer_name = customer_name or "A customer"
+    reference = str(getattr(order, "purchase_request_number", "") or getattr(order, "order_number", "") or "").strip()
+    details = _order_reference_details(order)
+    details.extend([
+        ("Customer", customer_name),
+        ("Contact number", str(getattr(order, "shipping_phone", "") or "").strip()),
+        ("Delivery address", _order_delivery_address(order)),
+        ("Date submitted", timezone.localtime(getattr(order, "created_at", None) or timezone.now()).strftime("%B %d, %Y at %I:%M %p")),
+    ])
+    body = EmailBody(
+        recipient_name="Warehouse Team",
+        time_greeting=time_greeting(),
+        paragraphs=[f"{customer_name} submitted a new purchase request through the customer portal."],
+        details=details,
+        products=_order_product_lines(order),
+        products_heading="Products requested",
+        next_step="Please review the request in the warehouse portal so it can be approved or rejected.",
+        closing="Thank you.",
     )
-    _send_transactional_email(subject=subject, message=message, recipients=recipients, order=order)
+    _send_structured_email(
+        subject=f"New purchase request {reference}" if reference else "New purchase request received",
+        heading="New purchase request received",
+        body=body,
+        recipients=recipients,
+        preheader=f"{customer_name} submitted a new purchase request.",
+    )
+
+
+def _email_purchase_request_submitted_to_customer(order: Order) -> None:
+    """Confirm to the customer that their request reached us."""
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    reference = str(getattr(order, "purchase_request_number", "") or getattr(order, "order_number", "") or "").strip()
+    statement = (
+        f"Your Purchase Request with Purchase Request No. {reference} has been received "
+        "and is now waiting for approval."
+        if reference else
+        "Your purchase request has been received and is now waiting for approval."
+    )
+    details = _order_reference_details(order)
+    details.append(("Delivery address", _order_delivery_address(order)))
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[statement],
+        details=details,
+        products=_order_product_lines(order),
+        products_heading="Below are the details of your request:",
+        next_step="We will send you another email once your request has been reviewed.",
+        closing="Thank you for ordering with us.",
+    )
+    _send_structured_email(
+        subject=f"Purchase Request {reference} received" if reference else "Purchase request received",
+        heading="We received your purchase request",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your purchase request is waiting for approval.",
+    )
+
+
+def _email_purchase_request_approved_to_customer(order: Order) -> None:
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    pr_number = str(getattr(order, "purchase_request_number", "") or "").strip()
+    po_number = str(getattr(order, "purchase_order_number", "") or getattr(order, "order_number", "") or "").strip()
+    statement = (
+        f"Your Purchase Request with Purchase Request No. {pr_number} has been approved."
+        if pr_number else
+        "Your purchase request has been approved."
+    )
+    paragraphs = [statement]
+    if po_number:
+        paragraphs.append(f"It has been recorded as Purchase Order No. {po_number}.")
+    details = _order_reference_details(order)
+    details.append(("Approved on", timezone.localtime(getattr(order, "approved_at", None) or timezone.now()).strftime("%B %d, %Y at %I:%M %p")))
+    details.append(("Delivery address", _order_delivery_address(order)))
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=paragraphs,
+        details=details,
+        products=_order_product_lines(order),
+        products_heading="Below are the details of your request:",
+        next_step="We will let you know once your order is prepared for delivery.",
+        closing="Thank you for ordering with us.",
+    )
+    _send_structured_email(
+        subject=f"Purchase Request {pr_number} approved" if pr_number else "Your purchase request has been approved",
+        heading="Your purchase request has been approved",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your purchase request has been approved.",
+    )
+
+
+def _email_purchase_request_rejected_to_customer(order: Order, rejection_reason: str) -> None:
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    pr_number = str(getattr(order, "purchase_request_number", "") or getattr(order, "order_number", "") or "").strip()
+    statement = (
+        f"Your Purchase Request with Purchase Request No. {pr_number} has been rejected."
+        if pr_number else
+        "Your purchase request has been rejected."
+    )
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[statement],
+        details=_order_reference_details(order),
+        products=_order_product_lines(order),
+        products_heading="Products in this request",
+        reason_label="Reason for rejection",
+        reason_text=str(rejection_reason or "").strip() or "No reason was provided.",
+        next_step="You may submit a new request once the reason above has been addressed. Our team can help if you have questions.",
+        closing="Thank you for your understanding.",
+    )
+    _send_structured_email(
+        subject=f"Purchase Request {pr_number} was not approved" if pr_number else "Your purchase request was not approved",
+        heading="Your purchase request was not approved",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your purchase request was not approved.",
+    )
+
+
+def _email_order_confirmed_to_customer(order: Order) -> None:
+    """Kept for callers that approve a request: the customer reads it as an approval."""
+    _email_purchase_request_approved_to_customer(order)
+
+
+def _email_order_rejected_to_customer(order: Order, rejection_reason: str) -> None:
+    is_pending_request = str(getattr(order, "request_status", "") or "").strip().upper() in {
+        PurchaseRequestStatus.PENDING_APPROVAL,
+        PurchaseRequestStatus.REJECTED,
+    }
+    if is_pending_request:
+        _email_purchase_request_rejected_to_customer(order, rejection_reason)
+        return
+
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    order_number = str(getattr(order, "order_number", "") or "").strip()
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[
+            f"Your Order No. {order_number} has been rejected." if order_number
+            else "Your order has been rejected."
+        ],
+        details=_order_reference_details(order),
+        products=_order_product_lines(order),
+        products_heading="Products in this order",
+        reason_label="Reason for rejection",
+        reason_text=str(rejection_reason or "").strip() or "No reason was provided.",
+        next_step="You may place a new order at any time. Our team can help if you have questions.",
+        closing="Thank you for your understanding.",
+    )
+    _send_structured_email(
+        subject=f"Order {order_number} was rejected" if order_number else "Your order was rejected",
+        heading="Your order was rejected",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your order was rejected.",
+    )
+
+
+def _email_order_cancelled_to_customer(order: Order, cancellation_reason: str, *, cancelled_by_customer: bool = False) -> None:
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    order_number = str(
+        getattr(order, "purchase_order_number", "") or getattr(order, "order_number", "") or ""
+    ).strip()
+    statement = (
+        f"Your Order No. {order_number} has been cancelled."
+        if order_number else
+        "Your order has been cancelled."
+    )
+    paragraphs = [statement]
+    if cancelled_by_customer:
+        paragraphs.append("This cancellation was requested from your account.")
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=paragraphs,
+        details=_order_reference_details(order),
+        products=_order_product_lines(order),
+        products_heading="Products in this order",
+        reason_label="Reason for cancellation",
+        reason_text=str(cancellation_reason or "").strip() or "No reason was provided.",
+        next_step="Any reserved stock has been released. You may place a new order whenever you are ready.",
+        closing="Thank you for your understanding.",
+    )
+    _send_structured_email(
+        subject=f"Order {order_number} cancelled" if order_number else "Your order has been cancelled",
+        heading="Your order has been cancelled",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your order has been cancelled.",
+    )
+
+
+def _email_order_preparing_to_customer(order: Order) -> None:
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    order_number = str(
+        getattr(order, "purchase_order_number", "") or getattr(order, "order_number", "") or ""
+    ).strip()
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[
+            f"Your Order No. {order_number} is now being prepared by our warehouse team."
+            if order_number else
+            "Your order is now being prepared by our warehouse team."
+        ],
+        details=_order_reference_details(order) + [("Delivery address", _order_delivery_address(order))],
+        products=_order_product_lines(order),
+        products_heading="Products being prepared",
+        next_step="We will email you again once your order is on the way.",
+        closing="Thank you for ordering with us.",
+    )
+    _send_structured_email(
+        subject=f"Order {order_number} is being prepared" if order_number else "Your order is being prepared",
+        heading="Your order is being prepared",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your order is being prepared for delivery.",
+    )
+
+
+def _email_order_out_for_delivery_to_customer(order: Order) -> None:
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    order_number = str(
+        getattr(order, "purchase_order_number", "") or getattr(order, "order_number", "") or ""
+    ).strip()
+
+    driver_name = ""
+    driver_phone = ""
+    linked_drop_point = (
+        TripDropPoint.objects.select_related("trip__driver")
+        .filter(order_id=order.id)
+        .order_by("-created_at")
+        .first()
+    )
+    if linked_drop_point and getattr(linked_drop_point, "trip", None) and getattr(linked_drop_point.trip, "driver", None):
+        driver = linked_drop_point.trip.driver
+        driver_name = str(getattr(driver, "name", "") or "").strip()
+        driver_phone = str(getattr(driver, "phone", "") or "").strip()
+
+    details = _order_reference_details(order)
+    details.append(("Delivery address", _order_delivery_address(order)))
+    if driver_name:
+        details.append(("Assigned driver", driver_name))
+    if driver_phone:
+        details.append(("Driver contact number", driver_phone))
+
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[
+            f"Your Order No. {order_number} is on the way to your delivery address."
+            if order_number else
+            "Your order is on the way to your delivery address."
+        ],
+        details=details,
+        products=_order_product_lines(order),
+        products_heading="Products in this delivery",
+        next_step="Please prepare the payment amount and make sure someone is available to receive the delivery.",
+        closing="Thank you for ordering with us.",
+    )
+    _send_structured_email(
+        subject=f"Order {order_number} is out for delivery" if order_number else "Your order is out for delivery",
+        heading="Your order is out for delivery",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your order is on the way.",
+    )
+
+
+def _email_order_delivered_to_customer(order: Order, *, received_by: str = "") -> None:
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    order_number = str(
+        getattr(order, "purchase_order_number", "") or getattr(order, "order_number", "") or ""
+    ).strip()
+    details = _order_reference_details(order)
+    details.append(("Delivered on", timezone.localtime(timezone.now()).strftime("%B %d, %Y at %I:%M %p")))
+    recipient_of_goods = str(received_by or getattr(order, "pod_recipient_name", "") or "").strip()
+    if recipient_of_goods:
+        details.append(("Received by", recipient_of_goods))
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[
+            f"Your Order No. {order_number} has been delivered."
+            if order_number else
+            "Your order has been delivered."
+        ],
+        details=details,
+        products=_order_product_lines(order),
+        products_heading="Products delivered",
+        next_step="If any item arrived damaged or incorrect, you may submit a replacement request from your account.",
+        closing="Thank you for ordering with us.",
+    )
+    _send_structured_email(
+        subject=f"Order {order_number} has been delivered" if order_number else "Your order has been delivered",
+        heading="Your order has been delivered",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your order has been delivered.",
+    )
+
+
+def _email_delivery_failed_to_customer(
+    order: Order,
+    failure_reason: str,
+    *,
+    rescheduled_for: datetime | None = None,
+    order_cancelled: bool = False,
+) -> None:
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    order_number = str(
+        getattr(order, "purchase_order_number", "") or getattr(order, "order_number", "") or ""
+    ).strip()
+    details = _order_reference_details(order)
+    details.append(("Delivery address", _order_delivery_address(order)))
+    if rescheduled_for is not None:
+        details.append(("New delivery date", timezone.localtime(rescheduled_for).strftime("%B %d, %Y")))
+    if rescheduled_for is not None:
+        next_step = "Our team will attempt the delivery again on the date above."
+    elif order_cancelled:
+        next_step = (
+            "This order has been closed and any reserved stock has been released. "
+            "You may place a new order whenever you are ready."
+        )
+    else:
+        next_step = "Our team will contact you to arrange another delivery date."
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[
+            f"The delivery attempt for your Order No. {order_number} could not be completed."
+            if order_number else
+            "The delivery attempt for your order could not be completed."
+        ],
+        details=details,
+        products=_order_product_lines(order),
+        products_heading="Products in this delivery",
+        reason_label="Reason the delivery was not completed",
+        reason_text=str(failure_reason or "").strip() or "No reason was provided.",
+        next_step=next_step,
+        closing="Thank you for your patience.",
+    )
+    _send_structured_email(
+        subject=f"Delivery for Order {order_number} was not completed" if order_number else "Your delivery was not completed",
+        heading="Your delivery was not completed",
+        body=body,
+        recipients=[customer_email],
+        preheader="We could not complete your delivery.",
+    )
+
+
+def _email_replacement_submitted_to_customer(replacement: Replacement) -> None:
+    order = getattr(replacement, "order", None)
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    replacement_number = str(getattr(replacement, "replacement_number", "") or "").strip()
+    details: list[tuple[str, str]] = []
+    if replacement_number:
+        details.append(("Replacement Request No.", replacement_number))
+    if order is not None:
+        details.append(("Order No.", str(getattr(order, "order_number", "") or "").strip()))
+    details.append(("Date submitted", timezone.localtime(getattr(replacement, "created_at", None) or timezone.now()).strftime("%B %d, %Y at %I:%M %p")))
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[
+            f"Your Replacement Request No. {replacement_number} has been received and is now for review."
+            if replacement_number else
+            "Your replacement request has been received and is now for review."
+        ],
+        details=details,
+        products=_replacement_product_lines(replacement),
+        products_heading="Products in this replacement request",
+        reason_label="Reason for the request",
+        reason_text=str(getattr(replacement, "reason", "") or "").strip(),
+        next_step="We will email you again once the request has been reviewed.",
+        closing="Thank you for letting us know.",
+    )
+    _send_structured_email(
+        subject=f"Replacement Request {replacement_number} received" if replacement_number else "Replacement request received",
+        heading="We received your replacement request",
+        body=body,
+        recipients=[customer_email],
+        preheader="Your replacement request is under review.",
+    )
+
+
+def _email_replacement_submitted_to_staff(replacement: Replacement) -> None:
+    recipients = _ops_staff_emails()
+    if not recipients:
+        return
+    order = getattr(replacement, "order", None)
+    _, customer_name = _customer_email_and_name(order)
+    replacement_number = str(getattr(replacement, "replacement_number", "") or "").strip()
+    details: list[tuple[str, str]] = []
+    if replacement_number:
+        details.append(("Replacement Request No.", replacement_number))
+    if order is not None:
+        details.append(("Order No.", str(getattr(order, "order_number", "") or "").strip()))
+    details.append(("Customer", customer_name or "Customer"))
+    details.append(("Date submitted", timezone.localtime(getattr(replacement, "created_at", None) or timezone.now()).strftime("%B %d, %Y at %I:%M %p")))
+    body = EmailBody(
+        recipient_name="Team",
+        time_greeting=time_greeting(),
+        paragraphs=[f"{customer_name or 'A customer'} submitted a replacement request."],
+        details=details,
+        products=_replacement_product_lines(replacement),
+        products_heading="Products in this replacement request",
+        reason_label="Reason given by the customer",
+        reason_text=str(getattr(replacement, "reason", "") or "").strip(),
+        next_step="Please review the request in the admin portal so it can be approved or rejected.",
+        closing="Thank you.",
+    )
+    _send_structured_email(
+        subject=f"New replacement request {replacement_number}" if replacement_number else "New replacement request",
+        heading="New replacement request received",
+        body=body,
+        recipients=recipients,
+        preheader="A customer submitted a replacement request.",
+    )
+
+
+# What each replacement outcome is called when writing to the customer, so the mail
+# never reads as a status field being set.
+_REPLACEMENT_CUSTOMER_COPY: dict[str, dict[str, str]] = {
+    ReplacementStatus.UNDER_REVIEW: {
+        "subject": "Replacement Request {number} is being reviewed",
+        "heading": "Your replacement request is being reviewed",
+        "statement": "Your Replacement Request No. {number} is now being reviewed by our team.",
+        "next_step": "We will email you again once a decision has been made.",
+    },
+    ReplacementStatus.APPROVED: {
+        "subject": "Replacement Request {number} approved",
+        "heading": "Your replacement request has been approved",
+        "statement": "Your Replacement Request No. {number} has been approved.",
+        "next_step": "Our warehouse team will schedule the replacement delivery and keep you updated.",
+    },
+    ReplacementStatus.REJECTED: {
+        "subject": "Replacement Request {number} was not approved",
+        "heading": "Your replacement request was not approved",
+        "statement": "Your Replacement Request No. {number} has been rejected.",
+        "next_step": "Our team can help if you have questions about this decision.",
+    },
+    ReplacementStatus.IN_PROGRESS: {
+        "subject": "Replacement Request {number} is being processed",
+        "heading": "Your replacement is being processed",
+        "statement": "Your Replacement Request No. {number} is now being processed.",
+        "next_step": "We will let you know once the replacement is on the way.",
+    },
+    ReplacementStatus.NEEDS_FOLLOW_UP: {
+        "subject": "Replacement Request {number} needs more information",
+        "heading": "Your replacement request needs more information",
+        "statement": "We need a little more information before we can continue with your Replacement Request No. {number}.",
+        "next_step": "Our team will contact you shortly to complete the details.",
+    },
+    ReplacementStatus.RESOLVED_ON_DELIVERY: {
+        "subject": "Replacement Request {number} completed",
+        "heading": "Your replacement has been completed",
+        "statement": "Your Replacement Request No. {number} has been completed on delivery.",
+        "next_step": "No further action is needed on your side.",
+    },
+    ReplacementStatus.COMPLETED: {
+        "subject": "Replacement Request {number} completed",
+        "heading": "Your replacement has been completed",
+        "statement": "Your Replacement Request No. {number} has been completed.",
+        "next_step": "No further action is needed on your side.",
+    },
+}
+
+
+def _email_replacement_outcome_to_customer(
+    replacement: Replacement,
+    status: str,
+    *,
+    notes: str = "",
+    scheduled_delivery_date: Any = None,
+) -> None:
+    copy = _REPLACEMENT_CUSTOMER_COPY.get(str(status or "").strip().upper())
+    if not copy:
+        return
+    order = getattr(replacement, "order", None)
+    customer_email, customer_name = _customer_email_and_name(order)
+    if not customer_email:
+        return
+    replacement_number = str(getattr(replacement, "replacement_number", "") or "").strip()
+
+    details: list[tuple[str, str]] = []
+    if replacement_number:
+        details.append(("Replacement Request No.", replacement_number))
+    if order is not None:
+        details.append(("Order No.", str(getattr(order, "order_number", "") or "").strip()))
+    if scheduled_delivery_date is not None:
+        try:
+            details.append(("Scheduled delivery date", scheduled_delivery_date.strftime("%B %d, %Y")))
+        except AttributeError:
+            details.append(("Scheduled delivery date", str(scheduled_delivery_date)))
+
+    reason_label = ""
+    reason_text = ""
+    if str(status or "").strip().upper() == ReplacementStatus.REJECTED:
+        reason_label = "Reason for rejection"
+        reason_text = str(notes or "").strip() or "No reason was provided."
+    elif str(notes or "").strip():
+        reason_label = "Note from our team"
+        reason_text = str(notes).strip()
+
+    statement = copy["statement"].format(number=replacement_number) if replacement_number else copy["statement"].replace(
+        " No. {number}", ""
+    ).format(number="")
+    body = EmailBody(
+        recipient_name=customer_name or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=[statement],
+        details=details,
+        products=_replacement_product_lines(replacement),
+        products_heading="Products in this replacement request",
+        reason_label=reason_label,
+        reason_text=reason_text,
+        next_step=copy["next_step"],
+        closing="Thank you.",
+    )
+    subject = copy["subject"].format(number=replacement_number) if replacement_number else copy["heading"]
+    _send_structured_email(
+        subject=subject,
+        heading=copy["heading"],
+        body=body,
+        recipients=[customer_email],
+        preheader=statement,
+    )
+
+
+def _email_replacement_update_to_staff(
+    replacement: Replacement,
+    status: str,
+    *,
+    actor_name: str,
+    notes: str = "",
+    scheduled_delivery_date: Any = None,
+) -> None:
+    recipients = _ops_staff_emails()
+    if not recipients:
+        return
+    order = getattr(replacement, "order", None)
+    _, customer_name = _customer_email_and_name(order)
+    replacement_number = str(getattr(replacement, "replacement_number", "") or "").strip()
+    outcome = str(status or "").replace("_", " ").strip().lower()
+
+    details: list[tuple[str, str]] = []
+    if replacement_number:
+        details.append(("Replacement Request No.", replacement_number))
+    if order is not None:
+        details.append(("Order No.", str(getattr(order, "order_number", "") or "").strip()))
+    details.append(("Customer", customer_name or "Customer"))
+    details.append(("Handled by", str(actor_name or "Staff").strip()))
+    if scheduled_delivery_date is not None:
+        try:
+            details.append(("Scheduled delivery date", scheduled_delivery_date.strftime("%B %d, %Y")))
+        except AttributeError:
+            details.append(("Scheduled delivery date", str(scheduled_delivery_date)))
+
+    body = EmailBody(
+        recipient_name="Team",
+        time_greeting=time_greeting(),
+        paragraphs=[
+            f"Replacement Request No. {replacement_number} for {customer_name or 'a customer'} is now {outcome}."
+            if replacement_number else
+            f"A replacement request for {customer_name or 'a customer'} is now {outcome}."
+        ],
+        details=details,
+        products=_replacement_product_lines(replacement),
+        products_heading="Products in this replacement request",
+        reason_label="Notes" if str(notes or "").strip() else "",
+        reason_text=str(notes or "").strip(),
+        closing="Thank you.",
+    )
+    _send_structured_email(
+        subject=f"Replacement Request {replacement_number} update" if replacement_number else "Replacement request update",
+        heading="Replacement request update",
+        body=body,
+        recipients=recipients,
+        preheader=f"Replacement request is now {outcome}.",
+    )
+
+
+def _email_trip_assigned_to_driver(trip: Trip) -> None:
+    driver = getattr(trip, "driver", None)
+    recipient = _normalize_email(getattr(driver, "email", ""))
+    if not recipient:
+        return
+    trip_number = str(getattr(trip, "trip_number", "") or "").strip()
+    vehicle = getattr(trip, "vehicle", None)
+    vehicle_type_label = str(getattr(vehicle, "type", "") or "").replace("_", " ").strip().title()
+    vehicle_label = " ".join(
+        part for part in [
+            str(getattr(vehicle, "brand", "") or "").strip(),
+            str(getattr(vehicle, "model", "") or "").strip(),
+            f"({str(getattr(vehicle, 'license_plate', '') or '').strip()})"
+            if str(getattr(vehicle, "license_plate", "") or "").strip() else "",
+            f"- {vehicle_type_label}" if vehicle_type_label else "",
+        ] if part
+    ).strip()
+
+    stops = list(trip.drop_points.select_related("order").order_by("sequence"))
+    details: list[tuple[str, str]] = []
+    if trip_number:
+        details.append(("Trip No.", trip_number))
+    if vehicle_label:
+        details.append(("Vehicle", vehicle_label))
+    details.append(("Delivery stops", str(len(stops))))
+    planned_start = getattr(trip, "planned_start_at", None)
+    if planned_start:
+        details.append(("Planned start", timezone.localtime(planned_start).strftime("%B %d, %Y at %I:%M %p")))
+    for stop in stops[:10]:
+        order_number = str(getattr(getattr(stop, "order", None), "order_number", "") or "").strip()
+        location = str(getattr(stop, "location_name", "") or getattr(stop, "address", "") or "").strip()
+        label = f"Stop {getattr(stop, 'sequence', 0)}"
+        value = " - ".join(part for part in [order_number, location] if part)
+        if value:
+            details.append((label, value))
+
+    body = EmailBody(
+        recipient_name=str(getattr(driver, "name", "") or "").strip() or "Driver",
+        time_greeting=time_greeting(),
+        paragraphs=[
+            f"You have been assigned to Trip No. {trip_number}."
+            if trip_number else
+            "You have been assigned to a new delivery trip."
+        ],
+        details=details,
+        details_heading="Trip details",
+        products=_trip_product_lines(trip),
+        products_heading="Products to load for this trip",
+        next_step="Please review the trip in the driver app before you start, and confirm the load with the warehouse team.",
+        closing="Thank you.",
+    )
+    _send_structured_email(
+        subject=f"Trip {trip_number} assigned to you" if trip_number else "A new trip has been assigned to you",
+        heading="You have a new delivery trip",
+        body=body,
+        recipients=[recipient],
+        preheader="A delivery trip has been assigned to you.",
+    )
 
 
 def _email_new_staff_credentials(user: User, plain_password: str) -> None:
@@ -4674,94 +5505,26 @@ def _email_new_staff_credentials(user: User, plain_password: str) -> None:
     if not _is_gmail_email(recipient):
         return
     role_label = str(getattr(user, "role", "") or "STAFF").replace("_", " ").title()
-    subject = "Your account has been created"
-    message = (
-        f"Hello {str(getattr(user, 'name', '') or 'User').strip()},\n\n"
-        f"An administrator created your {role_label} account.\n\n"
-        f"Login Email: {recipient}\n"
-        f"Temporary Password: {plain_password}\n\n"
-        f"Please log in and change your password immediately."
+    body = EmailBody(
+        recipient_name=str(getattr(user, "name", "") or "").strip(),
+        time_greeting=time_greeting(),
+        paragraphs=[f"An administrator has created your {role_label} account."],
+        details=[
+            ("Login email", recipient),
+            ("Temporary password", str(plain_password or "")),
+            ("Role", role_label),
+        ],
+        details_heading="Your account details",
+        next_step="Please log in and change your password right away. Keep these details private.",
+        closing="Thank you.",
     )
-    _send_transactional_email(subject=subject, message=message, recipients=[recipient])
-
-
-def _email_order_out_for_delivery_to_customer(order: Order) -> None:
-    customer_email = _normalize_email(getattr(order.customer, "email", ""))
-    if not customer_email:
-        return
-    customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
-    total_amount = float(getattr(order, "total_amount", 0) or 0)
-
-    assigned_driver_name = "To be assigned"
-    assigned_driver_phone = "Not available"
-    linked_drop_point = (
-        TripDropPoint.objects.select_related("trip__driver")
-        .filter(order_id=order.id)
-        .order_by("-created_at")
-        .first()
+    _send_structured_email(
+        subject="Your account is ready",
+        heading="Your account is ready",
+        body=body,
+        recipients=[recipient],
+        preheader="Your account has been created.",
     )
-    if linked_drop_point and getattr(linked_drop_point, "trip", None) and getattr(linked_drop_point.trip, "driver", None):
-        driver = linked_drop_point.trip.driver
-        assigned_driver_name = str(getattr(driver, "name", "") or "").strip() or assigned_driver_name
-        assigned_driver_phone = str(getattr(driver, "phone", "") or "").strip() or assigned_driver_phone
-
-    subject = f"Your order is out for delivery: {order.order_number}"
-    message = (
-        f"Hi {customer_name},\n\n"
-        f"Good news. Your order is now out for delivery.\n\n"
-        f"Order Number: {order.order_number}\n"
-        f"Total Price: PHP {total_amount:.2f}\n\n"
-        f"Assigned Driver: {assigned_driver_name}\n"
-        f"Contact Info: {assigned_driver_phone}\n\n"
-        f"Please prepare the payment amount and be ready to receive your order.\n\n"
-        f"Thank you for ordering with us."
-    )
-    _send_transactional_email(subject=subject, message=message, recipients=[customer_email], order=order)
-
-
-def _email_order_confirmed_to_customer(order: Order) -> None:
-    customer_email = _normalize_email(getattr(order.customer, "email", ""))
-    if not customer_email:
-        return
-    customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
-
-    shipping_address_parts = [
-        str(getattr(order, "shipping_address", "") or "").strip(),
-        str(getattr(order, "shipping_city", "") or "").strip(),
-        str(getattr(order, "shipping_province", "") or "").strip(),
-    ]
-    shipping_address = ", ".join([part for part in shipping_address_parts if part]) or "N/A"
-    total_amount = float(getattr(order, "total_amount", 0) or 0)
-
-    subject = f"Your order is confirmed: {order.order_number}"
-    message = (
-        f"Hi {customer_name},\n\n"
-        f"Your order has been confirmed by our warehouse team.\n\n"
-        f"Order Number: {order.order_number}\n"
-        f"Total Price: PHP {total_amount:.2f}\n"
-        f"Delivery Address: {shipping_address}\n\n"
-        f"We are now preparing your order for dispatch.\n\n"
-        f"Thank you for ordering with us."
-    )
-    _send_transactional_email(subject=subject, message=message, recipients=[customer_email], order=order)
-
-
-def _email_order_rejected_to_customer(order: Order, rejection_reason: str) -> None:
-    customer_email = _normalize_email(getattr(order.customer, "email", ""))
-    if not customer_email:
-        return
-
-    subject = f"Order Rejected: {order.order_number}"
-    message = (
-        f"Your order request has been rejected.\n\n"
-        f"Order Number: {order.order_number}\n"
-        f"Customer: {getattr(order, 'shipping_name', '') or getattr(getattr(order, 'customer', None), 'name', '') or 'N/A'}\n"
-        f"Reason: {rejection_reason or 'No reason provided'}\n\n"
-        f"Total Amount: {float(getattr(order, 'total_amount', 0) or 0):,.2f}\n"
-        f"Date: {timezone.localtime(getattr(order, 'created_at', timezone.now())).strftime('%Y-%m-%d %I:%M %p')}\n\n"
-        f"If you need help, please contact support."
-    )
-    _send_transactional_email(subject=subject, message=message, recipients=[customer_email], order=order)
 
 
 def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reason: str) -> None:
@@ -4779,19 +5542,40 @@ def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reaso
     product = getattr(inventory, "product", None)
     product_name = str(getattr(product, "name", "") or "Product").strip()
     sku = str(getattr(product, "sku", "") or "").strip()
-    size_label = _get_product_size_label(product)
-    size_text = f" [{size_label}]" if size_label else ""
-    sku_text = f" ({sku})" if sku else ""
-    subject = f"Low stock alert: {product_name}{size_text}{sku_text}"
-    message = (
-        f"Stock level needs restocking.\n\n"
-        f"Warehouse: {warehouse_name}\n"
-        f"Product: {product_name}{size_text}{sku_text}\n"
-        f"Current Quantity: {current_qty}\n"
-        f"Threshold: {threshold}\n"
-        f"Trigger: {reason}\n"
+    unit = str(getattr(product, "unit", "") or "case").strip()
+
+    details = [("Warehouse", warehouse_name)]
+    if sku:
+        details.append(("SKU", sku))
+    details.append(("Reorder threshold", format_quantity(threshold, unit)))
+    details.append(("Recorded because of", str(reason or "").strip() or "a stock movement"))
+
+    body = EmailBody(
+        recipient_name="Warehouse Team",
+        time_greeting=time_greeting(),
+        paragraphs=[f"{product_name} at {warehouse_name} has fallen to its reorder threshold."],
+        details=details,
+        details_heading="Stock details",
+        products=[
+            ProductLine(
+                name=product_name,
+                category=str(getattr(product, "category", "") or "").strip(),
+                size=_get_product_size_label(product),
+                quantity=format_quantity(current_qty, unit),
+            )
+        ],
+        products_heading="Remaining stock",
+        next_step="Please arrange a restock so upcoming orders are not affected.",
+        closing="Thank you.",
     )
-    _send_transactional_email(subject=subject, message=message, recipients=recipients)
+    _send_structured_email(
+        subject=f"Low stock: {product_name} at {warehouse_name}",
+        heading="Low stock alert",
+        body=body,
+        recipients=recipients,
+        preheader=f"{product_name} has reached its reorder threshold.",
+    )
+
 
 
 def _is_inventory_overstocked_flagged_by_stockin(inventory: Inventory) -> bool:
@@ -5137,15 +5921,7 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     _set_auth_cookie(resp, token, remember_me)
     if bool(getattr(user, "login_alerts_enabled", True)):
         try:
-            _send_transactional_email(
-                subject="Ann Ann's Beverages Trading - New Login Alert",
-                message=(
-                    f"Hello {user.name},\n\n"
-                    f"A new login to your account was detected at {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}.\n"
-                    "If this wasn't you, please reset your password immediately."
-                ),
-                recipients=[user.email],
-            )
+            _email_login_alert(user)
         except Exception:
             logger.exception("Failed to send login alert email for user=%s", user.id)
     return resp
@@ -5189,15 +5965,7 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
     _set_auth_cookie(resp, token, remember_me)
     if bool(getattr(user, "login_alerts_enabled", True)):
         try:
-            _send_transactional_email(
-                subject="Ann Ann's Beverages Trading - New Login Alert",
-                message=(
-                    f"Hello {user.name},\n\n"
-                    f"A new login to your account was detected at {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}.\n"
-                    "If this wasn't you, please reset your password immediately."
-                ),
-                recipients=[user.email],
-            )
+            _email_login_alert(user)
         except Exception:
             logger.exception("Failed to send login alert email for user=%s", user.id)
     return resp
@@ -8065,6 +8833,10 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             _email_new_order_to_warehouse_staff(order)
         except Exception:
             logger.exception("Failed to email warehouse staff for committed order %s", order.id)
+        try:
+            _email_purchase_request_submitted_to_customer(order)
+        except Exception:
+            logger.exception("Failed to email the submitted purchase request for order %s", order.id)
         # Added: warehouse staff need an in-app alert for every new order,
         # including orders submitted directly through the customer portal.
         actor_name = (
@@ -8224,29 +8996,6 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         reference_type="replacement",
         reference_id=r.id,
     )
-    # Fix: build optional lines outside the f-string because Python 3.10 rejects
-    # backslashes inside nested f-string expressions.
-    replacement_delivery_line = (
-        f"Scheduled delivery date: {replacement_delivery_date.isoformat()}\n"
-        if replacement_delivery_date
-        else ""
-    )
-    replacement_notes_line = f"Notes: {status_notes}\n" if status_notes else ""
-    _send_transactional_email(
-        subject=f"Replacement Update: {r.replacement_number} - {final_status}",
-        message=(
-            f"Replacement status update\n\n"
-            f"Replacement: {r.replacement_number}\n"
-            f"Order: {getattr(getattr(r, 'order', None), 'order_number', 'N/A')}\n"
-            f"Updated by: {actor_name} ({staff_role})\n"
-            f"Status: {final_status}\n"
-            f"Product(s): {replacement_product_hint}\n"
-            f"Reason: {replacement_reason}\n"
-            f"{replacement_delivery_line}"
-            f"{replacement_notes_line}"
-        ),
-        recipients=_ops_staff_emails(),
-    )
     customer_obj = getattr(getattr(r, "order", None), "customer", None)
     _create_customer_notification(
         customer=customer_obj,
@@ -8260,20 +9009,22 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         reference_type="replacement",
         reference_id=r.id,
     )
-    customer_email = _normalize_email(getattr(getattr(r, "order", None), "customer", None).email if getattr(r, "order", None) and getattr(r.order, "customer", None) else None)
-    customer_status_reason_line = f"Reason: {status_notes}\n" if status_notes else ""
-    if customer_email:
-        _send_transactional_email(
-            subject=f"Replacement Request Update: {r.replacement_number}",
-            message=(
-                f"Your replacement request status has been updated.\n\n"
-                f"Replacement: {r.replacement_number}\n"
-                f"Order: {getattr(getattr(r, 'order', None), 'order_number', 'N/A')}\n"
-                f"New status: {normalized_status}\n"
-                f"{customer_status_reason_line}"
-            ),
-            recipients=[customer_email],
+    try:
+        _email_replacement_update_to_staff(
+            r,
+            final_status,
+            actor_name=actor_name,
+            notes=status_notes,
+            scheduled_delivery_date=replacement_delivery_date,
         )
+        _email_replacement_outcome_to_customer(
+            r,
+            final_status,
+            notes=status_notes,
+            scheduled_delivery_date=replacement_delivery_date,
+        )
+    except Exception:
+        logger.exception("Failed to email the replacement outcome for %s", r.id)
     return _ok({"success": True, "replacement": _serialize_replacement(r), "message": "Replacement status updated"})
 
 
@@ -8524,12 +9275,28 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             reference_id=updated.id,
         )
 
-    if str(staff.get("role") or "").strip().upper() == RoleType.WAREHOUSE_STAFF and next_status == OrderStatus.CONFIRMED:
-        _email_order_confirmed_to_customer(updated)
-    # Rejection flow from portal actions carries a reason; notify customer by email with order details.
-    if rejection_reason and next_status == OrderStatus.REJECTED:
-        updated_for_mail = Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=updated.id)
-        _email_order_rejected_to_customer(updated_for_mail, rejection_reason)
+    # Every outcome the customer can see gets its own message, written for that
+    # outcome rather than one template with the status swapped in.
+    try:
+        order_for_mail = (
+            Order.objects.select_related("customer", "timeline")
+            .prefetch_related("items__product")
+            .get(id=updated.id)
+        )
+        if next_status == OrderStatus.CONFIRMED:
+            _email_purchase_request_approved_to_customer(order_for_mail)
+        elif next_status == OrderStatus.PREPARING:
+            _email_order_preparing_to_customer(order_for_mail)
+        elif next_status == OrderStatus.OUT_FOR_DELIVERY:
+            _email_order_out_for_delivery_to_customer(order_for_mail)
+        elif next_status == OrderStatus.DELIVERED:
+            _email_order_delivered_to_customer(order_for_mail)
+        elif next_status == OrderStatus.REJECTED:
+            _email_order_rejected_to_customer(order_for_mail, rejection_reason)
+        elif next_status == OrderStatus.CANCELLED:
+            _email_order_cancelled_to_customer(order_for_mail, rejection_reason)
+    except Exception:
+        logger.exception("Failed to email the order outcome for %s", updated.id)
 
     return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
 
@@ -8903,6 +9670,10 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         reference_type="trip",
         reference_id=trip.id,
     )
+    try:
+        _email_trip_assigned_to_driver(trip)
+    except Exception:
+        logger.exception("Failed to email the trip assignment for %s", trip.id)
     return _ok({"success": True, "trip": _serialize_trip(trip)}, 201)
 
 
@@ -9467,6 +10238,16 @@ def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
         timeline.cancelled_at = now
         timeline.save()
 
+    try:
+        cancelled_order = (
+            Order.objects.select_related("customer", "timeline")
+            .prefetch_related("items__product")
+            .get(id=o.id)
+        )
+        _email_order_cancelled_to_customer(cancelled_order, cancellation_reason, cancelled_by_customer=True)
+    except Exception:
+        logger.exception("Failed to email the cancellation for order %s", o.id)
+
     return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
 
 
@@ -9880,22 +10661,24 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     )
     # Fix: email provider retries are best-effort and must not turn a saved request
     # into a client-side submission failure while the API waits on network I/O.
+    def _send_replacement_submission_emails(replacement_id: str) -> None:
+        entry = (
+            Replacement.objects.select_related("order__customer")
+            .prefetch_related("lines__product")
+            .filter(id=replacement_id)
+            .first()
+        )
+        if entry is None:
+            return
+        try:
+            _email_replacement_submitted_to_staff(entry)
+            _email_replacement_submitted_to_customer(entry)
+        except Exception:
+            logger.exception("Failed to email the submitted replacement %s", replacement_id)
+
     threading.Thread(
-        target=_send_transactional_email,
-        kwargs={
-            "subject": f"New Replacement Request: {replacement.replacement_number}",
-            "message": (
-                f"A customer submitted a replacement request.\n\n"
-                f"Replacement: {replacement.replacement_number}\n"
-                f"Order: {order.order_number}\n"
-                f"Customer: {customer_name}\n"
-                f"Product: {product_hint}\n"
-                f"Damaged items: {number_damaged_items}\n"
-                f"Damage type: {damage_type}\n"
-                f"Details: {description_hint}\n"
-            ),
-            "recipients": _ops_staff_emails(),
-        },
+        target=_send_replacement_submission_emails,
+        args=(replacement.id,),
         name=f"replacement-email-{replacement.id}",
         daemon=True,
     ).start()
@@ -10634,7 +11417,12 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
                 changed_fields.append("updated_at")
                 order.save(update_fields=changed_fields)
                 if previous_status != OrderStatus.OUT_FOR_DELIVERY:
-                    refreshed_for_email = Order.objects.select_related("customer").filter(id=order.id).first()
+                    refreshed_for_email = (
+                        Order.objects.select_related("customer")
+                        .prefetch_related("items__product")
+                        .filter(id=order.id)
+                        .first()
+                    )
                     if refreshed_for_email:
                         _email_order_out_for_delivery_to_customer(refreshed_for_email)
 
@@ -10783,7 +11571,22 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
                     timeline.save(update_fields=["cancelled_at", "updated_at"])
                 else:
                     OrderTimeline.objects.create(order=order, cancelled_at=now)
-    
+
+            try:
+                order_for_mail = (
+                    Order.objects.select_related("customer", "timeline")
+                    .prefetch_related("items__product")
+                    .get(id=order.id)
+                )
+                _email_delivery_failed_to_customer(
+                    order_for_mail,
+                    cancellation_reason or str(getattr(dp, "failure_reason", "") or "").strip(),
+                    rescheduled_for=rescheduled_delivery_at if requeued_to_route_pool else None,
+                    order_cancelled=not requeued_to_route_pool,
+                )
+            except Exception:
+                logger.exception("Failed to email the delivery outcome for order %s", order.id)
+
     t = dp.trip
     if defer_within_trip_today:
         with transaction.atomic():

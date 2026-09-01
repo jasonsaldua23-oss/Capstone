@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import Script from 'next/script'
 import { setTabAuthToken } from '@/lib/client-auth'
 import { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } from '@/lib/password-policy'
-import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
-import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
+import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -539,15 +539,15 @@ export function CustomerLoginPage() {
                   />
                   Keep me logged in
                 </label>
-                <Button type="submit" className="h-9 w-full rounded-xl bg-gradient-to-r from-[#3ca232] to-[#4aac35] text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(63,150,55,0.28)] hover:from-[#34922c] hover:to-[#439c2f] sm:h-10 sm:text-[15px]" disabled={isLoading}>
+                <Button type="submit" className="h-9 w-full rounded-xl bg-[#3ca232] text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(63,150,55,0.24)] hover:bg-[#34922c] sm:h-10 sm:text-[15px]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Log In
                 </Button>
-                <ForgotPasswordDialog
-                  accountType="customer"
-                  portal="customer"
-                  initialEmail={email}
-                  triggerClassName="w-full text-center text-[12px] text-[#3f9a35] transition-colors hover:text-[#34832d] sm:text-sm"
-                />
+                <Link
+                  href={forgotPasswordHref('customer', email)}
+                  className="block w-full text-center text-[12px] text-[#3f9a35] transition-colors hover:text-[#34832d] sm:text-sm"
+                >
+                  Forgot password?
+                </Link>
                 <div key="login-divider" className="my-2.5 sm:my-3">
                   <div className="relative flex items-center justify-center">
                     <div className="absolute inset-0 flex items-center">

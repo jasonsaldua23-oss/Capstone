@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
-import { resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
-import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog'
+import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -326,7 +326,7 @@ export function AdminLoginPage() {
               Keep me logged in
             </label>
             ) : null}
-            <Button type="submit" className="w-full h-11 rounded-[10px] bg-gradient-to-r from-[#0f4fd3] to-[#0b45bf] text-white shadow-[0_10px_20px_rgba(15,79,211,0.28)] hover:from-[#0d48c2] hover:to-[#093fae]" disabled={isLoading}>
+            <Button type="submit" className="w-full h-11 rounded-[10px] bg-[#0f4fd3] text-white shadow-[0_10px_20px_rgba(15,79,211,0.24)] hover:bg-[#0b45bf]" disabled={isLoading}>
               {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}Log In
             </Button>
             {requiresTwoFactor ? (
@@ -344,18 +344,13 @@ export function AdminLoginPage() {
                 Back to login
               </Button>
             ) : null}
-            <ForgotPasswordDialog
-              accountType="staff"
-              portal="admin"
-              initialEmail={email}
-              triggerClassName="-mt-1 flex w-full items-center justify-center gap-2.5 text-[0.9rem] font-medium text-[#16984e] transition hover:text-[#107e41]"
-              triggerContent={
-                <>
-                  <Lock className="h-4 w-4" />
-                  <span className="text-[0.9rem] font-medium">Forgot password?</span>
-                </>
-              }
-            />
+            <Link
+              href={forgotPasswordHref('admin', email)}
+              className="-mt-1 flex w-full items-center justify-center gap-2.5 text-[0.9rem] font-medium text-[#16984e] transition hover:text-[#107e41]"
+            >
+              <Lock className="h-4 w-4" />
+              <span className="text-[0.9rem] font-medium">Forgot password?</span>
+            </Link>
           </form>
         </CardContent>
       </Card>

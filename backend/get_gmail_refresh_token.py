@@ -105,9 +105,11 @@ def main():
         if resp.status_code == 200:
             break
 
-    if not resp or resp.status_code != 200:
-        print(f"\n[ERROR] Failed to obtain tokens (HTTP {resp.status_code if resp else 'N/A'}):")
-        if resp:
+    if resp is None or resp.status_code != 200:
+        # Fix: requests.Response is false for HTTP errors, so test against None
+        # explicitly or useful Google error details are incorrectly hidden as N/A.
+        print(f"\n[ERROR] Failed to obtain tokens (HTTP {resp.status_code if resp is not None else 'N/A'}):")
+        if resp is not None:
             print(resp.text)
         sys.exit(1)
 

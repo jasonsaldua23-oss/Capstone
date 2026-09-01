@@ -36,11 +36,12 @@ function defaultLoginPathForVariant(variant: AppVariant): string {
 }
 
 function extractPortalFromLoginPath(pathname: string): PortalType | null {
-  if (pathname === '/login/admin') return 'admin'
-  if (pathname === '/login/warehouse') return 'warehouse'
-  if (pathname === '/login/driver') return 'driver'
-  if (pathname === '/login/customer') return 'customer'
-  return null
+  // Sub-routes such as /login/admin/forgot-password belong to the same portal and
+  // must be gated by the deployment variant exactly like the login page itself.
+  const portals: PortalType[] = ['admin', 'warehouse', 'driver', 'customer']
+  return (
+    portals.find((portal) => pathname === `/login/${portal}` || pathname.startsWith(`/login/${portal}/`)) || null
+  )
 }
 
 function isRoleAllowedForVariant(payload: AuthPayload, variant: AppVariant): boolean {
