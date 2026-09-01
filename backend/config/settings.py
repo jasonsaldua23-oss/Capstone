@@ -251,6 +251,16 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # Google OAuth (customer registration/login)
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+# Added: customer web/mobile clients may have different Google OAuth audiences.
+# Keep the primary client for Gmail compatibility while explicitly allowing each
+# trusted login client configured by the server administrator.
+GOOGLE_OAUTH_CLIENT_IDS = [
+    client_id.strip()
+    for client_id in os.getenv("GOOGLE_OAUTH_CLIENT_IDS", "").split(",")
+    if client_id.strip()
+]
+if GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_ID not in GOOGLE_OAUTH_CLIENT_IDS:
+    GOOGLE_OAUTH_CLIENT_IDS.insert(0, GOOGLE_OAUTH_CLIENT_ID)
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
 # Dev only: disable SSL verification for Google APIs (fix Windows cert issues)
 GOOGLE_OAUTH_SKIP_SSL_VERIFY = _bool("GOOGLE_OAUTH_SKIP_SSL_VERIFY", DEBUG)

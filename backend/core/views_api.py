@@ -4097,8 +4097,11 @@ def _email_exists_for_account(email: str, account_type: str, role_id: str | None
 
 
 def _verify_google_token(credential: str) -> dict[str, Any]:
-    client_id = getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "")
-    if not client_id:
+    client_ids = list(getattr(settings, "GOOGLE_OAUTH_CLIENT_IDS", []) or [])
+    primary_client_id = str(getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "") or "").strip()
+    if primary_client_id and primary_client_id not in client_ids:
+        client_ids.insert(0, primary_client_id)
+    if not client_ids:
         raise ValueError("Google OAuth is not configured")
     skip_ssl_verify = bool(getattr(settings, "GOOGLE_OAUTH_SKIP_SSL_VERIFY", getattr(settings, "DEBUG", False)))
 
@@ -4114,7 +4117,9 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
         except Exception as exc:
             raise ValueError(f"Malformed Google credential payload: {exc}")
 
-        if str(claims.get("aud") or "") != client_id:
+        # Fix: accept tokens from every explicitly configured web/mobile OAuth
+        # client while continuing to reject tokens minted for unrelated apps.
+        if str(claims.get("aud") or "") not in client_ids:
             raise ValueError("Google token audience mismatch")
         if str(claims.get("iss") or "") not in {"accounts.google.com", "https://accounts.google.com"}:
             raise ValueError("Google token issuer is invalid")
@@ -4146,7 +4151,7 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
     return google_id_token.verify_oauth2_token(
         credential,
         request,
-        client_id,
+        client_ids,
         clock_skew_in_seconds=300,
     )
 
