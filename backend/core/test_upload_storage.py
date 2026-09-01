@@ -5,6 +5,7 @@ redeployed, which is what made product photos disappear from the inventory.
 """
 import json
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -83,6 +84,24 @@ class ProductImageUploadTests(TestCase):
         headers = post.call_args.kwargs["headers"]
         self.assertEqual(headers["apikey"], "sb_secret_server-key")
         self.assertNotIn("Authorization", headers)
+
+    def test_new_secret_key_falls_back_to_persistent_disk_when_storage_requires_a_jwt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = {
+                "SUPABASE_URL": "https://project.supabase.co",
+                "SUPABASE_SERVICE_ROLE_KEY": "sb_secret_server-key",
+                "SUPABASE_UPLOADS_BUCKET": "uploads",
+                "MEDIA_ROOT": tmp,
+            }
+            with override_settings(**settings), patch("core.object_storage.requests.post") as post:
+                post.return_value.ok = False
+                post.return_value.status_code = 400
+                post.return_value.text = "headers must have required property 'authorization'"
+                response = self._upload()
+                image_url = json.loads(response.content)["imageUrl"]
+                stored_file = Path(tmp) / image_url.lstrip("/")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(stored_file.read_bytes(), PNG_BYTES)
 
     @override_settings(**BUCKET_SETTINGS)
     def test_legacy_service_role_key_remains_a_bearer_token(self):

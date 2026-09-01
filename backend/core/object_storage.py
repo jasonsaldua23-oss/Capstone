@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -59,6 +60,14 @@ def _api_key_headers(key: str) -> dict[str, str]:
     return headers
 
 
+def _store_on_persistent_disk(object_path: str, data: bytes) -> str:
+    """Use the API server's persistent upload directory as a compatibility fallback."""
+    target = Path(settings.MEDIA_ROOT) / "uploads" / object_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return f"/uploads/{object_path}"
+
+
 def upload_bytes(object_path: str, data: bytes, content_type: str | None = None) -> str:
     """Store bytes at `object_path` in the bucket and return the public URL.
 
@@ -91,6 +100,15 @@ def upload_bytes(object_path: str, data: bytes, content_type: str | None = None)
     if not response.ok:
         detail = str(response.text or "")[:300]
         logger.error("Supabase upload failed path=%s status=%s body=%s", clean_path, response.status_code, detail)
+        # Fix: Supabase's raw Storage endpoint still requires an Authorization JWT,
+        # while new sb_secret keys are explicitly not JWTs. Keep production uploads
+        # available on Lightsail's persistent disk until Storage accepts these keys.
+        incompatible_secret_key = key.startswith("sb_secret_") and (
+            "required property 'authorization'" in detail or "Invalid Compact JWS" in detail
+        )
+        if incompatible_secret_key:
+            logger.warning("Falling back to persistent disk for upload path=%s", clean_path)
+            return _store_on_persistent_disk(clean_path, data)
         raise ObjectStorageError(f"Upload rejected by storage ({response.status_code})")
     return public_url(clean_path)
 
