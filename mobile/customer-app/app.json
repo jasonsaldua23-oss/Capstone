@@ -30,6 +30,11 @@
     "ios": {
       "bundleIdentifier": "com.logitrack.customer"
     },
-    "extra": {}
+    "extra": {
+      "googleClientId": "39666838434-939qeikmkjdk3e4uv95mr8qg6q7hh0c3.apps.googleusercontent.com",
+      "eas": {
+        "projectId": "ec694036-b410-4a3f-a9d7-30b3a8057dc5"
+      }
+    }
   }
 }

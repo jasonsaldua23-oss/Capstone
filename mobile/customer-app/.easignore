@@ -1,0 +1,16 @@
+# Dependencies are installed by EAS from package-lock.json.
+node_modules/
+
+# Local Expo, browser-check, and generated export artifacts are not app source.
+.expo/
+.expo-*/
+.chrome-*/
+.edge-*/
+.codex-*/
+dist-*/
+NUL
+*.log
+
+# Local-only environment files are replaced by the preview profile variables.
+.env
+.env.*

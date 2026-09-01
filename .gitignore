@@ -76,7 +76,9 @@ replay_pid*.log
 *.stderr.log
 *.stdout.log
 # Skills directory
-/skills/# Python / Django
+/skills/
+
+# Python / Django
 __pycache__/
 *.py[cod]
 skills/
@@ -91,3 +93,12 @@ mobile/customer-app/.expo/
 # uploads meant a deploy that resets the working tree restored the committed images
 # and deleted every photo uploaded through the portal since the last commit.
 backend/media/
+
+# Accidental files created by `> NUL` redirects run under Git Bash, where NUL is a
+# real path rather than the Windows null device.
+NUL
+**/NUL
+
+# Local APK/AAB build output and the unpacked APK used for asset verification.
+dist-apk/
+**/.expo-apk-check/

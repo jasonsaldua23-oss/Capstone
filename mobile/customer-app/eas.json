@@ -1,0 +1,15 @@
+{
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://10.127.142.183:8000",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "39666838434-939qeikmkjdk3e4uv95mr8qg6q7hh0c3.apps.googleusercontent.com"
+      }
+    },
+    "production": {}
+  }
+}

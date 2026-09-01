@@ -32,20 +32,31 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
+      ],
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
       ]
     ],
     "android": {
       "package": "com.logitrack.driver",
+      "versionCode": 2,
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ],
       "permissions": [
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "CAMERA"
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "ios": {
@@ -53,6 +64,11 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Allow AAB TRADING DRIVER to access your location while you are delivering orders.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow AAB TRADING DRIVER to share your route while an assigned delivery trip is active."
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "1de2851d-3f38-4cde-a8cd-ad92f8355c46"
       }
     }
   }

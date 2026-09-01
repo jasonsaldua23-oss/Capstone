@@ -52,6 +52,10 @@ export interface DriverTripOrderItem {
   containerTypeName?: string | null;
   isReturnableItem?: boolean | null;
   fullQuantity?: number | null;
+  // Serialized from OrderItem.unit_price / total_price; the history order detail
+  // shows the per-case price and line total the way the web portal does.
+  unitPrice?: number | null;
+  totalPrice?: number | null;
   product?: {
     id?: string | null;
     name?: string | null;
@@ -142,6 +146,7 @@ export interface DriverTrip {
   plannedStartAt?: string | null;
   actualStartAt?: string | null;
   actualEndAt?: string | null;
+  updatedAt?: string | null;
   notes?: string | null;
   tripSchedule?: string | null;
   warehouseId?: string | null;

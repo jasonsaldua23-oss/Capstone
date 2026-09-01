@@ -1383,30 +1383,46 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
                 OTP Verified Successfully
               </div>
             ) : (
-              <Button
-                type="button"
-                onClick={() => {
-                  // A live code is entered, not replaced.
-                  if (passwordOtpSent && otpExpiry > 0) {
-                    setSubView('change-password-otp')
-                    return
-                  }
-                  void requestPasswordOtp()
-                }}
-                disabled={isSendingPasswordOtp}
-                className="w-full h-11 rounded-xl bg-[#0d61ad] hover:bg-[#0b579c] text-white font-semibold shadow-sm transition-colors"
-              >
-                {isSendingPasswordOtp ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending OTP...
-                  </>
-                ) : passwordOtpSent && otpExpiry > 0 ? (
-                  'Enter OTP'
-                ) : (
-                  'Request Verification OTP'
-                )}
-              </Button>
+              // One button that relabelled itself meant that once a code was sent
+              // there was no way to ask for another until it fully expired, even
+              // after the resend cooldown had cleared. Requesting now hides only for
+              // the length of that cooldown, and entering a live code sits beside it.
+              <div className="space-y-2">
+                {!passwordOtpSent || resendCooldown <= 0 ? (
+                  <Button
+                    type="button"
+                    onClick={() => void requestPasswordOtp()}
+                    disabled={isSendingPasswordOtp}
+                    className="w-full h-11 rounded-xl bg-[#0d61ad] hover:bg-[#0b579c] text-white font-semibold shadow-sm transition-colors"
+                  >
+                    {isSendingPasswordOtp ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Sending OTP...
+                      </>
+                    ) : (
+                      'Request Verification OTP'
+                    )}
+                  </Button>
+                ) : null}
+
+                {passwordOtpSent && otpExpiry > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSubView('change-password-otp')}
+                    className="w-full h-11 rounded-xl border-[#0d61ad]/40 text-[#0d61ad] font-semibold transition-colors hover:bg-[#0d61ad]/5"
+                  >
+                    Enter OTP
+                  </Button>
+                ) : null}
+
+                {passwordOtpSent && resendCooldown > 0 ? (
+                  <p className="text-center text-xs font-medium text-slate-500">
+                    You can request a new code in {resendCooldown}s
+                  </p>
+                ) : null}
+              </div>
             )}
           </div>
         </div>

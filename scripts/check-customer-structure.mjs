@@ -5,13 +5,12 @@
 // up. It answers: does the app show the same things, in the same order, per screen?
 // It deliberately says nothing about styling or exact copy.
 //
+// The comparison machinery is shared with check-driver-structure.mjs; only the
+// screen map and the documented differences live here.
+//
 //   node scripts/check-customer-structure.mjs [screen]
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
+import { reportParity } from "./lib/portal-parity.mjs";
 
 // Each pair is one customer-facing screen.
 const SCREENS = [
@@ -129,44 +128,14 @@ const INTENTIONAL = {
   Receipt: ["Discount"],
   // The web opens these as dialogs with a close control; the app pushes a screen
   // and returns via the back header, so there is nothing to "close".
-  "Purchase Orders": ["Close", "Close replacement details dialog"],
+  // The app's ImagePreview says "Tap to view full-size photo"; a phone has no click.
+  "Purchase Orders": ["Close", "Close replacement details dialog", "Click to inspect full-size evidence"],
   Profile: ["Close", "Back to profile"],
 };
 
 const only = process.argv[2]?.toLowerCase();
-let mismatches = 0;
+const mismatches = reportParity({ screens: SCREENS, intentional: INTENTIONAL, only });
 
-for (const [name, webFile, appFiles] of SCREENS) {
-  if (only && !name.toLowerCase().includes(only)) continue;
-
-  let web, app;
-  try {
-    web = sectionsOf(webFile);
-    app = [...new Set(appFiles.flatMap((f) => sectionsOf(f)))];
-  } catch (error) {
-    console.log(`\n## ${name}\n   !! ${error.message}`);
-    mismatches += 1;
-    continue;
-  }
-
-  const webSet = new Set(web.map((s) => s.toLowerCase()));
-  const appSet = new Set(app.map((s) => s.toLowerCase()));
-  const allowed = new Set((INTENTIONAL[name] || []).map((s) => s.toLowerCase()));
-  const missingInApp = web.filter((s) => !appSet.has(s.toLowerCase()) && !allowed.has(s.toLowerCase()));
-  const extraInApp = app.filter((s) => !webSet.has(s.toLowerCase()));
-
-  const status = missingInApp.length === 0
-    ? allowed.size > 0 ? `aligned (${allowed.size} documented difference(s))` : "aligned"
-    : `${missingInApp.length} web section(s) absent`;
-  console.log(`\n## ${name} — ${status}`);
-  console.log(`   web: ${web.join(" | ") || "(none)"}`);
-  console.log(`   app: ${app.join(" | ") || "(none)"}`);
-  if (missingInApp.length > 0) {
-    console.log(`   absent from app: ${missingInApp.join(", ")}`);
-    mismatches += 1;
-  }
-  if (extraInApp.length > 0) console.log(`   app-only: ${extraInApp.join(", ")}`);
-}
-
-console.log(`\nScreens with sections missing from the app: ${mismatches}`);
+console.log(`
+Screens with sections missing from the app: ${mismatches}`);
 process.exit(mismatches > 0 ? 1 : 0);

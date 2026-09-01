@@ -1,0 +1,47 @@
+# EAS stages this monorepo from C:\CAPSTONE. Exclude web/backend and local tool
+# state so Android builds contain only the two self-contained Expo applications.
+.git/
+.agents/
+.claude/
+.codex/
+.idea/
+.vscode/
+.next/
+.venv/
+node_modules/
+android/
+backend/
+cap-web/
+db/
+deploy/
+docs/
+prisma/
+/dist-apk/
+# Keep nested mobile/shared source folders; only the web app's root source is excluded.
+/src/
+
+# The customer app imports artwork and map data directly from the root public folder.
+!public/
+
+# Mobile dependencies and generated outputs are recreated in the cloud.
+mobile/customer-app/node_modules/
+mobile/customer-app/.expo/
+mobile/customer-app/.expo-*/
+mobile/customer-app/.chrome-*/
+mobile/customer-app/.edge-*/
+mobile/customer-app/.codex-*/
+mobile/customer-app/dist-*/
+mobile/driver-app/node_modules/
+mobile/driver-app/.expo/
+mobile/driver-app/.expo-*/
+mobile/driver-app/.export-*/
+mobile/driver-app/.web-export-*/
+mobile/driver-app/dist-*/
+mobile/driver-app/android/.gradle/
+mobile/driver-app/android/app/build/
+mobile/driver-app/android/build/
+
+# Local-only files are replaced by EAS profile variables.
+*.log
+.env
+.env.*

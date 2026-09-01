@@ -68,6 +68,16 @@ module.exports = ({ config }) => {
   }
   return {
     ...config,
+    // Fix build 2 can replace the already-installed build 1 on the phone.
+    android: {
+      ...(config.android || {}),
+      versionCode: 2,
+    },
+    plugins: [
+      ...(config.plugins || []),
+      // Fix: the installed APK calls the LAN backend over HTTP, which Android 9+ blocks by default.
+      ["expo-build-properties", { android: { usesCleartextTraffic: true } }],
+    ],
     extra: {
       ...(config.extra || {}),
       googleClientId,
