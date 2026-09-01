@@ -57,6 +57,24 @@ const queryClient = new QueryClient({
 
 const DEFAULT_BRAND_TITLE = "Ann Ann's Beverages Trading"
 const DEFAULT_BRAND_ICON = '/ann-anns-logo.png'
+const TAB_LOGIN_PORTAL_KEY = 'tab-login-portal'
+
+function rememberTabLoginPortal(portal: PortalType) {
+  try {
+    window.sessionStorage.setItem(TAB_LOGIN_PORTAL_KEY, portal)
+  } catch {
+    // Storage may be unavailable in restricted browser contexts; routing still works.
+  }
+}
+
+function getRememberedTabLoginPortal(allowedPortals: PortalType[]): PortalType | null {
+  try {
+    const rememberedPortal = window.sessionStorage.getItem(TAB_LOGIN_PORTAL_KEY) as PortalType | null
+    return rememberedPortal && allowedPortals.includes(rememberedPortal) ? rememberedPortal : null
+  } catch {
+    return null
+  }
+}
 
 function applyBrowserBranding(title: string, iconPath: string) {
   if (typeof document === 'undefined') return
@@ -160,6 +178,7 @@ export default function Home() {
   const [isMounted, setIsMounted] = useState(false)
   const [sessionExpiredPortal, setSessionExpiredPortal] = useState<PortalType | null>(null)
   const sessionTimerRef = useRef<number | null>(null)
+  const logoutRedirectPortalRef = useRef<PortalType | null>(null)
   const DRIVER_ACTIVITY_EVENT = 'aab:driver-activity'
   const getPortalLoginPath = (targetPortal: PortalType) => `/login/${targetPortal}`
 
@@ -191,6 +210,8 @@ export default function Home() {
             }
             setUser(data.user)
             setPortal(userPortal)
+            // Keep this tab associated with its portal even after logout or expiry.
+            rememberTabLoginPortal(userPortal)
           }
         }
       } catch (error) {
@@ -208,6 +229,19 @@ export default function Home() {
 
   useEffect(() => {
     if (!isLoading && isMounted && !user) {
+      const logoutPortal = logoutRedirectPortalRef.current
+      if (logoutPortal) {
+        // Fix: an explicit logout must return to that portal's own login page,
+        // instead of being overwritten by the shared signed-out portal chooser.
+        router.replace(getPortalLoginPath(logoutPortal))
+        return
+      }
+      const rememberedPortal = getRememberedTabLoginPortal(allowedPortals)
+      if (rememberedPortal) {
+        // Returning to the bare domain in this tab opens its own portal login.
+        router.replace(getPortalLoginPath(rememberedPortal))
+        return
+      }
       // A shared deployment must not silently treat Admin as the default user.
       router.replace(appVariant === 'all' ? '/login' : getPortalLoginPath(portal))
     }
@@ -307,6 +341,8 @@ export default function Home() {
 
   const logoutToPortal = (targetPortal: PortalType) => {
     const nextPortal = allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal
+    logoutRedirectPortalRef.current = nextPortal
+    rememberTabLoginPortal(nextPortal)
     setSessionExpiredPortal(null)
     clearTabAuthToken()
     queryClient.clear()
