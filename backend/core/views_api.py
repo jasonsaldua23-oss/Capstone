@@ -12337,6 +12337,9 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
             container_type=container_type,
             container_count=added_bottles,
             reason=f"Customer declared {cases} empty case(s) ({added_bottles} bottles) of {product.name}",
+            # Fix: preserve the exact product behind this container-level balance.
+            reference_type="product",
+            reference_id=product.id,
             performed_by=customer.name or "Customer",
         )
 

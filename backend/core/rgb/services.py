@@ -5,7 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from ..beverage_categories import category_spec
@@ -106,19 +106,90 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             ct_key = str(ct_id)
             reserved_by_container[ct_key] = reserved_by_container.get(ct_key, 0) + max(0, int(mc.empty_covered_quantity or 0))
 
-    balances = CustomerBottleBalance.objects.filter(customer=customer).select_related("container_type")
+    balances = list(CustomerBottleBalance.objects.filter(customer=customer).select_related("container_type"))
+    balance_container_ids = [str(balance.container_type_id) for balance in balances]
+
+    # Fix: balances are grouped by reusable container, but declarations are made
+    # for a specific product. Recover that product instead of listing every item
+    # in the catalog that happens to use the same bottle type.
+    declared_product_ids_by_container: dict[str, list[str]] = {}
+    legacy_product_names_by_container: dict[str, list[str]] = {}
+    declaration_transactions = DepositTransaction.objects.filter(
+        customer=customer,
+        type=DepositTransaction.TransactionType.ADJUSTMENT,
+        container_type_id__in=balance_container_ids,
+        reason__startswith="Customer declared ",
+    ).order_by("created_at")
+    for transaction in declaration_transactions:
+        container_key = str(transaction.container_type_id)
+        if transaction.reference_type == "product" and transaction.reference_id:
+            declared_product_ids_by_container.setdefault(container_key, []).append(str(transaction.reference_id))
+            continue
+        reason = str(transaction.reason or "")
+        if " of " in reason:
+            legacy_product_names_by_container.setdefault(container_key, []).append(reason.rsplit(" of ", 1)[-1].strip())
+
+    declared_product_ids = {
+        product_id
+        for product_ids in declared_product_ids_by_container.values()
+        for product_id in product_ids
+    }
+    legacy_product_names = {
+        name
+        for names in legacy_product_names_by_container.values()
+        for name in names
+        if name
+    }
+    declared_products = list(
+        Product.objects.filter(Q(id__in=declared_product_ids) | Q(name__in=legacy_product_names))
+        .select_related("packaging_profile")
+    ) if declared_product_ids or legacy_product_names else []
+    products_by_id = {str(product.id): product for product in declared_products}
+    products_by_name: dict[str, list[Product]] = {}
+    for product in declared_products:
+        products_by_name.setdefault(str(product.name), []).append(product)
+
     serialized = []
     for balance in balances:
         associated_packagings = list(
             ProductPackaging.objects.filter(container_type=balance.container_type, is_active=True)
-            .select_related("product")
+            .select_related("product", "product__packaging_profile", "packaging_profile")
             .order_by("-is_primary", "created_at")
         )
+        container_key = str(balance.container_type_id)
+        exact_products: list[Product] = []
+        for product_id in declared_product_ids_by_container.get(container_key, []):
+            product = products_by_id.get(product_id)
+            if product and product not in exact_products:
+                exact_products.append(product)
+        for product_name in legacy_product_names_by_container.get(container_key, []):
+            for product in products_by_name.get(product_name, []):
+                if product not in exact_products:
+                    exact_products.append(product)
+        if not exact_products:
+            exact_products = [
+                packaging.product
+                for packaging in associated_packagings
+                if packaging.product
+            ]
+
         prod_names = list(dict.fromkeys(
-            packaging.product.name
-            for packaging in associated_packagings
-            if packaging.product and packaging.product.name
+            product.name for product in exact_products if product.name
         ))
+        product_labels: list[str] = []
+        for product in exact_products:
+            if not product or not str(product.name or "").strip():
+                continue
+            sizes = [str(size).strip() for size in (product.sizes or []) if str(size).strip()]
+            if not sizes:
+                profile = product.packaging_profile
+                profile_size = str(getattr(profile, "container_size", "") or "").strip()
+                if profile_size:
+                    sizes = [profile_size]
+            size_label = ", ".join(sizes)
+            exact_label = f"{product.name} - {size_label}" if size_label else str(product.name)
+            if exact_label not in product_labels:
+                product_labels.append(exact_label)
         primary_packaging = associated_packagings[0] if associated_packagings else None
         containers_per_case = max(1, int(primary_packaging.containers_per_case or 1)) if primary_packaging else 1
         
@@ -141,6 +212,9 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             "containerTypeCode": balance.container_type.code,
             "productName": ", ".join(prod_names) if prod_names else None,
             "productNames": prod_names,
+            # Exact stored product names and sizes for the customer portal.
+            "productLabel": " · ".join(product_labels) if product_labels else None,
+            "productLabels": product_labels,
             "bottlesOutstanding": bottles_available,
             "bottlesTotalOnRecord": total_bottles,
             "bottlesReserved": bottles_reserved,

@@ -24,6 +24,8 @@ export interface CustomerBottleBalance {
   containerTypeName: string
   productName?: string
   productNames?: string[]
+  productLabel?: string
+  productLabels?: string[]
   depositAmount: number
   depositBalance: number
   bottlesOutstanding: number

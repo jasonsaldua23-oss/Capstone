@@ -1387,10 +1387,9 @@ export function CustomerProfileView({
                     <div key={balance.containerTypeId} className="px-4 py-3.5">
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">
-                          {/* Fix: show the product supplied by the balances API; use the
-                              container description only when no product name is available. */}
-                          <p className="truncate text-sm font-semibold text-slate-800">
-                            {balance.productName || balance.containerTypeName || 'Returnable container'}
+                          {/* Fix: show each exact stored product name with its size. */}
+                          <p className="text-sm font-semibold leading-5 text-slate-800">
+                            {balance.productLabel || balance.productName || balance.containerTypeName || 'Returnable container'}
                           </p>
                           <p className="mt-0.5 text-xs text-slate-500">
                             Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(depositAmount)}/{depositUnit}</span>
