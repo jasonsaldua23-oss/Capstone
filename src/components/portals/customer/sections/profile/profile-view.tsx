@@ -199,11 +199,29 @@ export function CustomerProfileView({
     }
   }, [reservedOrders.length])
 
+  const refreshCustomerBalances = useCallback(async () => {
+    try {
+      const response = await fetch('/api/auth/me', {
+        cache: 'no-store',
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (response.ok && payload?.user) {
+        // Fix: balances may have changed since the portal first loaded. Refresh
+        // them before rendering exact product-and-size labels.
+        onUserUpdate?.(payload.user)
+      }
+    } catch (error) {
+      console.error('Failed to refresh customer bottle balances:', error)
+    }
+  }, [onUserUpdate])
+
   useEffect(() => {
     if (subView === 'empties-deposits') {
       void fetchReservedOrders()
+      void refreshCustomerBalances()
     }
-  }, [subView, fetchReservedOrders])
+  }, [subView, fetchReservedOrders, refreshCustomerBalances])
 
   const fetchEligibleProducts = async () => {
     setIsLoadingEligible(true)
