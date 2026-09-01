@@ -201,9 +201,10 @@ export default function Home() {
 
   useEffect(() => {
     if (!isLoading && isMounted && !user) {
-      router.replace(getPortalLoginPath(portal))
+      // A shared deployment must not silently treat Admin as the default user.
+      router.replace(appVariant === 'all' ? '/login' : getPortalLoginPath(portal))
     }
-  }, [isLoading, isMounted, portal, router, user])
+  }, [appVariant, isLoading, isMounted, portal, router, user])
 
   useEffect(() => {
     if (!isMounted) return

@@ -103,6 +103,14 @@ export async function middleware(request: NextRequest) {
   const defaultLoginPath = defaultLoginPathForVariant(variant)
 
   if (pathname === '/login') {
+    // The shared deployment has no default role: valid sessions return to their
+    // role-resolved portal, while signed-out users choose one of the four logins.
+    if (variant === 'all') {
+      const payload = await getPayload(request)
+      return payload
+        ? NextResponse.redirect(new URL('/', request.url))
+        : NextResponse.next()
+    }
     return NextResponse.redirect(new URL(defaultLoginPath, request.url))
   }
 
