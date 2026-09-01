@@ -3,6 +3,10 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { CHUNK_RECOVERY_SCRIPT } from "@/lib/chunk-recovery-script";
 
+// Fix: HTML contains build-specific chunk names, so a CDN must never retain it
+// across deployments. Hashed files under /_next/static remain immutable/cacheable.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Ann Ann's Beverages Trading",
   description: "Logistics operations portal for admin, warehouse, driver, and customer workflows.",

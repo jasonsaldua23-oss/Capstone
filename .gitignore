@@ -107,4 +107,6 @@ dist-apk/
 # .github/workflows/deploy.yml, plus the local build-verification copy.
 /.next.build/
 /.next.prev/
-/.next.verify/
+# Any other ad-hoc build directory too: an unignored one gets scanned by
+# Tailwind's source detection and registered in tsconfig by next build.
+/.next*/

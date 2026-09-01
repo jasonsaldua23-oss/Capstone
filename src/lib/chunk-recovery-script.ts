@@ -36,7 +36,13 @@ export const CHUNK_RECOVERY_SCRIPT = `(function(){
     var n=read();
     if(n>=MAX){ give_up(); return; }
     try { sessionStorage.setItem(KEY,String(n+1)); } catch(e){ return; }
-    location.reload();
+    // A normal reload can receive the same stale HTML from a CDN. A unique query
+    // key forces the edge to request current HTML whose chunk names still exist.
+    try {
+      var u=new URL(location.href);
+      u.searchParams.set("__chunk_retry",String(Date.now()));
+      location.replace(u.toString());
+    } catch(e){ location.reload(); }
   }
   var PATTERN=/ChunkLoadError|Loading chunk|Failed to load chunk|dynamically imported module/;
   addEventListener("error",function(e){
