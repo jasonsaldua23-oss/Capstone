@@ -198,7 +198,7 @@ export function SettingsView() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: emailToVerify, accountType: 'staff', roleId: accountRoleId }),
+          body: JSON.stringify({ email: emailToVerify, accountType: 'staff', portal: 'admin', roleId: accountRoleId }),
         }
       )
       const payload = await response.json().catch(() => ({}))
@@ -243,7 +243,7 @@ export function SettingsView() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: emailToVerify, accountType: 'staff', otp }),
+          body: JSON.stringify({ email: emailToVerify, accountType: 'staff', portal: 'admin', otp }),
         }
       )
       const payload = await response.json().catch(() => ({}))
@@ -375,6 +375,7 @@ export function SettingsView() {
         body: JSON.stringify({
           email: accountEmail,
           accountType: 'staff',
+          portal: 'admin',
           otp: passwordOtpToken,
           newPassword,
         }),

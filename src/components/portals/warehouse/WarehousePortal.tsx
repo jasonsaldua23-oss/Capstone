@@ -852,7 +852,7 @@ export function WarehousePortal() {
       const response = await fetch(kind === 'password' ? '/api/auth/password-reset/request-otp' : '/api/auth/email-verification/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailToVerify, accountType: 'staff', roleId: accountRoleId }),
+        body: JSON.stringify({ email: emailToVerify, accountType: 'staff', portal: 'warehouse', roleId: accountRoleId }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -898,7 +898,7 @@ export function WarehousePortal() {
       const response = await fetch(kind === 'password' ? '/api/auth/password-reset/verify-otp' : '/api/auth/email-verification/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailToVerify, accountType: 'staff', otp }),
+        body: JSON.stringify({ email: emailToVerify, accountType: 'staff', portal: 'warehouse', otp }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -1066,6 +1066,7 @@ export function WarehousePortal() {
         body: JSON.stringify({
           email: accountEmailForReset,
           accountType: 'staff',
+          portal: 'warehouse',
           otp: passwordOtpToken,
           newPassword,
         }),

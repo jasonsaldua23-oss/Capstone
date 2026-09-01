@@ -4680,11 +4680,36 @@ def _send_structured_email(
     _send_transactional_email(subject=subject, message=text, recipients=recipients, html_message=html)
 
 
-def _get_reset_account(account_type: str, email: str) -> User | Customer | None:
+_PASSWORD_RESET_PORTAL_ROLES = {
+    "admin": {RoleType.SUPER_ADMIN, RoleType.ADMIN},
+    "warehouse": {RoleType.WAREHOUSE_STAFF},
+    "driver": {RoleType.DRIVER},
+}
+
+
+def _get_reset_account(account_type: str, email: str, portal: str = "") -> User | Customer | None:
     if account_type == "staff":
-        return User.objects.filter(email=email, is_active=True).first()
-    if account_type == "customer":
+        allowed_roles = _PASSWORD_RESET_PORTAL_ROLES.get(portal)
+        if not allowed_roles:
+            return None
+        # Fix: a staff email is valid only when its role belongs to the portal
+        # where the password reset was requested.
+        return User.objects.filter(email=email, role__in=allowed_roles, is_active=True).first()
+    if account_type == "customer" and portal in {"", "customer"}:
         return Customer.objects.filter(email=email, is_active=True).first()
+    return None
+
+
+def _password_reset_otp_scope(account_type: str, portal: str) -> str:
+    """Bind staff reset codes to one portal while preserving the customer scope."""
+    return f"staff:{portal}" if account_type == "staff" else "customer"
+
+
+def _password_reset_portal_error(account_type: str, portal: str) -> str | None:
+    if account_type == "staff" and portal not in _PASSWORD_RESET_PORTAL_ROLES:
+        return "A valid staff portal is required"
+    if account_type == "customer" and portal not in {"", "customer"}:
+        return "Portal does not match the customer account type"
     return None
 
 
@@ -6229,6 +6254,7 @@ def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     email = _normalize_email(body.get("email"))
     account_type = str(body.get("accountType", "")).strip().lower()
+    portal = str(body.get("portal", "")).strip().lower()
 
     if not email:
         return _err("Email is required")
@@ -6238,15 +6264,19 @@ def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
         return _err("Please enter a valid email address")
     if account_type not in {"staff", "customer"}:
         return _err("accountType must be 'staff' or 'customer'")
+    portal_error = _password_reset_portal_error(account_type, portal)
+    if portal_error:
+        return _err(portal_error)
     if not _otp_mail_ready():
         return _err("OTP email service is not configured", 500)
 
-    account = _get_reset_account(account_type, email)
+    account = _get_reset_account(account_type, email, portal)
     if not account:
-        return _err("Not registered", 404)
+        return _err("Email is not registered for this portal", 404)
 
     now = timezone.now()
-    code = _stateless_otp_for_bucket(email, account_type, "password_reset", _otp_bucket(now))
+    otp_scope = _password_reset_otp_scope(account_type, portal)
+    code = _stateless_otp_for_bucket(email, otp_scope, "password_reset", _otp_bucket(now))
     try:
         _send_reset_otp_email(email, code)
     except Exception:
@@ -6262,6 +6292,7 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     email = _normalize_email(body.get("email"))
     account_type = str(body.get("accountType", "")).strip().lower()
+    portal = str(body.get("portal", "")).strip().lower()
     otp_code = str(body.get("otp", "")).strip()
     new_password = str(body.get("newPassword", "")).strip()
 
@@ -6269,22 +6300,23 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
         return _err("Email is required")
     if account_type not in {"staff", "customer"}:
         return _err("accountType must be 'staff' or 'customer'")
+    portal_error = _password_reset_portal_error(account_type, portal)
+    if portal_error:
+        return _err(portal_error)
     if not otp_code:
         return _err("OTP is required")
     password_error = _validate_password_strength(new_password)
     if password_error:
         return _err(password_error)
 
-    now = timezone.now()
-    if not _is_valid_stateless_otp(otp_code, email, account_type, "password_reset", now):
-        return _err("Invalid or expired OTP", 400)
-
-    if account_type == "staff":
-        account = User.objects.filter(email=email, is_active=True).first()
-    else:
-        account = Customer.objects.filter(email=email, is_active=True).first()
+    account = _get_reset_account(account_type, email, portal)
     if not account:
-        return _err("Not registered", 404)
+        return _err("Email is not registered for this portal", 404)
+
+    now = timezone.now()
+    otp_scope = _password_reset_otp_scope(account_type, portal)
+    if not _is_valid_stateless_otp(otp_code, email, otp_scope, "password_reset", now):
+        return _err("Invalid or expired OTP", 400)
 
     account.password = hash_password(new_password)
     account.save(update_fields=["password", "updated_at"])
@@ -6298,17 +6330,25 @@ def auth_password_reset_verify_otp(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     email = _normalize_email(body.get("email"))
     account_type = str(body.get("accountType", "")).strip().lower()
+    portal = str(body.get("portal", "")).strip().lower()
     otp_code = str(body.get("otp", "")).strip()
 
     if not email:
         return _err("Email is required")
     if account_type not in {"staff", "customer"}:
         return _err("accountType must be 'staff' or 'customer'")
+    portal_error = _password_reset_portal_error(account_type, portal)
+    if portal_error:
+        return _err(portal_error)
     if not otp_code:
         return _err("OTP is required")
 
+    if not _get_reset_account(account_type, email, portal):
+        return _err("Email is not registered for this portal", 404)
+
     now = timezone.now()
-    if not _is_valid_stateless_otp(otp_code, email, account_type, "password_reset", now):
+    otp_scope = _password_reset_otp_scope(account_type, portal)
+    if not _is_valid_stateless_otp(otp_code, email, otp_scope, "password_reset", now):
         return _err("Invalid or expired OTP", 400)
 
     return _ok({"success": True, "message": "OTP verified successfully."})

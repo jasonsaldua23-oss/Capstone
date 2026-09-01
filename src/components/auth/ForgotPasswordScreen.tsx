@@ -132,7 +132,8 @@ export function ForgotPasswordScreen({ accountType, portal }: ForgotPasswordScre
       const response = await fetch('/api/auth/password-reset/request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail, accountType }),
+        // The backend validates that this address belongs to this exact portal.
+        body: JSON.stringify({ email: normalizedEmail, accountType, portal }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
@@ -167,7 +168,7 @@ export function ForgotPasswordScreen({ accountType, portal }: ForgotPasswordScre
       const response = await fetch('/api/auth/password-reset/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail, accountType, otp: otp.trim() }),
+        body: JSON.stringify({ email: normalizedEmail, accountType, portal, otp: otp.trim() }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
@@ -223,6 +224,7 @@ export function ForgotPasswordScreen({ accountType, portal }: ForgotPasswordScre
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           accountType,
+          portal,
           otp: otp.trim(),
           newPassword,
         }),

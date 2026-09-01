@@ -515,7 +515,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email, accountType: 'staff' }),
+        body: JSON.stringify({ email, accountType: 'staff', portal: 'driver' }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -556,7 +556,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email, accountType: 'staff', otp: passwordOtp.trim() }),
+        body: JSON.stringify({ email, accountType: 'staff', portal: 'driver', otp: passwordOtp.trim() }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -609,6 +609,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         body: JSON.stringify({
           email,
           accountType: 'staff',
+          portal: 'driver',
           otp: passwordOtp.trim(),
           newPassword,
         }),

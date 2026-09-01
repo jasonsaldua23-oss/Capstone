@@ -223,21 +223,21 @@ export async function updateDriverProfile(input: DriverProfileUpdateInput): Prom
 export async function requestPasswordResetOtp(email: string): Promise<void> {
   await apiRequest("/api/auth/password-reset/request-otp", {
     method: "POST",
-    body: JSON.stringify({ email, accountType: "staff" }),
+    body: JSON.stringify({ email, accountType: "staff", portal: "driver" }),
   });
 }
 
 export async function verifyPasswordResetOtp(email: string, otp: string): Promise<void> {
   await apiRequest("/api/auth/password-reset/verify-otp", {
     method: "POST",
-    body: JSON.stringify({ email, accountType: "staff", otp }),
+    body: JSON.stringify({ email, accountType: "staff", portal: "driver", otp }),
   });
 }
 
 export async function resetPasswordWithOtp(email: string, otp: string, newPassword: string): Promise<void> {
   await apiRequest("/api/auth/password-reset/reset", {
     method: "POST",
-    body: JSON.stringify({ email, accountType: "staff", otp, newPassword }),
+    body: JSON.stringify({ email, accountType: "staff", portal: "driver", otp, newPassword }),
   });
 }
 

@@ -4840,6 +4840,7 @@ class PasswordPolicyContractTests(TestCase):
             data={
                 "email": "password.policy.admin@gmail.com",
                 "accountType": "staff",
+                "portal": "admin",
                 "otp": "123456",
                 "newPassword": "weakpass",
             },
