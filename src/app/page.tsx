@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { AdminPortal, CustomerPortal, DriverPortal, WarehousePortal } from '@/components/portals'
-import { clearTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
+import { clearTabAuthToken, getTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
 import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
@@ -170,7 +170,14 @@ export default function Home() {
 
     async function checkAuth() {
       try {
-        const response = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'include' })
+        const tabToken = getTabAuthToken()
+        // Fix: restore this tab from its own token instead of the browser-wide cookie,
+        // which may belong to a different portal that logged in more recently.
+        const response = await fetch('/api/auth/me', {
+          cache: 'no-store',
+          credentials: 'include',
+          headers: tabToken ? { Authorization: `Bearer ${tabToken}` } : undefined,
+        })
         if (response.ok) {
           const data = await response.json()
           if (data.user) {
