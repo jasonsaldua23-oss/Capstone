@@ -144,6 +144,23 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     }
   }
 
+  const refreshTrips = async () => {
+    const tripsRes = await safeFetchJson(
+      '/api/trips?page=1&pageSize=100',
+      { cache: 'no-store' },
+      { retries: 3, timeoutMs: 15000 }
+    )
+
+    if (tripsRes.ok) {
+      // Fix: opening the Trips tab must use a fresh server response instead of
+      // keeping an empty or stale result from the section's initial load.
+      setTrips(getCollection<any>(tripsRes.data, ['trips']))
+      return
+    }
+
+    toast.error(String(tripsRes.data?.error || 'Failed to load trips. Please try again.'))
+  }
+
   useEffect(() => {
     fetchData()
   }, [])
@@ -719,7 +736,14 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         </Card>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value: any) => {
+          setActiveTab(value)
+          if (value === 'trips') void refreshTrips()
+        }}
+        className="w-full"
+      >
         <div className="w-full pb-1">
           <TabsList className="h-auto w-full gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
             <TabsTrigger value="vehicles" className="inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]">Fleet Management</TabsTrigger>
