@@ -49,6 +49,16 @@ def public_url(object_path: str) -> str:
     return f"{_base_url()}/storage/v1/object/public/{_bucket()}/{object_path.lstrip('/')}"
 
 
+def _api_key_headers(key: str) -> dict[str, str]:
+    """Build headers that support both current and legacy Supabase API keys."""
+    headers = {"apikey": key}
+    # Fix: sb_secret keys are opaque API keys, not JWTs. Sending one as a Bearer
+    # token makes Storage reject it with "Invalid Compact JWS".
+    if not key.startswith(("sb_secret_", "sb_publishable_")):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 def upload_bytes(object_path: str, data: bytes, content_type: str | None = None) -> str:
     """Store bytes at `object_path` in the bucket and return the public URL.
 
@@ -64,16 +74,18 @@ def upload_bytes(object_path: str, data: bytes, content_type: str | None = None)
         or "application/octet-stream"
     )
     key = str(settings.SUPABASE_SERVICE_ROLE_KEY).strip()
-    response = requests.post(
-        f"{_base_url()}/storage/v1/object/{_bucket()}/{clean_path}",
-        data=data,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "apikey": key,
+    headers = _api_key_headers(key)
+    headers.update(
+        {
             "Content-Type": resolved_type,
             # Uploads are uniquely named, so a collision means a retry of the same file.
             "x-upsert": "true",
-        },
+        }
+    )
+    response = requests.post(
+        f"{_base_url()}/storage/v1/object/{_bucket()}/{clean_path}",
+        data=data,
+        headers=headers,
         timeout=UPLOAD_TIMEOUT_SECONDS,
     )
     if not response.ok:
@@ -88,7 +100,8 @@ def ensure_bucket() -> dict[str, Any]:
     if not is_configured():
         raise ObjectStorageError("Object storage is not configured")
     key = str(settings.SUPABASE_SERVICE_ROLE_KEY).strip()
-    headers = {"Authorization": f"Bearer {key}", "apikey": key, "Content-Type": "application/json"}
+    headers = _api_key_headers(key)
+    headers["Content-Type"] = "application/json"
     response = requests.post(
         f"{_base_url()}/storage/v1/bucket",
         json={"name": _bucket(), "id": _bucket(), "public": True},

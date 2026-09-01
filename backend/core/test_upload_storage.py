@@ -71,6 +71,27 @@ class ProductImageUploadTests(TestCase):
         self.assertIn("/storage/v1/object/uploads/products/", post.call_args.args[0])
         self.assertEqual(post.call_args.kwargs["headers"]["Content-Type"], "image/png")
 
+    @override_settings(
+        SUPABASE_URL="https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY="sb_secret_server-key",
+        SUPABASE_UPLOADS_BUCKET="uploads",
+    )
+    def test_new_secret_key_is_not_sent_as_a_bearer_jwt(self):
+        with patch("core.object_storage.requests.post") as post:
+            post.return_value.ok = True
+            self._upload()
+        headers = post.call_args.kwargs["headers"]
+        self.assertEqual(headers["apikey"], "sb_secret_server-key")
+        self.assertNotIn("Authorization", headers)
+
+    @override_settings(**BUCKET_SETTINGS)
+    def test_legacy_service_role_key_remains_a_bearer_token(self):
+        with patch("core.object_storage.requests.post") as post:
+            post.return_value.ok = True
+            self._upload()
+        headers = post.call_args.kwargs["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer service-role-key")
+
     @override_settings(**BUCKET_SETTINGS)
     def test_a_rejected_upload_is_reported_rather_than_silently_lost(self):
         with patch("core.object_storage.requests.post") as post:
