@@ -1,4 +1,5 @@
 import type { PortalType } from '@/types'
+import { loginPathForPortal } from '@/lib/portal-scope'
 
 export type AppVariant = 'all' | 'admin' | 'warehouse' | 'driver' | 'customer'
 
@@ -35,5 +36,5 @@ export function getDefaultPortalForVariant(variant: AppVariant): PortalType {
 }
 
 export function getDefaultLoginPathForVariant(variant: AppVariant): string {
-  return `/login/${getDefaultPortalForVariant(variant)}`
+  return loginPathForPortal(getDefaultPortalForVariant(variant))
 }

@@ -1,22 +1,19 @@
-import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
-import type { Metadata } from 'next'
-import { ForgotPasswordScreen } from '@/components/auth/ForgotPasswordScreen'
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
+import { loginPathForPortal } from '@/lib/portal-scope'
 
-export const metadata: Metadata = {
-  title: 'Forgot Password | AAB TRADING',
-}
-
-export default function DriverForgotPasswordRoute() {
+export default async function DriverForgotPasswordRoute({
+  searchParams,
+}: {
+  searchParams: Promise<{ email?: string }>
+}) {
   const variant = resolveAppVariant()
   if (!getAllowedPortals(variant).includes('driver')) {
     redirect(getDefaultLoginPathForVariant(variant))
   }
 
-  return (
-    <Suspense fallback={null}>
-      <ForgotPasswordScreen accountType="staff" portal="driver" />
-    </Suspense>
-  )
+  // Preserve old reset links while keeping the active flow inside Driver scope.
+  const { email } = await searchParams
+  const query = email ? `?email=${encodeURIComponent(email)}` : ''
+  redirect(`${loginPathForPortal('driver')}/forgot-password${query}`)
 }

@@ -125,7 +125,7 @@ export function HomeView({
         buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
       />
       {isLoading ? (
-        <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
+        <div className="space-y-4 rounded-[1.6rem] p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:p-5 md:pb-5">
           <div className="space-y-2">
             <Skeleton className="h-3 w-36 bg-white/70" />
             <Skeleton className="h-10 w-64 max-w-full bg-white/75" />
@@ -145,7 +145,7 @@ export function HomeView({
           </div>
         </div>
       ) : (
-        <div className="space-y-4 rounded-[1.6rem] border border-white/70 bg-[#cde4f3]/85 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] shadow-[0_16px_30px_rgba(14,116,144,0.16)] backdrop-blur-xl md:p-5 md:pb-5">
+        <div className="space-y-4 rounded-[1.6rem] p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:p-5 md:pb-5">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
             <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Driver Dashboard</h2>

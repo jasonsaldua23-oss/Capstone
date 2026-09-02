@@ -20,12 +20,12 @@ const variantConfig: Record<AppVariant, { appId: string; appName: string; path: 
   driver: {
     appId: 'com.logitrack.driver',
     appName: 'AAB Trading Driver',
-    path: '/login/driver',
+    path: '/driver/login',
   },
   customer: {
     appId: 'com.logitrack.customer',
     appName: 'AAB Trading Shop',
-    path: '/login/customer',
+    path: '/customer/login',
   },
   admin: {
     appId: 'com.logitrack.admin',

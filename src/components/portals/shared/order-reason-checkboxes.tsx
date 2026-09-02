@@ -10,15 +10,10 @@ export {
 
 import { OTHER_ORDER_REASON } from '@shared/customer-logic/order-reasons'
 
+// Driver cancellation is intentionally limited to customer refusal or payment failure.
 export const DRIVER_ORDER_REASONS = [
-  'Customer unavailable',
   'Customer refused the order',
-  'Customer cannot be contacted',
-  'Incorrect or inaccessible delivery location',
-  'Vehicle breakdown or accident',
-  'Product damaged during delivery',
-  'Unable to complete payment/deposit',
-  OTHER_ORDER_REASON,
+  'Payment failure',
 ] as const
 
 export const WAREHOUSE_ORDER_REASONS = [
@@ -30,6 +25,16 @@ export const WAREHOUSE_ORDER_REASONS = [
   'Order cannot be fulfilled today',
   'Inventory discrepancy',
   'Vehicle unavailable or insufficient capacity',
+  OTHER_ORDER_REASON,
+] as const
+
+// Cancellation reasons are limited to issues that permanently stop the order.
+export const WAREHOUSE_CANCELLATION_REASONS = [
+  'Customer requested cancellation',
+  'Duplicate order',
+  'Incorrect products or quantities ordered',
+  'Unable to fulfill the requested quantity',
+  'Order no longer needed after rescheduling',
   OTHER_ORDER_REASON,
 ] as const
 

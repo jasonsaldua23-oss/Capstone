@@ -1,4 +1,5 @@
 import type { AuthUser, PortalType } from '@/types'
+import { loginPathForPortal } from '@/lib/portal-scope'
 
 export type LoginPortal = Extract<PortalType, 'admin' | 'driver' | 'warehouse' | 'customer'>
 
@@ -28,5 +29,5 @@ export function resolvePortalFromUser(user: AuthUser): LoginPortal {
 export function forgotPasswordHref(portal: LoginPortal, email?: string): string {
   const trimmed = String(email || '').trim()
   const query = trimmed ? `?email=${encodeURIComponent(trimmed)}` : ''
-  return `/login/${portal}/forgot-password${query}`
+  return `${loginPathForPortal(portal)}/forgot-password${query}`
 }

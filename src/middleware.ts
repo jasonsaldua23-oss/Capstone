@@ -1,5 +1,5 @@
 import { jwtVerify } from 'jose'
-import { isPathAllowedForPortal, parseNativePortalFromUserAgent } from '@/lib/portal-scope'
+import { isPathAllowedForPortal, loginPathForPortal, parseNativePortalFromUserAgent } from '@/lib/portal-scope'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
@@ -31,8 +31,8 @@ function allowedPortalsForVariant(variant: AppVariant): PortalType[] {
 }
 
 function defaultLoginPathForVariant(variant: AppVariant): string {
-  if (variant === 'driver') return '/login/driver'
-  if (variant === 'customer') return '/login/customer'
+  if (variant === 'driver') return loginPathForPortal('driver')
+  if (variant === 'customer') return loginPathForPortal('customer')
   return '/login/admin'
 }
 
@@ -40,9 +40,12 @@ function extractPortalFromLoginPath(pathname: string): PortalType | null {
   // Sub-routes such as /login/admin/forgot-password belong to the same portal and
   // must be gated by the deployment variant exactly like the login page itself.
   const portals: PortalType[] = ['admin', 'warehouse', 'driver', 'customer']
-  return (
-    portals.find((portal) => pathname === `/login/${portal}` || pathname.startsWith(`/login/${portal}/`)) || null
-  )
+  return portals.find((portal) => {
+    const canonicalLogin = loginPathForPortal(portal)
+    const legacyLogin = `/login/${portal}`
+    return pathname === canonicalLogin || pathname.startsWith(`${canonicalLogin}/`) ||
+      pathname === legacyLogin || pathname.startsWith(`${legacyLogin}/`)
+  }) || null
 }
 
 /**
@@ -121,7 +124,7 @@ export async function middleware(request: NextRequest) {
   const allowedPortals = shellPortal
     ? allowedPortalsForVariant(variant).filter((portal) => portal === shellPortal)
     : allowedPortalsForVariant(variant)
-  const defaultLoginPath = shellPortal ? `/login/${shellPortal}` : defaultLoginPathForVariant(variant)
+  const defaultLoginPath = shellPortal ? loginPathForPortal(shellPortal) : defaultLoginPathForVariant(variant)
 
   // Nothing outside the shell's own portal is served to it at all - not the portal
   // chooser, not another portal's login, not the recovery pages.
@@ -141,9 +144,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(defaultLoginPath, request.url))
   }
 
-  if (pathname.startsWith('/login/')) {
-    const targetPortal = extractPortalFromLoginPath(pathname)
-    if (targetPortal && !allowedPortals.includes(targetPortal)) {
+  const targetPortal = extractPortalFromLoginPath(pathname)
+  if (targetPortal) {
+    if (!allowedPortals.includes(targetPortal)) {
       return NextResponse.redirect(new URL(defaultLoginPath, request.url))
     }
     return NextResponse.next()

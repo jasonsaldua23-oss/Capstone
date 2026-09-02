@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, createContext, useContext, Component, ErrorInfo, ReactNode, useMemo, useRef, type Dispatch, type SetStateAction } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { AdminPortal, CustomerPortal, DriverPortal, WarehousePortal } from '@/components/portals'
@@ -14,6 +14,7 @@ import { InstallAppPrompt } from '@/components/shared/install-app-prompt'
 import { resetInstallPromptForNewSession, retainCapturedInstallPromptForPortal } from '@/lib/native/install-prompt'
 import { getLockedPortal } from '@/lib/native/portal-lock'
 import { isManifestPortal, manifestPathForPortal, siteWideManifestPortal } from '@/lib/portal-manifest'
+import { homePathForPortal, loginPathForPortal, portalFromAppPath } from '@/lib/portal-scope'
 
 // Auth Context
 interface AuthContextType {
@@ -84,12 +85,8 @@ function applyBrowserBranding(title: string, iconPath: string, manifestPath?: st
   if (typeof document === 'undefined') return
   document.title = title
 
-  // The portal renders at "/", where the document was served with the site-wide
-  // manifest. A browser only offers to install what the manifest declares and
-  // treats one manifest id as one app, so without this swap the Driver portal
-  // would keep offering - or having already offered - the Shop, and drivers would
-  // be shown no install at all. Chrome re-reads the manifest when this link
-  // changes, and the offer waits long enough for that to happen.
+  // Legacy sessions can initially render at "/" before moving to their canonical
+  // portal path. Keep the manifest aligned during that brief transition as well.
   if (manifestPath) {
     let manifestLink = document.head.querySelector('link[rel="manifest"]') as HTMLLinkElement | null
     if (!manifestLink) {
@@ -159,7 +156,7 @@ class PortalErrorBoundary extends Component<PortalErrorBoundaryProps, PortalErro
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center px-4">
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
           <div className="max-w-md w-full bg-white rounded-xl p-6 shadow-xl text-center">
             <h2 className="text-xl font-semibold mb-2">Portal failed to load</h2>
             <p className="text-sm text-gray-600 mb-5">
@@ -199,6 +196,7 @@ function resolvePortalForUser(user: AuthUser): PortalType {
 
 export default function Home() {
   const router = useRouter()
+  const pathname = usePathname()
   const appVariant = useMemo(() => resolveAppVariant(), [])
   // A Capacitor shell is one portal and nothing else, whatever the deployment it
   // loads happens to serve: a session belonging to another portal is signed out
@@ -209,10 +207,12 @@ export default function Home() {
     if (!lockedPortal) return forVariant
     return forVariant.filter((candidate) => candidate === lockedPortal)
   }, [appVariant, lockedPortal])
-  const defaultPortal = useMemo(
-    () => lockedPortal || getDefaultPortalForVariant(appVariant),
-    [appVariant, lockedPortal],
-  )
+  const scopedPortal = useMemo(() => portalFromAppPath(pathname), [pathname])
+  const defaultPortal = useMemo(() => {
+    if (lockedPortal) return lockedPortal
+    if (scopedPortal && allowedPortals.includes(scopedPortal)) return scopedPortal
+    return getDefaultPortalForVariant(appVariant)
+  }, [allowedPortals, appVariant, lockedPortal, scopedPortal])
   const [user, setUser] = useState<AuthUser | null>(null)
   const [portal, setPortal] = useState<PortalType>(defaultPortal)
   const [isLoading, setIsLoading] = useState(true)
@@ -221,7 +221,6 @@ export default function Home() {
   const sessionTimerRef = useRef<number | null>(null)
   const logoutRedirectPortalRef = useRef<PortalType | null>(null)
   const DRIVER_ACTIVITY_EVENT = 'aab:driver-activity'
-  const getPortalLoginPath = (targetPortal: PortalType) => `/login/${targetPortal}`
 
   // Check for existing session on mount
   useEffect(() => {
@@ -274,19 +273,19 @@ export default function Home() {
       if (logoutPortal) {
         // Fix: an explicit logout must return to that portal's own login page,
         // instead of being overwritten by the shared signed-out portal chooser.
-        router.replace(getPortalLoginPath(logoutPortal))
+        router.replace(loginPathForPortal(logoutPortal))
         return
       }
       const rememberedPortal = getRememberedTabLoginPortal(allowedPortals)
       if (rememberedPortal) {
         // Returning to the bare domain in this tab opens its own portal login.
-        router.replace(getPortalLoginPath(rememberedPortal))
+        router.replace(loginPathForPortal(rememberedPortal))
         return
       }
       // The shells never see the portal chooser; only a shared browser deployment does.
       const useChooser = appVariant === 'all' && !lockedPortal
       // A shared deployment must not silently treat Admin as the default user.
-      router.replace(useChooser ? '/login' : getPortalLoginPath(lockedPortal || portal))
+      router.replace(useChooser ? '/login' : loginPathForPortal(lockedPortal || portal))
     }
   }, [appVariant, isLoading, isMounted, lockedPortal, portal, router, user])
 
@@ -314,6 +313,20 @@ export default function Home() {
       isManifestPortal(portal) ? manifestPathForPortal(portal) : undefined,
     )
   }, [isMounted, portal, user])
+
+  useEffect(() => {
+    if (!isMounted || !user) return
+    const portalHome = homePathForPortal(portal)
+    const isInstallablePortalOffHome =
+      (portal === 'driver' || portal === 'customer') && pathname !== portalHome
+    const isOtherRoleInsideInstallableScope =
+      scopedPortal !== null && scopedPortal !== portal
+    if (isInstallablePortalOffHome || isOtherRoleInsideInstallableScope) {
+      // Fix: keep each role at its canonical URL, including restored legacy
+      // sessions and a session opened through the other portal's scoped URL.
+      router.replace(portalHome)
+    }
+  }, [isMounted, pathname, portal, router, scopedPortal, user])
 
   useEffect(() => {
     if (!isMounted || !user) {
@@ -397,7 +410,7 @@ export default function Home() {
     setUser(null)
     setPortal(nextPortal)
     setIsLoading(false)
-    router.replace(getPortalLoginPath(nextPortal))
+    router.replace(loginPathForPortal(nextPortal))
 
     // Best-effort cookie cleanup; do not block UI logout flow.
     void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch((error) => {
@@ -416,7 +429,7 @@ export default function Home() {
   // Loading state
   if (isLoading && isMounted) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading...</p>
@@ -438,7 +451,9 @@ export default function Home() {
           <Toaster position="top-right" />
           {/* Added once here so every authenticated portal can register its device. */}
           <PushNotificationManager user={user} />
-          {(portal === 'driver' || portal === 'customer') && <InstallAppPrompt portal={portal} />}
+          {(portal === 'driver' || portal === 'customer') && (
+            <InstallAppPrompt portal={portal} enabled={pathname === homePathForPortal(portal)} />
+          )}
           <PortalErrorBoundary onRecover={recoverToLogin}>
             {portal === 'admin' && <AdminPortal />}
             {portal === 'driver' && <DriverPortal />}
@@ -446,7 +461,7 @@ export default function Home() {
             {portal === 'warehouse' && <WarehousePortal />}
             {sessionExpiredPortal ? (
               <div className="fixed inset-0 z-[120] grid place-items-center bg-black/55 px-4 backdrop-blur-[2px]">
-                <div className="w-full max-w-[32rem] rounded-2xl border border-blue-200 bg-gradient-to-b from-[#f2f8ff] via-white to-[#edf5ff] px-5 py-5 shadow-[0_20px_56px_rgba(0,0,0,0.35)]">
+                <div className="w-full max-w-[32rem] rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-[0_20px_56px_rgba(0,0,0,0.35)]">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">

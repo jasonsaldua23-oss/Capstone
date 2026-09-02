@@ -20,6 +20,7 @@ from .models import (
     OrderItem,
     OrderTimeline,
     OrderStatus,
+    PurchaseOrderStage,
     Product,
     ProductPackaging,
     Replacement,
@@ -2024,6 +2025,27 @@ class OrderStatusTransitionApiContractTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, OrderStatus.CANCELLED)
         self.assertEqual(order.cancellation_reason, "Customer requested cancellation")
+
+    @patch("core.views_api._email_order_cancelled_to_customer")
+    def test_staff_can_cancel_rescheduled_order(self, _mock_cancel_email) -> None:
+        # Regression: the warehouse UI must be able to use the supported RESCHEDULED -> CANCELLED transition.
+        order = self._create_order(
+            status=OrderStatus.RESCHEDULED,
+            request_status="APPROVED",
+            purchase_order_stage=PurchaseOrderStage.OUT_FOR_DELIVERY,
+            purchase_order_number="PO-STATUS-RESCHEDULED-001",
+        )
+
+        response = self._patch_status(
+            order.id,
+            {"status": "CANCELLED", "reason": "Order no longer needed after rescheduling"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.CANCELLED)
+        self.assertEqual(order.purchase_order_stage, PurchaseOrderStage.CANCELLED)
+        self.assertEqual(order.cancellation_reason, "Order no longer needed after rescheduling")
 
     def test_staff_rejection_requires_and_saves_selected_reason(self) -> None:
         order = self._create_order(status=OrderStatus.PREPARING)

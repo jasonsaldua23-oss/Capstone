@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
-import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
+import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_CANCELLATION_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import type { WarehouseOrdersViewProps } from '../shared/types'
 import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
@@ -21,6 +21,7 @@ const orderBadgeClass: Record<string, string> = {
   READY_FOR_DELIVERY: 'bg-violet-100 text-violet-800 hover:bg-violet-100',
   FOR_DELIVERY: 'bg-indigo-100 text-indigo-800 hover:bg-indigo-100',
   OUT_FOR_DELIVERY: 'bg-orange-100 text-orange-800 hover:bg-orange-100',
+  RESCHEDULED: 'bg-amber-100 text-amber-800 hover:bg-amber-100',
   DELIVERED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
   COMPLETED: 'bg-emerald-200 text-emerald-950 hover:bg-emerald-200',
   CANCELLED: 'bg-slate-200 text-slate-700 hover:bg-slate-200',
@@ -49,9 +50,11 @@ function formatTransactionId(value: unknown): string {
 }
 
 function getOrderStage(order: any): string {
+  const status = String(order?.status || '').toUpperCase()
+  // Fix: a reschedule supersedes the previous PO delivery stage for display and filtering.
+  if (status === 'RESCHEDULED') return 'RESCHEDULED'
   const explicit = String(order?.purchaseOrderStage || '').toUpperCase()
   if (explicit && explicit !== 'APPROVED') return explicit
-  const status = String(order?.status || '').toUpperCase()
   if (status === 'PREPARING') return 'PROCESSING'
   if (status === 'OUT_FOR_DELIVERY') return 'OUT_FOR_DELIVERY'
   if (status === 'DELIVERED') return 'DELIVERED'
@@ -224,6 +227,7 @@ export function WarehouseOrdersView({
               <option value="READY_FOR_DELIVERY">Ready for Delivery</option>
               <option value="FOR_DELIVERY">For Delivery</option>
               <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
+              <option value="RESCHEDULED">Rescheduled</option>
               <option value="DELIVERED">Delivered</option>
               <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
@@ -356,11 +360,12 @@ export function WarehouseOrdersView({
                               </Button>
                             ) : null}
                             {stage !== 'COMPLETED' && stage !== 'CANCELLED' ? (
+                              // Fix: rescheduled orders are back in the unassigned route pool and may be cancelled.
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="border-rose-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                                disabled={updatingOrderId === order.id || isAssignedToDelivery || !['APPROVED', 'PROCESSING', 'PREPARING', 'READY_FOR_DELIVERY'].includes(stage)}
+                                disabled={updatingOrderId === order.id || isAssignedToDelivery || !['APPROVED', 'PROCESSING', 'PREPARING', 'READY_FOR_DELIVERY', 'RESCHEDULED'].includes(stage)}
                                 onClick={() => setActionState({ order, action: 'cancel' })}
                                 title={isAssignedToDelivery ? 'Cannot cancel order because it is already assigned to delivery' : undefined}
                               >
@@ -406,7 +411,7 @@ export function WarehouseOrdersView({
           </AlertDialogHeader>
           {actionState?.action === 'cancel' ? (
             <OrderReasonCheckboxes
-              options={WAREHOUSE_ORDER_REASONS}
+              options={WAREHOUSE_CANCELLATION_REASONS}
               selectedReasons={selectedCancelReasons}
               otherReason={otherCancelReason}
               onSelectedReasonsChange={setSelectedCancelReasons}

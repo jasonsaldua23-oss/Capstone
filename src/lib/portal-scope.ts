@@ -37,7 +37,24 @@ export function parseNativePortalFromUserAgent(userAgent: string | null | undefi
 }
 
 export function loginPathForPortal(portal: ScopedPortal): string {
+  // Fix: Customer and Driver need disjoint URL prefixes so an installed PWA
+  // cannot claim links that belong to the other portal.
+  if (portal === 'driver' || portal === 'customer') return `/${portal}/login`
   return `/login/${portal}`
+}
+
+/** Canonical page shown after authentication for each portal. */
+export function homePathForPortal(portal: ScopedPortal): string {
+  if (portal === 'driver' || portal === 'customer') return `/${portal}`
+  return '/'
+}
+
+/** Customer/Driver portal encoded in a canonical scoped URL, if present. */
+export function portalFromAppPath(pathname: string): ScopedPortal | null {
+  const path = normalisePath(pathname)
+  if (path === '/driver' || path.startsWith('/driver/')) return 'driver'
+  if (path === '/customer' || path.startsWith('/customer/')) return 'customer'
+  return null
 }
 
 /**
@@ -53,8 +70,15 @@ export function isPathAllowedForPortal(pathname: string, portal: ScopedPortal): 
   if (SHARED_EXACT_PATHS.includes(path)) return true
   if (SHARED_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))) return true
 
+  const ownHome = homePathForPortal(portal)
+  if (ownHome !== '/' && (path === ownHome || path.startsWith(`${ownHome}/`))) return true
+
   const ownLogin = loginPathForPortal(portal)
   if (path === ownLogin || path.startsWith(`${ownLogin}/`)) return true
+
+  // Preserve old bookmarks long enough for their route-level redirect to run.
+  const legacyLogin = `/login/${portal}`
+  if (path === legacyLogin || path.startsWith(`${legacyLogin}/`)) return true
 
   // Static files - icons, images, map data - are shared by every portal, wherever
   // under public/ they happen to live.

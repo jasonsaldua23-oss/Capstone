@@ -117,20 +117,20 @@ export function CustomerTrackView(props: any) {
       </div>
 
       <div className="space-y-3 px-3 pt-3 md:px-6">
-        <div className="rounded-xl bg-[linear-gradient(135deg,#0f7c3a_0%,#05672d_100%)] p-3 text-white md:p-6">
+        <div className="rounded-xl bg-[#14532d] p-3 text-white md:p-6">
           <div className="grid grid-cols-3 gap-2 md:gap-0">
-            <div className="rounded-md bg-white/5 p-2 text-center md:rounded-none md:bg-transparent md:p-0">
+            <div className="rounded-md bg-white/10 p-2 text-center md:rounded-none md:bg-transparent md:p-0">
               <p className="text-xs text-white/80">Order Status</p>
               <p className="text-lg font-bold md:text-2xl">{statusText.toUpperCase()}</p>
             </div>
-            <div className="rounded-md bg-white/5 p-2 text-center md:rounded-none md:border-l md:border-r md:border-white/20 md:bg-transparent md:px-3 md:py-0">
+            <div className="rounded-md bg-white/10 p-2 text-center md:rounded-none md:border-l md:border-r md:border-white/20 md:bg-transparent md:px-3 md:py-0">
               <p className="text-xs text-white/80">{isReplacementOrder ? 'Replacement ID' : 'Order ID'}</p>
               <p className="text-sm font-semibold md:text-lg md:mb-2">{order.orderNumber}</p>
               {isRescheduled ? (
                 <Badge className="mt-1 inline-block bg-amber-200/20 text-amber-50 hover:bg-amber-200/20 text-xs">RESCHEDULED ORDER</Badge>
               ) : null}
             </div>
-            <div className="rounded-md bg-white/5 p-2 text-center md:rounded-none md:bg-transparent md:pl-3 md:py-0">
+            <div className="rounded-md bg-white/10 p-2 text-center md:rounded-none md:bg-transparent md:pl-3 md:py-0">
               <p className="text-xs text-white/80">{scheduleLabel}</p>
               <p className="flex items-center justify-center gap-1 text-xs font-semibold md:gap-1.5 md:text-sm md:flex-col">
                 <CalendarDays className="h-3 w-3 md:h-4 md:w-4" />

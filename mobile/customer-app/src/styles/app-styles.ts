@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
   authCheckbox: { width: 16, height: 16, borderRadius: 4, borderWidth: 1, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center", backgroundColor: "#ffffff" },
   authCheckboxChecked: { borderColor: "#3e9f34", backgroundColor: "#3e9f34" },
   authRememberText: { color: "#4e5f79", fontSize: 12, fontFamily: "Poppins_400Regular" },
-  authPrimaryButton: { height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", ...boxShadow({ color: "#3f9637", opacity: 0.28, radius: 10, offsetY: 5 }) },
+  authPrimaryButton: { height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.emeraldDark, ...boxShadow({ color: theme.colors.emeraldDark, opacity: 0.28, radius: 10, offsetY: 5 }) },
   authPrimaryButtonText: { color: "#ffffff", fontSize: 14, fontFamily: "Poppins_700Bold" },
   authCenteredLink: { textAlign: "center", color: "#3f9a35", fontSize: 12, fontFamily: "Poppins_400Regular" },
   continueDivider: { marginVertical: 4, flexDirection: "row", alignItems: "center" },
@@ -975,9 +975,9 @@ const styles = StyleSheet.create({
   trackTitle: { color: theme.colors.text, fontSize: 20, fontFamily: "Poppins_700Bold" },
   trackSubtitle: { color: theme.colors.slate500, fontSize: 12, fontFamily: "Poppins_400Regular" },
   trackBody: { paddingHorizontal: 12, paddingTop: 12, gap: 12 },
-  // linear-gradient(135deg,#0f7c3a,#05672d), three columns
-  trackStrip: { flexDirection: "row", borderRadius: 12, padding: 12, gap: 8 },
-  trackStripCell: { flex: 1, alignItems: "center", borderRadius: 6, backgroundColor: "rgba(255,255,255,0.05)", padding: 8 },
+  // Flat brand green, three columns (mirrors the web track view).
+  trackStrip: { flexDirection: "row", borderRadius: 12, padding: 12, gap: 8, backgroundColor: theme.colors.trackStripBg },
+  trackStripCell: { flex: 1, alignItems: "center", borderRadius: 6, backgroundColor: "rgba(255,255,255,0.1)", padding: 8 },
   trackStripCellMiddle: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: "rgba(255,255,255,0.2)" },
   trackStripLabel: { color: "rgba(255,255,255,0.8)", fontSize: 12, textAlign: "center", fontFamily: "Poppins_400Regular" },
   trackStripValue: { color: theme.colors.white, fontSize: 18, fontFamily: "Poppins_700Bold", textAlign: "center" },

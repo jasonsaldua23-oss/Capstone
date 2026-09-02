@@ -30,8 +30,7 @@ export const theme = {
     // Brand
     brandBlue: "#123e73",
     brandGreen: "#2f9a34",
-    trackGradientFrom: "#0f7c3a",
-    trackGradientTo: "#05672d",
+    trackStripBg: "#14532d",
 
     // Accents
     emerald: "#059669",

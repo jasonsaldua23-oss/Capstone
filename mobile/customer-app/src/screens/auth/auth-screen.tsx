@@ -6,7 +6,6 @@ import { ActivityIndicator, Image, ImageBackground, Pressable, ScrollView, Text,
 import { ModalShell } from "../../components/ui/modal-shell";
 import { OtpVerificationScreen } from "./otp-verification-screen";
 import { GoogleSignInButton } from "../../components/ui/google-sign-in-button";
-import { LinearGradient } from "expo-linear-gradient";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
 import { useCustomerPortal } from "../../portal/portal-context";
@@ -201,12 +200,12 @@ export function AuthScreen() {
           )}
           {!!error && <Text style={styles.error}>{error}</Text>}
           <Pressable onPress={authMode === "login" ? handleLogin : handleRegister} disabled={loading}>
-            <LinearGradient colors={["#3ca232", "#4aac35"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.authPrimaryButton, loading ? styles.disabledButton : null]}>
+            <View style={[styles.authPrimaryButton, loading ? styles.disabledButton : null]}>
               {loading ? <ActivityIndicator size="small" color={theme.colors.white} /> : null}
               <Text style={styles.authPrimaryButtonText}>
                 {authMode === "login" ? "Log In" : "Create Account"}
               </Text>
-            </LinearGradient>
+            </View>
           </Pressable>
           {authMode === "login" ? (
             <>

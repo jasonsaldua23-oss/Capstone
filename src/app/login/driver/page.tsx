@@ -1,20 +1,6 @@
 import { redirect } from 'next/navigation'
-import type { Metadata } from 'next'
-import { DriverLoginPage as DriverLoginScreen } from '@/components/auth/DriverLoginPage'
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
-import { manifestPathForPortal } from '@/lib/portal-manifest'
-
-export const metadata: Metadata = {
-  // Each portal is its own installable app; without its own manifest the
-  // browser only ever knows about the site-wide one and offers that instead.
-  manifest: manifestPathForPortal('driver'),
-  title: 'AAB TRADING DRIVER',
-  icons: {
-    icon: '/aab-trading-driver.png',
-    shortcut: '/aab-trading-driver.png',
-    apple: '/aab-trading-driver.png',
-  },
-}
+import { loginPathForPortal } from '@/lib/portal-scope'
 
 export default function DriverLoginRoute() {
   const variant = resolveAppVariant()
@@ -22,5 +8,6 @@ export default function DriverLoginRoute() {
     redirect(getDefaultLoginPathForVariant(variant))
   }
 
-  return <DriverLoginScreen />
+  // Preserve old bookmarks while moving the installable app into its own scope.
+  redirect(loginPathForPortal('driver'))
 }

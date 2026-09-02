@@ -6,11 +6,14 @@ import Link from 'next/link'
 import { Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'
 import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
+import { homePathForPortal } from '@/lib/portal-scope'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 
 const poppins = { className: '' }
+// Keep authenticated Driver navigation inside the Driver PWA's manifest scope.
+const DRIVER_HOME_PATH = homePathForPortal('driver')
 
 function DriverRouteArtwork() {
   return (
@@ -112,7 +115,7 @@ export function DriverLoginPage() {
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
-        if (resolvePortalFromUser(data.user) === 'driver') router.replace('/')
+        if (resolvePortalFromUser(data.user) === 'driver') router.replace(DRIVER_HOME_PATH)
       } catch (error) {
         console.warn('Driver session check timed out or failed:', error)
       } finally {
@@ -183,7 +186,7 @@ export function DriverLoginPage() {
 
       persistDriverWelcomeState(data.user)
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
-      router.replace('/')
+      router.replace(DRIVER_HOME_PATH)
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
     } finally {
@@ -215,7 +218,7 @@ export function DriverLoginPage() {
     persistDriverWelcomeState(data.user)
     if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
     setIsLoginOtpOpen(false)
-    router.replace('/')
+    router.replace(DRIVER_HOME_PATH)
     return true
   }
 

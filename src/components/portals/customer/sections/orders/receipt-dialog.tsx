@@ -201,7 +201,7 @@ export function CustomerReceiptDialog(props: any) {
                 </div>
 
                 <div className="mt-4">
-                  <div data-receipt-items-header className="grid grid-cols-[minmax(0,1fr)_30px_60px_68px] items-center rounded-t-xl bg-[linear-gradient(120deg,#0f2347_0%,#0d2e61_48%,#0f2347_100%)] px-2 py-3 text-[10px] font-semibold text-white sm:grid-cols-[minmax(0,1fr)_50px_90px_95px] sm:px-4 sm:text-xs">
+                  <div data-receipt-items-header className="grid grid-cols-[minmax(0,1fr)_30px_60px_68px] items-center rounded-t-xl bg-[#0f2347] px-2 py-3 text-[10px] font-semibold text-white sm:grid-cols-[minmax(0,1fr)_50px_90px_95px] sm:px-4 sm:text-xs">
                     <p>Product</p>
                     <p className="text-center">Qty</p>
                     <p className="text-center">Unit Price</p>

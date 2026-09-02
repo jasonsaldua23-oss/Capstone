@@ -8,6 +8,7 @@ import { setTabAuthToken } from '@/lib/client-auth'
 import { isNativeApp } from '@/lib/native/platform'
 import { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } from '@/lib/password-policy'
 import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
+import { homePathForPortal } from '@/lib/portal-scope'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +20,8 @@ import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal
 import { NativeGoogleButton } from '@/components/auth/native-google-button'
 
 const poppins = { className: '' }
+// Keep authenticated Customer navigation inside the Customer PWA's manifest scope.
+const CUSTOMER_HOME_PATH = homePathForPortal('customer')
 
 declare global {
   interface Window {
@@ -128,7 +131,7 @@ export function CustomerLoginPage() {
 
       persistCustomerWelcomeState(data?.created ? 'new' : 'existing', String(data?.user?.name || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: true })
-      router.replace('/')
+      router.replace(CUSTOMER_HOME_PATH)
     } catch {
       toast.error('Unable to reach authentication service. Please check your connection and try again.')
     } finally {
@@ -149,7 +152,7 @@ export function CustomerLoginPage() {
     persistCustomerWelcomeState('existing', String(data.user.name || '').trim())
     if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
     setIsLoginOtpOpen(false)
-    router.replace('/')
+    router.replace(CUSTOMER_HOME_PATH)
     return true
   }
 
@@ -225,7 +228,7 @@ export function CustomerLoginPage() {
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
-        if (resolvePortalFromUser(data.user) === 'customer') router.replace('/')
+        if (resolvePortalFromUser(data.user) === 'customer') router.replace(CUSTOMER_HOME_PATH)
       } catch (error) {
         console.warn('Customer session check timed out or failed:', error)
       } finally {
@@ -319,7 +322,7 @@ export function CustomerLoginPage() {
 
       persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
-      router.replace('/')
+      router.replace(CUSTOMER_HOME_PATH)
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
     } finally {
@@ -387,7 +390,7 @@ export function CustomerLoginPage() {
       persistCustomerWelcomeState('new', String(data?.user?.name || fullName || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
       setConfirmPassword('')
-      router.replace('/')
+      router.replace(CUSTOMER_HOME_PATH)
     } catch {
       toast.error('Unable to reach registration service. Please check your connection and try again.')
     } finally {

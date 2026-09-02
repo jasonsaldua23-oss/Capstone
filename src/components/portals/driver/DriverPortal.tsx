@@ -76,14 +76,8 @@ export function DriverPortal() {
 
   return (
     // Full-viewport container with shared portal background treatment.
-    <div className={`${portalFont.className} min-h-[100dvh] bg-[#dff0ea] md:bg-[#dceff0]`}>
+    <div className={`${portalFont.className} min-h-[100dvh] bg-[#eef2f7]`}>
       <div className="relative w-full h-[100dvh] flex flex-col overflow-hidden bg-transparent">
-        {/* Decorative background glows */}
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/45 blur-3xl" />
-          <div className="absolute -bottom-16 -right-16 h-56 w-56 rounded-full bg-emerald-200/45 blur-3xl" />
-        </div>
-
         {/* Header handles top-level navigation shortcuts and logout */}
         {!hidePortalHeader ? (
           <DriverPortalHeader

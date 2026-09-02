@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
+import { loginPathForPortal } from '@/lib/portal-scope'
 
 export default function LoginIndexPage() {
   const variant = resolveAppVariant()
@@ -11,8 +12,8 @@ export default function LoginIndexPage() {
   const portals = [
     { href: '/login/admin', title: 'Administrator', description: 'Manage operations, users, inventory, and reports.', accent: 'border-blue-200 hover:border-blue-500' },
     { href: '/login/warehouse', title: 'Warehouse Staff', description: 'Manage stock, orders, loading, and dispatch.', accent: 'border-indigo-200 hover:border-indigo-500' },
-    { href: '/login/driver', title: 'Driver', description: 'View assigned trips and complete deliveries.', accent: 'border-emerald-200 hover:border-emerald-500' },
-    { href: '/login/customer', title: 'Customer', description: 'Shop, submit requests, and track orders.', accent: 'border-amber-200 hover:border-amber-500' },
+    { href: loginPathForPortal('driver'), title: 'Driver', description: 'View assigned trips and complete deliveries.', accent: 'border-emerald-200 hover:border-emerald-500' },
+    { href: loginPathForPortal('customer'), title: 'Customer', description: 'Shop, submit requests, and track orders.', accent: 'border-amber-200 hover:border-amber-500' },
   ]
 
   // The background URL below is deliberately unquoted. React escapes an apostrophe

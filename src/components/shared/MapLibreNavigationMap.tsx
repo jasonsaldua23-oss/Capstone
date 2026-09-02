@@ -607,11 +607,7 @@ export default function MapLibreNavigationMap({
             source: sourceId,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
-              'line-gradient': isUpcoming
-                ? ['interpolate', ['linear'], ['line-progress'], 0, '#38bdf8', 0.48, '#2563eb', 1, '#1d4ed8']
-                : isAlternative
-                  ? ['interpolate', ['linear'], ['line-progress'], 0, '#bfdbfe', 0.5, '#93c5fd', 1, '#60a5fa']
-                : ['interpolate', ['linear'], ['line-progress'], 0, '#94a3b8', 0.55, '#64748b', 1, '#475569'],
+              'line-color': isUpcoming ? '#0d61ad' : isAlternative ? '#93c5fd' : '#64748b',
               'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.6, 14, 5, 18, 8.5],
               'line-opacity': isUpcoming ? 0.98 : isAlternative ? 0.86 : 0.84,
             },

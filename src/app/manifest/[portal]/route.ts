@@ -27,9 +27,9 @@ export async function GET(
   return NextResponse.json(buildPortalManifest(portal), {
     headers: {
       'Content-Type': 'application/manifest+json',
-      // The manifest changes only when the app is redeployed, and a browser
-      // re-reads it on its own schedule.
-      'Cache-Control': 'public, max-age=3600',
+      // Fix: installed apps must revalidate scope changes instead of retaining a
+      // cached root scope that can keep capturing the other portal's URLs.
+      'Cache-Control': 'public, max-age=0, must-revalidate',
     },
   })
 }

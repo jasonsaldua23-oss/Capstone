@@ -2927,12 +2927,8 @@ export function CustomerPortal() {
   }
 
   return (
-    <div className={`${poppins.className} h-[100dvh] overflow-hidden bg-[#d7dce3] md:bg-[#d8dce2]`}>
+    <div className={`${poppins.className} h-[100dvh] overflow-hidden bg-[#eef2f7]`}>
       <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-200/35 blur-3xl" />
-          <div className="absolute -bottom-16 -right-16 h-72 w-72 rounded-full bg-lime-200/30 blur-3xl" />
-        </div>
         <div className="relative z-[1] flex h-full min-h-0 flex-col">
           <CustomerPortalHeader
             activeView={activeView}

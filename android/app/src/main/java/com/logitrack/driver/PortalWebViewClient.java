@@ -42,7 +42,7 @@ public class PortalWebViewClient extends BridgeWebViewClient {
         this.portal = portalFromPath(configured == null ? null : configured.getPath());
         this.homeUrl = configured == null || this.portal == null
             ? serverUrl
-            : configured.buildUpon().path("/login/" + this.portal).query(null).fragment(null).build().toString();
+            : configured.buildUpon().path("/" + this.portal + "/login").query(null).fragment(null).build().toString();
     }
 
     @Override
@@ -102,8 +102,16 @@ public class PortalWebViewClient extends BridgeWebViewClient {
             return true;
         }
 
-        String ownLogin = "/login/" + portal;
-        if (path.equals(ownLogin) || path.startsWith(ownLogin + "/")) {
+        // Fix: the portal prefix mirrors the manifest scope and excludes the
+        // other installed portal while still allowing all of this portal's pages.
+        String ownScope = "/" + portal;
+        if (path.equals(ownScope) || path.startsWith(ownScope + "/")) {
+            return true;
+        }
+
+        // Allow legacy login URLs so the server can redirect old bookmarks.
+        String legacyLogin = "/login/" + portal;
+        if (path.equals(legacyLogin) || path.startsWith(legacyLogin + "/")) {
             return true;
         }
 
@@ -122,12 +130,14 @@ public class PortalWebViewClient extends BridgeWebViewClient {
         return TextUtils.isEmpty(path) ? "/" : path;
     }
 
-    /** "/login/driver" -> "driver". Any other shape leaves the shell unrestricted. */
+    /** "/driver/login" (and legacy "/login/driver") -> "driver". */
     private static String portalFromPath(String rawPath) {
         String path = normalise(rawPath).toLowerCase(Locale.US);
         for (String candidate : new String[] { "admin", "warehouse", "driver", "customer" }) {
-            String login = "/login/" + candidate;
-            if (path.equals(login) || path.startsWith(login + "/")) {
+            String scopedLogin = "/" + candidate + "/login";
+            String legacyLogin = "/login/" + candidate;
+            if (path.equals(scopedLogin) || path.startsWith(scopedLogin + "/") ||
+                path.equals(legacyLogin) || path.startsWith(legacyLogin + "/")) {
                 return candidate;
             }
         }

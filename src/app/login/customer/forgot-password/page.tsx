@@ -1,22 +1,19 @@
-import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
-import type { Metadata } from 'next'
-import { ForgotPasswordScreen } from '@/components/auth/ForgotPasswordScreen'
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
+import { loginPathForPortal } from '@/lib/portal-scope'
 
-export const metadata: Metadata = {
-  title: 'Forgot Password | AAB TRADING SHOP',
-}
-
-export default function CustomerForgotPasswordRoute() {
+export default async function CustomerForgotPasswordRoute({
+  searchParams,
+}: {
+  searchParams: Promise<{ email?: string }>
+}) {
   const variant = resolveAppVariant()
   if (!getAllowedPortals(variant).includes('customer')) {
     redirect(getDefaultLoginPathForVariant(variant))
   }
 
-  return (
-    <Suspense fallback={null}>
-      <ForgotPasswordScreen accountType="customer" portal="customer" />
-    </Suspense>
-  )
+  // Preserve old reset links while keeping the active flow inside Customer scope.
+  const { email } = await searchParams
+  const query = email ? `?email=${encodeURIComponent(email)}` : ''
+  redirect(`${loginPathForPortal('customer')}/forgot-password${query}`)
 }

@@ -1,5 +1,4 @@
 // Mirrors src/components/portals/customer/sections/track/track-view.tsx.
-import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft, CalendarDays, CheckCircle2, MapPin, Phone, ShieldCheck } from "lucide-react-native";
 import React from "react";
 import { Image, Linking, Pressable, Text, View } from "react-native";
@@ -95,12 +94,7 @@ export function TrackScreen() {
       </View>
 
       <View style={styles.trackBody}>
-        <LinearGradient
-          colors={[theme.colors.trackGradientFrom, theme.colors.trackGradientTo]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.trackStrip}
-        >
+        <View style={styles.trackStrip}>
           <View style={styles.trackStripCell}>
             <Text style={styles.trackStripLabel}>Order Status</Text>
             <Text style={styles.trackStripValue}>{statusText.toUpperCase()}</Text>
@@ -126,7 +120,7 @@ export function TrackScreen() {
               </Text>
             ) : null}
           </View>
-        </LinearGradient>
+        </View>
 
         <View style={styles.trackMapCard}>
           {isInTransit && hasDriverCoordinates && trackingItem ? (

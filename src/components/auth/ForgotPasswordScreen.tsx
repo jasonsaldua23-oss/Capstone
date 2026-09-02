@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { loginPathForPortal } from '@/lib/portal-scope'
 import {
   ArrowLeft,
   ArrowRight,
@@ -65,7 +66,7 @@ const primaryButton =
 export function ForgotPasswordScreen({ accountType, portal }: ForgotPasswordScreenProps) {
   const theme = portalThemes[portal]
   const searchParams = useSearchParams()
-  const loginPath = `/login/${portal}`
+  const loginPath = loginPathForPortal(portal)
 
   const [step, setStep] = useState<Step>('email')
   const [email, setEmail] = useState('')
