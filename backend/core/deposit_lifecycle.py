@@ -13,9 +13,7 @@ from .models import (
     BottleReturnLine,
     ContainerType,
     Customer,
-    CustomerBottleBalance,
     CustomerDepositLedger,
-    DepositTransaction,
     Inventory,
     InventoryQuantityUnit,
     InventoryTransaction,
@@ -30,11 +28,14 @@ logger = logging.getLogger(__name__)
 
 
 def finalize_order_deposits_on_delivery(order: Order, performed_by: str | None = None) -> None:
-    """
-    On successful order delivery:
-    1. Permanently settle customer's used empty bottle balances.
-    2. Create accepted BottleReturn / transfer physical empties to the destination warehouse.
-    3. Log DepositTransaction (REFUND).
+    """Close out an order's empties once it has been delivered.
+
+    The settlement itself belongs to the driver's count, recorded through
+    `empties_verification.record_collected_empties` while the stop is completed. This
+    function only covers the case where no count reached us: it files the declared
+    empties as a pending return for the warehouse to reconcile and leaves the
+    deposits charged, because a customer's declaration on its own is not evidence
+    that any container changed hands.
     """
     customer = getattr(order, "customer", None)
     if not customer:
@@ -87,10 +88,15 @@ def finalize_order_deposits_on_delivery(order: Order, performed_by: str | None =
     if not used_by_container:
         return
 
-    # Check if a BottleReturn already exists for this order to prevent duplicates
-    if BottleReturn.objects.filter(order=order, status=BottleReturn.ReturnStatus.ACCEPTED).exists():
+    # The driver's count settles the empties. If a return was already recorded for
+    # this order there is nothing left to do here, whatever its status.
+    if BottleReturn.objects.filter(order=order).exists():
         return
 
+    # No count reached us — the order was completed somewhere the driver flow does
+    # not run (an admin marking it delivered, or an older client). The customer's
+    # declaration alone must never settle money, so the empties are filed as pending
+    # for the warehouse to reconcile, with the deposits left charged.
     sequence = BottleReturn.objects.count() + 1
     return_number = f"RET-{timezone.now().year}-{str(sequence).zfill(4)}"
     while BottleReturn.objects.filter(return_number=return_number).exists():
@@ -101,10 +107,13 @@ def finalize_order_deposits_on_delivery(order: Order, performed_by: str | None =
         return_number=return_number,
         customer=customer,
         order=order,
-        status=BottleReturn.ReturnStatus.ACCEPTED,
-        received_by=str(performed_by or "Driver"),
-        received_at=timezone.now(),
-        notes=f"Empties collected and returned upon delivery of Order {order.order_number}",
+        status=BottleReturn.ReturnStatus.PENDING,
+        received_by=None,
+        received_at=None,
+        notes=(
+            f"Empties declared at checkout for Order {order.order_number} were never "
+            "confirmed by a driver. Deposits stay charged until the count is recorded."
+        ),
     )
 
     for ct_id, data in used_by_container.items():
@@ -112,42 +121,23 @@ def finalize_order_deposits_on_delivery(order: Order, performed_by: str | None =
         if not ct:
             continue
         qty = data["quantity"]
-        deposit_refunded = data["depositRefunded"]
 
         BottleReturnLine.objects.create(
             bottle_return=bottle_return,
             container_type=ct,
             quantity_claimed=qty,
-            quantity_graded_reusable=qty,
+            quantity_graded_reusable=0,
             quantity_graded_damaged=0,
             quantity_rejected=0,
-            deposit_refund_amount=deposit_refunded,
-            notes=f"Returned on delivery of {order.order_number}",
+            deposit_refund_amount=Decimal("0.00"),
+            notes=f"{qty} declared at checkout of {order.order_number}; not yet verified.",
         )
 
-        balance = CustomerBottleBalance.objects.filter(customer=customer, container_type=ct).first()
-        if balance:
-            balance_before = balance.deposit_balance
-            balance.bottles_outstanding = max(0, balance.bottles_outstanding - qty)
-            balance.deposit_balance = max(Decimal("0.00"), balance.deposit_balance - deposit_refunded)
-            balance.bottles_returned_total += qty
-            balance.last_return_at = timezone.now()
-            balance.save(update_fields=["bottles_outstanding", "deposit_balance", "bottles_returned_total", "last_return_at", "updated_at"])
-
-            DepositTransaction.objects.create(
-                customer=customer,
-                type=DepositTransaction.TransactionType.REFUND,
-                amount=-deposit_refunded,
-                balance_before=balance_before,
-                balance_after=balance.deposit_balance,
-                order=order,
-                container_type=ct,
-                container_count=qty,
-                reason=f"Empties settled and returned on delivery of Order {order.order_number}",
-                reference_type="order",
-                reference_id=order.id,
-                performed_by=str(performed_by or "Driver"),
-            )
+    logger.warning(
+        "Order %s was delivered without a driver empties count; %s pending verification",
+        order.order_number,
+        bottle_return.return_number,
+    )
 
 
 def record_stockin_empty_consumption(inventory: Inventory, batch: Any, qty: int) -> None:

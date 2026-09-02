@@ -91,12 +91,20 @@ def upload_bytes(object_path: str, data: bytes, content_type: str | None = None)
             "x-upsert": "true",
         }
     )
-    response = requests.post(
-        f"{_base_url()}/storage/v1/object/{_bucket()}/{clean_path}",
-        data=data,
-        headers=headers,
-        timeout=UPLOAD_TIMEOUT_SECONDS,
-    )
+    try:
+        response = requests.post(
+            f"{_base_url()}/storage/v1/object/{_bucket()}/{clean_path}",
+            data=data,
+            headers=headers,
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        logger.warning("Supabase upload connection failed path=%s error=%s", clean_path, exc)
+        # Fix: the persistent upload directory is already the compatibility path
+        # for opaque Supabase keys, including transient connection resets.
+        if key.startswith("sb_secret_"):
+            return _store_on_persistent_disk(clean_path, data)
+        raise ObjectStorageError("Could not connect to object storage") from exc
     if not response.ok:
         detail = str(response.text or "")[:300]
         logger.error("Supabase upload failed path=%s status=%s body=%s", clean_path, response.status_code, detail)

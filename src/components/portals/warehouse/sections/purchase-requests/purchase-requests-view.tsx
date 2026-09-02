@@ -11,6 +11,7 @@ import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeleto
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import type { WarehousePurchaseRequestsViewProps } from '../shared/types'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 type RequestActionState = {
   order: any
@@ -228,7 +229,7 @@ export function WarehousePurchaseRequestsView({
                               : <p>0</p>}
                           </div>
                         </td>
-                        <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
+                        <td className="px-4 py-3 font-semibold">{formatPeso(getOrderTotalWithEmpties(order))}</td>
                         <td className="px-4 py-3">{new Date(order.dateRequested || order.createdAt).toLocaleDateString()}</td>
                         <td className="px-4 py-3">
                           <Badge className={requestBadgeClass[requestStatus] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>

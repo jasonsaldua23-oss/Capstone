@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -6065,9 +6066,19 @@ export function WarehousePortal() {
                             Warehouse scoped total: <span className="text-emerald-700">{formatPeso(warehouseScopedTotal || 0)}</span>
                           </p>
                         ) : (
-                          <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
-                            Order total: <span className="text-emerald-700">{formatPeso(selectedOrder.totalAmount || 0)}</span>
-                          </p>
+                          <>
+                            {getEmptiesAdjustment(selectedOrder) ? (
+                              <div className="text-right text-[12px] leading-4 text-[#8a7135]">
+                                <p className="font-semibold text-[#7a5c15]">
+                                  Order total {formatPeso(selectedOrder.totalAmount || 0)} + empties deposit {formatPeso(Number(getEmptiesAdjustment(selectedOrder)?.amount || 0))}
+                                </p>
+                                <p>{describeEmptiesShortfall(getEmptiesAdjustment(selectedOrder))}</p>
+                              </div>
+                            ) : null}
+                            <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
+                              Order total: <span className="text-emerald-700">{formatPeso(getOrderTotalWithEmpties(selectedOrder))}</span>
+                            </p>
+                          </>
                         )}
                       </div>
                     </div>

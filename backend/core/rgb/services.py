@@ -603,10 +603,17 @@ def process_bottle_return(
         if quantity_graded_reusable + quantity_graded_damaged + quantity_rejected > quantity_claimed:
             raise ValueError("Graded quantities cannot exceed claimed quantity")
 
-        # Calculate refund for reusable containers
-        deposit_refund = _money(
-            container_type.deposit_amount * Decimal(quantity_graded_reusable)
+        # Calculate refund for reusable containers. A caller that knows what the
+        # customer was actually charged for this container passes that rate in;
+        # refunding the container type's standing deposit instead would credit a
+        # different amount than was collected.
+        rate_override = line_data.get("depositPerContainer")
+        deposit_rate = (
+            Decimal(str(rate_override))
+            if rate_override not in (None, "")
+            else Decimal(str(container_type.deposit_amount))
         )
+        deposit_refund = _money(deposit_rate * Decimal(quantity_graded_reusable))
 
         BottleReturnLine.objects.create(
             bottle_return=bottle_return,

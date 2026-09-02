@@ -10,6 +10,8 @@ import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from
 import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
 import { PushNotificationManager } from '@/components/shared/push-notification-manager'
+import { InstallAppPrompt } from '@/components/shared/install-app-prompt'
+import { resetInstallPromptForNewSession } from '@/lib/native/install-prompt'
 
 // Auth Context
 interface AuthContextType {
@@ -345,6 +347,7 @@ export default function Home() {
     rememberTabLoginPortal(nextPortal)
     setSessionExpiredPortal(null)
     clearTabAuthToken()
+    resetInstallPromptForNewSession()
     queryClient.clear()
     setUser(null)
     setPortal(nextPortal)
@@ -390,6 +393,7 @@ export default function Home() {
           <Toaster position="top-right" />
           {/* Added once here so every authenticated portal can register its device. */}
           <PushNotificationManager user={user} />
+          {(portal === 'driver' || portal === 'customer') && <InstallAppPrompt portal={portal} />}
           <PortalErrorBoundary onRecover={recoverToLogin}>
             {portal === 'admin' && <AdminPortal />}
             {portal === 'driver' && <DriverPortal />}

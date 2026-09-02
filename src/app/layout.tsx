@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { CHUNK_RECOVERY_SCRIPT } from "@/lib/chunk-recovery-script";
@@ -28,6 +28,22 @@ export const metadata: Metadata = {
     title: "Ann Ann's Beverages Trading",
     description: "Logistics operations portal",
   },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Ann Ann's Beverages Trading",
+  },
+};
+
+// Installed apps run without browser chrome, so the viewport has to cover the
+// notch and keep the layout from zooming when an input is focused.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({

@@ -950,7 +950,12 @@ export default function App() {
     setStopActionMode(mode);
     setRecipientName(point.contactName || point.order?.shippingName || "");
     setDeliveryNotes(point.notes || "");
-    setReturnedEmpties({});
+    setReturnedEmpties(
+      getReturnableContainers(point).reduce<Record<string, number>>((totals, container) => {
+        totals[container.id] = container.declared;
+        return totals;
+      }, {}),
+    );
     setPodImageUri(null);
     setPodCaptureMetadata(null);
     setFailureReason("");
@@ -2063,21 +2068,66 @@ export default function App() {
             <TextInput style={[styles.input, styles.multilineInput]} value={deliveryNotes} onChangeText={setDeliveryNotes} placeholder="Delivery notes (optional)" multiline />
             {getReturnableContainers(stopActionPoint).length ? (
               <View style={styles.orderItems}>
-                <Text style={styles.listTitle}>Returned Empty Bottles</Text>
+                <Text style={styles.listTitle}>Empties Collected</Text>
+                <Text style={styles.subtle}>Count the containers actually handed over. Leave a number lower than the declared amount if the customer did not hand them all over.</Text>
                 {getReturnableContainers(stopActionPoint).map((container) => {
-                  const quantity = returnedEmpties[container.id] || 0;
+                  const quantity = Math.min(Math.max(0, returnedEmpties[container.id] || 0), container.declared);
+                  const short = Math.max(0, container.declared - quantity);
+                  const byCase = container.perUnit > 1;
+                  const unitName = (count: number) => `${container.unitLabel}${count === 1 ? "" : "s"}`;
+                  const declaredUnits = Math.floor(container.declared / container.perUnit);
+                  const currentUnits = Math.floor(quantity / container.perUnit);
+                  const shortUnits = Math.max(0, declaredUnits - currentUnits);
                   return (
                     <View key={container.id} style={styles.returnableRow}>
                       <View style={styles.flex}>
                         <Text style={styles.listTitle}>{container.name}</Text>
-                        <Text style={styles.subtle}>Expected: {container.expected}</Text>
+                        <Text style={styles.subtle}>
+                          Customer declared: {byCase ? `${declaredUnits} ${unitName(declaredUnits)} (${container.declared} bottles)` : container.declared}
+                        </Text>
+                        {short > 0 ? (
+                          <Text style={styles.emptiesShortText}>
+                            {byCase ? `${shortUnits} ${unitName(shortUnits)}` : short} short - the deposit will be charged back
+                          </Text>
+                        ) : null}
                       </View>
-                      <Pressable style={styles.quantityButton} onPress={() => setReturnedEmpties((current) => ({ ...current, [container.id]: Math.max(0, quantity - 1) }))}><Text style={styles.quantityButtonText}>−</Text></Pressable>
-                      <Text style={styles.quantityValue}>{quantity}</Text>
-                      <Pressable style={styles.quantityButton} onPress={() => setReturnedEmpties((current) => ({ ...current, [container.id]: quantity + 1 }))}><Text style={styles.quantityButtonText}>+</Text></Pressable>
+                      <Pressable style={styles.quantityButton} onPress={() => setReturnedEmpties((current) => ({ ...current, [container.id]: Math.max(0, quantity - container.perUnit) }))}><Text style={styles.quantityButtonText}>−</Text></Pressable>
+                      <Text style={styles.quantityValue}>{byCase ? `${currentUnits} ${unitName(currentUnits)}` : quantity}</Text>
+                      <Pressable
+                        style={styles.quantityButton}
+                        disabled={quantity >= container.declared}
+                        onPress={() => setReturnedEmpties((current) => ({
+                          ...current,
+                          // Never above the declaration: this order settles that and nothing else.
+                          [container.id]: Math.min(quantity + container.perUnit, container.declared),
+                        }))}
+                      ><Text style={styles.quantityButtonText}>+</Text></Pressable>
                     </View>
                   );
                 })}
+                {(() => {
+                  // Empties the customer keeps were discounted at checkout, so the
+                  // deposit for them is due on delivery. The driver sees the amount
+                  // to collect change as they count.
+                  const shortfall = getReturnableContainers(stopActionPoint).reduce((total, container) => {
+                    if (container.declared <= 0 || container.depositValue <= 0) return total;
+                    const counted = Math.min(Math.max(0, returnedEmpties[container.id] || 0), container.declared);
+                    const short = container.declared - counted;
+                    return short > 0 ? total + (container.depositValue * short) / container.declared : total;
+                  }, 0);
+                  if (shortfall <= 0) return null;
+                  const orderTotal = Number(stopActionPoint?.order?.totalAmount || 0);
+                  return (
+                    <View style={styles.emptiesShortfallBox}>
+                      <Text style={styles.emptiesShortfallLabel}>
+                        Empties deposit due: {formatPeso(Math.round(shortfall * 100) / 100)}
+                      </Text>
+                      <Text style={styles.emptiesShortfallTotal}>
+                        Collect: {formatPeso(Math.round((orderTotal + shortfall) * 100) / 100)}
+                      </Text>
+                    </View>
+                  );
+                })()}
               </View>
             ) : null}
             {podImageUri ? (
@@ -2536,16 +2586,41 @@ function OrderItemDetails({ item }: { item: DriverTripOrderItem }) {
   );
 }
 
-function getReturnableContainers(point: DriverTripDropPoint | null): Array<{ id: string; name: string; expected: number }> {
-  const grouped = new Map<string, { id: string; name: string; expected: number }>();
+// The empties the customer declared at checkout. That declaration already reduced
+// what they pay, so it is the number the driver has to confirm against the physical
+// containers; anything short is billed back on the order.
+function getReturnableContainers(
+  point: DriverTripDropPoint | null,
+): Array<{ id: string; name: string; declared: number; perUnit: number; unitLabel: string; depositValue: number }> {
+  const declared = point?.declaredEmpties || [];
+  if (declared.length) {
+    // Cased goods are counted in cases: a driver hands back twelve cases, not two
+    // hundred and eighty-eight bottles. The stored value stays in containers.
+    return declared
+      .filter((entry) => entry?.containerTypeId)
+      .map((entry) => ({
+        id: String(entry.containerTypeId),
+        name: String(entry.containerTypeName || "Returnable Container"),
+        declared: Math.max(0, Number(entry.declaredQuantity ?? 0)),
+        perUnit: Math.max(1, Number(entry.containersPerUnit ?? 1)),
+        unitLabel: String(entry.unitLabel || entry.containerTypeName || "Container"),
+        depositValue: Math.max(0, Number(entry.depositValue ?? 0)),
+      }));
+  }
+
+  // Older payloads carry no declaration; fall back to the returnable containers on
+  // the order so the driver can still record what was handed over.
+  const grouped = new Map<string, { id: string; name: string; declared: number; perUnit: number; unitLabel: string; depositValue: number }>();
   for (const item of point?.order?.items || []) {
     if (!item.isReturnableItem || !item.containerTypeId) continue;
     const current = grouped.get(item.containerTypeId) || {
       id: item.containerTypeId,
       name: item.containerTypeName || "Returnable Glass Bottle",
-      expected: 0,
+      declared: 0,
+      perUnit: 1,
+      unitLabel: item.containerTypeName || "Container",
+      depositValue: 0,
     };
-    current.expected += Math.max(0, Number(item.fullQuantity ?? item.quantity ?? 0));
     grouped.set(item.containerTypeId, current);
   }
   return Array.from(grouped.values());
@@ -3871,6 +3946,10 @@ const styles = StyleSheet.create({
   podCameraShutterDisabled: { opacity: 0.5 },
   podCameraShutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: "#ffffff" },
   returnableRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 },
+  emptiesShortText: { color: "#b42318", fontSize: 12, fontFamily: "Poppins_600SemiBold", marginTop: 2 },
+  emptiesShortfallBox: { marginTop: 10, borderRadius: 12, borderWidth: 1, borderColor: "#e4d9b8", backgroundColor: "#fdf8ea", padding: 12 },
+  emptiesShortfallLabel: { color: "#8a7135", fontSize: 12, fontFamily: "Poppins_500Medium" },
+  emptiesShortfallTotal: { color: "#7a5c15", fontSize: 15, fontFamily: "Poppins_700Bold", marginTop: 2 },
   quantityButton: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: "#f59e0b", alignItems: "center", justifyContent: "center" },
   quantityButtonText: { color: "#0f172a", fontSize: 20, fontFamily: "Poppins_800ExtraBold" },
   quantityValue: { minWidth: 30, textAlign: "center", color: "#0f172a", fontFamily: "Poppins_800ExtraBold" },

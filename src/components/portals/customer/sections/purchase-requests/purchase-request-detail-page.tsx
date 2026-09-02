@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { getStatusConfig, normalizePRStatus } from './purchase-request-view'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 function getItemDisplayNameWithSize(item: any): string {
   if (item?.itemType === 'MIXED_CASE') {
@@ -179,7 +180,7 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
           </div>
         </div>
 
-        {/* ── Address + Estimated Total Grid ── */}
+        {/* ── Address + Total Grid ── */}
         <div className="grid gap-3.5 md:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
             <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 md:text-sm">
@@ -197,10 +198,10 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
           <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
             <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 md:text-sm">
               <Wallet className="h-4 w-4 text-slate-500" />
-              Estimated Total
+              Total
             </p>
             <p className="mt-1.5 text-2xl font-extrabold text-emerald-700 md:text-3xl">
-              {formatPeso(orderTotal)}
+              {formatPeso(getOrderTotalWithEmpties(order))}
             </p>
             {orderDiscount > 0 && (
               <CompactDiscountLine
@@ -292,8 +293,8 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
                 </div>
               )}
               <div className="flex items-center justify-between border-t border-slate-200 pt-1.5 font-bold text-slate-900">
-                <span>Estimated Total</span>
-                <span className="text-emerald-700">{formatPeso(orderTotal)}</span>
+                <span>Total</span>
+                <span className="text-emerald-700">{formatPeso(getOrderTotalWithEmpties(order))}</span>
               </div>
             </div>
           </div>

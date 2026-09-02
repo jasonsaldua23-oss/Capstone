@@ -184,6 +184,12 @@ export function DriverPortal() {
                     trip={selectedTrip}
                     driverUser={user}
                     onBack={() => setSelectedTripId(null)}
+                    onTripCompleted={() => {
+                      // A closed trip leaves the driver on the dashboard, not on a
+                      // trip screen that no longer has anything to act on.
+                      setSelectedTripId(null)
+                      setActiveView('home')
+                    }}
                     locationPermission={locationPermission}
                     onStartTracking={startLocationTracking}
                     onRefreshTrips={() => fetchTrips(true)}

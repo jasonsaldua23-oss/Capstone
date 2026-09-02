@@ -19,6 +19,7 @@ import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from '@/components/u
 import { prepareImageForUpload } from '@/lib/client-image'
 import { burnPodOverlay, formatPodOverlayLines, type PodOverlaySnapshot } from '@/lib/pod-camera-overlay'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
+import { EmptiesChargeNote } from '@/components/shared/empties-charge-note'
 import type { AuthUser } from '@/types'
 import {
   calculateNavigationViewportInsets,
@@ -62,6 +63,7 @@ export function TripDetailView({
   trip,
   driverUser,
   onBack,
+  onTripCompleted,
   locationPermission,
   onStartTracking,
   onRefreshTrips,
@@ -72,6 +74,8 @@ export function TripDetailView({
   trip: Trip
   driverUser: AuthUser | null
   onBack: () => void
+  /** Where to send the driver once the trip is closed; falls back to going back. */
+  onTripCompleted?: () => void
   locationPermission: 'granted' | 'denied' | 'prompt'
   onStartTracking: () => Promise<boolean>
   onRefreshTrips: () => Promise<Trip[]>
@@ -82,6 +86,10 @@ export function TripDetailView({
   // Delivery and proof-of-delivery state.
   const [activeDropPoint, setActiveDropPoint] = useState<DropPoint | null>(null)
   const [deliveryNote, setDeliveryNote] = useState('')
+  // The ref, not the state flag, is what stops a second tap: state updates land after
+  // the next render, and the button can be pressed again before that happens.
+  const [isCompletingTrip, setIsCompletingTrip] = useState(false)
+  const isCompletingTripRef = useRef(false)
   const [podDraftByDropPoint, setPodDraftByDropPoint] = useState<Record<string, { file: File | null; preview: string | null }>>({})
   const [returnedEmptiesByDropPoint, setReturnedEmptiesByDropPoint] = useState<Record<string, Array<{containerTypeId: string; containerTypeName: string; returnedQuantity: number}>>>({})
   const [podCaptureDropPointId, setPodCaptureDropPointId] = useState<string | null>(null)
@@ -183,8 +191,71 @@ export function TripDetailView({
     Number(trip.completedDropPoints || 0),
     sortedDropPoints.filter((point) => terminalDropPointStatuses.has(String(point.status || '').toUpperCase())).length
   )
+  // Every stop delivered, which is what the end-of-trip confirmation celebrates.
+  const allDropPointsCompleted =
+    sortedDropPoints.length > 0 &&
+    sortedDropPoints.every((point) => String(point.status || '').toUpperCase() === 'COMPLETED')
+  // A stop with a recorded outcome is finished, whether it was delivered or failed.
+  // Anything pending, in transit, arrived or skipped still needs the driver.
+  const unresolvedDropPointCount = sortedDropPoints.filter(
+    (point) => !['COMPLETED', 'FAILED'].includes(String(point.status || '').toUpperCase())
+  ).length
+  const canCompleteTrip = sortedDropPoints.length > 0 && unresolvedDropPointCount === 0
   const highlightedDropPoint = activeDropPoint || sortedDropPoints[0] || null
-  const mobileSheetSnapPoints: Array<number | string> = [0.52, 0.88, 0.98]
+  const mobileSheetSnapPoints: Array<number | string> = [0.52, 0.88, 1]
+  // Vaul renders the sheet at the height of its largest snap point and slides it
+  // down for the smaller ones, so the scrollable area has to be capped at the part
+  // that is actually on screen. Without this the list below the fold could not be
+  // reached at all: the container scrolled, but its lower half sat past the bottom
+  // of the display.
+  const mobileSheetVisibleFraction =
+    typeof mobileSheetSnapPoint === 'number' && mobileSheetSnapPoint > 0 ? mobileSheetSnapPoint : 0.52
+  const tripCompletionSection =
+    trip.status === 'IN_PROGRESS' ? (
+      <>
+        {(allDropPointsCompleted || canCompleteTrip) && (
+          <div className="space-y-3">
+            {allDropPointsCompleted ? (
+              <div className="flex items-start gap-3 rounded-xl border border-[#c9e7d4] bg-[#f1faf4] p-4">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#dcf1e4]">
+                  <CheckCircle className="h-5 w-5 text-[#16984e]" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[15px] font-semibold text-[#14532d]">All Drop Points Completed!</p>
+                  <p className="mt-1 text-[13px] leading-5 text-[#3f6b50]">
+                    Every delivery on this trip has been completed. Complete the trip to close it and return to your dashboard.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-[#e4d9b8] bg-[#fdf8ea] p-4">
+                <p className="text-[15px] font-semibold text-[#7a5c15]">All drop points are resolved</p>
+                <p className="mt-1 text-[13px] leading-5 text-[#8a7135]">
+                  Some deliveries could not be completed. You can still close the trip; the recorded outcomes stay on each order.
+                </p>
+              </div>
+            )}
+            <Button
+              onClick={() => void handleCompleteTrip()}
+              disabled={!canCompleteTrip || isCompletingTrip}
+              className="h-12 w-full bg-green-600 hover:bg-green-700 disabled:opacity-60"
+            >
+              {isCompletingTrip ? (
+                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+              ) : (
+                <Flag className="h-5 w-5 mr-2" />
+              )}
+              {isCompletingTrip ? 'Completing Trip' : 'Complete Trip'}
+            </Button>
+          </div>
+        )}
+        {!canCompleteTrip && unresolvedDropPointCount > 0 && (
+          <p className="text-center text-[13px] text-slate-500">
+            {unresolvedDropPointCount} drop point{unresolvedDropPointCount === 1 ? '' : 's'} still to complete before this trip can be closed.
+          </p>
+        )}
+      </>
+    ) : null
   const hasBlockingDialogOpen =
     isStartTripConfirmOpen ||
     isArriveWarningOpen ||
@@ -499,6 +570,27 @@ export function TripDetailView({
     return formatCountUnit(qty, rawUnit)
   }
 
+  const getEmptiesShortfallAmount = (dropPoint: any): number => {
+    const declaredEmpties = (dropPoint?.declaredEmpties || []) as Array<{
+      containerTypeId: string
+      declaredQuantity?: number
+      depositValue?: number
+    }>
+    if (!declaredEmpties.length) return 0
+    const counted = returnedEmptiesByDropPoint[String(dropPoint?.id || '')] || []
+    let shortfall = 0
+    for (const entry of declaredEmpties) {
+      const declared = Math.max(0, Number(entry.declaredQuantity || 0))
+      if (declared <= 0) continue
+      const stored = counted.find((row) => row.containerTypeId === entry.containerTypeId)?.returnedQuantity
+      const collected = Math.min(Math.max(0, stored ?? declared), declared)
+      const short = declared - collected
+      if (short <= 0) continue
+      shortfall += (Number(entry.depositValue || 0) * short) / declared
+    }
+    return Math.round(shortfall * 100) / 100
+  }
+
   const getDisplayOrderTotal = (order?: any): number => {
     const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
     const items = Array.isArray(order?.items) ? order.items : []
@@ -776,7 +868,21 @@ export function TripDetailView({
     }
     try {
       const imageUrl = podImageFile ? await uploadPodImage(podImageFile) : existingPodPhotoUrl
-      const returnedEmpties = returnedEmptiesByDropPoint[dropPointId] || []
+      // An untouched counter means the driver agreed with the declaration, so the
+      // declared quantity is what gets submitted rather than an empty payload.
+      const storedEmpties = returnedEmptiesByDropPoint[dropPointId] || []
+      const declaredEmpties = ((dropPoint as any)?.declaredEmpties || []) as Array<{ containerTypeId: string; containerTypeName?: string; declaredQuantity?: number }>
+      const returnedEmpties = declaredEmpties.length
+        ? declaredEmpties
+            .filter((entry) => entry?.containerTypeId)
+            .map((entry) => ({
+              containerTypeId: entry.containerTypeId,
+              containerTypeName: entry.containerTypeName || '',
+              returnedQuantity:
+                storedEmpties.find((stored) => stored.containerTypeId === entry.containerTypeId)?.returnedQuantity
+                ?? Math.max(0, Number(entry.declaredQuantity || 0)),
+            }))
+        : storedEmpties
       const completed = await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
         recipientName: 'Customer',
         deliveryPhoto: imageUrl,
@@ -789,6 +895,45 @@ export function TripDetailView({
     } catch (error: any) {
       toast.error(error?.message || 'Failed to upload POD image')
       return false
+    }
+  }
+
+  // Closes the trip once every stop has an outcome, then returns the driver home.
+  const handleCompleteTrip = async () => {
+    if (isCompletingTripRef.current) return
+    isCompletingTripRef.current = true
+    setIsCompletingTrip(true)
+    try {
+      const response = await fetch(`/api/trips/${trip.id}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        toast.error(payload?.error || 'The trip could not be completed. Please try again.')
+        return
+      }
+      // A repeat call reports the trip as already completed rather than failing, so
+      // the driver still ends up back on the dashboard either way.
+      toast.success(payload?.alreadyCompleted ? 'This trip was already completed.' : 'Trip completed.')
+      onApplyTripUpdate((currentTrip) => ({
+        ...currentTrip,
+        ...(payload?.trip || {}),
+        status: 'COMPLETED',
+      }))
+      emitDataSync(['trips', 'orders'])
+      void onRefreshTrips()
+      if (onTripCompleted) {
+        onTripCompleted()
+      } else {
+        onBack()
+      }
+    } catch {
+      toast.error('The trip could not be completed. Please check your connection and try again.')
+    } finally {
+      isCompletingTripRef.current = false
+      setIsCompletingTrip(false)
     }
   }
 
@@ -1450,20 +1595,54 @@ export function TripDetailView({
     })
     .filter((point) => point.latitude !== null && point.longitude !== null)
   const renderEmptiesReturnInput = (dropPoint: DropPoint) => {
-    const returnableItems = ((dropPoint as any)?.order?.orderItems || []).filter((item: any) => item.product?.packagingType === 'RETURNABLE')
-    if (!returnableItems || returnableItems.length === 0) return null
+    // The customer's checkout declaration is what has to be verified: it already
+    // reduced what they pay, and anything short is charged back on the order.
+    const declaredEmpties = ((dropPoint as any)?.declaredEmpties || []) as Array<{
+      containerTypeId: string
+      containerTypeName?: string
+      declaredQuantity?: number
+      declaredUnits?: number
+      containersPerUnit?: number
+      countsByCase?: boolean
+      unitLabel?: string
+      depositValue?: number
+    }>
 
-    // Group by container type since multiple returnable products could share the same container
-    const containerTypesMap = new Map<string, { typeName: string, maxExpected: number }>()
-    for (const item of returnableItems) {
-      const cType = item.product?.containerTypeId
-      if (cType) {
-        const existing = containerTypesMap.get(cType)
-        const qty = (item.quantity || 0) * (item.product?.containersPerCase || 1)
-        if (existing) {
-          existing.maxExpected += qty
-        } else {
-          containerTypesMap.set(cType, { typeName: item.product?.containerTypeName || 'Unknown', maxExpected: qty })
+    // Cased goods are counted in cases and loose goods in bottles; a driver hands
+    // back twelve cases, not two hundred and eighty-eight bottles. The stored value
+    // stays in containers so the settlement arithmetic is untouched.
+    const containerTypesMap = new Map<string, {
+      typeName: string
+      declared: number
+      perUnit: number
+      unitLabel: string
+      depositValue: number
+    }>()
+    for (const entry of declaredEmpties) {
+      if (!entry?.containerTypeId) continue
+      const perUnit = Math.max(1, Number(entry.containersPerUnit || 1))
+      containerTypesMap.set(entry.containerTypeId, {
+        typeName: entry.containerTypeName || 'Returnable Container',
+        declared: Math.max(0, Number(entry.declaredQuantity || 0)),
+        perUnit,
+        unitLabel: entry.unitLabel || entry.containerTypeName || 'Container',
+        depositValue: Math.max(0, Number(entry.depositValue || 0)),
+      })
+    }
+
+    if (containerTypesMap.size === 0) {
+      // Older payloads carry no declaration; still let the driver record a count.
+      const returnableItems = ((dropPoint as any)?.order?.orderItems || []).filter((item: any) => item.product?.packagingType === 'RETURNABLE')
+      for (const item of returnableItems) {
+        const cType = item.product?.containerTypeId
+        if (cType && !containerTypesMap.has(cType)) {
+          containerTypesMap.set(cType, {
+            typeName: item.product?.containerTypeName || 'Returnable Container',
+            declared: 0,
+            perUnit: 1,
+            unitLabel: item.product?.containerTypeName || 'Container',
+            depositValue: 0,
+          })
         }
       }
     }
@@ -1473,8 +1652,10 @@ export function TripDetailView({
     const dropPointId = dropPoint.id!
     const currentEmpties = returnedEmptiesByDropPoint[dropPointId] || []
 
-    const handleUpdateQuantity = (cTypeId: string, cTypeName: string, newQty: number, maxExpected: number) => {
-      const qty = Math.max(0, newQty) // allow returning more than maxExpected, but maybe warn
+    const handleUpdateQuantity = (cTypeId: string, cTypeName: string, newQty: number, maxQty: number) => {
+      // The count can only ever run between nothing and what the customer declared:
+      // this order settles that declaration and nothing else.
+      const qty = Math.min(Math.max(0, newQty), Math.max(0, maxQty))
       setReturnedEmptiesByDropPoint(prev => {
         const current = prev[dropPointId] || []
         const existingIdx = current.findIndex(e => e.containerTypeId === cTypeId)
@@ -1490,21 +1671,43 @@ export function TripDetailView({
 
     return (
       <div className="space-y-3 border-t border-b border-slate-200 py-3 mb-3 bg-slate-50/50 -mx-4 px-4">
-        <p className="text-sm font-semibold text-slate-800">Return Empties</p>
-        {Array.from(containerTypesMap.entries()).map(([cTypeId, { typeName, maxExpected }]) => {
-          const currentVal = currentEmpties.find(e => e.containerTypeId === cTypeId)?.returnedQuantity || 0
+        <div>
+          <p className="text-sm font-semibold text-slate-800">Empties collected</p>
+          <p className="text-xs text-slate-500">Count what the customer actually hands over. Anything short of the declared amount is charged back on this order.</p>
+        </div>
+        {Array.from(containerTypesMap.entries()).map(([cTypeId, { typeName, declared, perUnit, unitLabel, depositValue: declaredDepositValue }]) => {
+          const stored = currentEmpties.find(e => e.containerTypeId === cTypeId)?.returnedQuantity
+          // Clamp on the way out too, so a stale stored value can never display as
+          // more than the customer ever declared.
+          const currentVal = Math.min(Math.max(0, stored ?? declared), declared)
+          const short = Math.max(0, declared - currentVal)
+          const byCase = perUnit > 1
+          const unitName = (count: number) => `${unitLabel}${count === 1 ? '' : 's'}`
+          const declaredUnits = Math.floor(declared / perUnit)
+          const currentUnits = Math.floor(currentVal / perUnit)
+          const shortUnits = Math.max(0, declaredUnits - currentUnits)
           return (
-            <div key={cTypeId} className="flex justify-between items-center">
-              <div>
+            <div key={cTypeId} className="flex justify-between items-center gap-3">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-slate-700">{typeName}</p>
-                <p className="text-xs text-slate-500">Expected: {maxExpected}</p>
+                <p className="text-xs text-slate-500">
+                  Customer declared: {byCase ? `${declaredUnits} ${unitName(declaredUnits)} (${declared} bottles)` : declared}
+                </p>
+                {short > 0 ? (
+                  <p className="text-xs font-semibold text-[#b42318]">
+                    {byCase ? `${shortUnits} ${unitName(shortUnits)}` : short} short -{' '}
+                    {formatCurrency((declaredDepositValue * short) / Math.max(1, declared))} added to this order
+                  </p>
+                ) : null}
               </div>
-              <div className="flex items-center space-x-2 bg-white rounded-lg border px-1 py-1">
-                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentVal - 1, maxExpected) }} disabled={currentVal <= 0}>
+              <div className="flex shrink-0 items-center space-x-2 bg-white rounded-lg border px-1 py-1">
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentVal - perUnit, declared) }} disabled={currentVal <= 0}>
                   <Minus className="h-3.5 w-3.5" />
                 </Button>
-                <span className="w-8 text-center text-sm font-medium">{currentVal}</span>
-                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentVal + 1, maxExpected) }}>
+                <span className="min-w-[3.5rem] text-center text-sm font-medium">
+                  {byCase ? `${currentUnits} ${unitName(currentUnits)}` : currentVal}
+                </span>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentVal + perUnit, declared) }} disabled={currentVal >= declared}>
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -2530,9 +2733,12 @@ export function TripDetailView({
                   <DrawerContent
                     ref={mobileDrawerRef}
                     hideOverlay
-                    className="driver-trip-drawer-motion !bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 min-h-[7rem] max-h-[calc(100dvh-4.6rem)] transform-gpu will-change-transform rounded-none border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
+                    className="driver-trip-drawer-motion !bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 min-h-[7rem] max-h-[100dvh] transform-gpu will-change-transform rounded-none border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
                   >
-                    <div className="max-h-[calc(100dvh-11.4rem)] overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] pt-2 pr-3">
+                    <div
+                      className="overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+4.5rem)] pt-2 pr-3"
+                      style={{ maxHeight: `calc(${mobileSheetVisibleFraction * 100}dvh - 1.5rem)` }}
+                    >
                       <DrawerTitle className="sr-only">Trip drop points</DrawerTitle>
                       <DrawerHandle className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-300" />
                       <div className="flex items-start justify-between gap-3">
@@ -2585,11 +2791,24 @@ export function TripDetailView({
                                                 </div>
                                               )
                                             }
+                                            const emptiesShortfall = getEmptiesShortfallAmount(dropPoint)
+                                            const orderTotal = getDisplayOrderTotal(dropPoint.order)
                                             return (
                                               <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
                                                 <p className="text-[11px] font-semibold text-amber-800">
-                                                  Total Price: {formatCurrency(getDisplayOrderTotal(dropPoint.order))}
+                                                  Total Price: {formatCurrency(orderTotal)}
                                                 </p>
+                                                {emptiesShortfall > 0 ? (
+                                                  <>
+                                                    <p className="mt-1 text-[10px] text-amber-700">
+                                                      + {formatCurrency(emptiesShortfall)} deposit for empties not handed over
+                                                    </p>
+                                                    <p className="mt-0.5 text-[11px] font-bold text-amber-900">
+                                                      Collect: {formatCurrency(orderTotal + emptiesShortfall)}
+                                                    </p>
+                                                  </>
+                                                ) : null}
+                                                <EmptiesChargeNote order={dropPoint.order} className="mt-1.5" />
                                               </div>
                                             )
                                           })()}
@@ -2721,6 +2940,9 @@ export function TripDetailView({
                           </Card>
                         ))}
                       </div>
+                      {tripCompletionSection ? (
+                        <div className="mt-4 space-y-3 px-1 pb-2">{tripCompletionSection}</div>
+                      ) : null}
                     </div>
                   </DrawerContent>
                 </Drawer>
@@ -2806,6 +3028,12 @@ export function TripDetailView({
                                     <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
                                       <p className="text-[11px] font-semibold text-amber-800">
                                         Total Price: {formatCurrency(getDisplayOrderTotal(dropPoint.order))}
+                                        {getEmptiesShortfallAmount(dropPoint) > 0 ? (
+                                          <span className="ml-2 font-bold">
+                                            &middot; Collect {formatCurrency(getDisplayOrderTotal(dropPoint.order) + getEmptiesShortfallAmount(dropPoint))}
+                                            {' '}(incl. {formatCurrency(getEmptiesShortfallAmount(dropPoint))} empties deposit)
+                                          </span>
+                                        ) : null}
                                       </p>
                                     </div>
                                   )
@@ -2952,15 +3180,7 @@ export function TripDetailView({
             </div>
           </div>
 
-          {/* Complete Trip Button */}
-          {trip.status === 'IN_PROGRESS' && effectiveCompletedDropPoints >= trip.totalDropPoints && (
-            <div>
-              <Button className="h-12 w-full bg-green-600 hover:bg-green-700">
-                <Flag className="h-5 w-5 mr-2" />
-                Complete Trip
-              </Button>
-            </div>
-          )}
+          {tripCompletionSection}
         </div>
       </div>
 

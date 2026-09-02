@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import requests
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
 
@@ -97,6 +98,24 @@ class ProductImageUploadTests(TestCase):
                 post.return_value.ok = False
                 post.return_value.status_code = 400
                 post.return_value.text = "headers must have required property 'authorization'"
+                response = self._upload()
+                image_url = json.loads(response.content)["imageUrl"]
+                stored_file = Path(tmp) / image_url.lstrip("/")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(stored_file.read_bytes(), PNG_BYTES)
+
+    def test_new_secret_key_falls_back_to_persistent_disk_on_connection_reset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = {
+                "SUPABASE_URL": "https://project.supabase.co",
+                "SUPABASE_SERVICE_ROLE_KEY": "sb_secret_server-key",
+                "SUPABASE_UPLOADS_BUCKET": "uploads",
+                "MEDIA_ROOT": tmp,
+            }
+            with override_settings(**settings), patch(
+                "core.object_storage.requests.post",
+                side_effect=requests.ConnectionError("connection reset"),
+            ):
                 response = self._upload()
                 image_url = json.loads(response.content)["imageUrl"]
                 stored_file = Path(tmp) / image_url.lstrip("/")

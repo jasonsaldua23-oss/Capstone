@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { resolveClientImageUrl } from '@/lib/client-image'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import {
   ArrowLeft,
   ChevronRight,
@@ -177,7 +178,9 @@ export function HistoryView({
       .join(', ')
 
     const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-    const totalAmount = order.totalAmount ?? items.reduce((sum, item) => sum + Number(item.totalPrice || item.price || 0), 0)
+    const totalAmount = order.totalAmount != null
+      ? getOrderTotalWithEmpties(order)
+      : items.reduce((sum, item) => sum + Number(item.totalPrice || item.price || 0), 0)
 
     return (
       <div className="space-y-4 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:pb-6">

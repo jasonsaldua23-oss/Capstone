@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
+import { describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -1017,7 +1018,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                                   : <p>0</p>}
                               </div>
                             </td>
-                            <td className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
+                            <td className="px-4 py-3 font-semibold">{formatPeso(getOrderTotalWithEmpties(order))}</td>
                             <td className="px-4 py-3">{new Date(order.dateRequested || order.createdAt).toLocaleDateString()}</td>
                             <td className="px-4 py-3">
                               <Badge className={requestBadgeClass[requestStatus] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>
@@ -1294,7 +1295,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                           <td className="p-4 text-gray-600">
                             {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
                           </td>
-                          <td className="p-4 font-semibold text-gray-900">{formatPeso(order.totalAmount || 0)}</td>
+                          <td className="p-4 font-semibold text-gray-900">{formatPeso(getOrderTotalWithEmpties(order))}</td>
                           <td className="p-4">
                             {(() => {
                               const displayStatus = getDisplayOrderStatus(order)
@@ -1523,7 +1524,15 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                       </div>
                     ))}
                     <div className="h-px bg-slate-200" />
-                    <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">Total: <span className="text-emerald-700">{formatPeso(selectedOrder.totalAmount || 0)}</span></p>
+                    {getEmptiesAdjustment(selectedOrder) ? (
+                      <div className="text-right text-[12px] leading-4 text-[#8a7135]">
+                        <p className="font-semibold text-[#7a5c15]">
+                          Order total {formatPeso(selectedOrder.totalAmount || 0)} + empties deposit {formatPeso(Number(getEmptiesAdjustment(selectedOrder)?.amount || 0))}
+                        </p>
+                        <p>{describeEmptiesShortfall(getEmptiesAdjustment(selectedOrder))}</p>
+                      </div>
+                    ) : null}
+                    <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">Total: <span className="text-emerald-700">{formatPeso(getOrderTotalWithEmpties(selectedOrder))}</span></p>
                   </div>
                 </div>
 

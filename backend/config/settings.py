@@ -32,6 +32,12 @@ WEB_PUSH_VAPID_PRIVATE_KEY = os.getenv(
 WEB_PUSH_VAPID_PUBLIC_KEY = os.getenv("WEB_PUSH_VAPID_PUBLIC_KEY", "").strip()
 WEB_PUSH_VAPID_SUBJECT = os.getenv("WEB_PUSH_VAPID_SUBJECT", "mailto:admin@aabtrading.local").strip()
 
+# Firebase Cloud Messaging, used to reach the Capacitor Driver and Customer apps.
+# Provide the service account either inline as JSON or as a path to the file.
+FCM_PROJECT_ID = os.getenv("FCM_PROJECT_ID", "").strip()
+FCM_SERVICE_ACCOUNT_JSON = os.getenv("FCM_SERVICE_ACCOUNT_JSON", "").strip()
+FCM_SERVICE_ACCOUNT_FILE = os.getenv("FCM_SERVICE_ACCOUNT_FILE", "").strip()
+
 # Ensure Python uses a CA bundle for outbound TLS (SMTP/HTTPS).
 # Production default: certifi. Local override: set CUSTOM_CA_BUNDLE explicitly.
 custom_ca_bundle = os.getenv("CUSTOM_CA_BUNDLE", "").strip()

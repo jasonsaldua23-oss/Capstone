@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Bell, Loader2, X } from 'lucide-react'
 
 import type { AuthUser } from '@/types'
+import { canUseNativePush } from '@/lib/native/notifications'
+import { enableNotifications, resumeNotificationsIfAllowed } from '@/lib/native/notifications'
 
 
 type PushConfig = {
@@ -46,6 +48,21 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
 
   useEffect(() => {
     let cancelled = false
+
+    // Inside the Driver and Customer apps the OS owns the permission and the token,
+    // so registration goes through the native bridge rather than the service worker.
+    if (canUseNativePush()) {
+      void (async () => {
+        const resumed = await resumeNotificationsIfAllowed()
+        if (!resumed.registered && !cancelled && sessionStorage.getItem('push-prompt-dismissed') !== '1') {
+          setShowPrompt(true)
+        }
+      })()
+      return () => {
+        cancelled = true
+      }
+    }
+
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
       return
     }
@@ -83,6 +100,16 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
     setIsEnabling(true)
     setError('')
     try {
+      if (canUseNativePush()) {
+        const result = await enableNotifications()
+        if (!result.registered) {
+          setError(result.message || 'Could not enable device notifications. Please try again.')
+          return
+        }
+        setShowPrompt(false)
+        return
+      }
+
       const permission = await Notification.requestPermission()
       if (permission !== 'granted') {
         setShowPrompt(false)
@@ -107,34 +134,58 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
   if (!showPrompt) return null
 
   return (
-    // Changed: center the permission prompt within the viewport.
-    <div className="fixed left-1/2 top-1/2 z-[140] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-blue-200 bg-white p-4 shadow-2xl">
-      <button
-        type="button"
-        onClick={dismissPrompt}
-        className="absolute right-3 top-3 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-        aria-label="Not now"
-      >
-        <X className="h-4 w-4" />
-      </button>
-      <div className="flex gap-3 pr-7">
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-blue-100 text-blue-700">
-          <Bell className="h-5 w-5" />
+    <div
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="push-prompt-title"
+      className="fixed left-1/2 top-1/2 z-[140] w-[calc(100%-2rem)] max-w-[26rem] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#DDE3EA] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_20px_40px_-20px_rgba(16,24,40,0.32)]"
+    >
+      <div className="flex items-start gap-3">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#EAF2FC]">
+          <Bell className="h-5 w-5 text-[#0B3B82]" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p id="push-prompt-title" className="text-[15px] font-semibold leading-6 text-[#2A2A2A]">
+            Enable device notifications
+          </p>
+          <p className="mt-1 text-[13px] leading-5 text-[#5A6472]">
+            Receive order, delivery and trip updates on this device, even while the portal is closed.
+          </p>
         </div>
-        <div className="min-w-0">
-          <p className="font-semibold text-slate-900">Enable device notifications</p>
-          <p className="mt-1 text-sm text-slate-600">Get order and trip updates even when this portal is closed.</p>
-          {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
-          <button
-            type="button"
-            disabled={isEnabling}
-            onClick={enablePush}
-            className="mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            {isEnabling ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Enable notifications
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={dismissPrompt}
+          aria-label="Close"
+          className="-mr-1 -mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[#98A2B3] transition-colors hover:bg-[#F2F4F7] hover:text-[#2A2A2A]"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {error ? (
+        <p role="alert" className="mt-4 rounded-xl border border-[#F3C6C2] bg-[#FDF3F2] px-3 py-2 text-[13px] leading-5 text-[#B42318]">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="mt-5 grid grid-cols-2 gap-2.5">
+        <button
+          type="button"
+          onClick={dismissPrompt}
+          disabled={isEnabling}
+          className="h-11 rounded-xl border border-[#D7DDE5] bg-white text-[13px] font-semibold text-[#2A2A2A] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
+        >
+          Not Now
+        </button>
+        <button
+          type="button"
+          disabled={isEnabling}
+          onClick={enablePush}
+          className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#0B3B82] px-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#093068] disabled:opacity-60 motion-reduce:transition-none"
+        >
+          {isEnabling ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : null}
+          {isEnabling ? 'Enabling' : 'Enable Notifications'}
+        </button>
       </div>
     </div>
   )

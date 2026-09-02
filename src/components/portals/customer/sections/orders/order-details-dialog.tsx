@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
+import { EmptiesChargeRow, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
@@ -183,6 +184,38 @@ export function CustomerOrderDetailsDialog(props: any) {
   )
   const orderDiscount = Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0)
   const orderTotal = Number(selectedOrder?.totalAmount || 0)
+  // The total is the subtotal less any discount, plus the refundable deposit on
+  // returnable containers, plus tax and delivery when they apply. Showing only the
+  // subtotal and the total left the difference unexplained on screen.
+  const getOrderChargeBreakdown = (o: any) => {
+    const items = Array.isArray(o?.items) ? o.items : []
+    const subtotal = Number(
+      o?.subtotal ??
+      items.reduce((sum: number, item: any) => sum + Number(item?.totalPrice ?? Number(item?.unitPrice || 0) * Number(item?.quantity || 0)), 0)
+    )
+    const discount = Number(o?.discountDetails?.totalDiscount || o?.discount || 0)
+    const deposit = items.reduce(
+      (sum: number, item: any) => sum + Number(item?.netDeposit ?? item?.depositTotal ?? 0),
+      0,
+    )
+    const tax = Number(o?.tax || 0)
+    const shipping = Number(o?.shippingCost || 0)
+    const total = Number(o?.totalAmount || 0)
+    // Anything the named lines do not account for is still shown, so the column
+    // always adds up to the total the customer is charged.
+    let appliedDeposit = deposit
+    let other = Math.round((total - (subtotal - discount + deposit + tax + shipping)) * 100) / 100
+    if (other < 0 && appliedDeposit > 0) {
+      // Some older orders record a per-item deposit that was never added to the
+      // total. Charge the line only for the part the customer actually paid rather
+      // than printing a deposit and a negative correction that cancel each other.
+      const chargedDeposit = Math.max(0, Math.round((appliedDeposit + other) * 100) / 100)
+      other = Math.round((other + (appliedDeposit - chargedDeposit)) * 100) / 100
+      appliedDeposit = chargedDeposit
+    }
+    return { subtotal, discount, deposit: appliedDeposit, tax, shipping, total, other }
+  }
+
   const orderDiscountPercent = (() => {
     const explicitPercent = Number(selectedOrder?.discountDetails?.percent)
     if (Number.isFinite(explicitPercent) && explicitPercent > 0) return explicitPercent
@@ -404,7 +437,7 @@ export function CustomerOrderDetailsDialog(props: any) {
                   <Wallet className="h-4 w-4" />
                   Total Amount
                 </p>
-                <p className="mt-1 text-2xl font-extrabold text-emerald-700 md:text-3xl">{formatPeso(orderTotal)}</p>
+                <p className="mt-1 text-2xl font-extrabold text-emerald-700 md:text-3xl">{formatPeso(getOrderTotalWithEmpties(selectedOrder))}</p>
                 {orderDiscount > 0 ? (
                   <CompactDiscountLine value={formatPeso(orderDiscount)} percent={orderDiscountPercent} className="mt-1 text-xs font-semibold text-[#2b4f83] md:text-sm" />
                 ) : null}
@@ -451,7 +484,10 @@ export function CustomerOrderDetailsDialog(props: any) {
                 ))}
               </div>
               <div className="border-t border-slate-200 bg-slate-50/70 px-2.5 py-2.5 text-xs md:px-3 md:text-sm">
-                <div className="ml-auto w-full max-w-[220px] space-y-1">
+                {(() => {
+                  const breakdown = getOrderChargeBreakdown(selectedOrder)
+                  return (
+                <div className="ml-auto w-full max-w-[260px] space-y-1">
                   <div className="flex items-center justify-between text-slate-600">
                     <span>Subtotal</span>
                     <span>{formatPeso(orderSubtotal)}</span>
@@ -462,11 +498,43 @@ export function CustomerOrderDetailsDialog(props: any) {
                       <span>-{formatPeso(orderDiscount)}</span>
                     </div>
                   ) : null}
+                  {breakdown.deposit > 0 ? (
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Container deposit</span>
+                      <span>{formatPeso(breakdown.deposit)}</span>
+                    </div>
+                  ) : null}
+                  {breakdown.tax > 0 ? (
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Tax</span>
+                      <span>{formatPeso(breakdown.tax)}</span>
+                    </div>
+                  ) : null}
+                  {breakdown.shipping > 0 ? (
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Delivery fee</span>
+                      <span>{formatPeso(breakdown.shipping)}</span>
+                    </div>
+                  ) : null}
+                  {Math.abs(breakdown.other) >= 0.01 ? (
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Other charges</span>
+                      <span>{formatPeso(breakdown.other)}</span>
+                    </div>
+                  ) : null}
+                  <EmptiesChargeRow order={selectedOrder} />
                   <div className="flex items-center justify-between border-t border-slate-200 pt-1 font-semibold text-slate-900">
                     <span>Total</span>
-                    <span>{formatPeso(orderTotal)}</span>
+                    <span>{formatPeso(getOrderTotalWithEmpties(selectedOrder))}</span>
                   </div>
+                  {breakdown.deposit > 0 ? (
+                    <p className="pt-1 text-[10px] leading-4 text-slate-500">
+                      The container deposit is refunded against the empties you hand back.
+                    </p>
+                  ) : null}
                 </div>
+                  )
+                })()}
               </div>
 
               {selectedOrderReplacementRecords.length ? (

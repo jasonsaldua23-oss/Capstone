@@ -8,6 +8,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 type TripDropPointItem = {
   id: string
@@ -982,7 +983,7 @@ export function WarehouseTripsSection({
                   <span className="min-w-[108px] font-semibold text-slate-900">Total Amount</span>
                   <span className="font-semibold text-indigo-600">
                     {selectedDropPointDetail.order?.totalAmount != null
-                      ? formatPeso(Number(selectedDropPointDetail.order.totalAmount || 0))
+                      ? formatPeso(getOrderTotalWithEmpties(selectedDropPointDetail.order))
                       : 'N/A'}
                   </span>
                 </div>

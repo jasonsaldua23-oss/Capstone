@@ -77,6 +77,7 @@ urlpatterns = [
     path("trips/route-plan", v.trips_route_plan),
     path("trips/<str:trip_id>", v.trip_detail),
     path("trips/<str:trip_id>/start", v.trip_start),
+    path("trips/<str:trip_id>/complete", v.trip_complete),
     path("trips/<str:trip_id>/drop-points/<str:drop_point_id>", v.trip_drop_point_update),
     path("trips/<str:trip_id>/stops/<str:stop_id>", v.trip_stop_update),
     path("trips/<str:trip_id>/unassign", v.trip_unassign_items),

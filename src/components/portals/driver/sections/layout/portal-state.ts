@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { getTabAuthToken } from '@/lib/client-auth'
+import { isNativeApp, openAppSettings } from '@/lib/native/platform'
+import { ensureCameraPermission, ensureLocationPermission } from '@/lib/native/permissions'
 import { toast } from 'sonner'
 
 // Driver trip payload shape returned by `/api/driver/trips`.
@@ -209,70 +211,18 @@ async function fetchJsonWithRetry(
   return { response: lastResponse, data: lastData, raw: lastRaw }
 }
 
-// Determines if app runs inside Capacitor native container.
-const isNativeCapacitorApp = () => {
-  if (typeof window === 'undefined') return false
-  const cap = (window as any).Capacitor
-  if (!cap) return false
-  if (typeof cap.isNativePlatform === 'function') {
-    return Boolean(cap.isNativePlatform())
-  }
-  return String(cap?.getPlatform?.() || '').toLowerCase() !== 'web'
-}
+// Runtime detection and permission handling are shared with the customer portal and
+// the install flow; see @/lib/native.
+const isNativeCapacitorApp = isNativeApp
 
 // Ensures camera permission for native app before allowing camera-dependent operations.
 const checkNativeCameraPermission = async (): Promise<NativeCameraCheckResult> => {
-  if (typeof window === 'undefined' || !isNativeCapacitorApp()) {
-    return { granted: true }
-  }
-
-  try {
-    const cameraModule = await import('@capacitor/camera')
-    let result = await cameraModule.Camera.checkPermissions()
-    const current = String((result as any)?.camera || (result as any)?.photos || '')
-    if (current !== 'granted') {
-      result = await cameraModule.Camera.requestPermissions({ permissions: ['camera'] })
-    }
-    const finalState = String((result as any)?.camera || (result as any)?.photos || '')
-    if (finalState === 'granted') {
-      return { granted: true }
-    }
-    return { granted: false, reason: 'Camera permission is blocked. Enable it in app settings.' }
-  } catch {
-    return { granted: false, reason: 'Unable to verify camera permission. Please allow it in app settings.' }
-  }
+  const outcome = await ensureCameraPermission()
+  return outcome.granted ? { granted: true } : { granted: false, reason: outcome.message }
 }
 
 // Opens application settings (native) so user can manually grant blocked permissions.
-const openNativeAppSettings = async (): Promise<boolean> => {
-  if (typeof window === 'undefined' || !isNativeCapacitorApp()) {
-    return false
-  }
-
-  try {
-    const appModule = await import('@capacitor/app')
-    const appAny = appModule.App as any
-    if (typeof appAny?.openAppSettings === 'function') {
-      await appAny.openAppSettings()
-      return true
-    }
-  } catch {
-    // Fall back to platform-specific best effort below.
-  }
-
-  try {
-    const ua = navigator.userAgent.toLowerCase()
-    if (ua.includes('android')) {
-      window.location.href = 'intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
-      return true
-    }
-
-    window.location.href = 'app-settings:'
-    return true
-  } catch {
-    return false
-  }
-}
+const openNativeAppSettings = openAppSettings
 
 // Main driver portal state hook: data fetching, sync, permissions, and GPS tracking.
 export function useDriverPortalState() {
@@ -687,6 +637,22 @@ export function useDriverPortalState() {
     if (!isSecureWebContext && !isNativeCapacitorApp()) {
       toast.error('Location requires HTTPS on browser. Open this app over HTTPS or use the native app.')
       return false
+    }
+
+    if (isNativeCapacitorApp()) {
+      // The WebView only reports a position once the app itself holds the OS
+      // permission, so it is requested before the browser API is used below.
+      const locationAccess = await ensureLocationPermission()
+      if (!locationAccess.granted) {
+        setLocationPermission('denied')
+        setIsTracking(false)
+        toast.error(locationAccess.message)
+        if (locationAccess.blocked) {
+          void openNativeAppSettings()
+        }
+        return false
+      }
+      setLocationPermission('granted')
     }
 
     if (!navigator.geolocation) {

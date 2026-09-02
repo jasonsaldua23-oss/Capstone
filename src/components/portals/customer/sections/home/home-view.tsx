@@ -358,7 +358,7 @@ export function CustomerHomeView({
           <div className="mt-4 border-t pt-3">
             <p className="text-xs text-slate-500">Total items</p>
             <p className="text-sm font-semibold text-slate-900">{totalUnits} units</p>
-            <p className="mt-2 text-xs text-slate-500">Estimated Total</p>
+            <p className="mt-2 text-xs text-slate-500">Total</p>
             <p className="text-2xl font-bold text-emerald-700">{formatPeso(estimatedTotal)}</p>
             <Button
               className="mt-3 h-10 w-full rounded-md bg-emerald-600 text-white hover:bg-emerald-500"

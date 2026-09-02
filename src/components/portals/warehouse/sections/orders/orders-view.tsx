@@ -11,6 +11,7 @@ import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeleto
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import type { WarehouseOrdersViewProps } from '../shared/types'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 type OrderAction = 'processing' | 'assign' | 'delivered' | 'completed' | 'cancel'
 
@@ -326,7 +327,7 @@ export function WarehouseOrdersView({
                               {index === 0 ? (
                                 <>
                                   <td rowSpan={displayItems.length} className="px-4 py-3 whitespace-nowrap text-slate-700">{formatScheduledDelivery(order)}</td>
-                                  <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold">{formatPeso(order.totalAmount || 0)}</td>
+                                  <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold">{formatPeso(getOrderTotalWithEmpties(order))}</td>
                                   <td rowSpan={displayItems.length} className="px-4 py-3">
                                     <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>
                                   </td>

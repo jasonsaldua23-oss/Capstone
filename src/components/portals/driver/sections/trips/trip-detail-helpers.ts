@@ -1,5 +1,8 @@
 'use client'
 
+import { isNativeApp, openAppSettings } from '@/lib/native/platform'
+import { ensureCameraPermission } from '@/lib/native/permissions'
+
 export type Trip = any
 export type DropPoint = any
 export type DriverGpsLocation = any
@@ -41,72 +44,18 @@ export const stripPhilippinesFromAddress = (address: string | null | undefined) 
   return tokens.join(', ')
 }
 
-// Detects whether app is running in Capacitor native runtime.
-export const isNativeCapacitorApp = () => {
-  const cap = (globalThis as any)?.Capacitor || (globalThis as any)?.window?.Capacitor
-  const ua = typeof navigator !== 'undefined' ? String(navigator.userAgent || '') : ''
-  if (/\bCapacitor\b/i.test(ua)) return true
-  if (!cap) return false
-  if (typeof cap.isNativePlatform === 'function') {
-    return Boolean(cap.isNativePlatform())
-  }
-  if (typeof cap.getPlatform === 'function') {
-    return cap.getPlatform() !== 'web'
-  }
-  return false
-}
+// Runtime and permission handling live in @/lib/native so the driver portal, the
+// customer portal and the install flow all answer these questions the same way.
+export const isNativeCapacitorApp = isNativeApp
 
 // Checks/requests camera permission in native app; web always returns granted.
 export const checkNativeCameraPermission = async (): Promise<NativeCameraCheckResult> => {
-  if (!isNativeCapacitorApp()) return { granted: true }
-  try {
-    const cameraModule = await import('@capacitor/camera')
-    const current = await cameraModule.Camera.checkPermissions()
-    const currentState = current.camera
-    if (currentState === 'granted' || currentState === 'limited') {
-      return { granted: true }
-    }
-
-    const requested = await cameraModule.Camera.requestPermissions({ permissions: ['camera'] })
-    if (requested.camera === 'granted' || requested.camera === 'limited') {
-      return { granted: true }
-    }
-    return { granted: false, reason: 'Camera permission is required to take photos.' }
-  } catch (error: any) {
-    return { granted: false, reason: error?.message || 'Unable to check camera permission.' }
-  }
+  const outcome = await ensureCameraPermission()
+  return outcome.granted ? { granted: true } : { granted: false, reason: outcome.message }
 }
 
 // Opens application settings (native) so user can manually grant blocked permissions.
-export const openNativeAppSettings = async (): Promise<boolean> => {
-  if (typeof window === 'undefined' || !isNativeCapacitorApp()) {
-    return false
-  }
-
-  try {
-    const appModule = await import('@capacitor/app')
-    const appAny = appModule.App as any
-    if (typeof appAny?.openAppSettings === 'function') {
-      await appAny.openAppSettings()
-      return true
-    }
-  } catch {
-    // Fall back to platform-specific best effort below.
-  }
-
-  try {
-    const ua = navigator.userAgent.toLowerCase()
-    if (ua.includes('android')) {
-      window.location.href = 'intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
-      return true
-    }
-
-    window.location.href = 'app-settings:'
-    return true
-  } catch {
-    return false
-  }
-}
+export const openNativeAppSettings = openAppSettings
 
 // Applies a patch to one drop point and recomputes trip-level completion fields.
 export const mergeDropPointIntoTrip = (

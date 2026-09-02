@@ -26,6 +26,7 @@ import {
   normalizePRStatus,
   type PRStatus,
 } from '@shared/customer-logic/item-display'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 const PAGE_SIZE = 10
 
@@ -381,9 +382,9 @@ export function CustomerPurchaseRequestView(props: any) {
                         <span className="font-semibold text-slate-800">+{formatPeso(depositTotal)}</span>
                       </div>
                     ) : null}
-                    <p className="text-xs font-semibold text-slate-900">Estimated Total</p>
+                    <p className="text-xs font-semibold text-slate-900">Total</p>
                     <p className="mt-1 text-[26px] font-extrabold leading-none tracking-[-0.02em] text-emerald-700">
-                      {formatPeso(Number(o.totalAmount || 0))}
+                      {formatPeso(getOrderTotalWithEmpties(o))}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       {config.label}

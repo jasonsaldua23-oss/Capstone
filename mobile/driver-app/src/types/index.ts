@@ -117,7 +117,23 @@ export interface DriverTripDropPoint {
   failureReason?: string | null;
   failureNotes?: string | null;
   notes?: string | null;
+  /** What the customer said they would hand over, for the driver to verify. */
+  declaredEmpties?: DeclaredEmpty[] | null;
   order?: DriverTripOrder | null;
+}
+
+export interface DeclaredEmpty {
+  containerTypeId: string;
+  containerTypeName?: string | null;
+  /** Always in containers, which is what the settlement works in. */
+  declaredQuantity: number;
+  /** The same declaration in the unit the driver handles: cases, or containers. */
+  declaredUnits?: number | null;
+  containersPerUnit?: number | null;
+  countsByCase?: boolean | null;
+  unitLabel?: string | null;
+  depositPerContainer?: number | null;
+  depositValue?: number | null;
 }
 
 export interface DriverTripVehicle {

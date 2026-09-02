@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { PortalTimelineSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { isRescheduledOrder } from '../orders/order-status'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 const DriverRouteMap = dynamic(
   () => import('@/components/maps/DriverRouteMap').then((mod) => mod.DriverRouteMap),
@@ -223,7 +224,7 @@ export function CustomerTrackView(props: any) {
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-slate-500" />
                   <p className="text-xs font-semibold text-slate-500">Total Amount</p>
-                  <p className="ml-auto text-2xl font-extrabold text-emerald-700">{formatPeso(order.totalAmount)}</p>
+                  <p className="ml-auto text-2xl font-extrabold text-emerald-700">{formatPeso(getOrderTotalWithEmpties(order))}</p>
                 </div>
               </div>
             </CardContent>

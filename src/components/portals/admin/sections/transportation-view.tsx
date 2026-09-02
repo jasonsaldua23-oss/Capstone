@@ -50,6 +50,7 @@ import { getRequiredLicenseCodeForVehicle } from '@/lib/driver-license-restricti
 import { formatFullName, splitFullName } from '@/lib/person-name'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import {
   toArray,
   getCollection,
@@ -1594,7 +1595,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                   <span className="min-w-[108px] font-semibold text-slate-900">Total Amount</span>
                   <span className="font-semibold text-indigo-600">
                     {selectedDropPointDetail.order?.totalAmount != null
-                      ? formatPeso(Number(selectedDropPointDetail.order.totalAmount || 0))
+                      ? formatPeso(getOrderTotalWithEmpties(selectedDropPointDetail.order))
                       : 'N/A'}
                   </span>
                 </div>

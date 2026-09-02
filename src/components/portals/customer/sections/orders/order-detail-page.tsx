@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
+import { EmptiesChargeRow, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
@@ -288,6 +289,38 @@ export function CustomerOrderDetailPage(props: any) {
     return 0
   })()
 
+  // The total is the subtotal less any discount, plus the refundable deposit on
+  // returnable containers, plus tax and delivery when they apply. Showing only the
+  // subtotal and the total left the difference unexplained on screen.
+  const getOrderChargeBreakdown = (o: any) => {
+    const items = Array.isArray(o?.items) ? o.items : []
+    const subtotal = Number(
+      o?.subtotal ??
+      items.reduce((sum: number, item: any) => sum + Number(item?.totalPrice ?? Number(item?.unitPrice || 0) * Number(item?.quantity || 0)), 0)
+    )
+    const discount = Number(o?.discountDetails?.totalDiscount || o?.discount || 0)
+    const deposit = items.reduce(
+      (sum: number, item: any) => sum + Number(item?.netDeposit ?? item?.depositTotal ?? 0),
+      0,
+    )
+    const tax = Number(o?.tax || 0)
+    const shipping = Number(o?.shippingCost || 0)
+    const total = Number(o?.totalAmount || 0)
+    // Anything the named lines do not account for is still shown, so the column
+    // always adds up to the total the customer is charged.
+    let appliedDeposit = deposit
+    let other = Math.round((total - (subtotal - discount + deposit + tax + shipping)) * 100) / 100
+    if (other < 0 && appliedDeposit > 0) {
+      // Some older orders record a per-item deposit that was never added to the
+      // total. Charge the line only for the part the customer actually paid rather
+      // than printing a deposit and a negative correction that cancel each other.
+      const chargedDeposit = Math.max(0, Math.round((appliedDeposit + other) * 100) / 100)
+      other = Math.round((other + (appliedDeposit - chargedDeposit)) * 100) / 100
+      appliedDeposit = chargedDeposit
+    }
+    return { subtotal, discount, deposit: appliedDeposit, tax, shipping, total, other }
+  }
+
   const getOrderDisplayDateTime = (o: any) => {
     const deliveredAt = String(o?.deliveredAt || '').trim()
     if (deliveredAt) {
@@ -439,7 +472,7 @@ export function CustomerOrderDetailPage(props: any) {
                 Total Amount
               </p>
               <p className="mt-1 text-2xl font-extrabold text-emerald-700 md:text-3xl">
-                {formatPeso(orderTotal)}
+                {formatPeso(getOrderTotalWithEmpties(order))}
               </p>
               {orderDiscount > 0 && (
                 <CompactDiscountLine
@@ -498,7 +531,10 @@ export function CustomerOrderDetailPage(props: any) {
 
             {/* Totals footer */}
             <div className="border-t border-slate-200 bg-slate-50/70 px-3 py-3 text-xs md:px-4 md:text-sm">
-              <div className="ml-auto w-full max-w-[220px] space-y-1">
+              {(() => {
+                const breakdown = getOrderChargeBreakdown(order)
+                return (
+              <div className="ml-auto w-full max-w-[260px] space-y-1">
                 <div className="flex items-center justify-between text-slate-600">
                   <span>Subtotal</span>
                   <span>{formatPeso(orderSubtotal)}</span>
@@ -514,11 +550,43 @@ export function CustomerOrderDetailPage(props: any) {
                     <span>-{formatPeso(orderDiscount)}</span>
                   </div>
                 )}
+                {breakdown.deposit > 0 && (
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>Container deposit</span>
+                    <span>{formatPeso(breakdown.deposit)}</span>
+                  </div>
+                )}
+                {breakdown.tax > 0 && (
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>Tax</span>
+                    <span>{formatPeso(breakdown.tax)}</span>
+                  </div>
+                )}
+                {breakdown.shipping > 0 && (
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>Delivery fee</span>
+                    <span>{formatPeso(breakdown.shipping)}</span>
+                  </div>
+                )}
+                {Math.abs(breakdown.other) >= 0.01 && (
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>Other charges</span>
+                    <span>{formatPeso(breakdown.other)}</span>
+                  </div>
+                )}
+                <EmptiesChargeRow order={order} />
                 <div className="flex items-center justify-between border-t border-slate-200 pt-1 font-semibold text-slate-900">
                   <span>Total</span>
-                  <span>{formatPeso(orderTotal)}</span>
+                  <span>{formatPeso(getOrderTotalWithEmpties(order))}</span>
                 </div>
+                {breakdown.deposit > 0 ? (
+                  <p className="pt-1 text-[10px] leading-4 text-slate-500 md:text-[11px]">
+                    The container deposit is refunded against the empties you hand back.
+                  </p>
+                ) : null}
               </div>
+                )
+              })()}
             </div>
 
             {/* Replacement records */}

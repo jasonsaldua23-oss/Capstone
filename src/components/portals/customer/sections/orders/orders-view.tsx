@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
+import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
 import { getOrderItemDisplayName } from '@shared/customer-logic/item-display'
@@ -682,7 +683,7 @@ export function CustomerOrdersView(props: any) {
                     <div>
                       <p className="text-xs font-semibold text-slate-900">Total Amount</p>
                       <p className="mt-1 text-[26px] font-extrabold leading-none tracking-[-0.02em] text-emerald-700">
-                        {formatPeso(o.totalAmount)}
+                        {formatPeso(getOrderTotalWithEmpties(o))}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">Current Status: {replacementStatusLabel || 'Reported'}</p>
                     </div>
@@ -918,7 +919,7 @@ export function CustomerOrdersView(props: any) {
                   <div>
                     <p className="text-xs font-semibold text-slate-900">Total Amount</p>
                     <p className="mt-1 text-[26px] font-extrabold leading-none tracking-[-0.02em] text-emerald-700">
-                      {formatPeso(o.totalAmount)}
+                      {formatPeso(getOrderTotalWithEmpties(o))}
                     </p>
                     {hasSubmittedRating ? (
                       <div className="mt-2 flex items-center gap-2">

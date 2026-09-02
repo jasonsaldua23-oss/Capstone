@@ -34,6 +34,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .beverage_categories import category_spec
+from .empties_verification import (
+    empties_adjustments_for_orders,
+    record_collected_empties,
+    serialize_declared_empties,
+)
 from .email_templates import (
     EmailBody,
     ProductLine,
@@ -2054,6 +2059,11 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
     }
 
 
+# Distinguishes "the caller already looked this up and there is nothing" from "the
+# caller did not look it up at all".
+_NOT_PROVIDED = object()
+
+
 def _serialize_order(
     order: Order,
     include_items: bool = True,
@@ -2065,9 +2075,23 @@ def _serialize_order(
     warehouse_allocations: list[dict[str, Any]] | None = None,
     item_warehouse_allocations: dict[str, list[dict[str, Any]]] | None = None,
     item_trip_assignments: dict[str, list[dict[str, Any]]] | None = None,
+    empties_adjustment: Any = _NOT_PROVIDED,
+    packaging_cache: dict[str, ProductPackaging] | None = None,
+    delivery_transactions: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
+    # What the empties count added to this order, so every portal can show the
+    # charge and say what it is for. Callers listing many orders pass a prebuilt
+    # entry; a detail view looks up the single order it is rendering.
+    adjustment = (
+        empties_adjustment
+        if empties_adjustment is not _NOT_PROVIDED
+        else empties_adjustments_for_orders([str(order.id)]).get(str(order.id))
+    )
+    data["emptiesAdjustment"] = adjustment or None
+    total_amount = float(getattr(order, "total_amount", 0) or 0)
+    data["amountDue"] = round(total_amount + float((adjustment or {}).get("amount") or 0), 2)
     normalized_order_status = str(data.get("status") or "").strip().upper()
     request_status_value = str(data.get("requestStatus") or "").strip().upper()
     # For approved orders, the current delivery status is authoritative for the displayed PO stage.
@@ -2136,7 +2160,11 @@ def _serialize_order(
         prefetched_items = getattr(order, "_serialized_order_items", None)
         order_items = prefetched_items if prefetched_items is not None else order.items.select_related("product").all()
         for item in order_items:
-            row = _serialize_order_item_with_spare_products(item, include_full_product=True)
+            row = _serialize_order_item_with_spare_products(
+                item,
+                include_full_product=True,
+                packaging_cache=packaging_cache,
+            )
             item_id = str(getattr(item, "id", "") or "").strip()
             if item_warehouse_allocations is not None and item_id:
                 allocs = item_warehouse_allocations.get(item_id, [])
@@ -2229,14 +2257,20 @@ def _serialize_order(
         ]
         if not order_item_ids:
             order_item_ids = [str(item_id) for item_id in order.items.values_list("id", flat=True)]
-        if order_item_ids:
+        if order_item_ids and delivery_transactions is not None:
+            # Prebuilt for the whole page: one query instead of one per delivered order.
+            for item_id in order_item_ids:
+                for transaction_id in delivery_transactions.get(item_id, []):
+                    delivery_transaction_ids.append(transaction_id)
+                    delivery_transaction_ids_by_item.setdefault(item_id, []).append(transaction_id)
+        elif order_item_ids:
             order_item_id_set = set(order_item_ids)
-            delivery_transactions = InventoryTransaction.objects.filter(
+            transaction_rows = InventoryTransaction.objects.filter(
                 Q(order_item_id__in=order_item_ids)
                 | Q(reference_type="order_item", reference_id__in=order_item_ids),
                 type="OUT",
             ).order_by("created_at", "id").values("id", "order_item_id", "reference_id")
-            for transaction in delivery_transactions:
+            for transaction in transaction_rows:
                 transaction_id = str(transaction.get("id") or "").strip()
                 item_id = str(transaction.get("order_item_id") or transaction.get("reference_id") or "").strip()
                 if not transaction_id or item_id not in order_item_id_set:
@@ -2252,6 +2286,39 @@ def _serialize_order(
     data["inventoryTransactionIds"] = delivery_transaction_ids
     data["inventoryTransactionId"] = delivery_transaction_ids[0] if delivery_transaction_ids else None
     return data
+
+
+def _build_delivery_transactions_map(order_ids: list[str]) -> dict[str, dict[str, list[str]]]:
+    """Stock-out movements per order item, for a whole page of orders at once."""
+    normalized_ids = [str(order_id or "").strip() for order_id in order_ids if str(order_id or "").strip()]
+    if not normalized_ids:
+        return {}
+
+    item_to_order = {
+        str(item_id): str(order_id)
+        for item_id, order_id in OrderItem.objects.filter(order_id__in=normalized_ids).values_list("id", "order_id")
+    }
+    if not item_to_order:
+        return {}
+
+    grouped: dict[str, dict[str, list[str]]] = {}
+    rows = (
+        InventoryTransaction.objects.filter(
+            Q(order_item_id__in=item_to_order.keys())
+            | Q(reference_type="order_item", reference_id__in=item_to_order.keys()),
+            type="OUT",
+        )
+        .order_by("created_at", "id")
+        .values("id", "order_item_id", "reference_id")
+    )
+    for row in rows:
+        transaction_id = str(row.get("id") or "").strip()
+        item_id = str(row.get("order_item_id") or row.get("reference_id") or "").strip()
+        order_id = item_to_order.get(item_id)
+        if not transaction_id or not order_id:
+            continue
+        grouped.setdefault(order_id, {}).setdefault(item_id, []).append(transaction_id)
+    return grouped
 
 
 def _build_order_fulfillment_legs_map(order_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
@@ -3114,6 +3181,11 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                 order_warehouse = warehouse_cache.get(order_warehouse_id)
                 row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number
+                # The empties the customer claimed at checkout, for the driver to verify.
+                row["declaredEmpties"] = serialize_declared_empties(
+                    dp.order,
+                    packaging_cache=ctx.get("packaging_cache"),
+                )
                 row["order"] = {
                     "id": dp.order.id,
                     "orderNumber": dp.order.order_number,
@@ -8634,7 +8706,12 @@ def push_subscriptions_collection(request: HttpRequest) -> JsonResponse:
         })
 
     body = _json_body(request)
-    endpoint = str(body.get("endpoint") or "").strip()
+    # The Capacitor apps register an FCM token instead of a Web Push endpoint; it is
+    # stored in the same table so one account reaches every device it owns.
+    native_platform = str(body.get("platform") or "").strip().lower()
+    native_token = str(body.get("token") or "").strip()
+    is_native_device = native_platform in {"android", "ios"} and bool(native_token)
+    endpoint = f"fcm:{native_token}" if is_native_device else str(body.get("endpoint") or "").strip()
     if not endpoint:
         return _err("endpoint is required")
 
@@ -8646,6 +8723,23 @@ def push_subscriptions_collection(request: HttpRequest) -> JsonResponse:
     if request.method == "DELETE":
         deleted, _ = PushSubscription.objects.filter(endpoint=endpoint, **owner_filter).delete()
         return _ok({"success": True, "deleted": deleted})
+
+    if is_native_device:
+        # A device token carries no encryption keys: FCM handles that itself.
+        subscription, created = PushSubscription.objects.update_or_create(
+            endpoint=endpoint,
+            **owner_filter,
+            defaults={
+                "p256dh": "",
+                "auth": "",
+                "user_agent": f"{native_platform} app"[:1000],
+                "is_active": True,
+            },
+        )
+        return _ok(
+            {"success": True, "created": created, "subscriptionId": subscription.id, "transport": "fcm"},
+            201 if created else 200,
+        )
 
     if not web_push_is_configured():
         return _err("Web Push is not configured", 503)
@@ -8753,10 +8847,38 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         warehouse_allocations_map = _build_order_warehouse_allocations_map(order_ids)
         item_warehouse_allocations_map = _build_order_item_warehouse_allocations_map(order_ids)
         item_trip_assignments_map = _build_order_item_trip_assignments_map(order_ids)
+        empties_adjustment_map = empties_adjustments_for_orders(order_ids)
+        delivery_transactions_map = _build_delivery_transactions_map(order_ids)
+        # Reconciliation only matters for orders that are still open and already have
+        # a completed stop. Asking that once for the page avoids a lookup per order.
+        open_order_ids = [
+            str(o.id)
+            for o in orders
+            if _normalize_order_status(o.status) not in {OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}
+        ]
+        reconcilable_order_ids = set(
+            TripDropPoint.objects.filter(
+                order_id__in=open_order_ids, status__in=["COMPLETED", "DELIVERED"]
+            ).values_list("order_id", flat=True)
+        ) if open_order_ids else set()
+        # Packaging is read for every returnable item; without this the page spends
+        # one round trip per item on a table it could load in a single query.
+        page_product_ids = {
+            str(item.product_id)
+            for order in orders
+            for item in (getattr(order, "_serialized_order_items", None) or order.items.all())
+            if getattr(item, "product_id", None)
+        }
+        packaging_cache = {
+            str(packaging.product_id): packaging
+            for packaging in ProductPackaging.objects.filter(
+                product_id__in=page_product_ids, is_active=True
+            )
+        } if page_product_ids else {}
         out = []
         for o in orders:
             try:
-                if _reconcile_delivered_order_from_completed_drop_point(o, p.get("userId")):
+                if str(o.id) in reconcilable_order_ids and _reconcile_delivered_order_from_completed_drop_point(o, p.get("userId")):
                     o.refresh_from_db()
             except ValueError as e:
                 logger.warning("Unable to reconcile delivered order %s: %s", o.id, e)
@@ -8769,6 +8891,9 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 warehouse_allocations=warehouse_allocations_map.get(str(getattr(o, "id", "") or "").strip(), []),
                 item_warehouse_allocations=item_warehouse_allocations_map.get(str(getattr(o, "id", "") or "").strip(), {}),
                 item_trip_assignments=item_trip_assignments_map.get(str(getattr(o, "id", "") or "").strip(), {}),
+                empties_adjustment=empties_adjustment_map.get(str(getattr(o, "id", "") or "").strip()),
+                packaging_cache=packaging_cache,
+                delivery_transactions=delivery_transactions_map.get(str(getattr(o, "id", "") or "").strip(), {}),
             )
             if include_items == "preview" and "items" in row:
                 row["itemCount"] = len(row["items"])
@@ -10135,7 +10260,10 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
             "order__customer",
             "order__timeline",
         ).prefetch_related(
-            "order__items__product",
+            Prefetch(
+                "order__items",
+                queryset=OrderItem.objects.select_related("product").prefetch_related("mixed_case_components__product"),
+            ),
         ).order_by("sequence"),
     )
     page, size, off = _pagination(request)
@@ -10164,6 +10292,7 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
     
     all_order_ids = []
     all_wh_ids = set()
+    all_product_ids = set()
     for trip in rows:
         if trip.warehouse_id:
             all_wh_ids.add(str(trip.warehouse_id))
@@ -10174,11 +10303,18 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
                     all_order_ids.append(str(dp.order.id))
                     if dp.order.warehouse_id:
                         all_wh_ids.add(str(dp.order.warehouse_id))
+                    for item in dp.order.items.all():
+                        if item.product_id:
+                            all_product_ids.add(str(item.product_id))
                         
     ctx = {
         "allocations_map": _build_order_item_warehouse_allocations_map(all_order_ids) if all_order_ids else {},
         "all_assignments_map": _build_order_item_trip_assignments_map(all_order_ids, trip_id=None) if all_order_ids else {},
         "warehouse_cache": {str(w.id): w for w in Warehouse.objects.filter(id__in=all_wh_ids)} if all_wh_ids else {},
+        "packaging_cache": {
+            str(packaging.product_id): packaging
+            for packaging in ProductPackaging.objects.filter(product_id__in=all_product_ids, is_active=True)
+        } if all_product_ids else {},
         "order_returns_map": {},
         "trip_assignments_map": None, 
     }
@@ -10233,7 +10369,34 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
         ).order_by("-created_at")
         total = qs.count()
         rows = list(qs[off : off + size])
-        return _ok({"success": True, "orders": [_serialize_order(x) for x in rows], "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+        adjustments = empties_adjustments_for_orders([str(row.id) for row in rows])
+        customer_product_ids = {
+            str(item.product_id)
+            for row in rows
+            for item in (getattr(row, "_serialized_order_items", None) or row.items.all())
+            if getattr(item, "product_id", None)
+        }
+        customer_packaging_cache = {
+            str(packaging.product_id): packaging
+            for packaging in ProductPackaging.objects.filter(
+                product_id__in=customer_product_ids, is_active=True
+            )
+        } if customer_product_ids else {}
+        return _ok({
+            "success": True,
+            "orders": [
+                _serialize_order(
+                    row,
+                    empties_adjustment=adjustments.get(str(row.id)),
+                    packaging_cache=customer_packaging_cache,
+                )
+                for row in rows
+            ],
+            "total": total,
+            "page": page,
+            "pageSize": size,
+            "totalPages": (total + size - 1) // size,
+        })
     body = _json_body(request)
     body["customerId"] = p.get("userId")
     request._body = json.dumps(body).encode("utf-8")
@@ -11486,6 +11649,102 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     return _ok({"success": True, "trip": _serialize_model(t)})
 
 
+# A stop counts as finished when it has an outcome recorded against it. Anything
+# else - still pending, on the way, arrived but not closed, or skipped past - leaves
+# work outstanding and blocks the trip from being completed.
+RESOLVED_DROP_POINT_STATUSES = [
+    DropPointStatus.COMPLETED,
+    DropPointStatus.FAILED,
+]
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_complete(request: HttpRequest, trip_id: str) -> JsonResponse:
+    """Close a trip once every drop point has an outcome.
+
+    Completing twice is not an error: the second call returns the trip as it already
+    stands, so a double tap or a refresh mid-request cannot record the trip twice or
+    move the completion time.
+    """
+    p, err = _require_staff(request)
+    if err:
+        return err
+
+    with transaction.atomic():
+        trip = Trip.objects.select_for_update().filter(id=trip_id).first()
+        if not trip:
+            return _err("Trip not found", 404)
+
+        if p.get("role") == RoleType.DRIVER and str(p.get("userId") or "") != str(trip.driver_id or ""):
+            return _err("Forbidden", 403)
+
+        drop_points = list(trip.drop_points.all())
+        total = len(drop_points)
+        resolved = [
+            point for point in drop_points
+            if str(point.status or "").upper() in RESOLVED_DROP_POINT_STATUSES
+        ]
+
+        trip.total_drop_points = total
+        trip.completed_drop_points = len(resolved)
+
+        if str(trip.status or "").upper() == TripStatus.COMPLETED:
+            # Already done. Report success without touching the recorded end time.
+            trip.save(update_fields=["total_drop_points", "completed_drop_points", "updated_at"])
+            return _ok({
+                "success": True,
+                "alreadyCompleted": True,
+                "trip": _serialize_trip(trip),
+                "message": "This trip was already completed.",
+            })
+
+        if str(trip.status or "").upper() == TripStatus.CANCELLED:
+            return _err("A cancelled trip cannot be completed", 409)
+
+        if total == 0:
+            return _err("This trip has no drop points to complete", 400)
+
+        outstanding = total - len(resolved)
+        if outstanding > 0:
+            trip.save(update_fields=["total_drop_points", "completed_drop_points", "updated_at"])
+            return _err(
+                f"{outstanding} drop point(s) still need to be completed before the trip can be closed",
+                400,
+            )
+
+        now = timezone.now()
+        trip.status = TripStatus.COMPLETED
+        trip.actual_end_at = trip.actual_end_at or now
+        trip.save(update_fields=[
+            "status",
+            "actual_end_at",
+            "total_drop_points",
+            "completed_drop_points",
+            "updated_at",
+        ])
+
+    completed_trip = (
+        Trip.objects.select_related("driver", "vehicle")
+        .prefetch_related("drop_points__order")
+        .get(id=trip.id)
+    )
+    actor_name = str(p.get("name") or "Driver").strip() or "Driver"
+    _create_staff_notifications(
+        title="Trip completed",
+        message=f"{actor_name} completed trip {completed_trip.trip_number}.",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=completed_trip.id,
+    )
+    return _ok({
+        "success": True,
+        "alreadyCompleted": False,
+        "trip": _serialize_trip(completed_trip),
+        "message": "Trip completed.",
+    })
+
+
 @csrf_exempt
 @require_http_methods(["PATCH"])
 def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: str) -> JsonResponse:
@@ -11543,6 +11802,7 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     dp.save()
 
     delivered_order = None
+    empties_result = None
     if next_status == "COMPLETED" and dp.order_id:
         delivered_order = Order.objects.select_related("timeline").filter(id=dp.order_id).first()
         if delivered_order:
@@ -11550,6 +11810,22 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
             delivered_order.pod_photo_url = str(getattr(dp, "delivery_photo", "") or "").strip() or None
             delivered_order.pod_submitted_at = now
             delivered_order.save(update_fields=["pod_recipient_name", "pod_photo_url", "pod_submitted_at", "updated_at"])
+            # The driver's count settles the deposits first, so the finalization below
+            # sees a recorded return and leaves the money alone. It gets its own
+            # transaction: a problem settling empties must never roll back, or block,
+            # the delivery the driver has already made.
+            try:
+                with transaction.atomic():
+                    empties_result = record_collected_empties(
+                        order=delivered_order,
+                        drop_point=dp,
+                        submitted_lines=body.get("returnedEmpties"),
+                        performed_by=str(p.get("userId") or "").strip() or None,
+                        received_by=str(p.get("name") or "Driver").strip() or "Driver",
+                    )
+            except Exception:
+                logger.exception("Failed to record collected empties for order %s", delivered_order.id)
+
             try:
                 with transaction.atomic():
                     _mark_order_delivered(delivered_order, str(p.get("userId") or "").strip() or None, now)
@@ -11656,11 +11932,9 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     t.total_drop_points = effective_total_drop_points
     t.completed_drop_points = t.drop_points.filter(status__in=terminal_drop_point_statuses).count()
 
-    all_drop_points_terminal = effective_total_drop_points > 0 and t.completed_drop_points >= effective_total_drop_points
-    if all_drop_points_terminal:
-        t.status = TripStatus.COMPLETED
-        t.actual_end_at = now
-    else:
+    # Completing the last stop no longer completes the trip. The driver confirms
+    # that from the trip screen, which is what clears it from their active work.
+    if str(t.status or "").upper() != TripStatus.COMPLETED:
         t.status = TripStatus.IN_PROGRESS if t.actual_start_at else TripStatus.PLANNED
         t.actual_end_at = None
 
@@ -11672,7 +11946,13 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
             Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=delivered_order.id),
             include_items=False,
         )
-    return _ok({"success": True, "dropPoint": _serialize_model(dp), "order": order_payload, "requeuedToRoutePool": requeued_to_route_pool})
+    return _ok({
+        "success": True,
+        "dropPoint": _serialize_model(dp),
+        "order": order_payload,
+        "requeuedToRoutePool": requeued_to_route_pool,
+        "empties": empties_result,
+    })
 
 
 @csrf_exempt
