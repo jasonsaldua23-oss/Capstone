@@ -125,22 +125,34 @@ function formatSpokenDuration(seconds: number) {
 type NavInstructionsVariant = 'default' | 'mobile-compact'
 
 type NavState = {
-  currentStep: OsrmStep
-  nextStep: OsrmStep | null
+  promptStep: OsrmStep
+  promptNextStep: OsrmStep | null
   remainingSteps: OsrmStep[]
   remainingDistance: number
   remainingDuration: number
-  currentInstruction: string
+  promptInstruction: string
+  promptStepDistance: number
   remainingDistanceLabel: string
   remainingDurationLabel: string
 }
 
-function buildNavState(steps: OsrmStep[], currentStepIndex: number): NavState | null {
-  const currentStep = steps[currentStepIndex] || null
-  if (!currentStep || steps.length === 0) return null
+function buildNavState(
+  steps: OsrmStep[],
+  currentStepIndex: number,
+  showUpcomingManeuver: boolean
+): NavState | null {
+  const travelingStep = steps[currentStepIndex] || null
+  if (!travelingStep || steps.length === 0) return null
 
-  const nextStep = steps[currentStepIndex + 1] || null
-  const remainingSteps = steps.slice(currentStepIndex + 1)
+  // The prominent instruction is the maneuver ahead of the segment the driver is
+  // currently on, so completing a turn immediately reveals the next one. Totals
+  // still count from the traveling segment, keeping remaining distance/ETA whole.
+  const promptStepIndex = showUpcomingManeuver
+    ? Math.min(currentStepIndex + 1, steps.length - 1)
+    : currentStepIndex
+  const promptStep = steps[promptStepIndex]
+  const promptNextStep = steps[promptStepIndex + 1] || null
+  const remainingSteps = steps.slice(promptStepIndex + 1)
   const remainingDistance = steps
     .slice(currentStepIndex)
     .reduce((sum, step) => sum + (step.distance || 0), 0)
@@ -149,16 +161,17 @@ function buildNavState(steps: OsrmStep[], currentStepIndex: number): NavState | 
     .reduce((sum, step) => sum + (step.duration || 0), 0)
 
   return {
-    currentStep,
-    nextStep,
+    promptStep,
+    promptNextStep,
     remainingSteps,
     remainingDistance,
     remainingDuration,
-    currentInstruction: getManeuverLabel(
-      currentStep.maneuver.type,
-      currentStep.maneuver.modifier,
-      currentStep.name
+    promptInstruction: getManeuverLabel(
+      promptStep.maneuver.type,
+      promptStep.maneuver.modifier,
+      promptStep.name
     ),
+    promptStepDistance: promptStep.distance || 0,
     remainingDistanceLabel: formatDistance(remainingDistance),
     remainingDurationLabel: formatDuration(remainingDuration),
   }
@@ -169,6 +182,10 @@ export interface NavInstructionsPanelProps {
   currentStepIndex: number
   destinationName?: string
   variant?: NavInstructionsVariant
+  /** Show the maneuver ahead of the current segment (Google-Maps style). */
+  showUpcomingManeuver?: boolean
+  /** Live along-route distance to the shown maneuver; counts down continuously. */
+  liveManeuverDistanceMeters?: number
   onSpeak?: (message: string) => void
 }
 
@@ -177,15 +194,25 @@ export function NavInstructionsPanel({
   currentStepIndex,
   destinationName,
   variant = 'default',
+  showUpcomingManeuver = false,
+  liveManeuverDistanceMeters,
   onSpeak,
 }: NavInstructionsPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const navState = useMemo(
-    () => buildNavState(steps, currentStepIndex),
-    [steps, currentStepIndex]
+    () => buildNavState(steps, currentStepIndex, showUpcomingManeuver),
+    [steps, currentStepIndex, showUpcomingManeuver]
   )
 
   if (!navState) return null
+
+  // The live distance to the shown maneuver, when the caller supplies it, drives
+  // the count-down; below ~10 m the maneuver is treated as happening now.
+  const maneuverDistanceMeters =
+    typeof liveManeuverDistanceMeters === 'number' && Number.isFinite(liveManeuverDistanceMeters)
+      ? liveManeuverDistanceMeters
+      : navState.promptStepDistance
+  const maneuverDistanceLabel = maneuverDistanceMeters > 10 ? formatDistance(maneuverDistanceMeters) : 'Now'
 
   if (variant === 'mobile-compact') {
     return (
@@ -193,21 +220,24 @@ export function NavInstructionsPanel({
         <div className="grid min-h-[76px] grid-cols-[64px_minmax(0,1fr)_88px] items-stretch">
           <button
             type="button"
-            aria-label={`Speak navigation instruction: ${navState.currentInstruction}`}
+            aria-label={`Speak navigation instruction: ${navState.promptInstruction}`}
             disabled={!onSpeak}
-            onClick={() => onSpeak?.(navState.currentInstruction)}
+            onClick={() => onSpeak?.(navState.promptInstruction)}
             className="flex items-center justify-center bg-[#17cf79] text-white"
           >
-            {getManeuverIcon(navState.currentStep.maneuver.type, navState.currentStep.maneuver.modifier)}
+            {getManeuverIcon(navState.promptStep.maneuver.type, navState.promptStep.maneuver.modifier)}
           </button>
           <button
             type="button"
             disabled={!onSpeak}
-            onClick={() => onSpeak?.(navState.currentInstruction)}
+            onClick={() => onSpeak?.(navState.promptInstruction)}
             className="flex min-w-0 items-center px-4 py-2 text-left"
           >
             <p className="line-clamp-2 text-[1rem] font-black leading-[1.05] tracking-[-0.02em] text-slate-900">
-              {navState.currentInstruction}
+              {maneuverDistanceMeters > 10 ? (
+                <span className="text-[#0d61ad]">{maneuverDistanceLabel} · </span>
+              ) : null}
+              {navState.promptInstruction}
             </p>
           </button>
           <div className="flex flex-col justify-center bg-white px-3 py-2 text-right">
@@ -241,12 +271,12 @@ export function NavInstructionsPanel({
       <div className="px-4 pb-4 pt-4">
         <div className="flex items-center gap-4">
           <div className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-[16px] bg-[#00d27a] text-white">
-            {getManeuverIcon(navState.currentStep.maneuver.type, navState.currentStep.maneuver.modifier)}
+            {getManeuverIcon(navState.promptStep.maneuver.type, navState.promptStep.maneuver.modifier)}
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-0.5 flex items-center gap-2">
               <span className="text-[13px] font-bold text-[#00d27a]">
-                {navState.currentStep.distance > 0 ? formatDistance(navState.currentStep.distance) : 'Now'}
+                {maneuverDistanceLabel}
               </span>
               <span className="text-[13px] font-bold text-slate-400">•</span>
               <span className="text-[13px] font-bold text-slate-200">
@@ -254,21 +284,21 @@ export function NavInstructionsPanel({
               </span>
             </div>
             <p className="truncate text-[16px] font-black tracking-tight text-white">
-              {navState.currentInstruction}
+              {navState.promptInstruction}
             </p>
           </div>
         </div>
 
-        {navState.nextStep && (
+        {navState.promptNextStep && (
           <div className="mt-3 flex items-center gap-2.5 rounded-[12px] bg-white/5 px-3 py-2">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/10 text-[#00d27a]">
-              {getManeuverIcon(navState.nextStep.maneuver.type, navState.nextStep.maneuver.modifier)}
+              {getManeuverIcon(navState.promptNextStep.maneuver.type, navState.promptNextStep.maneuver.modifier)}
             </div>
             <p className="truncate text-[13px] font-medium text-slate-300">
               Then {getManeuverLabel(
-                navState.nextStep.maneuver.type,
-                navState.nextStep.maneuver.modifier,
-                navState.nextStep.name
+                navState.promptNextStep.maneuver.type,
+                navState.promptNextStep.maneuver.modifier,
+                navState.promptNextStep.name
               ).toLowerCase()}
             </p>
           </div>

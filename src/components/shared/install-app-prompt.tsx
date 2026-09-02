@@ -3,16 +3,19 @@
 /**
  * The install offer shown once per login in the Driver and Customer portals.
  *
- * It sits at the bottom of the screen rather than over the page: an active delivery
- * or a checkout must stay reachable, and dismissing is always one tap away. Nothing
- * renders when the portal is already installed, already running in the app shell, or
- * when the browser cannot install at all.
+ * It is shaped like the browser's own install banner - a card under the address bar
+ * carrying the app icon, "Install <app>", the site it comes from, and a single
+ * action - because people recognise that card and know what it does. It leaves the
+ * page beneath it usable, and a tap anywhere else dismisses it.
+ *
+ * Nothing renders when the portal is already installed, already running in the app
+ * shell, or when the browser cannot install at all.
  */
 
-import { Download, Share, SquarePlus, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Share, SquarePlus } from 'lucide-react'
 
 import { useInstallPrompt } from '@/lib/native/install-prompt'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 type InstallAppPromptProps = {
@@ -22,89 +25,100 @@ type InstallAppPromptProps = {
 
 const portalCopy = {
   driver: {
-    title: 'Install the Driver app',
-    description: 'Add it to your home screen for faster access to your trips, camera and live location.',
-    accent: 'bg-[#16984e] hover:bg-[#107e41]',
-    tint: 'bg-[#e8f5ee] text-[#16984e]',
+    appName: 'AAB Trading Driver',
+    icon: '/aab-trading-driver.png',
   },
   customer: {
-    title: 'Install the Shop app',
-    description: 'Add it to your home screen to order faster and get delivery updates.',
-    accent: 'bg-[#3ca232] hover:bg-[#34922c]',
-    tint: 'bg-[#edf6ea] text-[#3ca232]',
+    appName: 'AAB Trading Shop',
+    icon: '/aab-trading-shop.png',
   },
 } as const
 
 export function InstallAppPrompt({ portal, enabled = true }: InstallAppPromptProps) {
   const { isOpen, isIosInstructions, install, dismiss } = useInstallPrompt({ enabled })
   const copy = portalCopy[portal]
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  const [isInstalling, setIsInstalling] = useState(false)
+  const [error, setError] = useState('')
+  // The card names the site it installs from, exactly as the browser's banner does.
+  const [host] = useState(() => (typeof window === 'undefined' ? '' : window.location.host))
+
+  // The browser's banner closes as soon as you touch the page behind it. The
+  // listener is passive, so that first tap still reaches whatever it landed on.
+  useEffect(() => {
+    if (!isOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (cardRef.current?.contains(event.target as Node)) return
+      dismiss()
+    }
+    document.addEventListener('pointerdown', onPointerDown, { passive: true })
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [isOpen, dismiss])
 
   if (!isOpen) return null
 
+  const startInstall = async () => {
+    setIsInstalling(true)
+    setError('')
+    const outcome = await install()
+    setIsInstalling(false)
+    // Accepting or declining the browser's dialog both close the offer; only a
+    // failure keeps the card up, and then it has to say what to do about it.
+    if (outcome === 'unavailable') {
+      setError('This browser cannot install the app. Open the portal in Chrome or Edge to install it.')
+    } else if (outcome === 'failed') {
+      setError('The install did not start. Tap Install to try again.')
+    }
+  }
+
   return (
-    <div
-      role="dialog"
-      aria-label={copy.title}
-      className="fixed inset-x-0 bottom-0 z-[110] flex justify-center px-3 pb-3 sm:px-4 sm:pb-4"
-    >
-      <div className="w-full max-w-[30rem] rounded-2xl border border-[#dde3ea] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_16px_32px_-16px_rgba(16,24,40,0.28)]">
-        <div className="flex items-start gap-3">
-          <span className={cn('grid h-11 w-11 shrink-0 place-items-center rounded-xl', copy.tint)}>
-            <Download className="h-5 w-5" />
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-[110] flex justify-center px-3 pt-3">
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-label={`Install ${copy.appName}`}
+        className="pointer-events-auto w-full max-w-[32rem] rounded-xl border border-[#DDE3EA] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_20px_40px_-20px_rgba(16,24,40,0.32)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-2 motion-safe:duration-200"
+      >
+        <div className="flex items-center gap-3">
+          {/* The logo is a ring around a white centre, so it needs a surface of its
+              own to sit on; a neutral one keeps the card to a single accent. */}
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[#DDE3EA] bg-[#F7F9FC]">
+            <img src={copy.icon} alt="" className="h-7 w-7 object-contain" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-[#2A2A2A]">{copy.title}</p>
-            <p className="mt-1 text-[13px] leading-5 text-[#5A6472]">{copy.description}</p>
+            <p className="truncate text-[15px] font-semibold leading-5 text-[#2A2A2A]">
+              Install {copy.appName}
+            </p>
+            <p className="truncate text-[12px] leading-4 text-[#5A6472]">{host}</p>
           </div>
           <button
             type="button"
-            onClick={dismiss}
-            aria-label="Close"
-            className="-mr-1 -mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#98A2B3] transition-colors hover:bg-[#F2F4F7] hover:text-[#2A2A2A]"
+            onClick={isIosInstructions ? dismiss : () => void startInstall()}
+            disabled={isInstalling}
+            className="-mr-2 shrink-0 rounded-lg px-2 py-1.5 text-[14px] font-semibold text-[#0B3B82] transition-colors hover:bg-[#EAF2FC] disabled:opacity-60 motion-reduce:transition-none"
           >
-            <X className="h-4 w-4" />
+            {isIosInstructions ? 'Close' : 'Install'}
           </button>
         </div>
 
+        {error ? (
+          <p role="alert" className="mt-3 border-t border-[#DDE3EA] pt-3 text-[12px] leading-4 text-[#B42318]">
+            {error}
+          </p>
+        ) : null}
+
         {isIosInstructions ? (
-          <>
-            <ol className="mt-4 space-y-2 rounded-xl bg-[#F7F9FC] p-3 text-[13px] leading-5 text-[#2A2A2A]">
-              <li className="flex items-center gap-2">
-                <Share className="h-4 w-4 shrink-0 text-[#5A6472]" />
-                Tap the Share button in Safari.
-              </li>
-              <li className="flex items-center gap-2">
-                <SquarePlus className="h-4 w-4 shrink-0 text-[#5A6472]" />
-                Choose &ldquo;Add to Home Screen&rdquo;.
-              </li>
-            </ol>
-            <Button
-              type="button"
-              onClick={dismiss}
-              className={cn('mt-4 h-11 w-full rounded-xl text-sm font-semibold text-white', copy.accent)}
-            >
-              Got it
-            </Button>
-          </>
-        ) : (
-          <div className="mt-4 grid grid-cols-2 gap-2.5">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={dismiss}
-              className="h-11 rounded-xl border-[#D7DDE5] bg-white text-sm font-semibold text-[#2A2A2A] hover:bg-[#F7F9FC]"
-            >
-              Not Now
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void install()}
-              className={cn('h-11 rounded-xl text-sm font-semibold text-white', copy.accent)}
-            >
-              Install App
-            </Button>
-          </div>
-        )}
+          <ol className="mt-3 space-y-2 border-t border-[#DDE3EA] pt-3 text-[13px] leading-[18px] text-[#5A6472]">
+            <li className="flex items-center gap-2">
+              <Share className="h-4 w-4 shrink-0" />
+              Tap the Share button in Safari.
+            </li>
+            <li className="flex items-center gap-2">
+              <SquarePlus className="h-4 w-4 shrink-0" />
+              Choose &ldquo;Add to Home Screen&rdquo;.
+            </li>
+          </ol>
+        ) : null}
       </div>
     </div>
   )

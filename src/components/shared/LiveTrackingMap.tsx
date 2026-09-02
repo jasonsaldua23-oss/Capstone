@@ -419,6 +419,11 @@ const TRUCK_MIN_SMOOTHING_DURATION_MS = 450;
 const TRUCK_MAX_SMOOTHING_DURATION_MS = 9000;
 const TRUCK_STATIONARY_THRESHOLD_METERS = 1.5;
 const TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS = 120;
+// Beyond this distance from the active route the driver is treated as off-route
+// (a missed turn or a self-chosen detour). The icon then follows the live GPS
+// position instead of being pinned to the stale route — this is what stops the
+// vehicle from freezing when the driver changes roads, until the reroute lands.
+const TRUCK_MAX_ROUTE_SNAP_METERS = 60;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
 
@@ -1266,6 +1271,18 @@ export default function LiveTrackingMap({
         return [loc];
       }
 
+      // Off-route guard (driver navigation only): if the nearest routed road is
+      // farther than the snap budget, the driver has left the active route.
+      // Following the raw GPS fix keeps the vehicle moving with the driver
+      // instead of being yanked back onto a stale road; it re-snaps once the
+      // reroute arrives. Other maps keep their existing always-snap behavior.
+      if (
+        navigationPerspective &&
+        approximateDistanceMeters(authoritativeRoadPoint, bestSnap.point) > TRUCK_MAX_ROUTE_SNAP_METERS
+      ) {
+        return [loc];
+      }
+
       // Prefer a short local lookahead so orientation follows each turn on the active route.
       const localForwardHeading = calculateBearingAlongRoute(
         bestSnap,
@@ -1351,6 +1368,16 @@ export default function LiveTrackingMap({
 
       const projected = projectPointOntoRoute([location.lat, location.lng], navigationRouteGeometry);
       if (!projected) return location;
+
+      // Off-route: the monotonic progress clamp below would pin the icon to the
+      // furthest point it reached on the old route, which is exactly the freeze
+      // that happened when the driver took another road. Drop the clamp and let
+      // the icon track the live position; the replacement route re-anchors
+      // progress from scratch once it loads.
+      if (projected.distanceFromRouteMeters > TRUCK_MAX_ROUTE_SNAP_METERS) {
+        acceptedRouteProgressRef.current = null;
+        return location;
+      }
 
       const previousProgress = acceptedRouteProgressRef.current;
       let acceptedDistance = projected.distanceAlongMeters;

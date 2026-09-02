@@ -45,19 +45,32 @@ try {
   allowNavigation = []
 }
 
+/**
+ * Each shell is one portal and nothing else.
+ *
+ * `allowNavigation` only decides which *hosts* the web view may open, and all four
+ * portals live on one host, so the host list alone would let the Driver app walk
+ * into the Shop login. The portal is therefore stamped into the user agent: the
+ * native path filter in PortalWebViewClient.java, the portal lock in the web app
+ * and the server middleware all read this token to keep the shell inside
+ * `selected.path`.
+ */
+const userAgentSuffix = `AABTradingApp AABPortal/${variant}`
+
 const config: CapacitorConfig = {
   appId: selected.appId,
   appName: selected.appName,
   webDir: 'cap-web',
   // The portal is loaded from the network, so it identifies the shell by this token
   // as well as by the injected bridge. Without it a page whose bridge has not run
-  // would look like an ordinary browser tab and be offered a PWA install.
-  appendUserAgent: 'AABTradingApp',
+  // would look like an ordinary browser tab, would be offered a PWA install, and
+  // would not be held to this shell's portal.
+  appendUserAgent: userAgentSuffix,
   android: {
-    appendUserAgent: 'AABTradingApp',
+    appendUserAgent: userAgentSuffix,
   },
   ios: {
-    appendUserAgent: 'AABTradingApp',
+    appendUserAgent: userAgentSuffix,
   },
   server: {
     url: serverUrl,

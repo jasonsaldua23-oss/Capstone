@@ -23,6 +23,7 @@ import { EmptiesChargeNote } from '@/components/shared/empties-charge-note'
 import type { AuthUser } from '@/types'
 import {
   calculateNavigationViewportInsets,
+  projectPointOntoRoute,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -57,6 +58,14 @@ type DriverRouteOption = {
   points: [number, number][]
   steps: OsrmStep[]
 }
+
+// Distance from the active route beyond which turn-by-turn stops advancing and
+// waits for the reroute — kept in step with the map's off-route snap budget so
+// the instruction and the vehicle icon agree on when the driver has left it.
+const NAVIGATION_OFF_ROUTE_METERS = 60
+// A maneuver counts as passed only once the driver is this far beyond it, so GPS
+// jitter around a junction cannot flip the instruction back and forth.
+const NAVIGATION_MANEUVER_PASSED_MARGIN_METERS = 8
 
 // Main driver trip detail screen: controls stop workflow, map state, and proof-of-delivery capture.
 export function TripDetailView({
@@ -333,16 +342,9 @@ export function TripDetailView({
   }, [activeDropPoint, trip.dropPoints])
 
   // Fetch OSRM steps logic moved down below waypoints calculation
-
-  // Advance route step based on proximity.
-  useEffect(() => {
-    if (!currentLocation || routeSteps.length === 0 || currentStepIndex >= routeSteps.length - 1) return
-    const nextStep = routeSteps[currentStepIndex + 1]
-    const dist = haversineKm(currentLocation, { lat: nextStep.maneuver.location[1], lng: nextStep.maneuver.location[0] })
-    if (dist < 0.05) {
-      setCurrentStepIndex((i) => i + 1)
-    }
-  }, [currentLocation, routeSteps, currentStepIndex])
+  // Turn-by-turn step advancement is defined below, once the active route
+  // geometry the steps belong to is in scope, so progress can be measured along
+  // the route instead of by a fixed radius around the next maneuver.
 
   useEffect(() => {
     // Fix: route steps refresh as the driver's GPS position changes. Keep spoken
@@ -2187,6 +2189,69 @@ export function TripDetailView({
   )
   const activeRouteOption = routeOptions[activeRouteOptionIndex] || null
   const isRecommendedRouteActive = activeRouteOptionIndex === 0
+
+  // Along-route distance to each maneuver equals the summed length of every step
+  // before it. Shared by step advancement and the live distance-to-turn readout
+  // so the instruction, its countdown and the vehicle icon read one position.
+  const maneuverCumulativeDistances = useMemo(() => {
+    const distances: number[] = []
+    let cumulative = 0
+    routeSteps.forEach((step, index) => {
+      distances[index] = cumulative
+      cumulative += step.distance || 0
+    })
+    return distances
+  }, [routeSteps])
+
+  // Project the live driver position onto the active route once per render.
+  const navigationRouteProjection = useMemo(() => {
+    const geometry = activeRouteOption?.points
+    if (!effectiveDriverLocation || !geometry || geometry.length < 2) return null
+    return projectPointOntoRoute(
+      [Number(effectiveDriverLocation.lat), Number(effectiveDriverLocation.lng)],
+      geometry
+    )
+  }, [activeRouteOption, effectiveDriverLocation])
+
+  // Advance the active turn-by-turn step from real progress along the route.
+  // Measuring distance travelled along the route — rather than a fixed radius
+  // around the next maneuver — keeps the instruction correct when GPS updates
+  // are sparse and the driver passes a maneuver between fixes, and lets several
+  // maneuvers clear at once instead of lagging a fix behind.
+  useEffect(() => {
+    if (routeSteps.length === 0) return
+    // Only trust a projection taken on the geometry these steps belong to,
+    // otherwise a reroute's new geometry could be measured with old steps.
+    if (!navigationRouteProjection || activeRouteOption?.steps !== routeSteps) return
+    if (navigationRouteProjection.distanceFromRouteMeters > NAVIGATION_OFF_ROUTE_METERS) return
+    const driverDistance = navigationRouteProjection.distanceAlongMeters
+    let travelingIndex = 0
+    for (let index = 0; index < routeSteps.length - 1; index += 1) {
+      const nextManeuverDistance = maneuverCumulativeDistances[index] + (routeSteps[index].distance || 0)
+      if (driverDistance >= nextManeuverDistance - NAVIGATION_MANEUVER_PASSED_MARGIN_METERS) {
+        travelingIndex = index + 1
+      } else {
+        break
+      }
+    }
+    // Never move the instruction backwards on the same route; a reroute resets
+    // the index to 0 when the route options change.
+    setCurrentStepIndex((previous) => (travelingIndex > previous ? travelingIndex : previous))
+  }, [navigationRouteProjection, routeSteps, activeRouteOption, maneuverCumulativeDistances])
+
+  // The prominent instruction is the maneuver ahead of the segment the driver is
+  // on, so a completed turn immediately reveals the next one; its distance
+  // counts down live as the driver approaches.
+  const upcomingManeuverIndex = routeSteps.length > 0
+    ? Math.min(currentStepIndex + 1, routeSteps.length - 1)
+    : currentStepIndex
+  const liveDistanceToManeuverMeters =
+    navigationRouteProjection &&
+    navigationRouteProjection.distanceFromRouteMeters <= NAVIGATION_OFF_ROUTE_METERS &&
+    typeof maneuverCumulativeDistances[upcomingManeuverIndex] === 'number'
+      ? Math.max(0, maneuverCumulativeDistances[upcomingManeuverIndex] - navigationRouteProjection.distanceAlongMeters)
+      : undefined
+
   const handleRouteLineSelect = useCallback((routeLineId: string) => {
     const alternativePrefix = `trip-${trip.id}-route-alternative-`
     if (!routeLineId.startsWith(alternativePrefix)) return
@@ -2527,6 +2592,8 @@ export function TripDetailView({
                       <NavInstructionsPanel
                         steps={routeSteps}
                         currentStepIndex={currentStepIndex}
+                        showUpcomingManeuver
+                        liveManeuverDistanceMeters={liveDistanceToManeuverMeters}
                         destinationName={highlightedDropPoint?.locationName}
                         variant="mobile-compact"
                         onSpeak={voiceGuidanceEnabled ? speakNavigationPrompt : undefined}
@@ -2590,6 +2657,8 @@ export function TripDetailView({
                       <NavInstructionsPanel
                         steps={routeSteps}
                         currentStepIndex={currentStepIndex}
+                        showUpcomingManeuver
+                        liveManeuverDistanceMeters={liveDistanceToManeuverMeters}
                         destinationName={highlightedDropPoint?.locationName}
                         variant="mobile-compact"
                         onSpeak={voiceGuidanceEnabled ? speakNavigationPrompt : undefined}

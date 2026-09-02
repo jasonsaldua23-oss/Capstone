@@ -7,7 +7,7 @@
  * without caring which kind of device answered.
  */
 
-import { getPlatform, isNativeApp, isPluginAvailable } from './platform'
+import { getPlatform, isNativeApp, isPluginAvailable, waitForNativeBridge } from './platform'
 import { ensureNotificationPermission, type PermissionOutcome } from './permissions'
 
 export type PushRegistration = {
@@ -31,6 +31,19 @@ export async function requestNotificationAccess(): Promise<PermissionOutcome> {
 
 export function canUseNativePush(): boolean {
   return isNativeApp() && isPluginAvailable('PushNotifications')
+}
+
+/**
+ * The same question, asked at a moment when it can be answered.
+ *
+ * A shell loads the portal over the network, so the bridge that registers the push
+ * plugin can arrive after the page does; asking synchronously on mount would report
+ * "no native push" for a device that has it.
+ */
+async function canUseNativePushWhenReady(): Promise<boolean> {
+  if (!isNativeApp()) return false
+  await waitForNativeBridge()
+  return canUseNativePush()
 }
 
 async function saveNativeToken(token: string): Promise<void> {
@@ -94,7 +107,13 @@ async function registerNativePush(): Promise<PushRegistration> {
     })
   }
 
-  await PushNotifications.register()
+  try {
+    await PushNotifications.register()
+  } catch (error) {
+    // The permission is granted and notifications raised by the app itself still
+    // arrive; only the remote token is missing, and the next launch retries it.
+    console.warn('Native push registration failed:', error)
+  }
   return { registered: true, transport: 'fcm' }
 }
 
@@ -149,7 +168,7 @@ export async function enableNotifications(): Promise<PushRegistration> {
   }
 
   try {
-    return canUseNativePush() ? await registerNativePush() : await registerWebPush()
+    return (await canUseNativePushWhenReady()) ? await registerNativePush() : await registerWebPush()
   } catch (error) {
     return {
       registered: false,
@@ -166,7 +185,7 @@ export async function enableNotifications(): Promise<PushRegistration> {
 export async function resumeNotificationsIfAllowed(): Promise<PushRegistration> {
   if (typeof window === 'undefined') return { registered: false, transport: 'none' }
 
-  if (canUseNativePush()) {
+  if (await canUseNativePushWhenReady()) {
     try {
       const { PushNotifications } = await import('@capacitor/push-notifications')
       const status = await PushNotifications.checkPermissions()
@@ -176,6 +195,9 @@ export async function resumeNotificationsIfAllowed(): Promise<PushRegistration> 
       return { registered: false, transport: 'none' }
     }
   }
+
+  // A shell without a bridge has no web push either, so there is nothing to resume.
+  if (isNativeApp()) return { registered: false, transport: 'none' }
 
   if (!('Notification' in window) || Notification.permission !== 'granted') {
     return { registered: false, transport: 'none' }

@@ -89,12 +89,21 @@ export function resetInstallPromptForNewSession(): void {
   }
 }
 
+/**
+ * How an install attempt ended.
+ *
+ * `dismissed` is the person declining the browser's own dialog, which is a normal
+ * answer and closes the offer. The last two are failures the person can act on, so
+ * the card stays up and says what happened instead of vanishing.
+ */
+export type InstallOutcome = 'accepted' | 'dismissed' | 'unavailable' | 'failed'
+
 export type InstallPromptState = {
   /** The offer should be on screen right now. */
   isOpen: boolean
   /** iOS cannot install programmatically; show the Share-sheet instructions. */
   isIosInstructions: boolean
-  install: () => Promise<void>
+  install: () => Promise<InstallOutcome>
   dismiss: () => void
 }
 
@@ -149,17 +158,21 @@ export function useInstallPrompt(options: { enabled: boolean }): InstallPromptSt
     }
   }, [enabled])
 
-  const install = useCallback(async () => {
+  const install = useCallback(async (): Promise<InstallOutcome> => {
     const prompt = deferredPrompt
-    setIsOpen(false)
-    if (!prompt) return
+    if (!prompt) return 'unavailable'
     try {
       await prompt.prompt()
-      await prompt.userChoice
-    } catch {
-      // A prompt that cannot be shown leaves the portal working as it was.
-    } finally {
+      const choice = await prompt.userChoice
       deferredPrompt = null
+      // Both answers are the person's own, so the offer has served its purpose.
+      setIsOpen(false)
+      return choice.outcome === 'accepted' ? 'accepted' : 'dismissed'
+    } catch {
+      // A prompt that cannot be shown leaves the portal working as it was; the
+      // card stays open so the failure can be reported where it was triggered.
+      deferredPrompt = null
+      return 'failed'
     }
   }, [])
 

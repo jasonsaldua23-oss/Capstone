@@ -1,7 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!--
+  app_name, title_activity_main, package_name and custom_url_scheme are generated
+  by app/build.gradle from the portal in capacitor.config.json, so that each
+  variant installs under its own name and id. Declaring them here as well would be
+  a duplicate resource.
+-->
 <resources>
-    <string name="app_name">LogiTrack Driver</string>
-    <string name="title_activity_main">LogiTrack Driver</string>
-    <string name="package_name">com.logitrack.driver</string>
-    <string name="custom_url_scheme">com.logitrack.driver</string>
 </resources>

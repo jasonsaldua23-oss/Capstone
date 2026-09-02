@@ -7,7 +7,7 @@
  * and `message` is copy that can be shown to the person as-is.
  */
 
-import { getPlatform, isNativeApp, isPluginAvailable, isSecureContextForDeviceApis } from './platform'
+import { getPlatform, isNativeApp, isPluginAvailable, isSecureContextForDeviceApis, waitForNativeBridge } from './platform'
 
 export type PermissionOutcome = {
   granted: boolean
@@ -128,6 +128,10 @@ export async function ensureLocationPermission(): Promise<PermissionOutcome> {
 export async function ensureNotificationPermission(): Promise<PermissionOutcome> {
   if (typeof window === 'undefined') return denied('Notifications are not available here.')
 
+  // Inside a shell the OS owns this permission, so wait for the bridge rather than
+  // falling through to a web Notification API the Android web view does not have.
+  if (isNativeApp()) await waitForNativeBridge()
+
   if (isNativeApp() && isPluginAvailable('PushNotifications')) {
     try {
       const { PushNotifications } = await import('@capacitor/push-notifications')
@@ -146,7 +150,12 @@ export async function ensureNotificationPermission(): Promise<PermissionOutcome>
   }
 
   if (!('Notification' in window)) {
-    return denied('This browser does not support notifications.')
+    return denied(
+      isNativeApp()
+        ? 'Notifications are turned off for this app. Enable them in your device settings to receive delivery updates.'
+        : 'This browser does not support notifications.',
+      isNativeApp(),
+    )
   }
   if (Notification.permission === 'granted') return OK
   if (Notification.permission === 'denied') {

@@ -12,6 +12,7 @@ import { AlertTriangle } from 'lucide-react'
 import { PushNotificationManager } from '@/components/shared/push-notification-manager'
 import { InstallAppPrompt } from '@/components/shared/install-app-prompt'
 import { resetInstallPromptForNewSession } from '@/lib/native/install-prompt'
+import { getLockedPortal } from '@/lib/native/portal-lock'
 
 // Auth Context
 interface AuthContextType {
@@ -172,8 +173,19 @@ function resolvePortalForUser(user: AuthUser): PortalType {
 export default function Home() {
   const router = useRouter()
   const appVariant = useMemo(() => resolveAppVariant(), [])
-  const allowedPortals = useMemo(() => getAllowedPortals(appVariant), [appVariant])
-  const defaultPortal = useMemo(() => getDefaultPortalForVariant(appVariant), [appVariant])
+  // A Capacitor shell is one portal and nothing else, whatever the deployment it
+  // loads happens to serve: a session belonging to another portal is signed out
+  // rather than rendered here.
+  const lockedPortal = useMemo(() => getLockedPortal(), [])
+  const allowedPortals = useMemo(() => {
+    const forVariant = getAllowedPortals(appVariant)
+    if (!lockedPortal) return forVariant
+    return forVariant.filter((candidate) => candidate === lockedPortal)
+  }, [appVariant, lockedPortal])
+  const defaultPortal = useMemo(
+    () => lockedPortal || getDefaultPortalForVariant(appVariant),
+    [appVariant, lockedPortal],
+  )
   const [user, setUser] = useState<AuthUser | null>(null)
   const [portal, setPortal] = useState<PortalType>(defaultPortal)
   const [isLoading, setIsLoading] = useState(true)
@@ -244,10 +256,12 @@ export default function Home() {
         router.replace(getPortalLoginPath(rememberedPortal))
         return
       }
+      // The shells never see the portal chooser; only a shared browser deployment does.
+      const useChooser = appVariant === 'all' && !lockedPortal
       // A shared deployment must not silently treat Admin as the default user.
-      router.replace(appVariant === 'all' ? '/login' : getPortalLoginPath(portal))
+      router.replace(useChooser ? '/login' : getPortalLoginPath(lockedPortal || portal))
     }
-  }, [appVariant, isLoading, isMounted, portal, router, user])
+  }, [appVariant, isLoading, isMounted, lockedPortal, portal, router, user])
 
   useEffect(() => {
     if (!isMounted) return

@@ -1,4 +1,5 @@
 import { jwtVerify } from 'jose'
+import { isPathAllowedForPortal, parseNativePortalFromUserAgent } from '@/lib/portal-scope'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
@@ -42,6 +43,19 @@ function extractPortalFromLoginPath(pathname: string): PortalType | null {
   return (
     portals.find((portal) => pathname === `/login/${portal}` || pathname.startsWith(`/login/${portal}/`)) || null
   )
+}
+
+/**
+ * The deployment variant a Capacitor shell corresponds to.
+ *
+ * The shell's own portal is the tighter of the two limits and is applied on top of
+ * the deployment's, so the Driver app is held to the driver rules even on the
+ * shared deployment that serves every portal.
+ */
+function variantForShellPortal(portal: PortalType): AppVariant {
+  if (portal === 'driver') return 'driver'
+  if (portal === 'customer') return 'customer'
+  return 'admin'
 }
 
 function isRoleAllowedForVariant(payload: AuthPayload, variant: AppVariant): boolean {
@@ -100,8 +114,20 @@ function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): bo
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const variant = resolveVariant()
-  const allowedPortals = allowedPortalsForVariant(variant)
-  const defaultLoginPath = defaultLoginPathForVariant(variant)
+  // The Driver and Shop apps stamp their portal into the user agent, because every
+  // portal shares this origin and Capacitor can only restrict the shell by host.
+  const shellPortal = parseNativePortalFromUserAgent(request.headers.get('user-agent'))
+  const shellVariant = shellPortal ? variantForShellPortal(shellPortal) : null
+  const allowedPortals = shellPortal
+    ? allowedPortalsForVariant(variant).filter((portal) => portal === shellPortal)
+    : allowedPortalsForVariant(variant)
+  const defaultLoginPath = shellPortal ? `/login/${shellPortal}` : defaultLoginPathForVariant(variant)
+
+  // Nothing outside the shell's own portal is served to it at all - not the portal
+  // chooser, not another portal's login, not the recovery pages.
+  if (shellPortal && !isPathAllowedForPortal(pathname, shellPortal)) {
+    return NextResponse.redirect(new URL(defaultLoginPath, request.url))
+  }
 
   if (pathname === '/login') {
     // The shared deployment has no default role: valid sessions return to their
@@ -124,7 +150,10 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith('/api/auth/')) {
-    if (!isAllowedAuthRouteForVariant(pathname, variant)) {
+    if (
+      !isAllowedAuthRouteForVariant(pathname, variant) ||
+      (shellVariant && !isAllowedAuthRouteForVariant(pathname, shellVariant))
+    ) {
       return NextResponse.json({ success: false, error: 'Forbidden for this app variant' }, { status: 403 })
     }
     return NextResponse.next()
@@ -136,7 +165,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next()
     }
 
-    if (!isRoleAllowedForVariant(payload, variant)) {
+    if (
+      !isRoleAllowedForVariant(payload, variant) ||
+      (shellVariant && !isRoleAllowedForVariant(payload, shellVariant))
+    ) {
       return NextResponse.json({ success: false, error: 'Forbidden for this app variant' }, { status: 403 })
     }
   }

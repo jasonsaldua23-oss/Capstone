@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { NativePortalGuard } from "@/components/shared/native-portal-guard";
 import { CHUNK_RECOVERY_SCRIPT } from "@/lib/chunk-recovery-script";
 
 // Fix: HTML contains build-specific chunk names, so a CDN must never retain it
@@ -66,6 +67,8 @@ export default function RootLayout({
         suppressHydrationWarning
         className="antialiased bg-background text-foreground"
       >
+        {/* The app shells may only ever reach their own portal. */}
+        <NativePortalGuard />
         {children}
         <Toaster />
       </body>

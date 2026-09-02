@@ -7,6 +7,8 @@
  * injected by the native bridge and is simply absent on the web.
  */
 
+import { parseNativePortalFromUserAgent, type ScopedPortal } from '@/lib/portal-scope'
+
 export type RuntimePlatform = 'web' | 'pwa' | 'android' | 'ios'
 
 type CapacitorGlobal = {
@@ -33,7 +35,21 @@ const NATIVE_USER_AGENT_TOKEN = 'AABTradingApp'
 function hasNativeUserAgent(): boolean {
   if (typeof navigator === 'undefined') return false
   const ua = String(navigator.userAgent || '')
-  return ua.includes(NATIVE_USER_AGENT_TOKEN) || /Capacitor/i.test(ua)
+  return ua.includes(NATIVE_USER_AGENT_TOKEN) || /\bCapacitor\b/i.test(ua)
+}
+
+/**
+ * The portal this shell was built for, or null anywhere else.
+ *
+ * Every shell loads the same origin, so the portal cannot be read from the URL;
+ * capacitor.config.ts stamps it into the user agent instead. Taking it from the
+ * user agent rather than the bridge means it is known on the very first paint,
+ * before any plugin has registered.
+ */
+export function getNativePortal(): ScopedPortal | null {
+  if (typeof navigator === 'undefined') return null
+  if (!isNativeApp()) return null
+  return parseNativePortalFromUserAgent(navigator.userAgent)
 }
 
 /** True inside the Android or iOS Capacitor shell. */
@@ -44,6 +60,37 @@ export function isNativeApp(): boolean {
   const platform = String(cap.getPlatform?.() || '').toLowerCase()
   if (platform && platform !== 'web') return true
   return hasNativeUserAgent()
+}
+
+/**
+ * Waits for the native bridge to appear, then reports whether it did.
+ *
+ * The shells load the deployed portal over the network, so the page can be parsed
+ * and running before Capacitor has injected `window.Capacitor` into it. Code that
+ * asks `isPluginAvailable` too early - device notifications, most of all - would
+ * otherwise conclude it is an ordinary browser tab and fall back to web APIs the
+ * Android web view does not have. Anywhere that is not a shell this resolves
+ * immediately.
+ */
+export function waitForNativeBridge(timeoutMs = 3000): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false)
+  if (capacitor()) return Promise.resolve(true)
+  if (!isNativeApp()) return Promise.resolve(false)
+
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+    const poll = window.setInterval(() => {
+      if (capacitor()) {
+        window.clearInterval(poll)
+        resolve(true)
+        return
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        window.clearInterval(poll)
+        resolve(false)
+      }
+    }, 100)
+  })
 }
 
 /** True when the browser is running the portal as an installed app window. */

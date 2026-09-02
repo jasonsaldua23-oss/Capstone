@@ -1,10 +1,37 @@
 apply plugin: 'com.android.application'
 
+/**
+ * One Android project, built per portal.
+ *
+ * `npx cap sync` rewrites src/main/assets/capacitor.config.json from APP_VARIANT,
+ * but it does not touch this file, so without the lines below every variant would
+ * build under the same application id - and installing the Shop would replace the
+ * Driver app on the device instead of sitting beside it. The identity is therefore
+ * read back out of the synced config, which makes the app id, the launcher label
+ * and the URL scheme follow whichever portal was last synced.
+ *
+ * The `namespace` stays fixed: it is the Java package the sources live in, not the
+ * identity the device installs them under.
+ */
+def capacitorConfigFile = file('src/main/assets/capacitor.config.json')
+def portalConfig = capacitorConfigFile.exists()
+    ? new groovy.json.JsonSlurper().parseText(capacitorConfigFile.text)
+    : [:]
+def portalAppId = portalConfig.appId ?: "com.logitrack.driver"
+def portalAppName = portalConfig.appName ?: "AAB Trading"
+
 android {
     namespace "com.logitrack.driver"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.logitrack.driver"
+        applicationId portalAppId
+        // These were static strings in res/values/strings.xml, where they could not
+        // follow the variant; they are generated here instead so a Shop build never
+        // announces itself as the Driver app.
+        resValue "string", "app_name", portalAppName
+        resValue "string", "title_activity_main", portalAppName
+        resValue "string", "package_name", portalAppId
+        resValue "string", "custom_url_scheme", portalAppId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Bell, Loader2, X } from 'lucide-react'
 
 import type { AuthUser } from '@/types'
-import { canUseNativePush } from '@/lib/native/notifications'
 import { enableNotifications, resumeNotificationsIfAllowed } from '@/lib/native/notifications'
+import { isNativeApp } from '@/lib/native/platform'
 
 
 type PushConfig = {
@@ -51,7 +51,12 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
 
     // Inside the Driver and Customer apps the OS owns the permission and the token,
     // so registration goes through the native bridge rather than the service worker.
-    if (canUseNativePush()) {
+    // The check is on the runtime, not on the bridge: the shells load the portal
+    // over the network, so the bridge can arrive after this effect runs, and the
+    // calls below wait for it. Deciding on the bridge alone left the apps in the
+    // web branch, where the Android web view has no Notification API and nothing
+    // was ever offered.
+    if (isNativeApp()) {
       void (async () => {
         const resumed = await resumeNotificationsIfAllowed()
         if (!resumed.registered && !cancelled && sessionStorage.getItem('push-prompt-dismissed') !== '1') {
@@ -100,10 +105,10 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
     setIsEnabling(true)
     setError('')
     try {
-      if (canUseNativePush()) {
+      if (isNativeApp()) {
         const result = await enableNotifications()
         if (!result.registered) {
-          setError(result.message || 'Could not enable device notifications. Please try again.')
+          setError(result.message || 'Notifications could not be turned on. Tap Turn On Notifications to try again.')
           return
         }
         setShowPrompt(false)
@@ -120,7 +125,7 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
     } catch (pushError) {
       // The prompt already reports this recoverable failure to the user inline.
       console.warn('Push notification enable failed:', pushError)
-      setError('Could not enable device notifications. Please try again.')
+      setError('Notifications could not be turned on. Tap Turn On Notifications to try again.')
     } finally {
       setIsEnabling(false)
     }
@@ -138,42 +143,42 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
       role="dialog"
       aria-modal="false"
       aria-labelledby="push-prompt-title"
-      className="fixed left-1/2 top-1/2 z-[140] w-[calc(100%-2rem)] max-w-[26rem] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#DDE3EA] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_20px_40px_-20px_rgba(16,24,40,0.32)]"
+      className="fixed left-1/2 top-1/2 z-[140] w-[calc(100%-2rem)] max-w-[26rem] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[#DDE3EA] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_20px_40px_-20px_rgba(16,24,40,0.32)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-200"
     >
       <div className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#EAF2FC]">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#EAF2FC]">
           <Bell className="h-5 w-5 text-[#0B3B82]" />
         </span>
         <div className="min-w-0 flex-1">
           <p id="push-prompt-title" className="text-[15px] font-semibold leading-6 text-[#2A2A2A]">
-            Enable device notifications
+            Get delivery updates on this device
           </p>
-          <p className="mt-1 text-[13px] leading-5 text-[#5A6472]">
-            Receive order, delivery and trip updates on this device, even while the portal is closed.
+          <p className="mt-1 text-[13px] leading-[18px] text-[#5A6472]">
+            Order, delivery and trip updates arrive on this device even while the portal is closed.
           </p>
         </div>
         <button
           type="button"
           onClick={dismissPrompt}
           aria-label="Close"
-          className="-mr-1 -mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[#98A2B3] transition-colors hover:bg-[#F2F4F7] hover:text-[#2A2A2A]"
+          className="-mr-1 -mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#98A2B3] transition-colors hover:bg-[#F2F4F7] hover:text-[#2A2A2A]"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
       {error ? (
-        <p role="alert" className="mt-4 rounded-xl border border-[#F3C6C2] bg-[#FDF3F2] px-3 py-2 text-[13px] leading-5 text-[#B42318]">
+        <p role="alert" className="mt-4 rounded-lg border border-[#F3C6C2] bg-[#FDF3F2] px-3 py-2 text-[13px] leading-[18px] text-[#B42318]">
           {error}
         </p>
       ) : null}
 
-      <div className="mt-5 grid grid-cols-2 gap-2.5">
+      <div className="mt-5 grid grid-cols-2 gap-3">
         <button
           type="button"
           onClick={dismissPrompt}
           disabled={isEnabling}
-          className="h-11 rounded-xl border border-[#D7DDE5] bg-white text-[13px] font-semibold text-[#2A2A2A] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
+          className="h-11 rounded-lg border border-[#DDE3EA] bg-white text-[14px] font-semibold text-[#2A2A2A] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
         >
           Not Now
         </button>
@@ -181,10 +186,10 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
           type="button"
           disabled={isEnabling}
           onClick={enablePush}
-          className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#0B3B82] px-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#093068] disabled:opacity-60 motion-reduce:transition-none"
+          className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#0B3B82] px-3 text-[14px] font-semibold text-white transition-colors hover:bg-[#093068] disabled:opacity-60 motion-reduce:transition-none"
         >
           {isEnabling ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : null}
-          {isEnabling ? 'Enabling' : 'Enable Notifications'}
+          {isEnabling ? 'Turning On' : 'Turn On Notifications'}
         </button>
       </div>
     </div>

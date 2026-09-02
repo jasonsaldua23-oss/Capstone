@@ -23,6 +23,17 @@ const NAVIGATION_3D_ZOOM = 19;
 const NAVIGATION_3D_PITCH = 58;
 // Updated: keeps the recentered truck at the second reference image's framing.
 const NAVIGATION_3D_FORWARD_VIEW_RATIO = 0.12;
+// Past this distance from the route the driver is off-route: the marker follows
+// the live GPS instead of being snapped onto a stale road, so it never appears
+// frozen on the route after the driver takes a different road.
+const NAVIGATION_OFF_ROUTE_SNAP_METERS = 60;
+
+function geoDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const refLat = ((lat1 + lat2) / 2) * (Math.PI / 180);
+  const dx = (lng2 - lng1) * Math.cos(refLat) * 111320;
+  const dy = (lat2 - lat1) * 110540;
+  return Math.hypot(dx, dy);
+}
 
 type TruckMarkerEntry = {
   marker: maplibregl.Marker;
@@ -156,6 +167,9 @@ function projectedRoutePlacement(
     bearing: geographicBearing,
     lng: snappedCoordinate.lng,
     lat: snappedCoordinate.lat,
+    // How far the live position sat from the route, so callers can decline the
+    // snap when the driver has clearly left it.
+    distanceMeters: geoDistanceMeters(location.lat, location.lng, snappedCoordinate.lat, snappedCoordinate.lng),
   };
 }
 
@@ -325,8 +339,14 @@ export default function MapLibreNavigationMap({
         truckMarkersRef.current.set(location.id, entry);
       }
       const projectedPlacement = projectedRoutePlacement(map, location, routeLinesRef.current);
-      const markerLat = projectedPlacement?.lat ?? location.lat;
-      const markerLng = projectedPlacement?.lng ?? location.lng;
+      // Only snap the marker onto the route while the driver is actually near it;
+      // once off-route the marker follows the live position so it never freezes.
+      const onRoutePlacement =
+        projectedPlacement && projectedPlacement.distanceMeters <= NAVIGATION_OFF_ROUTE_SNAP_METERS
+          ? projectedPlacement
+          : null;
+      const markerLat = onRoutePlacement?.lat ?? location.lat;
+      const markerLng = onRoutePlacement?.lng ?? location.lng;
       entry.marker.setLngLat([markerLng, markerLat]);
       const nextPopupHtml = popupHtml(location);
       // Position changes arrive every animation frame; keep static popup DOM out
@@ -688,9 +708,14 @@ export default function MapLibreNavigationMap({
 
     // Center the camera on the same route-snapped coordinate used by the truck
     // marker. This changes only the camera target, never GPS or route geometry.
-    const routePlacement = truck
+    const candidatePlacement = truck
       ? projectedRoutePlacement(map, truck, routeLinesRef.current)
       : null;
+    // Off-route, follow the live position instead of a stale point on the route.
+    const routePlacement =
+      candidatePlacement && candidatePlacement.distanceMeters <= NAVIGATION_OFF_ROUTE_SNAP_METERS
+        ? candidatePlacement
+        : null;
     const targetCenter = routePlacement
       ? [routePlacement.lng, routePlacement.lat] as [number, number]
       : truck
