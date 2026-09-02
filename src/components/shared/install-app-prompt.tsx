@@ -35,7 +35,7 @@ const portalCopy = {
 } as const
 
 export function InstallAppPrompt({ portal, enabled = true }: InstallAppPromptProps) {
-  const { isOpen, isIosInstructions, install, dismiss } = useInstallPrompt({ enabled })
+  const { isOpen, isIosInstructions, install, dismiss } = useInstallPrompt({ enabled, portal })
   const copy = portalCopy[portal]
   const cardRef = useRef<HTMLDivElement | null>(null)
   const [isInstalling, setIsInstalling] = useState(false)
@@ -49,6 +49,9 @@ export function InstallAppPrompt({ portal, enabled = true }: InstallAppPromptPro
     if (!isOpen) return
     const onPointerDown = (event: PointerEvent) => {
       if (cardRef.current?.contains(event.target as Node)) return
+      // Fix: interacting with the independent Welcome popup must never dismiss
+      // the install offer through this document-level outside-click handler.
+      if ((event.target as Element | null)?.closest?.('[data-welcome-popup]')) return
       dismiss()
     }
     document.addEventListener('pointerdown', onPointerDown, { passive: true })
@@ -72,7 +75,7 @@ export function InstallAppPrompt({ portal, enabled = true }: InstallAppPromptPro
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-[110] flex justify-center px-3 pt-3">
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-[1100] flex justify-center px-3 pt-3">
       <div
         ref={cardRef}
         role="dialog"

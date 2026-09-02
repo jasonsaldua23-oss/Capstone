@@ -29,7 +29,7 @@ export function WelcomePopup({
   if (!open || typeof document === 'undefined') return null
 
   return createPortal(
-    <div className={`fixed inset-0 z-[999] flex items-center justify-center p-4 backdrop-blur-[2px] ${overlayClassName || 'bg-black/70'}`}>
+    <div data-welcome-popup className={`fixed inset-0 z-[999] flex items-center justify-center p-4 backdrop-blur-[2px] ${overlayClassName || 'bg-black/70'}`}>
       <div className={`w-full max-w-md rounded-2xl border p-4 shadow-2xl ${panelClassName}`}>
         <div className="flex items-start justify-between gap-3">
           <div>

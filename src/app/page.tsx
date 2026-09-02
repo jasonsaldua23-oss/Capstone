@@ -11,7 +11,7 @@ import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
 import { PushNotificationManager } from '@/components/shared/push-notification-manager'
 import { InstallAppPrompt } from '@/components/shared/install-app-prompt'
-import { discardCapturedInstallPrompt, resetInstallPromptForNewSession } from '@/lib/native/install-prompt'
+import { resetInstallPromptForNewSession, retainCapturedInstallPromptForPortal } from '@/lib/native/install-prompt'
 import { getLockedPortal } from '@/lib/native/portal-lock'
 import { isManifestPortal, manifestPathForPortal, siteWideManifestPortal } from '@/lib/portal-manifest'
 
@@ -99,11 +99,13 @@ function applyBrowserBranding(title: string, iconPath: string, manifestPath?: st
     }
     if (!manifestLink.getAttribute('href')?.endsWith(manifestPath)) {
       manifestLink.href = manifestPath
-      // An offer captured before the swap belongs to the app the document was
-      // served with. Replaying it here would install that app instead of this
-      // portal's, so it is dropped and the fresh offer is waited for.
+      // Preserve a one-shot offer captured on this portal's login page, but drop
+      // any offer associated with another portal's manifest.
       if (!manifestPath.endsWith(`${siteWideManifestPortal()}.webmanifest`)) {
-        discardCapturedInstallPrompt()
+        const manifestPortal = manifestPath.match(/\/manifest\/([a-z]+)\.webmanifest$/)?.[1]
+        if (manifestPortal && isManifestPortal(manifestPortal)) {
+          retainCapturedInstallPromptForPortal(manifestPortal)
+        }
       }
     }
   }
@@ -390,7 +392,7 @@ export default function Home() {
     rememberTabLoginPortal(nextPortal)
     setSessionExpiredPortal(null)
     clearTabAuthToken()
-    resetInstallPromptForNewSession()
+    resetInstallPromptForNewSession(nextPortal)
     queryClient.clear()
     setUser(null)
     setPortal(nextPortal)

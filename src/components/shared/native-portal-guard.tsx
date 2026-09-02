@@ -9,6 +9,9 @@
 
 import { useEffect } from 'react'
 
+// Fix: load the one-shot PWA install event listener on login pages as well as the
+// authenticated portal, so an eligible Driver event is not lost before login.
+import '@/lib/native/install-prompt'
 import { installPortalLock } from '@/lib/native/portal-lock'
 
 export function NativePortalGuard() {
