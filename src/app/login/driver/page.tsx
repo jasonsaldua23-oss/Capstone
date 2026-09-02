@@ -2,8 +2,12 @@ import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 import { DriverLoginPage as DriverLoginScreen } from '@/components/auth/DriverLoginPage'
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
+import { manifestPathForPortal } from '@/lib/portal-manifest'
 
 export const metadata: Metadata = {
+  // Each portal is its own installable app; without its own manifest the
+  // browser only ever knows about the site-wide one and offers that instead.
+  manifest: manifestPathForPortal('driver'),
   title: 'AAB TRADING DRIVER',
   icons: {
     icon: '/aab-trading-driver.png',

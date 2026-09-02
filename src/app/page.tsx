@@ -11,8 +11,9 @@ import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
 import { PushNotificationManager } from '@/components/shared/push-notification-manager'
 import { InstallAppPrompt } from '@/components/shared/install-app-prompt'
-import { resetInstallPromptForNewSession } from '@/lib/native/install-prompt'
+import { discardCapturedInstallPrompt, resetInstallPromptForNewSession } from '@/lib/native/install-prompt'
 import { getLockedPortal } from '@/lib/native/portal-lock'
+import { isManifestPortal, manifestPathForPortal, siteWideManifestPortal } from '@/lib/portal-manifest'
 
 // Auth Context
 interface AuthContextType {
@@ -79,9 +80,33 @@ function getRememberedTabLoginPortal(allowedPortals: PortalType[]): PortalType |
   }
 }
 
-function applyBrowserBranding(title: string, iconPath: string) {
+function applyBrowserBranding(title: string, iconPath: string, manifestPath?: string) {
   if (typeof document === 'undefined') return
   document.title = title
+
+  // The portal renders at "/", where the document was served with the site-wide
+  // manifest. A browser only offers to install what the manifest declares and
+  // treats one manifest id as one app, so without this swap the Driver portal
+  // would keep offering - or having already offered - the Shop, and drivers would
+  // be shown no install at all. Chrome re-reads the manifest when this link
+  // changes, and the offer waits long enough for that to happen.
+  if (manifestPath) {
+    let manifestLink = document.head.querySelector('link[rel="manifest"]') as HTMLLinkElement | null
+    if (!manifestLink) {
+      manifestLink = document.createElement('link')
+      manifestLink.rel = 'manifest'
+      document.head.appendChild(manifestLink)
+    }
+    if (!manifestLink.getAttribute('href')?.endsWith(manifestPath)) {
+      manifestLink.href = manifestPath
+      // An offer captured before the swap belongs to the app the document was
+      // served with. Replaying it here would install that app instead of this
+      // portal's, so it is dropped and the fresh offer is waited for.
+      if (!manifestPath.endsWith(`${siteWideManifestPortal()}.webmanifest`)) {
+        discardCapturedInstallPrompt()
+      }
+    }
+  }
 
   const iconSelectors = [
     'link[rel="icon"]',
@@ -272,16 +297,20 @@ export default function Home() {
     }
 
     if (portal === 'customer') {
-      applyBrowserBranding('AAB TRADING SHOP', '/aab-trading-shop.png')
+      applyBrowserBranding('AAB TRADING SHOP', '/aab-trading-shop.png', manifestPathForPortal('customer'))
       return
     }
 
     if (portal === 'driver') {
-      applyBrowserBranding('AAB TRADING DRIVER', '/aab-trading-driver.png')
+      applyBrowserBranding('AAB TRADING DRIVER', '/aab-trading-driver.png', manifestPathForPortal('driver'))
       return
     }
 
-    applyBrowserBranding(DEFAULT_BRAND_TITLE, DEFAULT_BRAND_ICON)
+    applyBrowserBranding(
+      DEFAULT_BRAND_TITLE,
+      DEFAULT_BRAND_ICON,
+      isManifestPortal(portal) ? manifestPathForPortal(portal) : undefined,
+    )
   }, [isMounted, portal, user])
 
   useEffect(() => {

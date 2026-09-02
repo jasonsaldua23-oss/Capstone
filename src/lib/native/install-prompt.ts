@@ -79,6 +79,19 @@ function ensureServiceWorker(): void {
   })
 }
 
+/**
+ * Throws away an offer captured under a different manifest.
+ *
+ * `beforeinstallprompt` fires during page load, against whichever manifest the
+ * document was served with. The portal shell then swaps that manifest for its own,
+ * so replaying the captured event would offer to install the wrong portal's app.
+ * Dropping it leaves the hook waiting for the fresh event the browser raises once
+ * it has re-read the new manifest.
+ */
+export function discardCapturedInstallPrompt(): void {
+  deferredPrompt = null
+}
+
 /** Clears the once-per-session marker. Called when a session ends. */
 export function resetInstallPromptForNewSession(): void {
   if (typeof window === 'undefined') return

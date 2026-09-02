@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Script from 'next/script'
 import { setTabAuthToken } from '@/lib/client-auth'
+import { isNativeApp } from '@/lib/native/platform'
 import { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } from '@/lib/password-policy'
 import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,6 +16,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { CheckCircle2, Eye, EyeOff, Leaf, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
+import { NativeGoogleButton } from '@/components/auth/native-google-button'
 
 const poppins = { className: '' }
 
@@ -58,6 +60,23 @@ export function CustomerLoginPage() {
   // the mobile app, so the form (and the Google button inside it) unmounts while it is up.
   const isOtpPageOpen = isOtpModalOpen || isLoginOtpOpen
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+  /**
+   * Google refuses to sign anyone in from inside an app's web view - the request
+   * comes back as `disallowed_useragent` - and Identity Services also needs FedCM
+   * and third-party cookies, which the Android web view does not provide. The web
+   * button is therefore never rendered in a shell; the shells sign in through the
+   * OS account picker instead, and both paths end at the same endpoint.
+   *
+   * Read through useSyncExternalStore rather than an effect: the runtime never
+   * changes during a session, and the server has to render the browser answer so
+   * hydration matches.
+   */
+  const isAppShell = useSyncExternalStore(
+    () => () => {},
+    () => isNativeApp(),
+    () => false,
+  )
+  const googleSignInAvailable = Boolean(googleClientId) && !isAppShell
 
   const persistCustomerWelcomeState = (mode: 'existing' | 'new', fallbackName?: string) => {
     if (typeof window === 'undefined') return
@@ -149,7 +168,7 @@ export function CustomerLoginPage() {
   }
 
   const renderGoogleButton = useCallback(() => {
-    if (!googleClientId) return
+    if (!googleSignInAvailable) return
     if (!window.google?.accounts?.id) return
 
     // Clean BOTH containers to avoid any orphan iframes
@@ -193,7 +212,7 @@ export function CustomerLoginPage() {
     } catch (err) {
       console.warn('Error rendering Google button:', err)
     }
-  }, [authMode, googleClientId])
+  }, [authMode, googleClientId, googleSignInAvailable])
 
   useEffect(() => {
     let cancelled = false
@@ -232,10 +251,10 @@ export function CustomerLoginPage() {
     return () => clearTimeout(timer)
     // isOtpPageOpen: returning from the verification page gives the form a new ref
     // container, and GIS only fills the node it was handed.
-  }, [authMode, googleClientId, renderGoogleButton, isOtpPageOpen])
+  }, [authMode, googleSignInAvailable, renderGoogleButton, isOtpPageOpen])
 
   useEffect(() => {
-    if (!googleClientId) return
+    if (!googleSignInAvailable) return
 
     let resizeTimer: ReturnType<typeof setTimeout> | undefined
     const handleResize = () => {
@@ -250,7 +269,7 @@ export function CustomerLoginPage() {
       if (resizeTimer) clearTimeout(resizeTimer)
       window.removeEventListener('resize', handleResize)
     }
-  }, [authMode, googleClientId, renderGoogleButton])
+  }, [authMode, googleSignInAvailable, renderGoogleButton])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -485,7 +504,7 @@ export function CustomerLoginPage() {
       className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#eaf1f2] bg-cover bg-center bg-no-repeat px-2 py-3 sm:min-h-screen sm:px-4 sm:py-8`}
       style={{ backgroundImage: "url('/customer-login-bg.png')" }}
     >
-      {googleClientId ? (
+      {googleSignInAvailable ? (
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
@@ -559,9 +578,17 @@ export function CustomerLoginPage() {
                     </div>
                   </div>
                 </div>
-                {googleClientId ? (
+                {googleSignInAvailable ? (
                   <div key="login-google-container" className="my-1.5 flex w-full justify-center">
                     <div ref={loginGoogleButtonRef} className="flex min-h-[44px] w-full max-w-[340px] items-center justify-center relative z-10" />
+                  </div>
+                ) : isAppShell ? (
+                  <div className="my-1.5 flex w-full justify-center">
+                    <NativeGoogleButton
+                      disabled={isLoading}
+                      onCredential={handleGoogleCredential}
+                      onError={(message) => toast.error(message)}
+                    />
                   </div>
                 ) : (
                   <p className="text-center text-xs text-slate-500 my-2">Google sign-in is not configured yet.</p>
@@ -708,9 +735,17 @@ export function CustomerLoginPage() {
                     </div>
                   </div>
                 </div>
-                {googleClientId ? (
+                {googleSignInAvailable ? (
                   <div key="register-google-container" className="my-1.5 flex w-full justify-center">
                     <div ref={registerGoogleButtonRef} className="flex min-h-[44px] w-full max-w-[340px] items-center justify-center relative z-10" />
+                  </div>
+                ) : isAppShell ? (
+                  <div className="my-1.5 flex w-full justify-center">
+                    <NativeGoogleButton
+                      disabled={isLoading}
+                      onCredential={handleGoogleCredential}
+                      onError={(message) => toast.error(message)}
+                    />
                   </div>
                 ) : (
                   <p className="text-center text-xs text-slate-500 my-2">Google sign-in is not configured yet.</p>
