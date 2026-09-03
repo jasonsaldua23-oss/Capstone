@@ -5,10 +5,12 @@ redeployed, which is what made product photos disappear from the inventory.
 """
 import json
 import tempfile
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 import requests
+from PIL import Image
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
 
@@ -72,6 +74,27 @@ class ProductImageUploadTests(TestCase):
         self.assertEqual(post.call_args.kwargs["data"], PNG_BYTES)
         self.assertIn("/storage/v1/object/uploads/products/", post.call_args.args[0])
         self.assertEqual(post.call_args.kwargs["headers"]["Content-Type"], "image/png")
+
+    @override_settings(**BUCKET_SETTINGS)
+    def test_real_product_images_are_resized_and_compressed_before_storage(self):
+        source = BytesIO()
+        Image.new("RGB", (2400, 1800), (24, 120, 210)).save(source, format="PNG")
+        upload = SimpleUploadedFile("large-product.png", source.getvalue(), content_type="image/png")
+        request = self.factory.post("/", data={"file": upload})
+
+        with patch("core.views_api._require_staff", return_value=(self.staff_auth, None)), patch(
+            "core.object_storage.requests.post"
+        ) as post:
+            post.return_value.ok = True
+            response = upload_product_image(request)
+
+        stored = post.call_args.kwargs["data"]
+        with Image.open(BytesIO(stored)) as optimized:
+            self.assertEqual(optimized.format, "WEBP")
+            self.assertLessEqual(max(optimized.size), 1600)
+        self.assertLessEqual(len(stored), 500 * 1024)
+        self.assertEqual(post.call_args.kwargs["headers"]["Content-Type"], "image/webp")
+        self.assertTrue(json.loads(response.content)["imageUrl"].endswith(".webp"))
 
     @override_settings(
         SUPABASE_URL="https://project.supabase.co",

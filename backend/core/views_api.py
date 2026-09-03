@@ -49,6 +49,7 @@ from .email_templates import (
 )
 from .driver_license import driver_vehicle_license_error, license_code_vehicle_error
 from . import object_storage
+from .image_compression import optimize_image_upload
 from .product_weights import resolve_product_weight
 from .auth import (
     REMEMBER_ME_EXP_HOURS,
@@ -11982,12 +11983,22 @@ def _store_upload(file_obj, folder: str, prefix: str, default_ext: str) -> str:
     so a checkout without storage credentials still works for development.
     """
     ext = (Path(file_obj.name).suffix or default_ext).lower()
+    content_type = str(file_obj.content_type or "") or None
+    data = file_obj.read()
+    # Added: every image upload is optimized server-side, including clients that skip compression.
+    if str(content_type or "").lower().startswith("image/"):
+        data, ext, content_type = optimize_image_upload(
+            data,
+            folder=folder,
+            original_extension=ext,
+            original_content_type=content_type,
+        )
     return _store_upload_bytes(
-        file_obj.read(),
+        data,
         folder,
         prefix,
         ext,
-        content_type=str(file_obj.content_type or "") or None,
+        content_type=content_type,
     )
 
 
@@ -12053,10 +12064,23 @@ def upload_pod_image(request: HttpRequest) -> JsonResponse:
         try:
             # Added: native captures are stamped server-side with the authenticated driver's name.
             stamped, extension = burn_pod_overlay(file_obj.read(), overlay, build_driver_full_name(driver))
+            # Keep the stamped proof within the POD profile without removing its readable overlay.
+            stamped, extension, stamped_content_type = optimize_image_upload(
+                stamped,
+                folder="pods",
+                original_extension=extension,
+                original_content_type="image/jpeg",
+            )
         except ValueError as exc:
             return _err(str(exc))
         try:
-            url = _store_upload_bytes(stamped, "pods", "pod", extension)
+            url = _store_upload_bytes(
+                stamped,
+                "pods",
+                "pod",
+                extension,
+                content_type=stamped_content_type,
+            )
         except object_storage.ObjectStorageError:
             logger.exception("Stamped POD upload to object storage failed")
             return _err("Could not store the proof of delivery right now. Please try again.", 502)
