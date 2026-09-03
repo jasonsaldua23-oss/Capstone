@@ -61,6 +61,26 @@ function popupHtml(location: DriverLocation) {
   const address = escapeHtml(location.popupAddress || location.markerLabel || `Vehicle: ${location.vehiclePlate}`);
   const status = escapeHtml(String(location.status || '').replace(/_/g, ' ').toLowerCase());
 
+  // Added: navigation truck popups mirror the assignment details shown on the tracking map.
+  if (location.markerType === 'truck') {
+    const driverName = escapeHtml(location.driverName || 'N/A');
+    const plateNumber = escapeHtml(location.vehiclePlate || 'N/A');
+    const assignedTripNumber = escapeHtml(location.assignedTripNumber || 'N/A');
+    const destinationCustomer = escapeHtml(location.destinationCustomer || 'N/A');
+    const markerLabel = location.markerLabel
+      ? `<p style="font-size:12px;color:#4b5563;margin:4px 0 0 0">${escapeHtml(location.markerLabel)}</p>`
+      : '';
+
+    return `<div style="font:13px/1.35 system-ui,sans-serif;min-width:220px;max-width:280px">
+      <strong style="display:block;font-size:14px;font-weight:700;color:#111827;margin-bottom:2px">Driver: ${driverName}</strong>
+      <p style="font-size:12px;color:#4b5563;margin:0">Plate Number: ${plateNumber}</p>
+      <p style="font-size:12px;color:#4b5563;margin:0">Assigned Trip #: ${assignedTripNumber}</p>
+      <p style="font-size:12px;color:#4b5563;margin:0">Destination Customer: ${destinationCustomer}</p>
+      ${markerLabel}
+      <p style="font-size:11px;color:#6b7280;margin:4px 0 0 0">Status: <span style="text-transform:capitalize;font-weight:600">${status}</span></p>
+    </div>`;
+  }
+
   let itemsHtml = '';
   if (Array.isArray(location.popupOrderItems) && location.popupOrderItems.length > 0) {
     const items = location.popupOrderItems.slice(0, 8).map(

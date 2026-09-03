@@ -717,7 +717,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
               </div>
 
               {/* Facility Details Row */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-5">
+              <div className="grid grid-cols-1 gap-4 pt-5 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg bg-slate-50/80 border border-slate-100 p-3">
                   <p className="text-xs font-medium text-slate-500">Assigned Staff</p>
                   <div className="flex items-center gap-1.5 mt-1">
@@ -819,7 +819,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
                         </PieChart>
                       </ChartContainer>
                     </div>
-                    <div className="grid grid-cols-3 gap-2.5 text-center">
+                    <div className="grid grid-cols-1 gap-2.5 text-center sm:grid-cols-3">
                       <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-2.5">
                         <p className="text-xs text-slate-500">Occupied</p>
                         <p className="text-base font-bold text-blue-600">{usagePercent}%</p>
@@ -997,7 +997,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
             <DialogTitle>Register Warehouse</DialogTitle>
             <DialogDescription>Create the warehouse profile required by the system.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -1086,7 +1086,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
             <DialogTitle>Edit Warehouse</DialogTitle>
             <DialogDescription>Update the registered warehouse details.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Warehouse Name</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />

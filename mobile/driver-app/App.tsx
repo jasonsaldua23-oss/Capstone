@@ -58,7 +58,7 @@ import { ApiError } from "./src/services/api";
 import { API_BASE_URL } from "./src/config/env";
 import { getTrackedTripId, startBackgroundTripTracking, stopBackgroundTripTracking } from "./src/services/background-location";
 import { clearOfflineQueue, queueOfflineOperation, readOfflineQueue, syncOfflineQueue, type OfflineQueueItem } from "./src/services/offline-queue";
-import { buildTripSearchText, getStartBlockedOrders, isUsableLocationSample, normalizeStatus } from "./src/lib/driver-logic";
+import { buildTripSearchText, getStartBlockedOrders, isTripScheduledToday, isUsableLocationSample, normalizeStatus } from "./src/lib/driver-logic";
 import DriverNavigationMap from "./src/components/DriverNavigationMap";
 import { ImagePreview } from "./src/components/ui/image-preview";
 import { DRIVER_LICENSE_RESTRICTIONS, OptionSelect } from "./src/components/ui/option-select";
@@ -748,6 +748,16 @@ export default function App() {
     const trip = trips.find((entry) => entry.id === tripId);
     if (!trip || normalizeStatus(trip.status) !== "PLANNED") {
       setError("Only a planned trip can be started.");
+      return;
+    }
+    const scheduledDate = trip.tripSchedule || trip.plannedStartAt;
+    // Added: prevent both online and queued offline starts on the wrong day.
+    if (!isTripScheduledToday(trip)) {
+      setError(
+        scheduledDate
+          ? `Trip can only be started on its scheduled date: ${formatDateOnly(scheduledDate)}`
+          : "Trip cannot be started because its scheduled date is not set.",
+      );
       return;
     }
     if (confirmedLoadTripId !== tripId) {

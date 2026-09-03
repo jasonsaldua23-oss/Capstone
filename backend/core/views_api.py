@@ -98,6 +98,7 @@ from .models import (
     TripDropPoint,
     TripStatus,
     User,
+    DriverStatus,
     Vehicle,
     VehicleStatus,
     Warehouse,
@@ -137,6 +138,7 @@ HIDDEN_SAMPLE_EMAIL_DOMAINS = ("@example.com", "@test.com", "@demo.com")
 PASSWORD_POLICY_ERROR = "Password must be at least 8 characters and include uppercase, lowercase, number, and special character, with no spaces."
 PHILIPPINE_PHONE_ERROR = "Please enter a valid Philippine mobile number"
 DRIVER_RESTRICTIONS = {"A", "A1", "B", "B1", "B2", "C", "D", "BE", "CE"}
+DRIVER_STATUSES = {choice for choice, _ in DriverStatus.choices}
 DISCOUNT_NO = "NO_DISCOUNT"
 DISCOUNT_OTHER = "OTHER"
 DISCOUNT_ACTIVE = "ACTIVE"
@@ -478,6 +480,12 @@ def _normalize_philippine_phone(value: Any) -> str | None:
 PHILIPPINE_DRIVER_LICENSE_REGEX = re.compile(r"^[A-Z]\d{2}-\d{2}-\d{6}$")
 
 
+def _normalize_driver_status(value: Any) -> str:
+    """Normalize UI labels such as OnLeave to the persisted status value."""
+    normalized = str(value or "").strip().upper().replace(" ", "_")
+    return "ON_LEAVE" if normalized == "ONLEAVE" else normalized
+
+
 def _validate_philippine_driver_license(value: Any) -> tuple[str | None, str | None]:
     """Validate Philippine LTO driver's license format (e.g. D09-22-000984, X00-00-000000)."""
     raw = str(value or "").strip().upper()
@@ -500,6 +508,11 @@ def _driver_assignment_blocker(driver: User) -> str | None:
         return "Driver not found"
     if getattr(driver, "is_active", True) is False:
         return "Driver account is inactive"
+    driver_status = _normalize_driver_status(getattr(driver, "driver_status", DriverStatus.ACTIVE))
+    if driver_status == DriverStatus.ON_LEAVE:
+        return "Driver is on leave"
+    if driver_status == DriverStatus.INACTIVE:
+        return "Driver status is inactive"
     phone = str(getattr(driver, "phone", "") or "").strip()
     license_number = str(getattr(driver, "license_number", "") or "").strip().upper()
     license_type = str(getattr(driver, "license_type", "") or "").strip().upper()
@@ -1592,22 +1605,28 @@ def _normalize_replacement_mode(value: Any) -> str:
     return raw
 
 
-def _is_linked_replacement_order_delivered(entry: Replacement) -> bool:
+def _is_linked_replacement_order_delivered(entry: Replacement, *, order_cache: dict[str, Any] | None = None) -> bool:
     meta = _extract_replacement_meta(getattr(entry, "notes", ""))
     replacement_order_id = str(meta.get("replacementOrderId") or "").strip()
     replacement_order_number = str(meta.get("replacementOrderNumber") or "").strip()
     replacement_order = None
     if replacement_order_id:
-        replacement_order = Order.objects.filter(id=replacement_order_id).only("status", "order_number").first()
+        if order_cache is not None and replacement_order_id in order_cache:
+            replacement_order = order_cache.get(replacement_order_id)
+        else:
+            replacement_order = Order.objects.filter(id=replacement_order_id).only("status", "order_number").first()
     elif replacement_order_number:
-        replacement_order = Order.objects.filter(order_number=replacement_order_number).only("status", "order_number").first()
+        if order_cache is not None and replacement_order_number in order_cache:
+            replacement_order = order_cache.get(replacement_order_number)
+        else:
+            replacement_order = Order.objects.filter(order_number=replacement_order_number).only("status", "order_number").first()
     if not replacement_order:
         return False
     return _normalize_order_status(getattr(replacement_order, "status", None)) == OrderStatus.DELIVERED
 
 
-def _is_replacement_closed(entry: Replacement) -> bool:
-    if _is_linked_replacement_order_delivered(entry):
+def _is_replacement_closed(entry: Replacement, *, order_cache: dict[str, Any] | None = None) -> bool:
+    if _is_linked_replacement_order_delivered(entry, order_cache=order_cache):
         return True
     normalized = _normalize_replacement_status(entry.status, entry.replacement_mode)
     return normalized in {
@@ -1615,6 +1634,7 @@ def _is_replacement_closed(entry: Replacement) -> bool:
         ReplacementStatus.RESOLVED_ON_DELIVERY,
         ReplacementStatus.COMPLETED,
     }
+
 
 
 def _serialize_value(value: Any) -> Any:
@@ -2754,7 +2774,12 @@ def _assign_order_items_to_trip_for_warehouse(
     return rows_created
 
 
-def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
+def _serialize_replacement(
+    entry: Replacement,
+    *,
+    warehouse_cache: dict[str, Any] | None = None,
+    order_cache: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     data = _serialize_model(entry)
     meta = _extract_replacement_meta(getattr(entry, "notes", ""))
     data["customerNotes"] = str(meta.get("customerNotes") or "").strip() or None
@@ -2765,7 +2790,12 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         if trip_id:
             source_trip = Trip.objects.filter(id=trip_id).only("warehouse_id").first()
             warehouse_id = str(getattr(source_trip, "warehouse_id", "") or "").strip() or None
-    warehouse = Warehouse.objects.filter(id=warehouse_id).first() if warehouse_id else None
+    warehouse = None
+    if warehouse_id:
+        if warehouse_cache is not None and str(warehouse_id) in warehouse_cache:
+            warehouse = warehouse_cache.get(str(warehouse_id))
+        else:
+            warehouse = Warehouse.objects.filter(id=warehouse_id).first()
     order_customer = getattr(order, "customer", None)
     customer = order_customer
     if not customer and entry.customer_id:
@@ -2815,9 +2845,16 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
 
     linked_replacement_order = None
     if linked_replacement_order_id:
-        linked_replacement_order = Order.objects.filter(id=linked_replacement_order_id).first()
+        if order_cache is not None and str(linked_replacement_order_id) in order_cache:
+            linked_replacement_order = order_cache.get(str(linked_replacement_order_id))
+        else:
+            linked_replacement_order = Order.objects.filter(id=linked_replacement_order_id).first()
     elif linked_replacement_order_number:
-        linked_replacement_order = Order.objects.filter(order_number=linked_replacement_order_number).first()
+        if order_cache is not None and str(linked_replacement_order_number) in order_cache:
+            linked_replacement_order = order_cache.get(str(linked_replacement_order_number))
+        else:
+            linked_replacement_order = Order.objects.filter(order_number=linked_replacement_order_number).first()
+
 
     replacement_drop_point = None
     if linked_replacement_order:
@@ -2850,7 +2887,7 @@ def _serialize_replacement(entry: Replacement) -> dict[str, Any]:
         "submittedAt": replacement_pod_submitted_at.isoformat() if replacement_pod_submitted_at else None,
     }
     normalized_status = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
-    delivered_linked_replacement_order = _is_linked_replacement_order_delivered(entry)
+    delivered_linked_replacement_order = _is_linked_replacement_order_delivered(entry, order_cache=order_cache)
     if delivered_linked_replacement_order:
         normalized_status = ReplacementStatus.COMPLETED
         # Once linked replacement order is delivered, this replacement must no longer
@@ -3218,7 +3255,11 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     ],
                     "replacements": [
                         {
-                            **_serialize_replacement(entry),
+                            **_serialize_replacement(
+                                entry,
+                                warehouse_cache=warehouse_cache,
+                                order_cache=ctx.get("order_cache"),
+                            ),
                             "remainingQuantity": max(
                                 _int(
                                     next((item.quantity for item in order_items if item.id == entry.original_order_item_id), 0),
@@ -3227,7 +3268,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                                 - _int(entry.replacement_quantity, 0),
                                 0,
                             ),
-                            "isClosed": _is_replacement_closed(entry),
+                            "isClosed": _is_replacement_closed(entry, order_cache=ctx.get("order_cache")),
                         }
                         for entry in order_returns
                         if not dp.order_id
@@ -8362,6 +8403,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         data = []
         for driver in rows:
             row = _serialize_model(driver, exclude={"password"})
+            row["status"] = driver.driver_status
             row["phone"] = driver.phone
             row["totalDeliveries"] = int(getattr(driver, "completed_delivery_count", 0) or 0)
             row["user"] = _serialize_model(driver, exclude={"password"})
@@ -8399,6 +8441,10 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         else:
             user.license_expiry = timezone.now() + timedelta(days=365)
         user.emergency_contact = body.get("emergencyContact")
+        driver_status = _normalize_driver_status(body.get("status") or DriverStatus.ACTIVE)
+        if driver_status not in DRIVER_STATUSES:
+            return _err("Status must be Active, OnLeave, or Inactive", 400)
+        user.driver_status = driver_status
         user.is_active = bool(body.get("isActive", True))
         user.save()
         actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
@@ -8410,6 +8456,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             reference_id=user.id,
         )
         driver_payload = _serialize_model(user, exclude={"password"})
+        driver_payload["status"] = user.driver_status
         driver_payload["user"] = _serialize_model(user, exclude={"password"})
         return _ok({"success": True, "driver": driver_payload}, 201)
     driver_id = str(body.get("id", "")).strip()
@@ -8455,6 +8502,11 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         d.phone = normalized_phone
     if "isActive" in body:
         d.is_active = bool(body.get("isActive"))
+    if "status" in body:
+        driver_status = _normalize_driver_status(body.get("status"))
+        if driver_status not in DRIVER_STATUSES:
+            return _err("Status must be Active, OnLeave, or Inactive", 400)
+        d.driver_status = driver_status
     if "licenseType" in body and "vehicleId" not in body:
         # Downgrading the code must not leave the driver holding a vehicle they are
         # no longer qualified for; the vehicle has to be released first.
@@ -8471,12 +8523,16 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             vehicle = Vehicle.objects.filter(id=vehicle_id).first()
             if not vehicle:
                 return _err("Vehicle not found", 404)
-            blocker = _driver_assignment_blocker(d)
-            if blocker:
-                return _err(f"Driver cannot be assigned: {blocker}", 400)
-            license_error = driver_vehicle_license_error(d, vehicle)
-            if license_error:
-                return _err(license_error, 400)
+            # A status-only edit may retain the driver's current vehicle; eligibility
+            # is enforced only when assigning a different vehicle.
+            is_current_assignment = str(vehicle.driver_id or "") == str(d.id)
+            if not is_current_assignment:
+                blocker = _driver_assignment_blocker(d)
+                if blocker:
+                    return _err(f"Driver cannot be assigned: {blocker}", 400)
+                license_error = driver_vehicle_license_error(d, vehicle)
+                if license_error:
+                    return _err(license_error, 400)
             existing_veh = Vehicle.objects.filter(driver=d).exclude(id=vehicle.id).first()
             if existing_veh:
                 return _err(f"Driver is already assigned to vehicle {existing_veh.license_plate}.", 400)
@@ -8488,6 +8544,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             _assign_vehicle_to_driver(d, None)
     d.save()
     driver_payload = _serialize_model(d, exclude={"password"})
+    driver_payload["status"] = d.driver_status
     driver_payload["user"] = _serialize_model(d, exclude={"password"})
     return _ok({"success": True, "driver": driver_payload})
 
@@ -9571,9 +9628,30 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                         all_product_ids.add(str(item.product_id))
 
         order_returns_map: dict[str, list[Replacement]] = {}
+        linked_rep_order_ids: set[str] = set()
+        linked_rep_order_numbers: set[str] = set()
         if all_order_ids:
-            for replacement in Replacement.objects.filter(order_id__in=all_order_ids):
+            for replacement in Replacement.objects.select_related("order", "order__customer").filter(order_id__in=all_order_ids):
                 order_returns_map.setdefault(str(replacement.order_id), []).append(replacement)
+                meta = _extract_replacement_meta(getattr(replacement, "notes", ""))
+                r_id = str(meta.get("replacementOrderId") or "").strip()
+                r_num = str(meta.get("replacementOrderNumber") or "").strip()
+                if r_id:
+                    linked_rep_order_ids.add(r_id)
+                if r_num:
+                    linked_rep_order_numbers.add(r_num)
+
+        replacement_order_cache: dict[str, Any] = {}
+        if linked_rep_order_ids or linked_rep_order_numbers:
+            q_filter = Q()
+            if linked_rep_order_ids:
+                q_filter |= Q(id__in=linked_rep_order_ids)
+            if linked_rep_order_numbers:
+                q_filter |= Q(order_number__in=linked_rep_order_numbers)
+            for o in Order.objects.filter(q_filter):
+                replacement_order_cache[str(o.id)] = o
+                if o.order_number:
+                    replacement_order_cache[str(o.order_number)] = o
 
         serialization_context = {
             "allocations_map": _build_order_item_warehouse_allocations_map(list(all_order_ids)) if all_order_ids else {},
@@ -9588,6 +9666,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 for packaging in ProductPackaging.objects.filter(product_id__in=all_product_ids, is_active=True)
             } if all_product_ids else {},
             "order_returns_map": order_returns_map,
+            "order_cache": replacement_order_cache,
         }
         serialized_rows = [_serialize_trip(trip, ctx=serialization_context) for trip in rows]
 
@@ -11141,8 +11220,10 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     if lat is None or lng is None or not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
         return _err("Invalid coordinates")
     accuracy = _to_float_or_none(body.get("accuracy"))
-    if accuracy is not None and accuracy < 0:
-        accuracy = None
+    # Fix: reject weak network/cell estimates before they can replace the
+    # driver's last reliable GPS fix used by live tracking.
+    if accuracy is not None and (accuracy < 0 or accuracy > 100):
+        return _err("Location accuracy is too low for live tracking", 400)
     heading = _to_float_or_none(body.get("heading"))
     altitude = _to_float_or_none(body.get("altitude"))
     raw_speed = _to_float_or_none(body.get("speed"))
@@ -11585,13 +11666,31 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     p, err = _require_staff(request)
     if err:
         return err
-    t = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").filter(id=trip_id).first()
+    t = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order__timeline").filter(id=trip_id).first()
     if not t:
         return _err("Trip not found", 404)
     if p.get("role") == "DRIVER" and p.get("userId") != t.driver_id:
         return _err("Forbidden", 403)
     if str(t.status or "").strip().upper() != TripStatus.PLANNED:
         return _err("Only planned trips can be started", 409)
+
+    # Added: enforce the same schedule shown to the driver. Order delivery dates
+    # define tripSchedule; planned_start_at remains the fallback for older trips.
+    scheduled_values = [
+        point.order.timeline.delivery_date
+        for point in t.drop_points.all()
+        if point.order_id
+        and getattr(point, "order", None)
+        and getattr(point.order, "timeline", None)
+        and point.order.timeline.delivery_date
+    ]
+    scheduled_at = min(scheduled_values) if scheduled_values else t.planned_start_at
+    if not scheduled_at:
+        return _err("Trip cannot be started because its scheduled date is not set", 409)
+    scheduled_date = timezone.localdate(scheduled_at) if timezone.is_aware(scheduled_at) else scheduled_at.date()
+    if scheduled_date != timezone.localdate():
+        return _err(f"Trip can only be started on its scheduled date: {scheduled_date.isoformat()}", 409)
+
     body = _json_body(request)
     # Added: the server requires the driver's explicit physical-load
     # confirmation, so calling the endpoint directly cannot bypass the check.

@@ -2799,7 +2799,7 @@ export function ReportsView() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain">
                   <table className="w-full min-w-[980px] text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
@@ -2893,7 +2893,7 @@ export function ReportsView() {
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Drivers</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Registered drivers</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Active Drivers</CardDescription><CardTitle className="text-[30px] leading-none text-emerald-600">{driverPerformanceKpi.active}</CardTitle><p className="text-[11px] text-emerald-600">Currently active</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Avg Rating</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.avgRating}</CardTitle><p className="text-[11px] text-slate-400">Out of 5.0</p></CardHeader></Card>
@@ -2978,8 +2978,8 @@ export function ReportsView() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                  <table className="w-full min-w-[760px] text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="p-3 text-left">Driver Name</th>
@@ -3036,7 +3036,7 @@ export function ReportsView() {
                 showWarehouse: true,
               })}
 
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-5">
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">Products currently tracked</p></CardHeader></Card>
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">At or below reorder threshold</p></CardHeader></Card>
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-slate-400">Units currently available</p></CardHeader></Card>
@@ -3044,7 +3044,7 @@ export function ReportsView() {
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-slate-400">Units issued in selected period</p></CardHeader></Card>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Card className={chartCardClassName}>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg">Warehouse Capacity vs Used</CardTitle>
@@ -3202,8 +3202,8 @@ export function ReportsView() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[760px] text-sm">
                       <thead className="border-b bg-gray-50">
                         <tr>
                           <th className="p-3 text-left">Date</th>
@@ -3228,7 +3228,7 @@ export function ReportsView() {
                 </CardContent>
               </Card>
 
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
@@ -3242,8 +3242,8 @@ export function ReportsView() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[760px] text-sm">
                       <thead className="border-b bg-gray-50">
                         <tr>
                           <th className="p-3 text-left">Product</th>
@@ -3279,7 +3279,7 @@ export function ReportsView() {
                 </CardContent>
               </Card>
 
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Tracked Batches</CardDescription><CardTitle className="text-[30px] leading-none">{stockExpiryKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Inventory batches with expiry dates</p></CardHeader></Card>
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical (&lt;30 days)</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{stockExpiryKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Immediate action needed</p></CardHeader></Card>
                 <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Expired</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{stockExpiryKpi.expired}</CardTitle><p className="text-[11px] text-red-700">Write-off required</p></CardHeader></Card>
@@ -3294,8 +3294,8 @@ export function ReportsView() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[760px] text-sm">
                       <thead className="border-b bg-gray-50">
                         <tr>
                           <th className="p-3 text-left">Batch #</th>
@@ -3345,7 +3345,7 @@ export function ReportsView() {
               onStatusChange: setSelectedMovementType,
               showWarehouse: true,
             })}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-5">
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">Products currently tracked</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">At or below reorder threshold</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-slate-400">Units currently available</p></CardHeader></Card>
@@ -3353,7 +3353,7 @@ export function ReportsView() {
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-slate-400">Units issued in selected period</p></CardHeader></Card>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Card className={chartCardClassName}>
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-3">
@@ -3418,8 +3418,8 @@ export function ReportsView() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                  <table className="w-full min-w-[760px] text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="p-3 text-left">Date</th>
@@ -3444,7 +3444,7 @@ export function ReportsView() {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mt-4">
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
               <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
@@ -3458,8 +3458,8 @@ export function ReportsView() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                  <table className="w-full min-w-[760px] text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="p-3 text-left">Product</th>
@@ -3551,8 +3551,8 @@ export function ReportsView() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                  <table className="w-full min-w-[760px] text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="p-3 text-left">Replacement #</th>
@@ -3656,8 +3656,8 @@ export function ReportsView() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                  <table className="w-full min-w-[760px] text-sm">
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="p-3 text-left">Date</th>

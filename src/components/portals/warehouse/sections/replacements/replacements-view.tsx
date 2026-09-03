@@ -493,7 +493,7 @@ export function WarehouseReplacementsView({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Replacements</h1>
           <p className="text-gray-500">Reverse logistics monitoring for replacement cases, evidence, and resolution status</p>
@@ -588,8 +588,8 @@ export function WarehouseReplacementsView({
               <p className="text-gray-500">No scheduled replacements found</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[980px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
@@ -645,8 +645,8 @@ export function WarehouseReplacementsView({
               <p className="text-gray-500">No customer replacement requests found</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[1120px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
@@ -845,8 +845,8 @@ export function WarehouseReplacementsView({
                   <div className="border-b px-3 py-2">
                     <p className="text-xs font-medium text-slate-500">Replacement Items</p>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[720px] text-sm">
                       <thead className="bg-slate-50 text-xs text-slate-500">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Original Product</th>

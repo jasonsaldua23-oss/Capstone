@@ -152,7 +152,7 @@ export function WarehouseEmptyBottlesView({ warehouseId }: WarehouseEmptyBottles
                 Customer checkout reservations and delivered-order history are not shown here.
               </CardDescription>
             </div>
-            <div className="relative min-w-[260px]">
+            <div className="relative w-full sm:w-auto sm:min-w-[260px]">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
               <Input
                 placeholder="Search product, SKU, warehouse..."
@@ -181,8 +181,8 @@ export function WarehouseEmptyBottlesView({ warehouseId }: WarehouseEmptyBottles
               <p className="text-xs text-slate-500">Delivered empties appear here only while a physical balance remains.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wider text-slate-600">
                   <tr>
                     <th className="px-4 py-3">SKU</th>

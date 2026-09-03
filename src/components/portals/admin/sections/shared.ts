@@ -301,7 +301,11 @@ export async function safeFetchJson(
   let attempt = 0
   while (attempt <= retries) {
     const controller = new AbortController()
-    const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+    let timedOut = false
+    const timer = window.setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
 
     try {
       const token = getTabAuthToken()
@@ -326,7 +330,24 @@ export async function safeFetchJson(
       let data: any = {}
       if (text) {
         if (isJsonResponse) {
-          data = JSON.parse(text)
+          try {
+            data = JSON.parse(text)
+          } catch {
+            // A cut-off response (proxy/gateway closing a slow connection mid-body)
+            // parses as a SyntaxError, not a network error, so it lands here instead
+            // of the catch block below. Treat it like a timeout: retry, and once
+            // exhausted, fail quietly instead of surfacing the raw parser message.
+            if (attempt < retries) {
+              attempt += 1
+              await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt))
+              continue
+            }
+            return {
+              ok: false,
+              status: response.status,
+              data: { error: 'Response was incomplete or malformed', aborted: true, malformed: true },
+            }
+          }
         } else if (looksLikeHtml) {
           data = {
             error: response.status === 401 || response.status === 403
@@ -360,7 +381,13 @@ export async function safeFetchJson(
       // AbortError means the request was intentionally cancelled (timeout, unmount, navigation).
       // Return immediately without retrying or triggering console.error overlays.
       if (error instanceof DOMException && error.name === 'AbortError') {
-        return { ok: false, status: 0, data: { error: 'Request aborted' } }
+        // `aborted` lets callers keep cached data quietly; only the message differs
+        // between a slow endpoint (timer fired) and a cancelled request.
+        return {
+          ok: false,
+          status: 0,
+          data: { error: timedOut ? 'Request timed out' : 'Request aborted', aborted: true, timedOut },
+        }
       }
       if (attempt === retries) {
         const message = error instanceof Error ? error.message : 'Request failed'

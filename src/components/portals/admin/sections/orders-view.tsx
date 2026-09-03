@@ -278,12 +278,14 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
           '/api/orders?includeItems=full&includeFulfillments=true&includeWarehouseAllocations=true',
           'orders',
           { cache: 'no-store' },
-          { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
+          // Measured ~5s of server work per page for this payload, so 15s aborted
+          // whenever the admin page was also loading its other sections.
+          { retries: 3, timeoutMs: 45000, pageSize: 100, maxPages: 100 }
         )
 
         if (!result.ok) {
           // Fallback: try a simpler single-page request before failing.
-          const fallback = await safeFetchJson('/api/orders?page=1&pageSize=200&includeFulfillments=true&includeWarehouseAllocations=true', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+          const fallback = await safeFetchJson('/api/orders?page=1&pageSize=100&includeFulfillments=true&includeWarehouseAllocations=true', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 })
           if (fallback.ok && isMounted) {
             const fallbackOrders = getCollection<any>(fallback.data, ['orders'])
             if (fallbackOrders.length > 0) {
@@ -300,7 +302,12 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
           }
           // Keep current/cached orders visible instead of clearing table.
           if (!silent) {
-            console.error('Failed to fetch orders:', result.data?.error || 'Request failed')
+            const message = String(result.data?.error || 'Request failed')
+            if (result.data?.aborted) {
+              console.warn(`Orders refresh interrupted (${message}); showing cached orders.`)
+            } else {
+              console.error('Failed to fetch orders:', message)
+            }
           }
           return
         }
@@ -349,7 +356,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
           pageSize: '200',
           updatedAfter,
         })
-        const deltaResult = await safeFetchJson(`/api/orders?${params.toString()}`, { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
+        const deltaResult = await safeFetchJson(`/api/orders?${params.toString()}`, { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 })
         if (!deltaResult.ok) {
           isFetchingOrders = false
           await fetchOrdersFull(silent)
@@ -965,7 +972,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                   <p className="mt-1 text-sm text-slate-500">New customer purchase requests will appear here once submitted.</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-slate-200">
                   <table className="min-w-[1060px] w-full">
                     <thead className="bg-slate-50 text-left text-sm text-slate-600">
                       <tr>
@@ -1220,7 +1227,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                   <p className="text-gray-500">No orders match the selected filters</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain">
                   <table className="min-w-[1100px] w-full">
                     <thead className="bg-gray-50 border-b">
                       <tr>
@@ -1251,16 +1258,32 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                             </div>
                           </td>
                           <td className="p-4 text-gray-600">
-                            {transactionIds.length > 0
-                              ? transactionIds.map((id: unknown) => {
-                                  const fullId = String(id)
-                                  return (
-                                    <p key={fullId} title={fullId} className="whitespace-nowrap font-mono text-xs">
-                                      {formatTransactionId(fullId)}
-                                    </p>
-                                  )
-                                })
-                              : '----'}
+                            {/* Align each item's transaction number with its corresponding product row. */}
+                            <div className="space-y-1">
+                              {orderItems.length > 0
+                                ? orderItems.map((item: any, index: number) => {
+                                    const itemTransactionIds = Array.isArray(item?.inventoryTransactionIds)
+                                      ? item.inventoryTransactionIds.filter((id: unknown) => String(id || '').trim())
+                                      : orderItems.length === 1
+                                        ? transactionIds
+                                        : []
+                                    return (
+                                      <div key={`${order.id}-transaction-${item?.id || index}`} className="min-h-12">
+                                        {itemTransactionIds.length > 0
+                                          ? itemTransactionIds.map((id: unknown) => {
+                                              const fullId = String(id)
+                                              return (
+                                                <p key={fullId} title={fullId} className="whitespace-nowrap font-mono text-xs">
+                                                  {formatTransactionId(fullId)}
+                                                </p>
+                                              )
+                                            })
+                                          : '----'}
+                                      </div>
+                                    )
+                                  })
+                                : '----'}
+                            </div>
                           </td>
                           <td className="p-4">
                             <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>

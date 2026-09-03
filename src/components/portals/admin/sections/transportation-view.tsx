@@ -77,6 +77,18 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+const normalizeDriverStatus = (value: unknown, isActive = true) => {
+  const normalized = String(value || '').trim().toUpperCase().replace(/\s+/g, '_')
+  if (normalized === 'ONLEAVE') return 'ON_LEAVE'
+  if (['ACTIVE', 'ON_LEAVE', 'INACTIVE'].includes(normalized)) return normalized
+  return isActive === false ? 'INACTIVE' : 'ACTIVE'
+}
+
+const formatDriverStatus = (value: unknown, isActive = true) => {
+  const status = normalizeDriverStatus(value, isActive)
+  return status === 'ON_LEAVE' ? 'On Leave' : status === 'INACTIVE' ? 'Inactive' : 'Active'
+}
+
 export function TransportationView({ notificationReferenceType = '', notificationReferenceId = '', notificationFocusKey }: { notificationReferenceType?: string; notificationReferenceId?: string; notificationFocusKey?: number } = {}) {
   const [activeTab, setActiveTab] = useState<'vehicles' | 'trips' | 'drivers'>('vehicles')
   const [vehicles, setVehicles] = useState<any[]>([])
@@ -85,6 +97,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   const [tripsPage, setTripsPage] = useState(1)
   const tripsPageSize = 10
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshingTrips, setIsRefreshingTrips] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   
   const [addVehicleOpen, setAddVehicleOpen] = useState(false)
@@ -122,7 +135,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     licenseType: '',
     licenseExpiry: '',
     vehicleId: '',
-    status: 'Active',
+    status: 'ACTIVE',
     isActive: true,
   })
 
@@ -130,9 +143,9 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     setIsLoading(true)
     try {
       const [vehiclesRes, driversRes, tripsRes] = await Promise.all([
-        safeFetchJson('/api/vehicles?page=1&pageSize=100', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
-        safeFetchJson('/api/drivers?page=1&pageSize=100&includeSample=true', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
-        safeFetchJson('/api/trips?page=1&pageSize=100', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+        safeFetchJson('/api/vehicles?page=1&pageSize=100', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
+        safeFetchJson('/api/drivers?page=1&pageSize=100&includeSample=true', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
+        safeFetchJson('/api/trips?page=1&pageSize=100', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 }),
       ])
 
       setVehicles(vehiclesRes.ok ? getCollection<any>(vehiclesRes.data, ['vehicles']) : [])
@@ -146,20 +159,28 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   }
 
   const refreshTrips = async () => {
-    const tripsRes = await safeFetchJson(
-      '/api/trips?page=1&pageSize=100',
-      { cache: 'no-store' },
-      { retries: 3, timeoutMs: 15000 }
-    )
+    setIsRefreshingTrips(true)
+    try {
+      const tripsRes = await safeFetchJson(
+        '/api/trips?page=1&pageSize=100',
+        { cache: 'no-store' },
+        { retries: 2, timeoutMs: 30000 }
+      )
 
-    if (tripsRes.ok) {
-      // Fix: opening the Trips tab must use a fresh server response instead of
-      // keeping an empty or stale result from the section's initial load.
-      setTrips(getCollection<any>(tripsRes.data, ['trips']))
-      return
+      if (tripsRes.ok) {
+        setTrips(getCollection<any>(tripsRes.data, ['trips']))
+        return
+      }
+
+      if (tripsRes.data?.aborted) {
+        // Silently ignore aborted requests from tab switching or component lifecycle
+        return
+      }
+
+      toast.error(String(tripsRes.data?.error || 'Failed to load trips. Please try again.'))
+    } finally {
+      setIsRefreshingTrips(false)
     }
-
-    toast.error(String(tripsRes.data?.error || 'Failed to load trips. Please try again.'))
   }
 
   useEffect(() => {
@@ -478,6 +499,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
           phone: phoneNumber,
           licenseExpiry: driverForm.licenseExpiry || null,
           vehicleId: driverForm.vehicleId || null,
+          status: driverForm.status,
           isActive: driverForm.isActive,
         }),
       })
@@ -541,7 +563,11 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       const response = await fetch('/api/drivers', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: driverPendingStatusChange.id, isActive: nextIsActive }),
+        body: JSON.stringify({
+          id: driverPendingStatusChange.id,
+          isActive: nextIsActive,
+          status: nextIsActive ? 'ACTIVE' : 'INACTIVE',
+        }),
       })
       const payload = await response.json().catch(() => ({}))
       // Fix: a failed response used to leave the dialog open with no explanation.
@@ -572,7 +598,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       licenseType: '',
       licenseExpiry: '',
       vehicleId: '',
-      status: 'Active',
+      status: 'ACTIVE',
       isActive: true,
     })
     setSelectedDriver(null)
@@ -606,7 +632,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       licenseType: driver.licenseType || driver.license_type || '',
       licenseExpiry,
       vehicleId: driver?.vehicles?.[0]?.vehicle?.id || '',
-      status: driver.isActive ? 'Active' : 'Inactive',
+      status: normalizeDriverStatus(driver.status || driver.driverStatus, driver.isActive !== false),
       isActive: driver.isActive !== false,
     })
     setAddDriverOpen(true)
@@ -616,7 +642,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
 
   const TransportationSkeleton = () => (
     <div className="space-y-6 animate-pulse">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
           <div className="h-8 w-72 rounded-xl bg-slate-200/80" />
           <div className="h-4 w-56 rounded-lg bg-slate-200/70" />
@@ -624,7 +650,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         <div className="h-10 w-32 rounded-xl bg-sky-200/70" />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <Card key={`transport-skeleton-stat-${index}`}>
             <CardContent className="pt-5">
@@ -641,7 +667,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       </div>
 
       <div className="rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {Array.from({ length: 3 }).map((_, index) => (
             <div key={`transport-skeleton-tab-${index}`} className="h-11 rounded-xl bg-slate-200/80" />
           ))}
@@ -690,7 +716,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         </div>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-3">
@@ -997,8 +1023,8 @@ export function TransportationView({ notificationReferenceType = '', notificatio
               </CardContent>
             </Card>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-              <table className="w-full text-left text-sm">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 bg-white shadow-sm">
+              <table className="w-full min-w-[1100px] text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 uppercase tracking-wider">
                   <tr>
                     <th className="px-4 py-3.5">License Plate</th>
@@ -1094,7 +1120,23 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         </TabsContent>
 
         <TabsContent value="trips" className="space-y-4 mt-4">
-          {trips.length === 0 ? (
+          {isRefreshingTrips && trips.length === 0 ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Card key={`trips-skeleton-${index}`} className="animate-pulse">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-2">
+                        <div className="h-5 w-48 rounded bg-slate-200" />
+                        <div className="h-4 w-72 rounded bg-slate-100" />
+                      </div>
+                      <div className="h-8 w-24 rounded bg-slate-200" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : trips.length === 0 ? (
             <Card>
               <CardContent className="pt-6 text-sm text-gray-500">No active trips found.</CardContent>
             </Card>
@@ -1131,8 +1173,10 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                 const driverName = trip?.driver?.name || trip?.driver?.user?.name || 'Unassigned'
                 const vehicleName = trip?.vehicle?.licensePlate || 'Unassigned'
                 const origin = trip?.origin || trip?.warehouse?.city || 'Warehouse'
-                const destination = trip?.destination || trip?.destinationCity || 'Destination'
                 const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
+                const finalDropPoint = points[points.length - 1]
+                // Fix: the API stores the real destination on the trip's drop point.
+                const destination = finalDropPoint?.locationName || finalDropPoint?.address || trip?.destination || trip?.destinationCity || 'Destination'
                 const legCount = points.reduce((sum: number, point: any) => {
                   if (!point?.order) return sum
                   return sum + deriveOrderFulfillmentSummary(point.order).legs.length
@@ -1225,7 +1269,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                       <p className="text-sm text-slate-500">{driverForm.phoneNumber || 'No phone number'}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">First Name</label>
                       <Input placeholder="First Name" value={driverForm.firstName} onChange={(e) => setDriverForm({...driverForm, firstName: e.target.value})} />
@@ -1281,16 +1325,12 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                       <label className="text-sm font-medium text-gray-700">Driver's License Expiration Date</label>
                       <Input type="date" min={new Date().toISOString().slice(0, 10)} placeholder="License Expiry" value={driverForm.licenseExpiry} onChange={(e) => setDriverForm({...driverForm, licenseExpiry: e.target.value})} />
                     </div>
-                    <div className="col-span-2 space-y-1">
-                      <label className="text-sm font-medium text-gray-700">Driver's License Image</label>
-                      <p className="text-xs text-slate-400">Image uploads have been disabled. You can still edit license number, restriction, and expiry.</p>
-                    </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Status</label>
                       <select value={driverForm.status} onChange={(e) => setDriverForm({...driverForm, status: e.target.value})} title="Status" className="w-full px-3 py-2 border rounded-md">
-                        <option>Active</option>
-                        <option>OnLeave</option>
-                        <option>Inactive</option>
+                        <option value="ACTIVE">Active</option>
+                        <option value="ON_LEAVE">OnLeave</option>
+                        <option value="INACTIVE">Inactive</option>
                       </select>
                     </div>
                     <div className="space-y-1 col-span-2">
@@ -1368,8 +1408,8 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <Badge variant="outline">License: {driver.licenseNumber || 'N/A'}</Badge>
                             <Badge variant="outline">Restriction: {driver.licenseType || driver.license_type || 'N/A'}</Badge>
-                            <Badge variant={driver.isActive ? 'default' : 'secondary'}>
-                              {driver.isActive ? 'Active' : 'Inactive'}
+                            <Badge variant={normalizeDriverStatus(driver.status || driver.driverStatus, driver.isActive !== false) === 'ACTIVE' ? 'default' : 'secondary'}>
+                              {formatDriverStatus(driver.status || driver.driverStatus, driver.isActive !== false)}
                             </Badge>
                           </div>
                         </div>
@@ -1417,7 +1457,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                   </div>
                   <div className="space-y-4 px-5 py-5">
                     <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
-                      <div className="grid gap-2 grid-cols-4">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
                           <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-600">
                             <Truck className="h-5 w-5" />
@@ -1608,19 +1648,19 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                   <div className="space-y-2 text-sm max-h-[220px] overflow-y-auto pr-1">
                     {selectedDropPointDetail.order.items.map((item: any, itemIndex: number) => (
                       <div key={`dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
-                        <p className="font-semibold text-slate-900">{item?.itemType === 'MIXED_CASE' ? `Mixed Case ${item?.caseCapacity || 0} Bottles` : item?.product?.name || 'Item'}</p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          Size: {(() => {
+                        <p className="font-semibold text-slate-900">
+                          {(() => {
+                            const isMixedCase = item?.itemType === 'MIXED_CASE'
+                            const name = isMixedCase ? `Mixed Case ${item?.caseCapacity || 0} Bottles` : item?.product?.name || 'Item'
                             const product = item?.product || {}
                             const fromSizes = Array.isArray(product?.sizes) && product.sizes.length > 0
                               ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
                               : ''
-                            const fromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
-                            return fromSizes || fromField || 'N/A'
+                            const size = isMixedCase ? '' : (fromSizes || String(product?.size || product?.sizeLabel || item?.size || '').trim())
+                            return `${name}${size ? ` ${size}` : ''} x${Number(item?.quantity || 0)}`
                           })()}
                         </p>
                         {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
-                        <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
                       </div>
                     ))}
                   </div>

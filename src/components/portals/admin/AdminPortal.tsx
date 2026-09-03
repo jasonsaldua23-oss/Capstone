@@ -1313,7 +1313,8 @@ export function AdminPortal() {
         </header>
 
         {/* Page Content */}
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6">
+        {/* Fix: preserve horizontal access to wide admin content on small screens. */}
+        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeView}

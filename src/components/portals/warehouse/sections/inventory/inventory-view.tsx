@@ -25,7 +25,7 @@ export function WarehouseInventoryView({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Inventory</CardTitle>
               <CardDescription>Warehouse staff can edit product details and add stock by batch.</CardDescription>
@@ -42,7 +42,7 @@ export function WarehouseInventoryView({
         ) : scopedInventory.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
               <table className="w-full min-w-[1000px] text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>

@@ -110,3 +110,32 @@ dist-apk/
 # Any other ad-hoc build directory too: an unignored one gets scanned by
 # Tailwind's source detection and registered in tsconfig by next build.
 /.next*/
+
+# Local test-evidence artifacts and source paper PDFs.
+/backend/config/settings_case_runner.py
+/backend/core/test_auth_trip_feedback_flows.py
+/PAPER/functional-test-cases.md
+/PAPER/LMS_CFM_TESTING_WITH_EVIDENCE.md
+/PAPER/LMS_CFM_TEST_CODE_AND_RUN_COMMANDS.md
+/scripts/run_lms_cfm_checks.py
+/scripts/generate_case_pdf.py
+/scripts/generate_case_report.py
+/PAPER/*.pdf
+/PAPER/LMS_CFM_TEST_CASES.csv
+/PAPER/LMS_CFM_TEST_CASES_COMPLETE.csv
+/PAPER/LMS_CFM_TEST_CASES_ADDITIONS.csv
+/PAPER/LMS_CFM_TEST_CASES_ADDITIONS_2.csv
+/PAPER/LMS_CFM_TEST_CASES_LATEST.csv
+/PAPER/LMS_CFM_EVIDENCE.json
+/PAPER/.case-header.png
+/PAPER/.case-footer.png
+/PAPER/.white-box-header.png
+/PAPER/.white-box-footer.png
+/PAPER/LMS_CFM_WHITE_BOX_TEST_CASES.csv
+/PAPER/LMS_CFM_WHITE_BOX_TEST_CASES_ADDITIONS.csv
+/scripts/capture_evidence.ps1
+/test-reports/2026-09-03-testing-report.md
+
+# Temporary Office lock files created while local test documents are open.
+~$*
+/.codex-pdf-preview/

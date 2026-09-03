@@ -85,7 +85,7 @@ export function WarehouseDashboardView({
       </div>
 
       {/* Order Status Cards */}
-      <div className="grid grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-blue-50 shadow-[0_18px_40px_rgba(37,99,235,0.16)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_55px_rgba(37,99,235,0.22)]">
           <CardContent className="relative flex min-h-[150px] flex-col justify-between p-6">
             <div className="inline-flex w-fit rounded-2xl border border-blue-200/60 bg-white/70 p-2.5 text-blue-700 backdrop-blur">
@@ -136,7 +136,7 @@ export function WarehouseDashboardView({
       </div>
 
       {/* Enhanced Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="group relative overflow-hidden rounded-3xl border border-blue-100/70 bg-blue-50 shadow-[0_14px_32px_rgba(37,99,235,0.12)] transition-all duration-300 hover:-translate-y-0.5">
           <CardContent className="relative flex h-full items-start gap-3 p-6">
             <div className="rounded-2xl border border-blue-200/60 bg-white/80 p-2.5 text-blue-700 backdrop-blur">
@@ -199,7 +199,7 @@ export function WarehouseDashboardView({
           <CardDescription className="text-base text-slate-500">Quick view of stock levels across all items</CardDescription>
         </CardHeader>
         <CardContent className="relative">
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="relative overflow-hidden rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50 to-teal-100/70 p-5 shadow-[0_10px_24px_rgba(16,185,129,0.14)]">
               <div className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-emerald-300/30 blur-xl" />
               <div className="mb-3 inline-flex rounded-xl bg-white/65 p-2 text-emerald-700">
@@ -246,7 +246,7 @@ export function WarehouseDashboardView({
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card className="xl:col-span-2 rounded-2xl border-0 shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">

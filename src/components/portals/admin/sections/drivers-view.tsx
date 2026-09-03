@@ -320,7 +320,7 @@ export function DriversView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Drivers</h1>
           <p className="text-gray-500">Manage your delivery drivers</p>
@@ -331,7 +331,7 @@ export function DriversView() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {isLoading ? (
           <div className="col-span-full">
             <PortalCardsSkeleton cards={6} className="lg:grid-cols-3" />
@@ -432,7 +432,7 @@ export function DriversView() {
                 </select>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Name</label>
                   <Input value={driverForm.name} onChange={(e) => setDriverForm((f) => ({ ...f, name: e.target.value }))} />
@@ -486,7 +486,7 @@ export function DriversView() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">License Number</label>
                 <Input

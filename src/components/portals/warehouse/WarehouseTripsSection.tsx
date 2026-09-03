@@ -569,7 +569,7 @@ export function WarehouseTripsSection({
             <div className="h-40 flex items-center justify-center text-gray-500">No trips found</div>
           ) : (
             <>
-            <div className="flex items-center justify-between border-b px-1 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-1 pb-3">
               <p className="text-xs text-slate-500">
                 Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, filteredTrips.length)} of {filteredTrips.length}
               </p>
@@ -678,7 +678,7 @@ export function WarehouseTripsSection({
                 })()
               ))}
             </div>
-            <div className="flex items-center justify-between border-t px-1 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t px-1 pt-3">
               <p className="text-xs text-slate-500">
                 Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, scopedTrips.length)} of {scopedTrips.length}
               </p>
@@ -730,7 +730,7 @@ export function WarehouseTripsSection({
               </div>
               <div className="space-y-4 px-5 py-5">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
-                  <div className="grid gap-2 grid-cols-4">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
                       <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-600">
                         <Truck className="h-5 w-5" />
@@ -1034,7 +1034,13 @@ export function WarehouseTripsSection({
                         return (
                       <div key={`warehouse-dp-detail-item-${itemIndex}`} className="rounded-xl border border-white/60 bg-white/80 px-3 py-2.5 shadow-[0_4px_10px_rgba(15,23,42,0.06)]">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="font-semibold text-slate-900">{getOrderItemName(item)}</p>
+                          <p className="font-semibold text-slate-900">
+                            {(() => {
+                              const size = item?.itemType === 'MIXED_CASE' ? '' : getOrderItemSize(item)
+                              const sizeSuffix = size && size !== 'N/A' ? ` ${size}` : ''
+                              return `${getOrderItemName(item)}${sizeSuffix} x${itemQty}`
+                            })()}
+                          </p>
                           {isMultiWarehouseOrder && (
                             <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                               isOtherWarehouseAllocation
@@ -1055,11 +1061,12 @@ export function WarehouseTripsSection({
                             </span>
                           )}
                         </div>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {item?.itemType === 'MIXED_CASE' ? 'Contents' : 'Size'}: {getOrderItemSize(item)}
-                        </p>
-                        {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
-                        <p className="mt-0.5 text-xs text-slate-500">Quantity: {Number(item?.quantity || 0)}</p>
+                        {item?.itemType === 'MIXED_CASE' ? (
+                          <>
+                            <p className="mt-0.5 text-xs text-slate-500">Contents: {getOrderItemSize(item)}</p>
+                            <MixedCaseComponents item={item} compact />
+                          </>
+                        ) : null}
                         {isMultiWarehouseOrder && (
                           <p className={`mt-0.5 text-xs font-medium ${isAssignedToTrip ? 'text-emerald-600' : 'text-amber-600'}`}>
                             {isAssignedToTrip ? 'Assigned' : 'Not Assigned'}

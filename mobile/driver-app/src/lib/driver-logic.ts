@@ -24,6 +24,16 @@ export function getStartBlockedOrders(trip: any): string[] {
     .map((point: any) => String(point.order?.orderNumber || point.order?.id || "Unknown order"));
 }
 
+export function isTripScheduledToday(trip: any, today: Date = new Date()): boolean {
+  const rawSchedule = String(trip?.tripSchedule || trip?.plannedStartAt || "").trim();
+  if (!rawSchedule) return false;
+  const scheduledAt = new Date(rawSchedule);
+  if (Number.isNaN(scheduledAt.getTime())) return false;
+  return scheduledAt.getFullYear() === today.getFullYear()
+    && scheduledAt.getMonth() === today.getMonth()
+    && scheduledAt.getDate() === today.getDate();
+}
+
 export function buildTripSearchText(trip: any): string {
   const values: unknown[] = [
     trip?.tripNumber,

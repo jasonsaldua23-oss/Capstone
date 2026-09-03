@@ -824,7 +824,7 @@ export function TripsView() {
                     </div>
                     <div className="space-y-4 px-5 py-5">
                       <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
-                        <div className="grid gap-2 grid-cols-4">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                           <div className="flex items-center gap-2 pr-2 [&:not(:last-child)]:border-r [&:not(:last-child)]:border-slate-200">
                             <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-600">
                               <Truck className="h-5 w-5" />
@@ -947,13 +947,14 @@ export function TripsView() {
           }
         }}
       >
-        <DialogContent className="w-[95vw] min-w-[1180px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
+        <DialogContent className="m-auto flex h-[95vh] w-[95vw] max-w-[1180px] min-w-0 items-stretch justify-center overflow-hidden rounded-xl p-0 shadow-xl z-[60]">
           <DialogHeader>
             <DialogTitle className="sr-only">Create Trip</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-row w-full h-full">
+          {/* Fix: stack trip controls above route content when the viewport cannot fit both panes. */}
+          <div className="flex h-full w-full flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
             {/* Left: Filters and Orders Preview */}
-            <div className="flex flex-col bg-white border-r p-2.5 min-w-[260px] max-w-[300px] w-[280px]">
+            <div className="flex h-[70vh] w-full min-w-0 max-w-none shrink-0 flex-col overflow-hidden border-b bg-white p-2.5 lg:h-full lg:w-[280px] lg:min-w-[260px] lg:max-w-[300px] lg:border-b-0 lg:border-r">
               <h2 className="mb-2 text-lg font-bold">Create Trip</h2>
               <div className="mb-2">
                 <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">Delivery Date</label>
@@ -1110,7 +1111,7 @@ export function TripsView() {
               </div>
             </div>
             {/* Right: Delivery Route Map or other content */}
-            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-gray-50 p-6">
+            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-gray-50 p-3 sm:p-6">
               {/* Delivery Route Map - styled like Warehouse Portal */}
               <Card>
                 <CardHeader className="pb-2">

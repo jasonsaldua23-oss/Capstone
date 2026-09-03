@@ -353,6 +353,8 @@ export type DriverLocation = {
   popupCustomerName?: string;
   popupAddress?: string;
   popupOrderItems?: DriverLocationPopupItem[];
+  assignedTripNumber?: string;
+  destinationCustomer?: string;
 };
 
 export type LiveRouteLine = {
@@ -1833,10 +1835,12 @@ export default function LiveTrackingMap({
                 zIndexOffset={10000}
               >
                 <Popup>
-                  <div className="text-sm">
-                    {/* Added: truck popups always identify both assigned driver and vehicle. */}
+                  <div className="text-sm" style={{ minWidth: 220 }}>
+                    {/* Added: expose the active assignment details without changing map behavior. */}
                     <p className="font-bold text-base mb-1">Driver: {loc.driverName}</p>
-                    <p className="text-gray-600">Vehicle: {loc.vehiclePlate || 'N/A'}</p>
+                    <p className="text-gray-600">Plate Number: {loc.vehiclePlate || 'N/A'}</p>
+                    <p className="text-gray-600">Assigned Trip #: {loc.assignedTripNumber || 'N/A'}</p>
+                    <p className="text-gray-600">Destination Customer: {loc.destinationCustomer || 'N/A'}</p>
                     {loc.markerLabel ? <p className="text-gray-600">{loc.markerLabel}</p> : null}
                     <p className="text-gray-600">
                       Status: <span className="capitalize">{loc.status.toLowerCase()}</span>

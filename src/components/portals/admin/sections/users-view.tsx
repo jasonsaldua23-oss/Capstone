@@ -544,7 +544,7 @@ export function UsersView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
           <p className="text-gray-500">Manage staff accounts and permissions</p>
@@ -563,8 +563,8 @@ export function UsersView() {
               <p className="text-gray-500">No users found</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[920px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">User</th>

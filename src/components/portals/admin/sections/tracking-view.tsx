@@ -89,29 +89,32 @@ export function TrackingView() {
 
   const orderMatchesTrackingDay = (order: any) => {
     if (!trackingDate) return true
-    if (order?.deliveryDate) return isDateMatch(order.deliveryDate, trackingDate)
-    return isDateMatch(order?.createdAt, trackingDate)
+    // Strict filter: an order belongs to its scheduled delivery day, not its creation day.
+    return isDateMatch(order?.deliveryDate, trackingDate)
   }
 
   const tripMatchesTrackingDay = (trip: any) => {
     if (!trackingDate) return true
-    const hasMatchingTripDate = [trip?.plannedStartAt, trip?.actualStartAt, trip?.actualEndAt, trip?.createdAt].some((value) =>
-      isDateMatch(value, trackingDate)
-    )
-    if (hasMatchingTripDate) return true
-    const logs = toArray<any>(trip?.locationLogs)
-    if (logs.some((log) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))) return true
-    return isDateMatch(trip?.latestLocation?.recordedAt, trackingDate)
+    const scheduledDates = [
+      trip?.tripSchedule,
+      ...toArray<any>(trip?.dropPoints).flatMap((point) => [
+        point?.order?.deliveryDate,
+        point?.order?.timeline?.deliveryDate,
+        point?.deliveryDate,
+      ]),
+    ].filter(Boolean)
+    if (scheduledDates.length > 0) {
+      return scheduledDates.some((value) => isDateMatch(value, trackingDate))
+    }
+    // Legacy trips without order schedules use only their planned start date.
+    return isDateMatch(trip?.plannedStartAt, trackingDate)
   }
   const dropPointMatchesTrackingDay = (dropPoint: any) => {
     if (!trackingDate) return true
     return [
-      dropPoint?.actualArrival,
-      dropPoint?.actualDeparture,
       dropPoint?.order?.deliveryDate,
       dropPoint?.order?.timeline?.deliveryDate,
       dropPoint?.deliveryDate,
-      dropPoint?.createdAt,
     ].some((value) => isDateMatch(value, trackingDate))
   }
 
@@ -120,6 +123,7 @@ export function TrackingView() {
     try {
       const query = new URLSearchParams({
         includeTracking: '1',
+        trackingDate,
       })
       const [tripsResponse, ordersResponse] = await Promise.all([
         fetchAllPaginatedCollection<any>(
@@ -184,8 +188,8 @@ export function TrackingView() {
   }, [trackingDate])
 
   const activeTrips = useMemo(
-    () => trips.filter((trip: any) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))),
-    [trips]
+    () => trips.filter((trip: any) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status)) && tripMatchesTrackingDay(trip)),
+    [trackingDate, trips]
   )
   const totalActiveTripsPages = Math.max(1, Math.ceil(activeTrips.length / activeTripsPageSize))
   const paginatedActiveTrips = useMemo(() => {
@@ -206,6 +210,7 @@ export function TrackingView() {
   const recentLocations = trips
     .filter((trip: any) => tripMatchesTrackingDay(trip))
     .flatMap((trip: any) => toArray<any>(trip.locationLogs || []))
+    .filter((log) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))
     .filter((log) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
     .map((log) => ({
       ...log,
@@ -229,6 +234,8 @@ export function TrackingView() {
       markerDirection?: 'left' | 'right'
       markerHeading?: number
       markerNumber?: number | string
+      assignedTripNumber?: string
+      destinationCustomer?: string
     }> = []
     const routeLines: Array<{
       id: string
@@ -241,9 +248,8 @@ export function TrackingView() {
       snapToRoad?: boolean
     }> = []
 
-    // Fix: live tracking must show every active trip even when it began before the selected date.
     const tripsForMap = trips.filter((trip: any) =>
-      ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))
+      ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status)) && tripMatchesTrackingDay(trip)
     )
     const cancelledOrderIds = new Set(
       ordersForMap
@@ -283,7 +289,17 @@ export function TrackingView() {
           if (!orderId) return false
           return dayOrderIds.has(orderId)
         })
-      const dropPoints = dropPointsFilteredByDate.length > 0 ? dropPointsFilteredByDate : allEligibleDropPoints
+      const hasScheduledDropPoints = allEligibleDropPoints.some((point) => [
+        point?.order?.deliveryDate,
+        point?.order?.timeline?.deliveryDate,
+        point?.deliveryDate,
+      ].some(Boolean))
+      // Do not leak orders from another scheduled day; only legacy undated trips fall back.
+      const dropPoints = dropPointsFilteredByDate.length > 0
+        ? dropPointsFilteredByDate
+        : hasScheduledDropPoints
+          ? []
+          : allEligibleDropPoints
       
       const terminalStatuses = ['COMPLETED', 'DELIVERED', 'FULFILLED', 'FAILED', 'CANCELLED', 'SKIPPED']
       const nextPendingIndex = dropPoints.findIndex((point: any) => {
@@ -305,6 +321,7 @@ export function TrackingView() {
           : null
 
       const logs = toArray<any>(trip.locationLogs)
+        .filter((log) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))
         .filter((log) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
         .map((log) => ({
           ...log,
@@ -355,6 +372,9 @@ export function TrackingView() {
           markerLabel: 'Current location',
           markerType: 'truck',
           markerHeading: markerHeading ?? undefined,
+          // Added: provide the assignment details rendered by the shared truck popup.
+          assignedTripNumber: String(trip?.tripNumber || ''),
+          destinationCustomer: String(nextDropPoint?.locationName || 'N/A'),
         })
       }
 
@@ -461,9 +481,15 @@ export function TrackingView() {
     // last location belongs to a completed trip or is not linked to a trip.
     driverLocations.forEach((location: any) => {
       const driverId = String(location?.driverId || location?.driver_id || '').trim()
+      const assignedTrip = trips.find((trip: any) => String(trip?.id || '') === String(location?.tripId || location?.trip_id || ''))
+      const destinationPoint = toArray<any>(assignedTrip?.dropPoints)
+        .slice()
+        .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+        .find((point) => !isDropPointCompleted(point?.status) && !isDropPointCompleted(point?.orderStatus))
       const latitude = Number(location?.latitude ?? location?.lat)
       const longitude = Number(location?.longitude ?? location?.lng)
       if (!driverId || shownDriverIds.has(driverId)) return
+      if (!isDateMatch(location?.recordedAt || location?.createdAt, trackingDate)) return
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
       shownDriverIds.add(driverId)
       locations.push({
@@ -477,6 +503,9 @@ export function TrackingView() {
         markerLabel: 'Driver last known location',
         markerType: 'truck',
         markerHeading: Number.isFinite(Number(location?.heading)) ? Number(location.heading) : undefined,
+        // Added: preserve known assignment data for last-known driver markers.
+        assignedTripNumber: String(assignedTrip?.tripNumber || ''),
+        destinationCustomer: String(destinationPoint?.locationName || 'N/A'),
       })
     })
 
@@ -522,17 +551,17 @@ export function TrackingView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Live Tracking</h1>
           <p className="text-gray-500">Monitor active deliveries in real-time</p>
         </div>
-        <div className="flex items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <Input
             type="date"
             value={trackingDate}
             onChange={(event) => setTrackingDate(event.target.value)}
-            className="w-[160px]"
+            className="w-full sm:w-[160px]"
           />
           <Button className="gap-2" onClick={fetchTrackingTrips} disabled={isLoading}>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
@@ -633,7 +662,18 @@ export function TrackingView() {
               <CardTitle className="text-lg">Recent Locations</CardTitle>
             </CardHeader>
             <CardContent>
-              {recentLocations.length === 0 ? (
+              {isLoading ? (
+                // Fix: this card reads from the same trips fetch as Active Trips, so it
+                // must show a loader too instead of claiming there are no logs.
+                <div className="space-y-2 text-sm">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`recent-location-skeleton-${index}`} className="flex min-w-0 items-center justify-between gap-2">
+                      <Skeleton className="h-4 w-20 max-w-full" />
+                      <Skeleton className="h-4 w-28 max-w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : recentLocations.length === 0 ? (
                 <p className="text-sm text-gray-500">No coordinate logs available</p>
               ) : (
                 <div className="space-y-2 text-sm">

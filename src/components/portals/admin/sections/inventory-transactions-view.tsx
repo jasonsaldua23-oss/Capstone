@@ -336,8 +336,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[820px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Transaction ID</th>
@@ -475,7 +475,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {/* Transaction ID */}
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5 text-xs text-gray-400">

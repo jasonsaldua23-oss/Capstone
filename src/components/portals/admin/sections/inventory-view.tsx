@@ -632,7 +632,7 @@ export function InventoryView() {
           ) : filteredInventory.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
-            <div className="w-full overflow-x-auto pb-1">
+            <div className="w-full max-w-full overflow-x-auto overscroll-x-contain pb-1">
               <table className="w-full min-w-[1120px] text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
@@ -818,7 +818,7 @@ export function InventoryView() {
                     </select>
                   </div>
                   {editingCategorySpec?.depositAllowed ? (
-                    <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                    <div className="grid grid-cols-1 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:grid-cols-2">
                       <div className="space-y-1">
                         <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
                         <Input
@@ -1012,7 +1012,7 @@ export function InventoryView() {
                   placeholder="e.g. 24"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Available Size</label>
                   <select
@@ -1041,7 +1041,7 @@ export function InventoryView() {
               {/* Container deposits only apply to returnable (glass) categories;
                   every other category has nothing to deposit against. */}
               {selectedCategorySpec?.depositAllowed ? (
-                <div className="grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-emerald-900">Deposit / Bottle (PHP)</label>
                     <Input

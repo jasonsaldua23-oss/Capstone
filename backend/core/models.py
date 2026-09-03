@@ -149,6 +149,12 @@ class RetailSaleMode(models.TextChoices):
     MIXED_CASE = "MIXED_CASE", "Mixed Case"
 
 
+class DriverStatus(models.TextChoices):
+    ACTIVE = "ACTIVE", "Active"
+    ON_LEAVE = "ON_LEAVE", "On Leave"
+    INACTIVE = "INACTIVE", "Inactive"
+
+
 class User(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     email = models.EmailField()
@@ -170,6 +176,8 @@ class User(models.Model):
     rating = models.FloatField(default=5.0)
     total_deliveries = models.IntegerField(default=0)
     hired_at = models.DateTimeField(blank=True, null=True)
+    # Added: operational driver availability is separate from account activation.
+    driver_status = models.CharField(max_length=20, choices=DriverStatus.choices, default=DriverStatus.ACTIVE)
     is_active = models.BooleanField(default=True)
     two_factor_enabled = models.BooleanField(default=False)
     login_alerts_enabled = models.BooleanField(default=True)

@@ -342,7 +342,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       fulfillmentType,
       items: cart.map(({ key: _key, ...line }) => {
         // Backend always expects emptyBottlesProvided in individual bottles.
-        // For CASE mode the UI collects cases, so convert cases → bottles here.
+        // For CASE mode the UI collects cases, so convert cases to bottles here.
         if (line.mode === 'CASE' && line.emptyBottlesProvided) {
           const product = products.find((p) => p.id === line.productId)
           const caseQty = Number(product?.caseQuantity || 1)
@@ -858,8 +858,8 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                   No retail sales recorded for this warehouse yet.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                  <table className="w-full min-w-[720px] text-left text-xs">
                     <thead className="border-b border-slate-100 bg-slate-50/75 text-slate-600 font-semibold">
                       <tr>
                         <th className="px-4 py-3">Receipt #</th>
@@ -947,7 +947,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
               <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3.5">
                   <p className="text-xs font-bold text-slate-800">Walk-in Customer Details</p>
 
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="walk-in-first-name" className="text-xs font-semibold text-slate-700">
                         First Name <span className="text-rose-500">*</span>
@@ -975,7 +975,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="walk-in-middle-name" className="text-xs font-semibold text-slate-500">
                         Middle Name (optional)
@@ -1117,14 +1117,12 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                   {line.mode === 'CASE' ? 'Empty Cases returned:' : `Empty ${product.looseUnit}s returned:`}
                                 </Label>
                                 <Input
-                                  id={`empties-${line.key}`}
                                   type="number"
                                   min={0}
                                   max={line.quantity}
                                   value={line.emptyBottlesProvided || 0}
                                   onChange={(e) =>
                                     updateLine(line.key, {
-                                      emptyBottlesProvided: Math.max(0, Number(e.target.value) || 0),
                                     })
                                   }
                                   className="h-7 w-16 rounded-lg text-center text-xs font-bold border-emerald-300 bg-white"
@@ -1250,7 +1248,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
           {receipt ? (
             <div className="space-y-4 text-xs">
               {/* Receipt Metadata Box */}
-              <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50/80 p-4 border border-slate-100">
+              <div className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-4 sm:grid-cols-2">
                 <div>
                   <span className="text-slate-500 font-medium">Customer</span>
                   <p className="font-bold text-slate-900 mt-0.5">{receipt.customer?.name || 'Walk-in Customer'}</p>

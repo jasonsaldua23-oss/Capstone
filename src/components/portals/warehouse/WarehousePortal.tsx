@@ -1431,43 +1431,34 @@ export function WarehousePortal() {
 
   const orderMatchesTrackingDay = (order: WarehouseOrderItem) => {
     if (!trackingDate) return true
-    if (order?.deliveryDate) return isDateMatch(order.deliveryDate, trackingDate)
-    return isDateMatch(order?.createdAt, trackingDate)
+    // Strict filter: an order belongs to its scheduled delivery day, not its creation day.
+    return isDateMatch(order?.deliveryDate, trackingDate)
   }
 
   const tripMatchesTrackingDay = (trip: WarehouseTripItem) => {
     if (!trackingDate) return true
     const tripAny = trip as any
-    const hasMatchingTripDate = [tripAny?.plannedStartAt, tripAny?.actualStartAt, tripAny?.actualEndAt, tripAny?.createdAt].some((value) =>
-      isDateMatch(value, trackingDate)
-    )
-    if (hasMatchingTripDate) return true
     const dropPoints = Array.isArray(tripAny?.dropPoints) ? tripAny.dropPoints : []
-    if (
-      dropPoints.some((point) =>
-        [
-          point?.actualArrival,
-          point?.actualDeparture,
-          point?.order?.deliveryDate,
-          point?.order?.timeline?.deliveryDate,
-        ].some((value) => isDateMatch(value, trackingDate))
-      )
-    ) {
-      return true
+    const scheduledDates = [
+      tripAny?.tripSchedule,
+      ...dropPoints.flatMap((point) => [
+        point?.order?.deliveryDate,
+        point?.order?.timeline?.deliveryDate,
+        point?.deliveryDate,
+      ]),
+    ].filter(Boolean)
+    if (scheduledDates.length > 0) {
+      return scheduledDates.some((value) => isDateMatch(value, trackingDate))
     }
-    const logs = Array.isArray(tripAny?.locationLogs) ? tripAny.locationLogs : []
-    if (logs.some((log) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))) return true
-    return isDateMatch(tripAny?.latestLocation?.recordedAt, trackingDate)
+    // Legacy trips without order schedules use only their planned start date.
+    return isDateMatch(tripAny?.plannedStartAt, trackingDate)
   }
   const dropPointMatchesTrackingDay = (dropPoint: any) => {
     if (!trackingDate) return true
     return [
-      dropPoint?.actualArrival,
-      dropPoint?.actualDeparture,
       dropPoint?.order?.deliveryDate,
       dropPoint?.order?.timeline?.deliveryDate,
       dropPoint?.deliveryDate,
-      dropPoint?.createdAt,
     ].some((value) => isDateMatch(value, trackingDate))
   }
 
@@ -1485,6 +1476,8 @@ export function WarehousePortal() {
       markerDirection?: 'left' | 'right'
       markerHeading?: number
       markerNumber?: number | string
+      assignedTripNumber?: string
+      destinationCustomer?: string
     }> = []
     const routeLines: Array<{
       id: string
@@ -1513,7 +1506,7 @@ export function WarehousePortal() {
     scopedTrips
       .filter(
         (trip: any) =>
-          ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status))
+          ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status)) && tripMatchesTrackingDay(trip)
       )
       .forEach((trip: any) => {
         const normalizedTripStatus = normalizeTripStatus(trip?.status)
@@ -1540,7 +1533,17 @@ export function WarehousePortal() {
             if (!orderId) return false
             return dayOrderIds.has(orderId)
           })
-        const dropPoints = dropPointsFilteredByDate.length > 0 ? dropPointsFilteredByDate : allEligibleDropPoints
+        const hasScheduledDropPoints = allEligibleDropPoints.some((point: any) => [
+          point?.order?.deliveryDate,
+          point?.order?.timeline?.deliveryDate,
+          point?.deliveryDate,
+        ].some(Boolean))
+        // Do not leak orders from another scheduled day; only legacy undated trips fall back.
+        const dropPoints = dropPointsFilteredByDate.length > 0
+          ? dropPointsFilteredByDate
+          : hasScheduledDropPoints
+            ? []
+            : allEligibleDropPoints
 
         const getLogLatitude = (log: any) => Number(log?.latitude ?? log?.lat)
         const getLogLongitude = (log: any) => Number(log?.longitude ?? log?.lng)
@@ -1548,6 +1551,7 @@ export function WarehousePortal() {
         const getLogRecordedAt = (log: any) =>
           new Date(log?.recordedAt || log?.recorded_at || log?.createdAt || log?.created_at || 0).getTime()
         const logs = (trip.locationLogs || [])
+          .filter((log: any) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))
           .filter((log: any) => {
             const lat = getLogLatitude(log)
             const lng = getLogLongitude(log)
@@ -1623,6 +1627,9 @@ export function WarehousePortal() {
               markerLabel: ['IN_PROGRESS'].includes(normalizedTripStatus) ? 'Driver current location' : 'Driver last known location',
               markerType: 'truck' as const,
               markerHeading: markerHeading ?? undefined,
+              // Added: provide the assignment details rendered by the shared truck popup.
+              assignedTripNumber: String(trip?.tripNumber || ''),
+              destinationCustomer: String(nextDropPoint?.locationName || 'N/A'),
             }
           : null
 
@@ -1726,9 +1733,15 @@ export function WarehousePortal() {
     // GPS is tied to a completed trip or currently has no trip association.
     driverLocations.forEach((location) => {
       const driverId = String(location?.driverId || '').trim()
+      const assignedTrip = scopedTrips.find((trip) => String(trip?.id || '') === String(location?.tripId || ''))
+      const destinationPoint = (assignedTrip?.dropPoints || [])
+        .slice()
+        .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
+        .find((point) => !isDropPointCompleted(point?.status) && !isDropPointCompleted(point?.orderStatus))
       const latitude = Number(location?.latitude)
       const longitude = Number(location?.longitude)
       if (!driverId || shownDriverIds.has(driverId)) return
+      if (!isDateMatch(location?.recordedAt, trackingDate)) return
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
       shownDriverIds.add(driverId)
       locations.push({
@@ -1742,6 +1755,9 @@ export function WarehousePortal() {
         markerLabel: 'Driver last known location',
         markerType: 'truck',
         markerHeading: Number.isFinite(Number(location?.heading)) ? Number(location.heading) : undefined,
+        // Added: preserve known assignment data for last-known driver markers.
+        assignedTripNumber: String(assignedTrip?.tripNumber || ''),
+        destinationCustomer: String(destinationPoint?.locationName || 'N/A'),
       })
     })
 
@@ -1785,9 +1801,9 @@ export function WarehousePortal() {
   const liveTrackingActiveTrips = useMemo(
     () =>
       scopedTrips.filter(
-        (trip) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip.status))
+        (trip) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip.status)) && tripMatchesTrackingDay(trip)
       ),
-    [scopedTrips]
+    [scopedTrips, trackingDate]
   )
 
   const liveTrackingRecentLocations = useMemo(
@@ -1795,6 +1811,7 @@ export function WarehousePortal() {
       scopedTrips
         .filter((trip: any) => tripMatchesTrackingDay(trip))
         .flatMap((trip: any) => (Array.isArray(trip?.locationLogs) ? trip.locationLogs : []))
+        .filter((log: any) => isDateMatch(log?.recordedAt || log?.createdAt, trackingDate))
         .filter((log: any) => Number.isFinite(Number(log?.latitude)) && Number.isFinite(Number(log?.longitude)))
         .map((log: any) => ({
           ...log,
@@ -4897,7 +4914,8 @@ export function WarehousePortal() {
           onLogout={handleLogout}
         />
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6">
+        {/* Keep wide operational content reachable on small screens instead of clipping it. */}
+        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeView}
@@ -5421,12 +5439,13 @@ export function WarehousePortal() {
           }
         }}
       >
-        <DialogContent className="w-[95vw] min-w-[1180px] h-full max-w-none max-h-[95vh] m-auto rounded-xl shadow-xl overflow-hidden p-0 flex items-stretch justify-center z-[60]">
+        <DialogContent className="m-auto flex h-[95vh] w-[95vw] max-w-[1180px] min-w-0 items-stretch justify-center overflow-hidden rounded-xl p-0 shadow-xl z-[60]">
           <DialogHeader>
             <DialogTitle className="sr-only">{editingTripState ? 'Edit Trip' : 'Create Trip'}</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-row w-full h-full">
-            <div className="flex min-h-0 flex-col overflow-hidden bg-white border-r p-2.5 min-w-[260px] max-w-[300px] w-[280px]">
+          <div className="flex h-full w-full flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+            {/* On phones the trip controls stack above the route preview so neither pane is clipped. */}
+            <div className="flex h-[70vh] w-full min-w-0 max-w-none shrink-0 flex-col overflow-hidden border-b bg-white p-2.5 lg:h-full lg:w-[280px] lg:min-w-[260px] lg:max-w-[300px] lg:border-b-0 lg:border-r">
               <h2 className="mb-2 text-lg font-bold">{editingTripState ? `Edit ${editingTripState.tripNumber}` : 'Create Trip'}</h2>
               <div className="mb-2">
                 <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">
@@ -5661,7 +5680,7 @@ export function WarehousePortal() {
                 </Button>
               </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-gray-50 p-6">
+            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-gray-50 p-3 sm:p-6">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-lg">Delivery Locations</CardTitle>
@@ -6204,7 +6223,7 @@ export function WarehousePortal() {
                   const isPendingApproval = String(selectedOrder.paymentStatus || '').toLowerCase() === 'pending_approval'
                   const isAlreadyApproved = ['CONFIRMED', 'APPROVED'].includes(selectedOrderStatus)
                   return (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {isAlreadyApproved ? (
                         <Button variant="outline" disabled>
                           Order Approved
@@ -6318,7 +6337,7 @@ export function WarehousePortal() {
           resetStockInForm()
         }}
       >
-        <DialogContent className="flex h-[86vh] w-[86vw] max-w-[800px] sm:max-w-[800px] flex-col overflow-hidden p-6">
+        <DialogContent className="flex h-[86vh] w-[95vw] max-w-[800px] flex-col overflow-hidden p-3 sm:max-w-[800px] sm:p-6">
           <DialogHeader className="mb-2">
             <DialogTitle className="text-3xl font-bold">Add Stock</DialogTitle>
             <DialogDescription className="text-lg mt-2">Add multiple stock entries by batch</DialogDescription>
@@ -6344,7 +6363,7 @@ export function WarehousePortal() {
             ) : null}
 
             {/* Stock Rows Table */}
-            <div className="overflow-x-auto rounded-md border">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-md border">
               <div className="min-w-[700px]">
                 {/* Sticky Header */}
                 <div className="sticky top-0 z-20 grid grid-cols-[minmax(160px,1.7fr)_minmax(72px,0.65fr)_minmax(120px,0.95fr)_minmax(120px,0.95fr)_24px] gap-1.5 border-b bg-gray-100 px-2.5 py-3 text-sm font-semibold text-gray-700">

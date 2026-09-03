@@ -259,7 +259,7 @@ export function WarehouseOrdersView({
               <p className="mt-1 text-sm text-slate-500">Approved purchase requests will appear here.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-slate-200">
               <table className="min-w-[1100px] w-full">
                 <thead className="bg-slate-50 text-left text-sm text-slate-600">
                   <tr>

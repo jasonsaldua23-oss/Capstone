@@ -61,7 +61,7 @@ export function WarehouseWarehousesView({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="rounded-xl border bg-gradient-to-br from-slate-50 via-white to-blue-50/40 p-4 shadow-sm">
                   <p className="mb-2 text-sm font-medium text-gray-600">Used vs Free Capacity</p>
                   <ChartContainer
@@ -105,7 +105,7 @@ export function WarehouseWarehousesView({
                     </PieChart>
                   </ChartContainer>
                 </div>
-                <div className="grid grid-cols-3 gap-3 text-sm items-start content-start auto-rows-min self-start">
+                <div className="grid grid-cols-1 gap-3 text-sm items-start content-start auto-rows-min self-start sm:grid-cols-3">
                   <div className="rounded-xl border bg-white p-3 shadow-sm h-fit self-start">
                     <p className="text-gray-500">Used</p>
                     <p className="text-lg font-semibold text-blue-700">{warehouseOverviewStats.usagePercent}%</p>
@@ -123,7 +123,7 @@ export function WarehouseWarehousesView({
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Capacity Trend (Last 7 Days)</CardTitle>
@@ -162,7 +162,7 @@ export function WarehouseWarehousesView({
             </Card>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">SKU Velocity Chart</CardTitle>
@@ -227,7 +227,7 @@ export function WarehouseWarehousesView({
                     <Tooltip formatter={(value: any, name: any) => [Number(value).toLocaleString(), name]} />
                   </PieChart>
                 </ChartContainer>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {warehouseOverviewStats.stockHealthDistribution.map((entry: any) => (
                     <div key={entry.name} className="rounded-md border bg-gray-50 px-2 py-1.5 text-xs">
                       <span className={`inline-block h-2 w-2 rounded-full mr-2 ${getStockHealthDotClass(entry.name)}`} />
@@ -246,7 +246,7 @@ export function WarehouseWarehousesView({
               <CardDescription>Quick operational signals inside this warehouse.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {warehouseOverviewStats.activities.map((activity: any) => (
                   <div key={activity.id} className="rounded-md border bg-gray-50 px-3 py-2 text-sm text-gray-700">
                     <p className="text-sm font-medium text-gray-900">{activity.label}</p>

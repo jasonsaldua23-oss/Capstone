@@ -111,7 +111,9 @@ export function RetailTransactionsView() {
       const result = await safeFetchJson(url, { cache: 'no-store' })
       if (result.ok) {
         setSales(getCollection<RetailSale>(result.data, ['sales']))
-      } else {
+      } else if (!result.data?.aborted) {
+        // A timed-out or truncated response is a transient blip, not a reason to
+        // alarm the cashier mid-shift; the retry on next fetch recovers silently.
         toast.error(result.data?.error || 'Failed to load retail sales')
       }
     } catch {
@@ -263,8 +265,8 @@ export function RetailTransactionsView() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[1000px] text-left text-sm">
                 <thead className="bg-slate-50/80 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   <tr>
                     <th className="px-4 py-3">Receipt / Trans #</th>
@@ -441,8 +443,8 @@ export function RetailTransactionsView() {
                   {/* Items list */}
                   <div>
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Purchased Items</h4>
-                    <div className="border border-slate-200 rounded-lg overflow-hidden">
-                      <table className="w-full text-xs">
+                    <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200">
+                      <table className="w-full min-w-[620px] text-xs">
                         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
                           <tr>
                             <th className="px-3 py-2 text-left">Item / Mode</th>

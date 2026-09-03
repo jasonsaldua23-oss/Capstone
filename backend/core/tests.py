@@ -651,6 +651,27 @@ class DriverVehicleActiveTripValidationTests(TestCase):
         self.vehicle.refresh_from_db()
         self.assertIsNone(self.vehicle.driver_id)
 
+    def test_driver_status_update_persists_and_is_returned(self) -> None:
+        response = self.client.put(
+            "/api/drivers",
+            data={"id": self.driver.id, "status": "OnLeave", "vehicleId": self.vehicle.id},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["driver"]["status"], "ON_LEAVE")
+        self.driver.refresh_from_db()
+        self.assertEqual(self.driver.driver_status, "ON_LEAVE")
+
+        list_response = self.client.get(
+            "/api/drivers?includeSample=true",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        self.assertEqual(list_response.status_code, 200, list_response.content)
+        row = next(item for item in list_response.json()["drivers"] if item["id"] == self.driver.id)
+        self.assertEqual(row["status"], "ON_LEAVE")
+
 
 class CustomerTrackingApiContractTests(TestCase):
     def setUp(self) -> None:
@@ -2169,6 +2190,7 @@ class TripExecutionApiContractTests(TestCase):
             driver=self.driver,
             vehicle=self.vehicle,
             status=TripStatus.PLANNED,
+            planned_start_at=timezone.now(),
             total_drop_points=2,
         )
         self.other_trip = Trip.objects.create(
@@ -2256,6 +2278,26 @@ class TripExecutionApiContractTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"], "Confirm Load is required before starting the trip")
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+
+    def test_trip_start_rejects_a_different_scheduled_date(self) -> None:
+        tomorrow = timezone.now() + timedelta(days=1)
+        self.trip.planned_start_at = tomorrow
+        self.trip.save(update_fields=["planned_start_at", "updated_at"])
+
+        response = self.client.post(
+            f"/api/trips/{self.trip.id}/start",
+            data={"confirmLoad": True},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["error"],
+            f"Trip can only be started on its scheduled date: {timezone.localdate(tomorrow).isoformat()}",
+        )
         self.trip.refresh_from_db()
         self.assertEqual(self.trip.status, TripStatus.PLANNED)
 
@@ -4043,6 +4085,7 @@ class DeliveryLifecycleFlowContractTests(TestCase):
             driver=self.driver,
             vehicle=self.vehicle,
             status=TripStatus.PLANNED,
+            planned_start_at=timezone.now(),
             total_drop_points=1,
         )
         self.trip_drop_point = TripDropPoint.objects.create(
@@ -4108,6 +4151,19 @@ class DeliveryLifecycleFlowContractTests(TestCase):
         self.assertEqual(completed.status_code, 200)
         self.assertEqual(completed.json()["dropPoint"]["status"], "COMPLETED")
         self.assertEqual(completed.json()["order"]["status"], OrderStatus.DELIVERED)
+
+        # Resolving the last stop updates progress, then the driver explicitly
+        # confirms the whole trip from the trip screen.
+        trip_in_progress = Trip.objects.get(id=trip_id)
+        self.assertEqual(trip_in_progress.status, TripStatus.IN_PROGRESS)
+        self.assertEqual(trip_in_progress.completed_drop_points, 1)
+
+        complete_trip = self.client.post(
+            f"/api/trips/{trip_id}/complete",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(complete_trip.status_code, 200, complete_trip.content)
+        self.assertEqual(complete_trip.json()["trip"]["status"], TripStatus.COMPLETED)
 
         trip_db = Trip.objects.get(id=trip_id)
         self.assertEqual(trip_db.status, TripStatus.COMPLETED)

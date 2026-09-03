@@ -24,6 +24,7 @@ from .models import (
     Order,
     OrderItem,
     OrderItemType,
+    OrderStatus,
     PackagingProfile,
     Product,
     Replacement,
@@ -601,12 +602,12 @@ class MixedCaseApiTests(MixedCaseFixtureMixin, TestCase):
         self.assertEqual(Decimal(str(first["order"]["totalAmount"])), Decimal("187.5"))
         self.assertEqual(first["order"]["items"][0]["itemType"], "MIXED_CASE")
         self.assertEqual(len(first["order"]["items"][0]["components"]), 2)
-        self.assertEqual(
-            InventoryReservation.objects.filter(
-                order_item__order__request_id=payload["requestId"],
-                status="RESERVED",
-            ).aggregate(total=Sum("quantity_base_units"))["total"],
-            24,
+        created_order = Order.objects.get(request_id=payload["requestId"])
+        self.assertEqual(created_order.status, OrderStatus.PENDING)
+        # Checkout records a pending request only; stock is reserved later from
+        # the latest inventory state when warehouse staff approve the request.
+        self.assertFalse(
+            InventoryReservation.objects.filter(order_item__order=created_order).exists()
         )
 
 

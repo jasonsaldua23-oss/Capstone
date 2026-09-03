@@ -993,8 +993,8 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
               <p className="text-gray-500">No customer replacement requests found</p>
             </div>
           ) : (
-            <div className="w-full max-w-full overflow-x-auto">
-              <table className="w-full">
+            <div className="w-full max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[1120px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
@@ -1124,7 +1124,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
       </Card>
 
       <Dialog open={!!selectedReplacement} onOpenChange={(open) => !open && setSelectedReplacement(null)}>
-        <DialogContent className="max-h-[90vh] w-[72vw] max-w-[640px] overflow-y-auto p-0 sm:max-w-[640px]">
+        <DialogContent className="max-h-[90vh] w-[95vw] max-w-[640px] overflow-y-auto p-0 sm:max-w-[640px]">
           {selectedReplacement ? (() => {
             const meta = parseMeta(selectedReplacement.notes)
             const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)
@@ -1242,8 +1242,8 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                   <div className="border-b px-3 py-2">
                     <p className="text-xs font-medium text-slate-500">Replacement Items</p>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain">
+                    <table className="w-full min-w-[720px] text-sm">
                       <thead className="bg-slate-50 text-xs text-slate-500">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Original Product</th>

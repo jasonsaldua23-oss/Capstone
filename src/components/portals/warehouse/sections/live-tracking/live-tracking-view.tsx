@@ -27,17 +27,17 @@ export function WarehouseLiveTrackingView({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Live Tracking</h1>
           <p className="text-gray-500">Monitor active deliveries in real-time</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <Input
             type="date"
             value={trackingDate}
             onChange={(event) => setTrackingDate(event.target.value || todayDate)}
-            className="w-[160px]"
+            className="w-full sm:w-[160px]"
           />
           <Button
             className="gap-2"
@@ -123,7 +123,18 @@ export function WarehouseLiveTrackingView({
               <CardTitle className="text-lg">Recent Locations</CardTitle>
             </CardHeader>
             <CardContent>
-              {liveTrackingRecentLocations.length === 0 ? (
+              {loadingTrips ? (
+                // Fix: this card reads from the same trips fetch as Active Trips, so it
+                // must show a loader too instead of claiming there are no logs.
+                <div className="space-y-2 text-sm">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`recent-location-skeleton-${index}`} className="flex min-w-0 items-center justify-between gap-2">
+                      <Skeleton className="h-4 w-20 max-w-full" />
+                      <Skeleton className="h-4 w-28 max-w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : liveTrackingRecentLocations.length === 0 ? (
                 <p className="text-sm text-gray-500">No coordinate logs available</p>
               ) : (
                 <div className="space-y-2 text-sm">

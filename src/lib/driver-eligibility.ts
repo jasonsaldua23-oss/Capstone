@@ -54,8 +54,9 @@ export function getDriverProfileCompletenessIssue(driver: any): string {
  */
 export function getDriverAssignmentIssue(driver: any): string {
   if (!driver) return 'Driver not found'
-  const status = String(driver?.status || '').toUpperCase()
+  const status = String(driver?.status || driver?.driverStatus || '').trim().toUpperCase().replace(/\s+/g, '_')
   if (driver?.isActive === false || status === 'INACTIVE') return 'Inactive'
+  if (status === 'ON_LEAVE' || status === 'ONLEAVE') return 'On leave'
   return getDriverProfileCompletenessIssue(driver)
 }
 

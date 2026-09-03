@@ -205,7 +205,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {statCards.map((stat, i) => {
           const gradients: { [key: string]: string } = {
             blue: 'from-blue-50 to-indigo-50',
@@ -236,7 +236,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
           </div>
 
       {/* Quick Stats Row */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
 
         <Card className="bg-gradient-to-br from-green-600 to-green-700 text-white">
           <CardContent className="pt-6">
@@ -279,7 +279,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         </Card>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card className="xl:col-span-2 rounded-2xl border-0 shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -342,7 +342,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
       </div>
 
       {/* Alerts Section */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

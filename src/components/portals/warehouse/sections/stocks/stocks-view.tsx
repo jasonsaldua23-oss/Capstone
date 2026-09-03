@@ -37,8 +37,8 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft,
         ) : stockBatches.length === 0 ? (
           <div className="h-40 flex items-center justify-center text-gray-500">No stock-in batches found</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="max-w-full overflow-x-auto overscroll-x-contain">
+            <table className="w-full min-w-[1180px]">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="text-left p-4 font-medium text-gray-600">Batch #</th>

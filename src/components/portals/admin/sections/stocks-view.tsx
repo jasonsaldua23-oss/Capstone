@@ -144,7 +144,7 @@ export function StocksView() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Stocks</CardTitle>
             <CardDescription>Batch-based stock-in records with manufactured date, expiry date, and days left.</CardDescription>
@@ -162,8 +162,8 @@ export function StocksView() {
         ) : filteredStockBatches.length === 0 ? (
           <div className="h-40 flex items-center justify-center text-gray-500">No stock-in batches found</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="max-w-full overflow-x-auto overscroll-x-contain">
+            <table className="w-full min-w-[920px]">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="text-left p-4 font-medium text-gray-600">Batch #</th>

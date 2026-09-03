@@ -7,6 +7,7 @@ import {
   getStartBlockedOrders,
   haversineMeters,
   isUsableLocationSample,
+  isTripScheduledToday,
   normalizeStatus,
   mergeQueuedOperation,
 } from "./driver-logic.ts";
@@ -21,6 +22,14 @@ test("trip start is blocked by every order that is not loaded or dispatched", ()
   };
 
   assert.deepEqual(getStartBlockedOrders(trip), ["ORD-2"]);
+});
+
+test("trip start is allowed only on its scheduled calendar date", () => {
+  const today = new Date(2026, 8, 3, 10, 0, 0);
+  assert.equal(isTripScheduledToday({ tripSchedule: "2026-09-03T08:00:00+08:00" }, today), true);
+  assert.equal(isTripScheduledToday({ tripSchedule: "2026-09-04T08:00:00+08:00" }, today), false);
+  assert.equal(isTripScheduledToday({ plannedStartAt: "2026-09-03T00:00:00+08:00" }, today), true);
+  assert.equal(isTripScheduledToday({}, today), false);
 });
 
 test("trip search includes vehicle, customer, address, and order data", () => {

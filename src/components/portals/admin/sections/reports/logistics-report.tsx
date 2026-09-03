@@ -513,8 +513,8 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
 
       {/* Logistics Records Table */}
       <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+        <div className="max-w-full overflow-x-auto overscroll-x-contain">
+          <table className="w-full min-w-[900px] text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider">
               <tr>
                 <th className="p-3.5 pl-4">Trip Number</th>

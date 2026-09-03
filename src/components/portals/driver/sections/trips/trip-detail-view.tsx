@@ -654,6 +654,14 @@ export function TripDetailView({
       day: 'numeric',
     })
   }
+  const isTripScheduledToday = (value: string | null | undefined) => {
+    const scheduledAt = new Date(String(value || '').trim())
+    if (Number.isNaN(scheduledAt.getTime())) return false
+    const today = new Date()
+    return scheduledAt.getFullYear() === today.getFullYear()
+      && scheduledAt.getMonth() === today.getMonth()
+      && scheduledAt.getDate() === today.getDate()
+  }
 
   // Geospatial helpers used for route/movement calculations.
   const haversineKm = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
@@ -760,6 +768,16 @@ export function TripDetailView({
     if (currentStatus !== 'PLANNED') {
       toast.error(`Trip cannot be started because status is ${currentStatus.replace(/_/g, ' ')}`)
       refreshTripsInBackground()
+      return
+    }
+    const scheduledDate = latestTrip.tripSchedule || latestTrip.plannedStartAt
+    // Added: block before location tracking starts; the API repeats this rule server-side.
+    if (!isTripScheduledToday(scheduledDate)) {
+      toast.error(
+        scheduledDate
+          ? `Trip can only be started on its scheduled date: ${formatTripSchedule(scheduledDate)}`
+          : 'Trip cannot be started because its scheduled date is not set'
+      )
       return
     }
     if (!loadConfirmed) {
@@ -1784,16 +1802,27 @@ export function TripDetailView({
   // Use fresh device GPS first, then only the account-scoped latest location
   // returned by the driver API. Trip waypoints and warehouse coordinates must
   // never become a fallback driver position.
-  const effectiveDriverLocation = (currentLocation && isValidDeviceCoordinate(Number(currentLocation.lat), Number(currentLocation.lng))
+  const liveDeviceLocation = currentLocation
+    && isValidDeviceCoordinate(Number(currentLocation.lat), Number(currentLocation.lng))
     && isFreshRecordedAt(currentLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
     ? currentLocation
-    : null) ||
-    (previewDriverLocation && isValidDeviceCoordinate(Number(previewDriverLocation.lat), Number(previewDriverLocation.lng))
-      && isFreshRecordedAt(previewDriverLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
-      ? previewDriverLocation
-      : null) ||
-    latestTripLocationAny ||
-    null
+    : null
+  const livePreviewLocation = previewDriverLocation
+    && isValidDeviceCoordinate(Number(previewDriverLocation.lat), Number(previewDriverLocation.lng))
+    && isFreshRecordedAt(previewDriverLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
+    ? previewDriverLocation
+    : null
+  const effectiveDriverLocation = liveDeviceLocation || livePreviewLocation || latestTripLocationAny || null
+  // Fix: the API row is only a last-known fix - it carries no freshness
+  // guarantee, so once the device stops reporting the truck used to sit on an
+  // hours-old coordinate that looked exactly like a live one.
+  const isLiveDriverLocation = Boolean(liveDeviceLocation || livePreviewLocation)
+    || isFreshRecordedAt(latestTripLocationAny?.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
+  const driverLocationAgeMs = (() => {
+    if (isLiveDriverLocation) return null
+    const ts = toRecordedAtMs(effectiveDriverLocation?.recordedAt)
+    return ts === null ? null : Math.max(Date.now() - ts, 0)
+  })()
 
   useEffect(() => {
     if (
@@ -1875,6 +1904,27 @@ export function TripDetailView({
       ? effectiveDriverLocation.heading
       : undefined
 
+  const formatLocationAge = (ageMs: number) => {
+    const minutes = Math.round(ageMs / 60000)
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes} min ago`
+    const hours = Math.round(minutes / 60)
+    if (hours < 24) return `${hours} h ago`
+    return `${Math.round(hours / 24)} d ago`
+  }
+
+  // A stale or coarse fix must read as such: a 100 m wifi fix can sit kilometres
+  // from the driver, and unlabelled it looks like a live GPS position.
+  const driverLocationMarkerLabel = (() => {
+    const accuracy = Number(effectiveDriverLocation?.accuracy)
+    const accuracySuffix = Number.isFinite(accuracy) ? ` +- ${Math.round(accuracy)} m` : ''
+    if (!isLiveDriverLocation) {
+      const age = driverLocationAgeMs === null ? '' : ` ${formatLocationAge(driverLocationAgeMs)}`
+      return `Last known location${age}${accuracySuffix}`
+    }
+    return `Current location${accuracySuffix}`
+  })()
+
   const driverLocationMarker = (() => {
     const sourceLocation = effectiveDriverLocation
     // Never represent the warehouse/start point as the driver's live position.
@@ -1889,12 +1939,13 @@ export function TripDetailView({
       lat,
       lng,
       status: isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
-      markerLabel: Number.isFinite(Number(sourceLocation.accuracy))
-        ? `Current location +- ${Math.round(Number(sourceLocation.accuracy))} m`
-        : 'Current location',
+      markerLabel: driverLocationMarkerLabel,
       markerType: 'truck' as const,
       markerHeading: driverMarkerHeading ?? undefined,
       markerColor: '#1d4ed8',
+      // Added: keep the driver's navigation popup consistent with live tracking.
+      assignedTripNumber: trip.tripNumber || '',
+      destinationCustomer: nextDropPoint?.locationName || nextDropPoint?.contactName || 'N/A',
       accuracyMeters: Number.isFinite(Number(sourceLocation.accuracy))
         ? Number(sourceLocation.accuracy)
         : undefined,
@@ -1955,6 +2006,9 @@ export function TripDetailView({
   const exactDriverLocationSource = effectiveDriverLocation
   const exactDriverLocationLabel = exactDriverLocationSource
     ? `${Number(exactDriverLocationSource.lat).toFixed(6)}, ${Number(exactDriverLocationSource.lng).toFixed(6)}`
+      + (isLiveDriverLocation
+        ? ''
+        : ` (last known${driverLocationAgeMs === null ? '' : ` ${formatLocationAge(driverLocationAgeMs)}`})`)
     : null
   const currentVehicleSpeedMps = toCoordinate(effectiveDriverLocation?.speed)
   // Geolocation reports speed in m/s; keep unavailable sensor data explicit.
