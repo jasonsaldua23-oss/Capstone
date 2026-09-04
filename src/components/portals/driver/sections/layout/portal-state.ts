@@ -132,6 +132,9 @@ export type DriverGpsLocation = {
 const isSecureWebContext = typeof window !== 'undefined' ? window.isSecureContext : true
 const DRIVER_GPS_GOOD_ACCURACY_METERS = 35
 const DRIVER_GPS_MAX_USABLE_ACCURACY_METERS = 100
+// Ceiling for a fix accepted only because nothing better has arrived recently.
+const DRIVER_GPS_DEGRADED_ACCURACY_METERS = 300
+const DRIVER_GPS_DEGRADED_ACCEPT_AFTER_MS = 20000
 const DRIVER_GPS_MAX_JUMP_METERS = 180
 const DRIVER_GPS_MAX_REALISTIC_SPEED_MPS = 45
 const DRIVER_HEARTBEAT_INTERVAL_MS = 5000
@@ -243,6 +246,7 @@ export function useDriverPortalState() {
   const latestTripsRef = useRef<Trip[]>([])
   const latestGpsRef = useRef<DriverGpsLocation | null>(null)
   const lastLocationUploadAtRef = useRef<number>(0)
+  const lastAcceptedFixAtRef = useRef<number>(0)
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoTrackingTripIdRef = useRef<string | null>(null)
   const trackingLifecycleLockRef = useRef(false)
@@ -479,10 +483,22 @@ export function useDriverPortalState() {
   const shouldUseGpsLocation = (next: DriverGpsLocation, previous: DriverGpsLocation | null) => {
     const nextAccuracy = Number(next.accuracy ?? Number.POSITIVE_INFINITY)
     if (!Number.isFinite(nextAccuracy)) return false
-    if (!previous) return nextAccuracy <= DRIVER_GPS_MAX_USABLE_ACCURACY_METERS
+
+    // A coarse fix becomes worth showing once nothing better has arrived for a
+    // while. Rejecting every one outright froze the vehicle under weak signal
+    // until the position aged out completely, at which point the map fell back
+    // to the last server-side location and the icon appeared to teleport. The
+    // map draws an accuracy halo around these, so the downgrade stays visible.
+    const hasStaleAcceptedFix =
+      lastAcceptedFixAtRef.current > 0 &&
+      Date.now() - lastAcceptedFixAtRef.current >= DRIVER_GPS_DEGRADED_ACCEPT_AFTER_MS
+    const accuracyCeiling = hasStaleAcceptedFix
+      ? DRIVER_GPS_DEGRADED_ACCURACY_METERS
+      : DRIVER_GPS_MAX_USABLE_ACCURACY_METERS
+    if (!previous) return nextAccuracy <= accuracyCeiling
 
     const previousAccuracy = Number(previous.accuracy ?? Number.POSITIVE_INFINITY)
-    if (nextAccuracy > DRIVER_GPS_MAX_USABLE_ACCURACY_METERS) return false
+    if (nextAccuracy > accuracyCeiling) return false
     if (nextAccuracy <= DRIVER_GPS_GOOD_ACCURACY_METERS) return true
 
     const movedMeters = distanceMeters(previous, next)
@@ -571,6 +587,7 @@ export function useDriverPortalState() {
       return false
     }
     latestGpsRef.current = next
+    lastAcceptedFixAtRef.current = now
     setCurrentLocation(next)
     setLocationPermission('granted')
     setIsTracking(true)
@@ -580,6 +597,25 @@ export function useDriverPortalState() {
       window.dispatchEvent(new Event(DRIVER_ACTIVITY_EVENT))
     }
     return true
+  }
+
+  // Gap filler for the position watch, not a second source of fixes.
+  const runLocationHeartbeat = async () => {
+    // watchPosition is the primary cadence. Unconditionally reading a second
+    // position every interval gave the map two interleaved update streams, so
+    // the gap it measures between fixes — and with it the speed the vehicle
+    // icon animates at — swung from one update to the next. Skipping the read
+    // while the watch is delivering keeps that cadence even.
+    if (Date.now() - lastAcceptedFixAtRef.current < DRIVER_HEARTBEAT_INTERVAL_MS) return
+    try {
+      const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 1000, timeout: 9000 })
+      const location = gpsFromPosition(position)
+      if (!location) return
+      // applyGpsLocation performs accuracy and impossible-jump checks before upload.
+      applyGpsLocation(location, getActiveTripId())
+    } catch {
+      // heartbeat is best-effort
+    }
   }
 
   // Attempts two high-accuracy position reads and picks the best sample.
@@ -713,18 +749,7 @@ export function useDriverPortalState() {
     if (watchIdRef.current !== null) {
       if (heartbeatIntervalRef.current === null) {
         heartbeatIntervalRef.current = setInterval(() => {
-          void (async () => {
-            try {
-              const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 1000, timeout: 9000 })
-              const location = gpsFromPosition(position)
-              if (!location) return
-              const activeTripId = getActiveTripId()
-              // applyGpsLocation performs accuracy and impossible-jump checks before upload.
-              applyGpsLocation(location, activeTripId)
-            } catch {
-              // heartbeat is best-effort
-            }
-          })()
+          void runLocationHeartbeat()
         }, DRIVER_HEARTBEAT_INTERVAL_MS)
       }
       setIsTracking(true)
@@ -765,18 +790,7 @@ export function useDriverPortalState() {
 
     watchIdRef.current = watchId
     heartbeatIntervalRef.current = setInterval(() => {
-      void (async () => {
-        try {
-          const position = await readCurrentPosition({ enableHighAccuracy: true, maximumAge: 1000, timeout: 9000 })
-          const location = gpsFromPosition(position)
-          if (!location) return
-          const activeTripId = getActiveTripId()
-          // Never bypass the GPS quality filter with a raw heartbeat sample.
-          applyGpsLocation(location, activeTripId)
-        } catch {
-          // heartbeat is best-effort
-        }
-      })()
+      void runLocationHeartbeat()
     }, DRIVER_HEARTBEAT_INTERVAL_MS)
     toast.success('Location tracking started')
     return true

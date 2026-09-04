@@ -7,6 +7,11 @@ export const ADMIN_STOCK_BATCH_CACHE_KEY = 'admin_stock_batch_cache_v1'
 export const WAREHOUSE_INVENTORY_STOCK_CACHE_PREFIX = 'warehouse_inventory_stock_cache_v1:'
 export const WAREHOUSE_TRIPS_CACHE_PREFIX = 'warehouse_trips_cache_v1:'
 export const WAREHOUSE_ROUTE_PLAN_CACHE_PREFIX = 'warehouse_route_plan_cache_v1:'
+// Orders back both the Purchase Requests and Purchase Orders screens. They are
+// the slowest collection the portal loads (paginated, with full items), so
+// without a snapshot both screens render empty on every refresh until the whole
+// walk finishes — and stay empty if it fails.
+export const WAREHOUSE_ORDERS_CACHE_PREFIX = 'warehouse_orders_cache_v1:'
 
 export type PortalCacheEntry<T> = {
   data: T

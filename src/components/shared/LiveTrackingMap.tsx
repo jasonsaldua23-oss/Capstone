@@ -7,9 +7,13 @@ import 'leaflet/dist/leaflet.css';
 import MapLibreNavigationMap from './MapLibreNavigationMap';
 import {
   bearingBetweenMapPoints,
+  navigationReckoningSpeedMps,
   pointAtRouteDistance,
+  predictedRouteProgressMeters,
   projectPointOntoRoute,
+  quantizeRouteSplitMeters,
   splitRouteAtDistance,
+  NAVIGATION_DEAD_RECKONING_MAX_MS,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
 
@@ -349,6 +353,9 @@ export type DriverLocation = {
   markerEta?: string;
   markerEtaPhase?: 'completed' | 'next' | 'upcoming';
   accuracyMeters?: number;
+  // Ground speed in m/s from the GPS fix. Drives dead reckoning between fixes so
+  // the icon moves with the driver instead of trailing one full update interval.
+  speedMps?: number;
   routeProgressMeters?: number;
   popupCustomerName?: string;
   popupAddress?: string;
@@ -428,6 +435,10 @@ const TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS = 120;
 const TRUCK_MAX_ROUTE_SNAP_METERS = 60;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
+// Stationary clamp: with speed at or below this, route progress is frozen so
+// jitter cannot ratchet a parked vehicle forward through the monotonic clamp.
+// The dead-reckoning constants this pairs with live in `@/lib/map-navigation`.
+const TRUCK_PARKED_SPEED_MPS = 0.6;
 
 function getStatusPinIcon(color: 'green' | 'blue' | 'red' | 'orange', number?: number | string) {
   const label = number === undefined || number === null || String(number).trim() === '' ? '' : String(number);
@@ -1382,11 +1393,18 @@ export default function LiveTrackingMap({
       }
 
       const previousProgress = acceptedRouteProgressRef.current;
+      const reportedSpeedMps = Number(location.speedMps);
+      const isReportedStationary =
+        Number.isFinite(reportedSpeedMps) && reportedSpeedMps <= TRUCK_PARKED_SPEED_MPS;
       let acceptedDistance = projected.distanceAlongMeters;
       if (previousProgress?.routeKey === navigationRouteKey) {
         // Monotonic forward progress: GPS noise or slight off-route deviations
-        // must not move the progress backward on the current route.
-        acceptedDistance = Math.max(previousProgress.distanceMeters, projected.distanceAlongMeters);
+        // must not move the progress backward on the current route. That same
+        // clamp would ratchet a parked vehicle forward one jitter sample at a
+        // time, so while the fix reports itself stopped the progress is held.
+        acceptedDistance = isReportedStationary
+          ? previousProgress.distanceMeters
+          : Math.max(previousProgress.distanceMeters, projected.distanceAlongMeters);
       } else if (routeGeometryChanged) {
         const previousVisibleLocation = smoothedLocationsRef.current.find(
           (candidate) => candidate.id === location.id && candidate.markerType === 'truck'
@@ -1452,12 +1470,30 @@ export default function LiveTrackingMap({
       }
 
       const startTime = performance.now();
+      // Ground speed the icon may be advanced with between fixes. Dead reckoning
+      // is a navigation-view behaviour: other maps keep showing reported
+      // positions only. Zero disables prediction for that vehicle entirely.
+      const deadReckoningSpeedFor = (location: DriverLocation) => {
+        if (!navigationPerspective || navigationRouteGeometry.length < 2) return 0;
+        if (typeof location.routeProgressMeters !== 'number') return 0;
+        return navigationReckoningSpeedMps(location.speedMps);
+      };
+      const hasDeadReckoning = stabilizedTargets.some(
+        (location) => location.markerType === 'truck' && deadReckoningSpeedFor(location) > 0
+      );
+      // With prediction on, the loop outlives the catch-up so a late fix does not
+      // strand the icon; without it the loop still ends when the catch-up does.
+      const totalLoopDurationMs = animationDurationMs + (hasDeadReckoning ? NAVIGATION_DEAD_RECKONING_MAX_MS : 0);
 
       const animate = (now: number) => {
-        const progress = Math.min(1, (now - startTime) / animationDurationMs);
+        const elapsedMs = now - startTime;
+        const progress = Math.min(1, elapsedMs / animationDurationMs);
         // Smoothstep keeps velocity continuous at both ends while using almost
         // the entire GPS interval, so multi-second updates still look continuous.
         const easedProgress = progress * progress * (3 - 2 * progress);
+        // Time the next fix is overdue by, which is how far past the predicted
+        // position the icon is allowed to keep coasting.
+        const overdueMs = Math.max(0, elapsedMs - animationDurationMs);
 
         setSmoothedLocations(() => {
           const nextLocations = stabilizedTargets.map((targetLoc) => {
@@ -1496,9 +1532,21 @@ export default function LiveTrackingMap({
                 ? projectPointOntoRoute([previous.lat, previous.lng], navigationRouteGeometry)?.distanceAlongMeters
                 : previous.routeProgressMeters;
             const endRouteProgress = targetLoc.routeProgressMeters;
+            // Dead reckoning. Animating to the received fix always leaves the
+            // icon one full update interval behind the driver, so it aims at
+            // where the measured ground speed says the driver will be when this
+            // animation lands, and keeps coasting while the next fix is overdue.
+            // The next accepted fix corrects whatever the prediction got wrong.
             const animatedRouteProgress =
               typeof startRouteProgress === 'number' && typeof endRouteProgress === 'number'
-                ? lerp(startRouteProgress, endRouteProgress, easedProgress)
+                ? predictedRouteProgressMeters({
+                  startProgressMeters: startRouteProgress,
+                  targetProgressMeters: endRouteProgress,
+                  easedProgress,
+                  reckoningSpeedMps: deadReckoningSpeedFor(targetLoc),
+                  catchUpDurationMs: animationDurationMs,
+                  overdueMs,
+                })
                 : endRouteProgress;
             const animatedRoadPoint =
               navigationRouteGeometry.length >= 2 && typeof animatedRouteProgress === 'number'
@@ -1524,7 +1572,7 @@ export default function LiveTrackingMap({
           return nextLocations;
         });
 
-        if (progress < 1) {
+        if (elapsedMs < totalLoopDurationMs) {
           animationFrameRef.current = window.requestAnimationFrame(animate);
         } else {
           animationFrameRef.current = null;
@@ -1545,17 +1593,25 @@ export default function LiveTrackingMap({
 
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
   const navTruck = singleTruck.length === 1 ? singleTruck[0] : null;
-  const navigationDisplayRouteLines = useMemo(() => {
-    if (navigationRouteGeometry.length < 2 || !navTruck) return renderedRouteLines;
-
+  // The truck's position changes every animation frame, but the grey/blue
+  // junction only has to follow it to within a couple of metres. Quantizing the
+  // split distance keeps this memo — and therefore the entire route payload
+  // handed to the navigation map — stable across most frames, instead of
+  // rebuilding every source and layer 60 times a second.
+  const navTruckSplitDistance = useMemo(() => {
+    if (navigationRouteGeometry.length < 2 || !navTruck) return null;
     const projected = typeof navTruck.routeProgressMeters === 'number'
       ? navTruck.routeProgressMeters
       : projectPointOntoRoute([navTruck.lat, navTruck.lng], navigationRouteGeometry)?.distanceAlongMeters;
-    if (typeof projected !== 'number') return renderedRouteLines;
+    if (typeof projected !== 'number') return null;
+    return quantizeRouteSplitMeters(projected);
+  }, [navTruck, navigationRouteGeometry]);
+  const navigationDisplayRouteLines = useMemo(() => {
+    if (navigationRouteGeometry.length < 2 || navTruckSplitDistance === null) return renderedRouteLines;
 
-    // Gray and active route sections are split at the exact same interpolated
-    // road position used by the truck, so progress grows continuously with it.
-    const split = splitRouteAtDistance(navigationRouteGeometry, projected);
+    // Gray and active route sections are split at the same road position the
+    // truck is travelling along, so progress grows continuously with it.
+    const split = splitRouteAtDistance(navigationRouteGeometry, navTruckSplitDistance);
     const completedTemplate = renderedRouteLines.find((line) => line.id.endsWith('-route-completed'));
     const upcomingTemplate = renderedRouteLines.find((line) => line.id.endsWith('-route-upcoming'));
     const unrelatedLines = renderedRouteLines.filter(
@@ -1578,7 +1634,7 @@ export default function LiveTrackingMap({
       ...(completedLine.points.length > 1 ? [completedLine] : []),
       ...(upcomingLine.points.length > 1 ? [upcomingLine] : []),
     ];
-  }, [navTruck, navigationRouteGeometry, renderedRouteLines]);
+  }, [navTruckSplitDistance, navigationRouteGeometry, renderedRouteLines]);
 
   const strictBounds = restrictToNegrosOccidental
     ? serviceBoundary

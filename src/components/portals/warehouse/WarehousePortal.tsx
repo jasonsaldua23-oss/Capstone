@@ -52,7 +52,7 @@ import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS 
 import { portalFont } from '../portal-font'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
-import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
+import { getTabAuthToken } from '@/lib/client-auth'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
@@ -61,6 +61,7 @@ import { useAvatarCrop } from '@/hooks/use-avatar-crop'
 import {
   PORTAL_CACHE_TTL_MS,
   WAREHOUSE_INVENTORY_STOCK_CACHE_PREFIX,
+  WAREHOUSE_ORDERS_CACHE_PREFIX,
   WAREHOUSE_ROUTE_PLAN_CACHE_PREFIX,
   WAREHOUSE_TRIPS_CACHE_PREFIX,
   invalidateInventoryStockCaches,
@@ -646,6 +647,7 @@ export function WarehousePortal() {
   const cacheOwnerId = String((user as any)?.userId || (user as any)?.id || 'warehouse-staff')
   const inventoryStockCacheKey = `${WAREHOUSE_INVENTORY_STOCK_CACHE_PREFIX}${cacheOwnerId}`
   const tripsCacheKey = `${WAREHOUSE_TRIPS_CACHE_PREFIX}${cacheOwnerId}`
+  const ordersCacheKey = `${WAREHOUSE_ORDERS_CACHE_PREFIX}${cacheOwnerId}`
   const routePlanCachePrefix = `${WAREHOUSE_ROUTE_PLAN_CACHE_PREFIX}${cacheOwnerId}:`
   const {
     activeView,
@@ -802,6 +804,7 @@ export function WarehousePortal() {
   const stockInRequestIdRef = useRef('')
   const inventoryStockCacheAtRef = useRef(0)
   const tripsCacheAtRef = useRef(0)
+  const ordersCacheAtRef = useRef(0)
   const assignedWarehouseIdRef = useRef('')
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const openLogoutConfirm = () => setLogoutConfirmOpen(true)
@@ -2553,13 +2556,22 @@ export function WarehousePortal() {
             : undefined
       )
 
-    let first = await fetchPage(1)
-    if (first.status === 401 || first.status === 403) {
-      clearTabAuthToken()
-      first = await fetchPage(1)
-    }
+    const first = await fetchPage(1)
     if (!first.ok) {
-      throw new Error(first.error || 'Failed orders fetch')
+      // A rejected request must never discard this tab's token and retry without
+      // it. The retry then authenticates from the browser-wide staff cookie,
+      // which may belong to whichever portal logged in last (see the same note
+      // in app/page.tsx checkAuth). Because orders, purchase requests and trips
+      // are scoped server-side to the signed-in staff member's warehouse, taking
+      // on another identity silently returns a different set of rows — or none —
+      // and, with the token gone, the next refresh restores the tab as that
+      // other user. Session expiry is owned by the portal shell, not by a fetch
+      // helper; here we surface the failure and keep the current rows on screen.
+      throw new Error(
+        first.status === 401 || first.status === 403
+          ? 'Not authorized to load orders'
+          : first.error || 'Failed orders fetch'
+      )
     }
 
     const merged = getCollection<WarehouseOrderItem>(first.data, ['orders'])
@@ -2580,6 +2592,15 @@ export function WarehousePortal() {
         totalPages,
       },
     }
+  }
+
+  // Purchase Requests and Purchase Orders both read from `orders`, so the
+  // snapshot is what keeps those two screens populated across a refresh, a
+  // reopened tab, or a failed revalidation — the same role the trips and
+  // inventory snapshots already play for their screens.
+  const persistOrdersSnapshot = (rows: WarehouseOrderItem[]) => {
+    writePortalCache(ordersCacheKey, rows, assignedWarehouseIdRef.current)
+    ordersCacheAtRef.current = Date.now()
   }
 
   const fetchOrdersData = async (options?: { showLoading?: boolean; onlyIfNew?: boolean; silent?: boolean; summaryOnly?: boolean; lightweightDetails?: boolean }) => {
@@ -2610,6 +2631,7 @@ export function WarehousePortal() {
               setOrders((prev) => {
                 const merged = mergeWarehouseOrders(prev, deltaOrders)
                 latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(merged)
+                persistOrdersSnapshot(merged)
                 return merged
               })
             }
@@ -2627,6 +2649,9 @@ export function WarehousePortal() {
       // Normalize overlapping paginated results so each order appears only once in PR and PO views.
       const list = mergeWarehouseOrders([], getCollection<WarehouseOrderItem>(result.data, ['orders']))
       setOrders(list)
+      // A summary-only pass carries no line items, so caching it would leave the
+      // next refresh showing rows the tables cannot fully render.
+      if (!options?.summaryOnly) persistOrdersSnapshot(list)
       if (!options?.summaryOnly) orderDetailsLoadedRef.current = true
       latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(list)
       latestOrderMarkerRef.current = `${Number((result.data as any)?.total || 0)}::${latestOrderUpdatedAtRef.current || ''}`
@@ -3354,11 +3379,29 @@ export function WarehousePortal() {
         tripsCacheAtRef.current = tripsEntry.cachedAt
       }
 
+      const ordersEntry = readPortalCache<WarehouseOrderItem[]>(ordersCacheKey)
+      const ordersCacheMatches = Boolean(
+        ordersEntry && (!normalizedWarehouseId || !ordersEntry.warehouseId || ordersEntry.warehouseId === normalizedWarehouseId)
+      )
+      if (ordersCacheMatches && ordersEntry) {
+        const cachedOrders = Array.isArray(ordersEntry.data) ? ordersEntry.data : []
+        if (cachedOrders.length > 0) {
+          setOrders(cachedOrders)
+          setLoadingOrders(false)
+          ordersCacheAtRef.current = ordersEntry.cachedAt
+          // Seed the delta cursor so the revalidation below can ask only for what
+          // changed. The marker is deliberately left unset: it is established by a
+          // real response, so a cached start still forces one authoritative fetch.
+          latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(cachedOrders)
+        }
+      }
+
       return {
         inventoryStockCached: inventoryCacheMatches,
         inventoryStockFresh: inventoryCacheMatches && isPortalCacheFresh(inventoryStockEntry),
         tripsCached: tripsCacheMatches,
         tripsFresh: tripsCacheMatches && isPortalCacheFresh(tripsEntry),
+        ordersCached: ordersCacheMatches && ordersCacheAtRef.current > 0,
       }
     }
 
@@ -3379,7 +3422,9 @@ export function WarehousePortal() {
           fetchProductsData(),
           fetchInventoryTransactionsData(),
           initial
-            ? fetchOrdersData({ showLoading: true, lightweightDetails: true })
+            // The snapshot is already on screen, so revalidate behind it instead
+            // of replacing the tables with a loading state.
+            ? fetchOrdersData({ showLoading: !cacheState.ordersCached, lightweightDetails: true, silent: cacheState.ordersCached })
             : fetchOrdersData({ showLoading: false, silent: true }),
           cacheState.tripsFresh ? Promise.resolve() : fetchTripsData({ showLoading: !cacheState.tripsCached }),
           fetchReplacementsData(),
@@ -3466,7 +3511,9 @@ export function WarehousePortal() {
     if (activeView === 'orders' || activeView === 'purchaseRequests') {
       // Retry complete table details only if the startup request did not finish.
       if (!orderDetailsLoadedRef.current) {
-        void fetchOrdersData({ showLoading: true, lightweightDetails: true })
+        // Snapshot rows are already rendered on a revisit, so only show the
+        // blocking loader when there is genuinely nothing to display.
+        void fetchOrdersData({ showLoading: orders.length === 0, lightweightDetails: true })
       }
       return
     }
@@ -5439,7 +5486,8 @@ export function WarehousePortal() {
           }
         }}
       >
-        <DialogContent className="m-auto flex h-[95vh] w-[95vw] max-w-[1180px] min-w-0 items-stretch justify-center overflow-hidden rounded-xl p-0 shadow-xl z-[60]">
+        {/* Fix: override the shared dialog's sm:max-w-lg cap so both trip panes remain readable on desktop. */}
+        <DialogContent className="m-auto flex h-[95vh] w-[95vw] max-w-[1180px] min-w-0 items-stretch justify-center overflow-hidden rounded-xl p-0 shadow-xl sm:max-w-[1180px] z-[60]">
           <DialogHeader>
             <DialogTitle className="sr-only">{editingTripState ? 'Edit Trip' : 'Create Trip'}</DialogTitle>
           </DialogHeader>

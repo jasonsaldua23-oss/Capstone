@@ -94,11 +94,13 @@ class RetailPosMoneyTests(SimpleTestCase):
         self.assertEqual(paid["paymentStatus"], "PAID")
         self.assertEqual(paid["remainingBalance"], Decimal("0.00"))
 
-    def test_payment_rejects_negative_and_overpayment(self):
+    def test_payment_rejects_negative_and_returns_overpayment_as_change(self):
         with self.assertRaisesMessage(ValueError, "cannot be negative"):
             calculate_payment_summary(Decimal("100"), Decimal("0"), Decimal("-1"))
-        with self.assertRaisesMessage(ValueError, "cannot exceed"):
-            calculate_payment_summary(Decimal("100"), Decimal("0"), Decimal("101"))
+        payment = calculate_payment_summary(Decimal("1230"), Decimal("0"), Decimal("1250"))
+        self.assertEqual(payment["paymentStatus"], "PAID")
+        self.assertEqual(payment["remainingBalance"], Decimal("0.00"))
+        self.assertEqual(payment["change"], Decimal("20.00"))
 
 
 class RetailPosApiTests(TestCase):
@@ -186,6 +188,7 @@ class RetailPosApiTests(TestCase):
         payload = {
             "warehouseId": self.warehouse.id,
             "customerType": "WALK_IN",
+            "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "09171234567"},
             "fulfillmentType": "IMMEDIATE",
             "items": [{"mode": "LOOSE", "productId": self.product.id, "quantity": 2, "emptyBottlesProvided": 1}],
             "amountPaid": "62.00",
@@ -211,10 +214,30 @@ class RetailPosApiTests(TestCase):
         self.assertEqual(regular_orders.status_code, 200)
         self.assertEqual(regular_orders.json()["orders"], [])
 
+    def test_walk_in_sale_rejects_invalid_philippine_phone(self):
+        payload = {
+            "warehouseId": self.warehouse.id,
+            "customerType": "WALK_IN",
+            "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "12345"},
+            "fulfillmentType": "IMMEDIATE",
+            "items": [{"mode": "LOOSE", "productId": self.product.id, "quantity": 1, "emptyBottlesProvided": 0}],
+            "amountPaid": "32.00",
+        }
+        quoted = self._post_json("/api/retail/quote", payload)
+        self.assertEqual(quoted.status_code, 200, quoted.content)
+        payload.update({"quoteToken": quoted.json()["quoteToken"], "idempotencyKey": "invalid-phone-001"})
+
+        created = self._post_json("/api/retail/sales", payload)
+
+        self.assertEqual(created.status_code, 400, created.content)
+        self.assertEqual(created.json()["error"], "Please enter a valid Philippine mobile number")
+        self.assertFalse(Order.objects.filter(retail_request_id="invalid-phone-001").exists())
+
     def test_pickup_reserves_then_consumes_stock_once(self):
         payload = {
             "warehouseId": self.warehouse.id,
             "customerType": "WALK_IN",
+            "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "09171234567"},
             "fulfillmentType": "CUSTOMER_PICKUP",
             "items": [{"mode": "CASE", "productId": self.product.id, "quantity": 1, "emptyBottlesProvided": 0}],
             "amountPaid": "324.00",
@@ -285,6 +308,7 @@ class RetailPosApiTests(TestCase):
         response = self._post_json("/api/retail/quote", {
             "warehouseId": self.warehouse.id,
             "customerType": "WALK_IN",
+            "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "09171234567"},
             "fulfillmentType": "IMMEDIATE",
             "items": [{"mode": "CASE", "productId": alcohol.id, "quantity": 1, "emptyBottlesProvided": 0}],
             "amountPaid": "600.00",
@@ -298,6 +322,7 @@ class RetailPosApiTests(TestCase):
         payload = {
             "warehouseId": self.warehouse.id,
             "customerType": "WALK_IN",
+            "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "09171234567"},
             "fulfillmentType": "IMMEDIATE",
             "items": [{"mode": "LOOSE", "productId": self.product.id, "quantity": 2, "emptyBottlesProvided": 1}],
             "amountPaid": "62.00",

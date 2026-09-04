@@ -5,7 +5,6 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import {
-  bearingBetweenMapPoints,
   calculateTruckScreenRotation,
   normalizeMapAngle,
   type NavigationViewportInsets,
@@ -23,17 +22,9 @@ const NAVIGATION_3D_ZOOM = 19;
 const NAVIGATION_3D_PITCH = 58;
 // Updated: keeps the recentered truck at the second reference image's framing.
 const NAVIGATION_3D_FORWARD_VIEW_RATIO = 0.12;
-// Past this distance from the route the driver is off-route: the marker follows
-// the live GPS instead of being snapped onto a stale road, so it never appears
-// frozen on the route after the driver takes a different road.
-const NAVIGATION_OFF_ROUTE_SNAP_METERS = 60;
-
-function geoDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const refLat = ((lat1 + lat2) / 2) * (Math.PI / 180);
-  const dx = (lng2 - lng1) * Math.cos(refLat) * 111320;
-  const dy = (lat2 - lat1) * 110540;
-  return Math.hypot(dx, dy);
-}
+// Below this the fix is good enough that a halo would only add clutter; above
+// it the driver needs to see that the position they are following is uncertain.
+const NAVIGATION_ACCURACY_HALO_MIN_METERS = 30;
 
 type TruckMarkerEntry = {
   marker: maplibregl.Marker;
@@ -114,8 +105,8 @@ function createTruckElement(showSelfBadge: boolean, is3DPerspective: boolean) {
   element.innerHTML = `
     ${showSelfBadge ? '<div style="position:absolute;left:.5px;top:-47.5px;transform:translateX(-50%);z-index:3;border-radius:9999px;background:#fff;border:1px solid rgba(15,23,42,.18);padding:1px 6px;color:#0f3d72;font:900 10px/14px system-ui,sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(15,23,42,.15)">YOU</div>' : ''}
     <div style="position:absolute;left:.5px;top:.5px;transform:translate(-50%,17px);width:26px;height:10px;border-radius:9999px;background:rgba(29,78,216,.3);filter:blur(2px)"></div>
-    <img data-truck-image data-mode="3d" data-asset-forward-heading="${TRUCK_BACK_ASSET_FORWARD_HEADING}" src="${TRUCK_BACK_ICON_URL}" alt="truck" style="position:absolute;left:.5px;top:2.5px;z-index:2;width:96px;max-width:none;height:96px;display:${is3DPerspective ? 'block' : 'none'};object-fit:contain;transform:translate(-50%,-50%);transform-origin:center center;transition:transform 0.35s cubic-bezier(.4,0,.2,1);filter:drop-shadow(0 4px 10px rgba(15,23,42,.38)) contrast(1.08) saturate(1.08)" />
-    <img data-truck-image data-mode="2d" data-asset-forward-heading="${TRUCK_ISO_ASSET_FORWARD_HEADING}" src="${TRUCK_ISO_ICON_URL}" alt="truck" style="position:absolute;left:-1.5px;top:2.5px;z-index:2;width:72px;max-width:none;height:72px;display:${is3DPerspective ? 'none' : 'block'};object-fit:contain;transform:translate(-50%,-50%);transform-origin:center center;will-change:transform;transition:transform 0.35s cubic-bezier(.4,0,.2,1);filter:drop-shadow(0 4px 10px rgba(15,23,42,.38)) contrast(1.08) saturate(1.08)" />`;
+    <img data-truck-image data-mode="3d" data-asset-forward-heading="${TRUCK_BACK_ASSET_FORWARD_HEADING}" src="${TRUCK_BACK_ICON_URL}" alt="truck" style="position:absolute;left:.5px;top:2.5px;z-index:2;width:96px;max-width:none;height:96px;display:${is3DPerspective ? 'block' : 'none'};object-fit:contain;transform:translate(-50%,-50%);transform-origin:center center;will-change:transform;filter:drop-shadow(0 4px 10px rgba(15,23,42,.38)) contrast(1.08) saturate(1.08)" />
+    <img data-truck-image data-mode="2d" data-asset-forward-heading="${TRUCK_ISO_ASSET_FORWARD_HEADING}" src="${TRUCK_ISO_ICON_URL}" alt="truck" style="position:absolute;left:-1.5px;top:2.5px;z-index:2;width:72px;max-width:none;height:72px;display:${is3DPerspective ? 'none' : 'block'};object-fit:contain;transform:translate(-50%,-50%);transform-origin:center center;will-change:transform;filter:drop-shadow(0 4px 10px rgba(15,23,42,.38)) contrast(1.08) saturate(1.08)" />`;
   return element;
 }
 
@@ -125,72 +116,60 @@ function rotateTruckElement(element: HTMLElement, heading: number, cameraBearing
 
 function applyTruckScreenHeading(element: HTMLElement, screenHeading: number) {
   element.querySelectorAll<HTMLElement>('[data-truck-image]').forEach((image) => {
-    const assetForwardHeading = Number(image.dataset.assetForwardHeading);
-    const rotation = image.dataset.mode === '3d'
-      ? 0
-      : screenHeading - (
-          Number.isFinite(assetForwardHeading) ? assetForwardHeading : TRUCK_ISO_ASSET_FORWARD_HEADING
-        );
-    image.style.transform = `translate(-50%,-50%) rotate(${rotation}deg)`;
+    // Both assets rotate against the camera. While the 3D camera is following
+    // the vehicle its bearing already matches the heading, so this resolves to
+    // roughly zero rotation; it is what keeps the vehicle pointing the right way
+    // once the driver pans the map and the camera bearing stops tracking them.
+    const declaredForwardHeading = Number(image.dataset.assetForwardHeading);
+    const assetForwardHeading = Number.isFinite(declaredForwardHeading)
+      ? declaredForwardHeading
+      : image.dataset.mode === '3d'
+        ? TRUCK_BACK_ASSET_FORWARD_HEADING
+        : TRUCK_ISO_ASSET_FORWARD_HEADING;
+    image.style.transform = `translate(-50%,-50%) rotate(${screenHeading - assetForwardHeading}deg)`;
   });
 }
 
-function projectedRoutePlacement(
-  map: maplibregl.Map,
-  location: { lat: number; lng: number },
-  routeLines: LiveRouteLine[]
-) {
-  const upcomingLines = routeLines.filter((line) => line.color === '#2563eb' && !line.dashArray && line.points.length > 1);
-  const candidates = upcomingLines.length > 0 ? upcomingLines : routeLines.filter((line) => line.points.length > 1);
-  const truckPoint = map.project([location.lng, location.lat]);
-  let best: { points: [number, number][]; segmentIndex: number; t: number; distance2: number } | null = null;
-
-  candidates.forEach((line) => {
-    for (let index = 0; index < line.points.length - 1; index += 1) {
-      const start = map.project([line.points[index][1], line.points[index][0]]);
-      const end = map.project([line.points[index + 1][1], line.points[index + 1][0]]);
-      const dx = end.x - start.x;
-      const dy = end.y - start.y;
-      const length2 = dx * dx + dy * dy;
-      if (length2 < 0.0001) continue;
-      const rawT = ((truckPoint.x - start.x) * dx + (truckPoint.y - start.y) * dy) / length2;
-      const t = Math.max(0, Math.min(1, rawT));
-      const nearestX = start.x + dx * t;
-      const nearestY = start.y + dy * t;
-      const distance2 = (truckPoint.x - nearestX) ** 2 + (truckPoint.y - nearestY) ** 2;
-      if (!best || distance2 < best.distance2) best = { points: line.points, segmentIndex: index, t, distance2 };
-    }
+// Every drop point gets a dotted bridge from the nearest routed road coordinate
+// to the order's exact stored coordinate, plus a dot marking that coordinate.
+function buildPinBridgeFeatures(locations: DriverLocation[], routeLines: LiveRouteLine[]) {
+  const features: GeoJSON.Feature[] = [];
+  locations.filter((location) => location.markerType === 'pin').forEach((location) => {
+    const roadCoordinate = nearestCoordinateOnRoutes(location, routeLines);
+    if (!roadCoordinate) return;
+    features.push({
+      type: 'Feature',
+      properties: { id: String(location.id) },
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [roadCoordinate[1], roadCoordinate[0]],
+          [location.lng, location.lat],
+        ],
+      },
+    });
+    features.push({
+      type: 'Feature',
+      properties: { id: String(location.id) },
+      geometry: { type: 'Point', coordinates: [location.lng, location.lat] },
+    });
   });
-  if (!best) return null;
+  return features;
+}
 
-  const matched = best as { points: [number, number][]; segmentIndex: number; t: number; distance2: number };
-  const start = map.project([matched.points[matched.segmentIndex][1], matched.points[matched.segmentIndex][0]]);
-  const end = map.project([matched.points[matched.segmentIndex + 1][1], matched.points[matched.segmentIndex + 1][0]]);
-  const originX = start.x + (end.x - start.x) * matched.t;
-  const originY = start.y + (end.y - start.y) * matched.t;
-  let forward = end;
-  let nextIndex = matched.segmentIndex + 2;
-  while (Math.hypot(forward.x - originX, forward.y - originY) < 10 && nextIndex < matched.points.length) {
-    forward = map.project([matched.points[nextIndex][1], matched.points[nextIndex][0]]);
-    nextIndex += 1;
+// Geographic ring approximating a circle of `radiusMeters` around a coordinate.
+// MapLibre's circle-radius is measured in screen pixels, which would keep the
+// halo the same size as the driver zooms — the opposite of what it must convey.
+function accuracyHaloRing(lat: number, lng: number, radiusMeters: number): [number, number][] {
+  const latitudeDegrees = radiusMeters / 110540;
+  const longitudeDegrees = radiusMeters / (111320 * Math.max(Math.cos((lat * Math.PI) / 180), 0.01));
+  const ring: [number, number][] = [];
+  const segments = 48;
+  for (let step = 0; step <= segments; step += 1) {
+    const angle = (step / segments) * Math.PI * 2;
+    ring.push([lng + Math.cos(angle) * longitudeDegrees, lat + Math.sin(angle) * latitudeDegrees]);
   }
-  const dx = forward.x - originX;
-  const dy = forward.y - originY;
-  if (Math.hypot(dx, dy) < 1) return null;
-  const snappedCoordinate = map.unproject([originX, originY]);
-  const geographicBearing = bearingBetweenMapPoints(
-    matched.points[matched.segmentIndex],
-    matched.points[Math.min(nextIndex - 1, matched.points.length - 1)]
-  );
-  return {
-    heading: (Math.atan2(dx, -dy) * 180) / Math.PI,
-    bearing: geographicBearing,
-    lng: snappedCoordinate.lng,
-    lat: snappedCoordinate.lat,
-    // How far the live position sat from the route, so callers can decline the
-    // snap when the driver has clearly left it.
-    distanceMeters: geoDistanceMeters(location.lat, location.lng, snappedCoordinate.lat, snappedCoordinate.lng),
-  };
+  return ring;
 }
 
 function nearestCoordinateOnRoutes(
@@ -262,11 +241,11 @@ export default function MapLibreNavigationMap({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const routeLinesRef = useRef(routeLines);
   const truckMarkersRef = useRef(new Map<string, TruckMarkerEntry>());
   const dropPinMarkersRef = useRef(new Map<string, DropPinMarkerEntry>());
   const routeLayerIdsRef = useRef<string[]>([]);
   const routeSourceIdsRef = useRef<string[]>([]);
+  const pinBridgeCacheRef = useRef<{ key: string; features: GeoJSON.Feature[] }>({ key: '', features: [] });
   const isUserExploringRef = useRef(false);
   const previousRecenterRef = useRef(recenterSignal);
   const previousZoomInRef = useRef(zoomInSignal);
@@ -280,10 +259,17 @@ export default function MapLibreNavigationMap({
     () => routeLines.map((line) => `${line.id}:${line.color}:${line.points.map((point) => point.join(',')).join('|')}`).join('||'),
     [routeLines]
   );
-
-  useEffect(() => {
-    routeLinesRef.current = routeLines;
-  }, [routeLines]);
+  const selectableRouteLineIdsKey = useMemo(
+    () => routeLines.filter((line) => line.selectable).map((line) => String(line.id)).join('|'),
+    [routeLines]
+  );
+  const pinSignature = useMemo(
+    () => locations
+      .filter((location) => location.markerType === 'pin')
+      .map((location) => `${location.id}:${location.lat},${location.lng}`)
+      .join('|'),
+    [locations]
+  );
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -299,22 +285,14 @@ export default function MapLibreNavigationMap({
     });
     mapRef.current = map;
 
+    // Keeps the vehicle pointing along its heading as the camera rotates. The
+    // heading is already resolved and smoothed upstream, so this stays O(1) per
+    // marker rather than re-deriving it from route geometry on every frame.
     const syncTruckRotations = () => {
       const bearing = map.getBearing();
       truckMarkersRef.current.forEach(({ element }) => {
         const heading = Number(element.dataset.routeHeading);
-        const lat = Number(element.dataset.markerLat);
-        const lng = Number(element.dataset.markerLng);
-        const projectedPlacement = Number.isFinite(lat) && Number.isFinite(lng)
-          ? projectedRoutePlacement(map, { lat, lng }, routeLinesRef.current)
-          : null;
-        // The route-derived geographic heading keeps the completed path behind
-        // the truck; projected upcoming geometry is only a fallback.
-        if (Number.isFinite(heading)) {
-          rotateTruckElement(element, heading, bearing);
-        } else if (projectedPlacement && Number.isFinite(projectedPlacement.heading)) {
-          applyTruckScreenHeading(element, projectedPlacement.heading);
-        }
+        if (Number.isFinite(heading)) rotateTruckElement(element, heading, bearing);
       });
     };
     const markUserExploring = () => {
@@ -358,16 +336,11 @@ export default function MapLibreNavigationMap({
         entry = { marker, element, popupHtml: popupHtml(location) };
         truckMarkersRef.current.set(location.id, entry);
       }
-      const projectedPlacement = projectedRoutePlacement(map, location, routeLinesRef.current);
-      // Only snap the marker onto the route while the driver is actually near it;
-      // once off-route the marker follows the live position so it never freezes.
-      const onRoutePlacement =
-        projectedPlacement && projectedPlacement.distanceMeters <= NAVIGATION_OFF_ROUTE_SNAP_METERS
-          ? projectedPlacement
-          : null;
-      const markerLat = onRoutePlacement?.lat ?? location.lat;
-      const markerLng = onRoutePlacement?.lng ?? location.lng;
-      entry.marker.setLngLat([markerLng, markerLat]);
+      // The position arrives already map-matched to the road and clamped to
+      // monotonic route progress, in ground space. Re-deriving it here from
+      // projected screen pixels cost a pass over the whole route every frame and
+      // was wrong under pitch, where pixel distance is not ground distance.
+      entry.marker.setLngLat([location.lng, location.lat]);
       const nextPopupHtml = popupHtml(location);
       // Position changes arrive every animation frame; keep static popup DOM out
       // of that hot path to avoid needless layout work and marker flicker.
@@ -379,16 +352,10 @@ export default function MapLibreNavigationMap({
       const heading = hasRouteHeading ? normalizeMapAngle(location.markerHeading as number) : 0;
       if (hasRouteHeading) entry.element.dataset.routeHeading = String(heading);
       else delete entry.element.dataset.routeHeading;
-      entry.element.dataset.markerLat = String(markerLat);
-      entry.element.dataset.markerLng = String(markerLng);
       entry.element.querySelectorAll<HTMLElement>('[data-truck-image]').forEach((image) => {
         image.style.display = image.dataset.mode === (is3DPerspective ? '3d' : '2d') ? 'block' : 'none';
       });
-      if (hasRouteHeading) {
-        rotateTruckElement(entry.element, heading, map.getBearing());
-      } else if (projectedPlacement && Number.isFinite(projectedPlacement.heading)) {
-        applyTruckScreenHeading(entry.element, projectedPlacement.heading);
-      }
+      if (hasRouteHeading) rotateTruckElement(entry.element, heading, map.getBearing());
     });
     truckMarkersRef.current.forEach((entry, id) => {
       if (!activeTruckIds.has(id)) {
@@ -396,10 +363,7 @@ export default function MapLibreNavigationMap({
         truckMarkersRef.current.delete(id);
       }
     });
-
-  // Fix: road snapping completes after the GPS update. Resync the truck when
-  // that geometry changes so the completed path always ends behind the icon.
-  }, [is3DPerspective, locations, routeSignature, showDriverSelfBadge]);
+  }, [is3DPerspective, locations, showDriverSelfBadge]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -454,30 +418,19 @@ export default function MapLibreNavigationMap({
     const sourceId = 'drop-coordinate-bridges';
     const bridgeLayerId = 'drop-coordinate-bridge-dots';
     const coordinateLayerId = 'drop-coordinate-points';
-    const features: GeoJSON.Feature[] = [];
 
-    locations.filter((location) => location.markerType === 'pin').forEach((location) => {
-      const roadCoordinate = nearestCoordinateOnRoutes(location, routeLines);
-      if (!roadCoordinate) return;
-      // Added: every drop point gets its own dotted bridge from the nearest
-      // routed road coordinate to the order's exact stored coordinate.
-      features.push({
-        type: 'Feature',
-        properties: { id: String(location.id) },
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            [roadCoordinate[1], roadCoordinate[0]],
-            [location.lng, location.lat],
-          ],
-        },
-      });
-      features.push({
-        type: 'Feature',
-        properties: { id: String(location.id) },
-        geometry: { type: 'Point', coordinates: [location.lng, location.lat] },
-      });
-    });
+    // Finding each drop point's road coordinate walks the entire route, and this
+    // effect re-runs on every frame that moves the vehicle. The pins and the
+    // route are unchanged on those frames, so their bridges are computed once
+    // per real change and replayed from the cache in between.
+    const pinBridgeKey = `${pinSignature}::${routeSignature}`;
+    if (pinBridgeCacheRef.current.key !== pinBridgeKey) {
+      pinBridgeCacheRef.current = {
+        key: pinBridgeKey,
+        features: buildPinBridgeFeatures(locations, routeLines),
+      };
+    }
+    const features: GeoJSON.Feature[] = [...pinBridgeCacheRef.current.features];
 
     locations.filter((location) => location.markerType === 'truck').forEach((location) => {
       const actualLat = Number(location.actualLat);
@@ -549,7 +502,62 @@ export default function MapLibreNavigationMap({
     if (map.loaded()) updateBridges();
     else map.once('load', updateBridges);
     return () => { map.off('load', updateBridges); };
-  }, [locations, routeLines, routeSignature]);
+  }, [locations, pinSignature, routeSignature]);
+
+  // A degraded fix has to look degraded. Without this the vehicle renders
+  // identically at 8 m and at 200 m of accuracy, leaving the driver no way to
+  // tell that the position they are following has stopped being trustworthy.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const sourceId = 'driver-accuracy-halo';
+    const fillLayerId = 'driver-accuracy-halo-fill';
+    const outlineLayerId = 'driver-accuracy-halo-outline';
+    const features: GeoJSON.Feature[] = [];
+
+    locations.filter((location) => location.markerType === 'truck').forEach((location) => {
+      const accuracyMeters = Number(location.accuracyMeters);
+      if (!Number.isFinite(accuracyMeters) || accuracyMeters < NAVIGATION_ACCURACY_HALO_MIN_METERS) return;
+      // The halo belongs on the raw fix, not on the road-matched icon: it is the
+      // measurement that is uncertain, not the position it was matched to.
+      const haloLat = Number.isFinite(Number(location.actualLat)) ? Number(location.actualLat) : location.lat;
+      const haloLng = Number.isFinite(Number(location.actualLng)) ? Number(location.actualLng) : location.lng;
+      features.push({
+        type: 'Feature',
+        properties: { id: String(location.id) },
+        geometry: { type: 'Polygon', coordinates: [accuracyHaloRing(haloLat, haloLng, accuracyMeters)] },
+      });
+    });
+    const data: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+
+    const updateHalo = () => {
+      if (mapRef.current !== map || !map.getStyle()) return;
+      const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
+      if (source) source.setData(data);
+      else map.addSource(sourceId, { type: 'geojson', data });
+
+      if (!map.getLayer(fillLayerId)) {
+        map.addLayer({
+          id: fillLayerId,
+          type: 'fill',
+          source: sourceId,
+          paint: { 'fill-color': '#1d4ed8', 'fill-opacity': 0.12 },
+        });
+      }
+      if (!map.getLayer(outlineLayerId)) {
+        map.addLayer({
+          id: outlineLayerId,
+          type: 'line',
+          source: sourceId,
+          paint: { 'line-color': '#1d4ed8', 'line-width': 1, 'line-opacity': 0.35 },
+        });
+      }
+    };
+
+    if (map.loaded()) updateHalo();
+    else map.once('load', updateHalo);
+    return () => { map.off('load', updateHalo); };
+  }, [locations]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -571,7 +579,6 @@ export default function MapLibreNavigationMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const routeInteractionCleanups: Array<() => void> = [];
     const updateRoutes = () => {
       if (mapRef.current !== map || !map.getStyle()) return;
       const activeSourceIds: string[] = [];
@@ -667,27 +674,6 @@ export default function MapLibreNavigationMap({
         map.setPaintProperty(mainLayerId, 'line-width', ['interpolate', ['linear'], ['zoom'], 10, 2.6, 14, 5, 18, 8.5]);
         map.setPaintProperty(mainLayerId, 'line-opacity', isUpcoming ? 0.98 : isAlternative ? 0.86 : 0.84);
         map.setPaintProperty(detailLayerId, 'line-offset', 0);
-        if (line.selectable && onRouteLineSelect) {
-          const selectRoute = (event: maplibregl.MapLayerMouseEvent) => {
-            const hitLayerIds = routeLayerIdsRef.current.filter((layerId) => layerId.endsWith('-hit') && map.getLayer(layerId));
-            const topRoute = hitLayerIds.length > 0
-              ? map.queryRenderedFeatures(event.point, { layers: hitLayerIds })[0]
-              : null;
-            // Only the visually top route receives the tap where routes overlap.
-            if (String(topRoute?.properties?.routeLineId || '') !== String(line.id)) return;
-            onRouteLineSelect(line.id);
-          };
-          const showPointer = () => { map.getCanvas().style.cursor = 'pointer'; };
-          const clearPointer = () => { map.getCanvas().style.cursor = ''; };
-          map.on('click', hitLayerId, selectRoute);
-          map.on('mouseenter', hitLayerId, showPointer);
-          map.on('mouseleave', hitLayerId, clearPointer);
-          routeInteractionCleanups.push(() => {
-            map.off('click', hitLayerId, selectRoute);
-            map.off('mouseenter', hitLayerId, showPointer);
-            map.off('mouseleave', hitLayerId, clearPointer);
-          });
-        }
       });
 
       const activeLayerSet = new Set(activeLayerIds);
@@ -703,12 +689,46 @@ export default function MapLibreNavigationMap({
     };
     if (map.loaded()) updateRoutes();
     else map.once('load', updateRoutes);
+    return () => { map.off('load', updateRoutes); };
+  }, [routeLines, routeSignature]);
+
+  // Route selection is bound to layer ids, not to geometry. Registering it
+  // alongside the geometry update tore down and rebuilt every listener each time
+  // the vehicle advanced along the route. One map-level listener also survives
+  // the hit layers being replaced, which per-layer delegates did not.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !onRouteLineSelect) return;
+    const selectableIds = new Set(
+      selectableRouteLineIdsKey ? selectableRouteLineIdsKey.split('|') : []
+    );
+    if (selectableIds.size === 0) return;
+
+    const topRouteLineIdAt = (point: maplibregl.Point) => {
+      const hitLayerIds = routeLayerIdsRef.current.filter(
+        (layerId) => layerId.endsWith('-hit') && map.getLayer(layerId)
+      );
+      if (hitLayerIds.length === 0) return '';
+      // Only the visually top route receives the tap where routes overlap.
+      const topRoute = map.queryRenderedFeatures(point, { layers: hitLayerIds })[0];
+      return String(topRoute?.properties?.routeLineId || '');
+    };
+    const handleClick = (event: maplibregl.MapMouseEvent) => {
+      const routeLineId = topRouteLineIdAt(event.point);
+      if (selectableIds.has(routeLineId)) onRouteLineSelect(routeLineId);
+    };
+    const handleMouseMove = (event: maplibregl.MapMouseEvent) => {
+      map.getCanvas().style.cursor = selectableIds.has(topRouteLineIdAt(event.point)) ? 'pointer' : '';
+    };
+
+    map.on('click', handleClick);
+    map.on('mousemove', handleMouseMove);
     return () => {
-      map.off('load', updateRoutes);
-      routeInteractionCleanups.forEach((cleanup) => cleanup());
+      map.off('click', handleClick);
+      map.off('mousemove', handleMouseMove);
       map.getCanvas().style.cursor = '';
     };
-  }, [onRouteLineSelect, routeLines, routeSignature]);
+  }, [onRouteLineSelect, selectableRouteLineIdsKey]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -722,24 +742,14 @@ export default function MapLibreNavigationMap({
     }
     if (isUserExploringRef.current) return;
 
-    // Center the camera on the same route-snapped coordinate used by the truck
-    // marker. This changes only the camera target, never GPS or route geometry.
-    const candidatePlacement = truck
-      ? projectedRoutePlacement(map, truck, routeLinesRef.current)
-      : null;
-    // Off-route, follow the live position instead of a stale point on the route.
-    const routePlacement =
-      candidatePlacement && candidatePlacement.distanceMeters <= NAVIGATION_OFF_ROUTE_SNAP_METERS
-        ? candidatePlacement
-        : null;
-    const targetCenter = routePlacement
-      ? [routePlacement.lng, routePlacement.lat] as [number, number]
-      : truck
-        ? [truck.lng, truck.lat] as [number, number]
-        : [center[1], center[0]] as [number, number];
-    const cameraHeading = routePlacement && typeof routePlacement.bearing === 'number' && Number.isFinite(routePlacement.bearing)
-      ? normalizeMapAngle(routePlacement.bearing)
-      : truckHeading;
+    // Center the camera on the same coordinate the truck marker uses, and turn
+    // it with the same smoothed heading. Deriving the bearing from route
+    // vertices instead made the view snap round a curve in discrete steps, one
+    // jump per vertex, rather than easing through it.
+    const targetCenter = truck
+      ? [truck.lng, truck.lat] as [number, number]
+      : [center[1], center[0]] as [number, number];
+    const cameraHeading = truckHeading;
     // MapLibre places the target at the center of the rectangle remaining after
     // padding, which is the measured space between the navigation overlays.
     const cameraPadding = navigationViewportInsets ?? { top: 0, bottom: 0, left: 0, right: 0 };
@@ -767,7 +777,7 @@ export default function MapLibreNavigationMap({
       essential: true,
     };
     map.easeTo(cameraOptions);
-  }, [center, is3DPerspective, navigationViewportInsets, recenterSignal, routeSignature, truck?.lat, truck?.lng, truckHeading]);
+  }, [center, is3DPerspective, navigationViewportInsets, recenterSignal, truck?.lat, truck?.lng, truckHeading]);
 
   return (
     <div

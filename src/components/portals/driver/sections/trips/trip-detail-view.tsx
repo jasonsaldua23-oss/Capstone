@@ -1949,6 +1949,11 @@ export function TripDetailView({
       accuracyMeters: Number.isFinite(Number(sourceLocation.accuracy))
         ? Number(sourceLocation.accuracy)
         : undefined,
+      // Ground speed lets the map extrapolate between fixes rather than only
+      // animating toward a position the driver has already left.
+      speedMps: Number.isFinite(Number(sourceLocation.speed)) && Number(sourceLocation.speed) >= 0
+        ? Number(sourceLocation.speed)
+        : undefined,
     }
   })()
 

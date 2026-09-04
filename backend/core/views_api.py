@@ -7475,6 +7475,7 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         updated_stock=item.quantity,
         reference_type=body.get("referenceType"),
         reference_id=body.get("referenceId"),
+        performed_by=str(staff.get("userId") or "").strip() or None,
         notes=body.get("notes"),
     )
     return _ok({"success": True, "inventory": _serialize_model(item, include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)})}, 201)
@@ -7490,10 +7491,22 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
         item = Inventory.objects.select_related("warehouse", "product").get(id=inventory_id)
     except Inventory.DoesNotExist:
         return _err("Inventory not found", 404)
+
+    staff_role = str(staff.get("role") or "").strip().upper()
+    staff_user_id = str(staff.get("userId") or "").strip()
+    # Every sibling inventory endpoint scopes warehouse staff to the warehouses
+    # they manage; without the same guard here a staff account could edit stock
+    # in a warehouse it cannot even read.
+    if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+        allowed_warehouse_ids = _get_allowed_warehouse_ids_for_staff(staff_user_id)
+        if str(item.warehouse_id or "").strip() not in allowed_warehouse_ids:
+            return _err("Forbidden", 403)
+
     body = _json_body(request)
+    previous_quantity = max(0, _int(item.quantity, 0))
     if "quantity" in body:
         next_quantity = _int(body.get("quantity"), item.quantity)
-        added_cases = next_quantity - max(0, _int(item.quantity, 0))
+        added_cases = next_quantity - previous_quantity
         capacity_error = _warehouse_capacity_error(item.warehouse, incoming_cases=added_cases)
         if capacity_error:
             return _err(capacity_error, 400)
@@ -7504,6 +7517,27 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
         if key in body:
             setattr(item, attr, _int(body.get(key), getattr(item, attr)))
     item.save()
+
+    # A manual correction moves real stock, so it belongs in the ledger like any
+    # other movement. Without this row the quantity silently changes and the
+    # warehouse transaction history shows no trace of who changed it or why.
+    quantity_delta = max(0, _int(item.quantity, 0)) - previous_quantity
+    if quantity_delta:
+        InventoryTransaction.objects.create(
+            warehouse=item.warehouse,
+            product=item.product,
+            type="IN" if quantity_delta > 0 else "OUT",
+            quantity=abs(quantity_delta),
+            quantity_unit=InventoryQuantityUnit.CASE,
+            stock_unit_label="Case",
+            previous_stock=previous_quantity,
+            updated_stock=max(0, _int(item.quantity, 0)),
+            reference_type="inventory_manual_edit",
+            reference_id=item.id,
+            performed_by=staff_user_id or None,
+            notes=str(body.get("notes") or "").strip() or "Manual inventory quantity adjustment",
+        )
+
     return _ok({"success": True, "inventory": _serialize_model(item, include={"warehouse": lambda o: _serialize_model(o.warehouse), "product": lambda o: _serialize_model(o.product)})})
 
 

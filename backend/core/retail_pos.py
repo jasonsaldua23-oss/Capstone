@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
@@ -132,9 +133,9 @@ def calculate_payment_summary(
     grand_total = money(product + deposit)
     if paid < 0:
         raise ValueError("Amount paid cannot be negative")
-    if paid > grand_total:
-        raise ValueError("Amount paid cannot exceed the grand total")
-    remaining = money(grand_total - paid)
+    # Added: cash tendered may exceed the total; the excess is returned as change.
+    remaining = money(max(grand_total - paid, Decimal("0.00")))
+    change = money(max(paid - grand_total, Decimal("0.00")))
     if paid == 0:
         status = "UNPAID"
     elif remaining == 0:
@@ -147,6 +148,7 @@ def calculate_payment_summary(
         "grandTotal": grand_total,
         "amountPaid": paid,
         "remainingBalance": remaining,
+        "change": change,
         "paymentStatus": status,
     }
 
@@ -508,6 +510,7 @@ def serialize_retail_quote(quote: dict[str, Any]) -> dict[str, Any]:
         "grandTotal": _money_text(payment["grandTotal"]),
         "amountPaid": _money_text(payment["amountPaid"]),
         "remainingBalance": _money_text(payment["remainingBalance"]),
+        "change": _money_text(payment["change"]),
         "paymentStatus": payment["paymentStatus"],
         "fingerprint": quote["fingerprint"],
     }
@@ -587,9 +590,13 @@ def _resolve_retail_customer(payload: dict[str, Any]) -> tuple[Customer | None, 
     if customer_type != "WALK_IN":
         raise ValueError("customerType must be EXISTING or WALK_IN")
     walk_in = payload.get("walkIn") if isinstance(payload.get("walkIn"), dict) else {}
+    contact = re.sub(r"\D", "", str(walk_in.get("contactNumber") or ""))
+    # Added: enforce the same Philippine mobile formats used by other profiles.
+    if not re.fullmatch(r"(?:09\d{9}|63\d{10})", contact):
+        raise ValueError("Please enter a valid Philippine mobile number")
     return None, {
         "name": str(walk_in.get("name") or "").strip() or None,
-        "contact": str(walk_in.get("contactNumber") or "").strip() or None,
+        "contact": contact,
         "notes": str(walk_in.get("notes") or "").strip() or None,
     }
 
@@ -978,6 +985,7 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
         "totalAmount": _money_text(order.total_amount),
         "amountPaid": _money_text(order.amount_paid),
         "remainingBalance": _money_text(order.remaining_balance),
+        "change": _money_text(max(money(order.amount_paid) - money(order.total_amount), Decimal("0.00"))),
         "paymentStatus": order.payment_status,
         "fulfillmentType": order.fulfillment_type,
         "pickupStatus": order.pickup_status,

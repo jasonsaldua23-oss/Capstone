@@ -4790,6 +4790,9 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
             total_amount=110,
             warehouse_id=self.other_warehouse.id,
         )
+        # The replacements collection only ever exposes customer-submitted
+        # requests, so the scope assertion below has to build the same kind of
+        # record the endpoint serves.
         Replacement.objects.create(
             replacement_number="RET-SCOPE-001",
             order=primary_order,
@@ -4799,6 +4802,7 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
             pickup_city="Return City",
             pickup_province="Return Province",
             pickup_zip_code="5000",
+            replacement_mode="CUSTOMER_SUBMITTED",
         )
         Replacement.objects.create(
             replacement_number="RET-SCOPE-002",
@@ -4809,6 +4813,7 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
             pickup_city="Return City",
             pickup_province="Return Province",
             pickup_zip_code="5000",
+            replacement_mode="CUSTOMER_SUBMITTED",
         )
         response = self.client.get(
             "/api/replacements",

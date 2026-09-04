@@ -43,7 +43,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { formatPhilippinePhoneInput } from '@/lib/philippine-phone'
+import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { getTabAuthToken } from '@/lib/client-auth'
 
@@ -139,6 +139,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const [walkInMiddleName, setWalkInMiddleName] = useState('')
   const [walkInContact, setWalkInContact] = useState('')
   const [walkInNotes, setWalkInNotes] = useState('')
+  const [amountTendered, setAmountTendered] = useState('')
   const fulfillmentType = 'IMMEDIATE'
   const [mixedCapacity, setMixedCapacity] = useState(12)
   const [mixedProductA, setMixedProductA] = useState('')
@@ -323,6 +324,14 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       toast.error('Contact number is required for walk-in customer')
       return false
     }
+    if (!isValidPhilippinePhone(walkInContact)) {
+      toast.error('Please enter a valid Philippine mobile number (e.g. 09171234567 or 639171234567)')
+      return false
+    }
+    if (Number(amountTendered) < cartGrandTotal) {
+      toast.error('Amount tendered must cover the total amount')
+      return false
+    }
     return true
   }
 
@@ -340,6 +349,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         notes: walkInNotes.trim(),
       },
       fulfillmentType,
+      amountPaid: Number(amountTendered || 0),
       items: cart.map(({ key: _key, ...line }) => {
         // Backend always expects emptyBottlesProvided in individual bottles.
         // For CASE mode the UI collects cases, so convert cases to bottles here.
@@ -375,6 +385,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       setWalkInMiddleName('')
       setWalkInContact('')
       setWalkInNotes('')
+      setAmountTendered('')
       toast.success('Retail sale completed successfully')
       await loadData()
     } catch (error: any) {
@@ -997,10 +1008,16 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                         id="walk-in-contact"
                         value={walkInContact}
                         inputMode="numeric"
+                        maxLength={12}
                         onChange={(e) => setWalkInContact(formatPhilippinePhoneInput(e.target.value))}
                         placeholder="0912 345 6789"
                         className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
                       />
+                      {walkInContact && !isValidPhilippinePhone(walkInContact) ? (
+                        <p className="mt-1 text-[11px] font-medium text-red-600">
+                          Please enter a valid Philippine mobile number (e.g. 09171234567 or 639171234567)
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1181,7 +1198,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 </div>
               </div>
 
-              {/* Always-visible cart totals; final deposit validation still runs during checkout. */}
+              {/* Added: show tendered cash and calculated change before checkout. */}
               <div className="space-y-2 rounded-2xl border border-slate-200 bg-[#f8fafc] p-4 text-xs shadow-none">
                 <div className="flex justify-between text-slate-600">
                   <span>Product Subtotal</span>
@@ -1193,8 +1210,30 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 </div>
                 <div className="h-px bg-slate-100" />
                 <div className="flex justify-between text-[15px] font-semibold text-slate-900">
-                  <span>Total</span>
+                  <span>Total Amount</span>
                   <span className="text-emerald-600">{peso(cartGrandTotal)}</span>
+                </div>
+                <div className="space-y-1.5 pt-1">
+                  <Label htmlFor="amount-tendered" className="text-xs font-semibold text-slate-700">
+                    Amount Tendered
+                  </Label>
+                  <Input
+                    id="amount-tendered"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={amountTendered}
+                    onChange={(event) => setAmountTendered(event.target.value)}
+                    placeholder="0.00"
+                    className="h-9 rounded-xl border-slate-200 bg-white text-right text-sm font-semibold"
+                  />
+                </div>
+                <div className="flex justify-between text-[15px] font-semibold text-slate-900">
+                  <span>Total Change</span>
+                  <span className="text-blue-600">
+                    {peso(Math.max(0, Number(amountTendered || 0) - cartGrandTotal))}
+                  </span>
                 </div>
               </div>
 
@@ -1314,8 +1353,16 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 </div>
                 <div className="h-px bg-slate-100" />
                 <div className="flex justify-between text-[15px] font-semibold text-slate-900">
-                  <span>Grand Total</span>
+                  <span>Total Amount</span>
                   <span className="text-emerald-600">{peso(receipt.grandTotal)}</span>
+                </div>
+                <div className="flex justify-between text-slate-700">
+                  <span>Amount Tendered</span>
+                  <span className="font-semibold text-slate-900">{peso(receipt.amountPaid)}</span>
+                </div>
+                <div className="flex justify-between text-[15px] font-semibold text-slate-900">
+                  <span>Total Change</span>
+                  <span className="text-blue-600">{peso(receipt.change)}</span>
                 </div>
               </div>
 

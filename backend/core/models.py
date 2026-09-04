@@ -357,6 +357,10 @@ class InventoryTransaction(models.Model):
     mixed_case_component = models.ForeignKey("MixedCaseComponent", on_delete=models.SET_NULL, related_name="inventory_transactions", blank=True, null=True)
     reference_type = models.CharField(max_length=100, blank=True, null=True)
     reference_id = models.CharField(max_length=100, blank=True, null=True)
+    # Staff user id behind the movement. Manual stock corrections are the one
+    # movement with no order, trip or batch to trace them back to, so without
+    # this the adjustment has no accountable author. Mirrors DepositTransaction.
+    performed_by = models.CharField(max_length=100, blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
