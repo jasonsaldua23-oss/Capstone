@@ -215,20 +215,6 @@ class Customer(models.Model):
     discount_applied_by_user_id = models.CharField(max_length=25, blank=True, null=True)
     discount_applied_by_name = models.CharField(max_length=255, blank=True, null=True)
     discount_updated_at = models.DateTimeField(blank=True, null=True)
-    bottle_balance_threshold = models.IntegerField(
-        blank=True,
-        null=True,
-        default=0,
-        help_text="Max outstanding empties before new RGB orders are blocked. 0 = no limit.",
-    )
-    deposit_override_percent = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        default=0,
-        help_text="Optional per-customer deposit discount percentage.",
-    )
     is_active = models.BooleanField(default=True)
     two_factor_enabled = models.BooleanField(default=False)
     login_alerts_enabled = models.BooleanField(default=True)
@@ -237,6 +223,28 @@ class Customer(models.Model):
 
     class Meta:
         db_table = "Customer"
+
+
+class AuthThrottleState(models.Model):
+    """Database-backed counters for authentication and OTP abuse controls."""
+
+    # Security: identifiers are one-way hashes so throttle records do not expose
+    # account emails or client IP addresses if this operational table is viewed.
+    key = models.CharField(primary_key=True, max_length=64, editable=False)
+    action = models.CharField(max_length=50)
+    scope = models.CharField(max_length=16)
+    identifier_hash = models.CharField(max_length=64)
+    attempt_count = models.PositiveIntegerField(default=0)
+    window_started_at = models.DateTimeField(default=timezone.now)
+    last_attempt_at = models.DateTimeField(default=timezone.now)
+    blocked_until = models.DateTimeField(blank=True, null=True)
+    alert_sent_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "AuthThrottleState"
+        indexes = [
+            models.Index(fields=["action", "scope", "last_attempt_at"], name="auth_throttle_lookup_idx"),
+        ]
 
 
 class Feedback(models.Model):

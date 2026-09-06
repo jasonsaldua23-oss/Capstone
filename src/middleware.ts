@@ -73,16 +73,27 @@ async function getPayload(request: NextRequest): Promise<AuthPayload | null> {
   const headerToken = authHeader?.toLowerCase().startsWith('bearer ')
     ? authHeader.slice(7).trim()
     : undefined
-  const cookieToken = request.cookies.get('auth_token')?.value
-  const token = headerToken || cookieToken
-  if (!token) return null
 
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET)
-    return payload as AuthPayload
-  } catch {
-    return null
+  // Fix: Django issues role-scoped cookies. Check the staff cookie first so an
+  // authenticated Admin visiting /login returns to the portal instead of being
+  // treated as signed out and redirected to the public Customer login.
+  const candidateTokens = [
+    headerToken,
+    request.cookies.get('auth_token_staff')?.value,
+    request.cookies.get('auth_token_customer')?.value,
+    request.cookies.get('auth_token')?.value,
+  ].filter((token): token is string => Boolean(token))
+
+  for (const token of candidateTokens) {
+    try {
+      const { payload } = await jwtVerify(token, JWT_SECRET)
+      return payload as AuthPayload
+    } catch {
+      // Continue so an expired cookie cannot mask another valid scoped session.
+    }
   }
+
+  return null
 }
 
 function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): boolean {
@@ -133,8 +144,8 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname === '/login') {
-    // The shared deployment has no default role: valid sessions return to their
-    // role-resolved portal, while signed-out users choose one of the four logins.
+    // Valid sessions return to their role-resolved portal. Signed-out users may
+    // continue to the page-level redirect for the public Customer login.
     if (variant === 'all') {
       const payload = await getPayload(request)
       return payload

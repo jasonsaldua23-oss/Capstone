@@ -676,7 +676,7 @@ export function CustomerOrderDetailPage(props: any) {
           if (!open) setReplacementError('')
         }}
       >
-        <DialogContent className="w-[95vw] max-w-[720px] rounded-xl border border-slate-200 bg-white p-4">
+        <DialogContent className="w-[95vw] max-w-[720px] sm:max-w-3xl rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-base font-semibold text-slate-900">Request Replacement</p>
           <p className="mt-1 text-xs text-slate-600">Select one or more products and set reason per product.</p>
           {(hasCompletedReplacementRequest || hasActiveReplacementRequest) && (

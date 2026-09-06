@@ -63,6 +63,18 @@ from .auth import (
     hash_password,
     verify_password,
 )
+from .auth_throttling import (
+    LOGIN_FAILURE_POLICY,
+    OTP_FAILURE_POLICY,
+    OTP_SEND_POLICY,
+    check_limit,
+    claim_account_alert,
+    clear_account_failures,
+    consume_event,
+    get_client_ip,
+    record_failure,
+    throttle_response,
+)
 from .models import (
     Customer,
     ContainerType,
@@ -4947,6 +4959,74 @@ def _email_login_alert(user: User) -> None:
     )
 
 
+def _email_admin_login_failure_alert(
+    user: User,
+    ip_address: str,
+    failure_count: int,
+    failure_stage: str,
+) -> None:
+    """Warn the targeted administrator without exposing submitted credentials."""
+    recipient = _normalize_email(getattr(user, "email", ""))
+    if not recipient:
+        return
+    attempted_at = timezone.localtime(timezone.now()).strftime("%B %d, %Y at %I:%M %p")
+    body = EmailBody(
+        recipient_name=str(getattr(user, "name", "") or "").strip(),
+        time_greeting=time_greeting(),
+        paragraphs=["We detected repeated unsuccessful attempts to sign in to your administrator account."],
+        details=[
+            ("Date and time", attempted_at),
+            ("Account", recipient),
+            ("Failure stage", failure_stage),
+            ("Source IP", ip_address),
+            ("Recent failed attempts", str(failure_count)),
+        ],
+        details_heading="Security details",
+        next_step="If this was not you, reset your password and contact the system owner immediately.",
+        closing="Thank you.",
+    )
+    _send_structured_email(
+        subject="Security alert: unsuccessful administrator sign-in attempts",
+        heading="Unsuccessful sign-in attempts detected",
+        body=body,
+        recipients=[recipient],
+        preheader="Repeated administrator sign-in failures were detected.",
+    )
+
+
+def _alert_admin_login_failure(
+    action: str,
+    user: User,
+    ip_address: str,
+    failure_count: int,
+    failure_stage: str,
+) -> None:
+    alert_threshold = max(1, int(getattr(settings, "AUTH_LOGIN_ALERT_THRESHOLD", 3)))
+    if str(user.role).upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        return
+    if failure_count >= alert_threshold and claim_account_alert(action, user.email):
+        # Alert delivery failure is logged by the shared mail sender and never
+        # changes the authentication response seen by the requester.
+        _email_admin_login_failure_alert(user, ip_address, failure_count, failure_stage)
+
+
+def _record_login_failure(request: HttpRequest, email: str, portal: str, user: User | None) -> None:
+    """Apply progressive account/IP delays and alert a targeted administrator."""
+    ip_address = get_client_ip(request)
+    result = record_failure("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
+    logger.warning(
+        "Authentication failure portal=%s account_hash=%s source_ip=%s count=%s",
+        portal or "unknown",
+        hashlib.sha256(email.encode("utf-8")).hexdigest()[:12],
+        ip_address,
+        result.account_count,
+    )
+    if portal == "admin" and user is not None:
+        _alert_admin_login_failure(
+            "password_login", user, ip_address, result.account_count, "Password verification"
+        )
+
+
 def _warehouse_staff_emails() -> list[str]:
     rows = User.objects.filter(role=RoleType.WAREHOUSE_STAFF, is_active=True).values_list("email", flat=True)
     out: list[str] = []
@@ -5852,6 +5932,14 @@ def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
     if not _otp_mail_ready():
         return _err("Verification email service is not configured", 500)
 
+    # Security: count both the destination account and source address before
+    # dispatch so concurrent requests cannot send beyond the OTP allowance.
+    retry_after = consume_event(
+        "email_verification_send", email, get_client_ip(request), OTP_SEND_POLICY
+    )
+    if retry_after:
+        return throttle_response(retry_after)
+
     now = timezone.now()
     code = _stateless_otp_for_bucket(email, account_type, "email_verification", _otp_bucket(now))
     try:
@@ -5890,6 +5978,12 @@ def auth_email_verification_request_existing(request: HttpRequest) -> JsonRespon
     if not _otp_mail_ready():
         return _err("Verification email service is not configured", 500)
 
+    retry_after = consume_event(
+        "email_verification_send", email, get_client_ip(request), OTP_SEND_POLICY
+    )
+    if retry_after:
+        return throttle_response(retry_after)
+
     now = timezone.now()
     code = _stateless_otp_for_bucket(email, account_type, "old_email_confirm", _otp_bucket(now))
     try:
@@ -5927,9 +6021,16 @@ def auth_email_verification_confirm_existing(request: HttpRequest) -> JsonRespon
     if email != current_email:
         return _err("Email does not match your current account email", 400)
 
+    ip_address = get_client_ip(request)
+    retry_after = check_limit("email_verification_otp", email, ip_address, OTP_FAILURE_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
+
     now = timezone.now()
     if not _is_valid_stateless_otp(otp_code, email, account_type, "old_email_confirm", now):
+        record_failure("email_verification_otp", email, ip_address, OTP_FAILURE_POLICY)
         return _err("Invalid or expired verification code", 400)
+    clear_account_failures("email_verification_otp", email)
 
     verification_token = _issue_email_verification_token(email + ":old_confirmed", account_type)
     return _ok({"success": True, "message": "Old email verified", "verificationToken": verification_token})
@@ -5952,9 +6053,16 @@ def auth_email_verification_confirm(request: HttpRequest) -> JsonResponse:
     if not otp_code:
         return _err("Verification code is required")
 
+    ip_address = get_client_ip(request)
+    retry_after = check_limit("email_verification_otp", email, ip_address, OTP_FAILURE_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
+
     now = timezone.now()
     if not _is_valid_stateless_otp(otp_code, email, account_type, "email_verification", now):
+        record_failure("email_verification_otp", email, ip_address, OTP_FAILURE_POLICY)
         return _err("Invalid or expired verification code", 400)
+    clear_account_failures("email_verification_otp", email)
     verification_token = _issue_email_verification_token(email, account_type)
     return _ok({"success": True, "message": "Email verified successfully", "verificationToken": verification_token})
 
@@ -6012,12 +6120,16 @@ def health_ready(_request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 def auth_login(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
-    email = str(body.get("email", "")).strip()
+    email = _normalize_email(body.get("email"))
     password = str(body.get("password", ""))
     portal = str(body.get("portal", "")).strip().lower()
     remember_me = bool(body.get("rememberMe", False))
     if not email or not password:
         return _err("Email and password are required")
+    ip_address = get_client_ip(request)
+    retry_after = check_limit("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
     role_scope = {
         "admin": {"SUPER_ADMIN", "ADMIN"},
         "driver": {"DRIVER"},
@@ -6028,12 +6140,20 @@ def auth_login(request: HttpRequest) -> JsonResponse:
         users_qs = users_qs.filter(role__in=role_scope)
     user = users_qs.first()
     if not user:
+        _record_login_failure(request, email, portal, None)
         return _err("Invalid email or password", 401)
     if not user.is_active or not verify_password(password, user.password):
+        _record_login_failure(request, email, portal, user)
         return _err("Invalid email or password", 401)
+    # A valid password clears only the account counter; the IP counter remains so
+    # one source cannot evade credential-stuffing detection across many accounts.
+    clear_account_failures("password_login", email)
     if bool(getattr(user, "two_factor_enabled", False)):
         if not _otp_mail_ready():
             return _err("2FA is enabled but OTP email service is not configured", 500)
+        retry_after = consume_event("login_otp_send", email, ip_address, OTP_SEND_POLICY)
+        if retry_after:
+            return throttle_response(retry_after)
         now = timezone.now()
         code = _stateless_otp_for_bucket(user.email, "staff", "login_2fa", _otp_bucket(now))
         try:
@@ -6101,13 +6221,29 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
     if not user_id or not email:
         return _err("Invalid login challenge", 401)
 
-    now = timezone.now()
-    if not _is_valid_stateless_otp(otp_code, email, "staff", "login_2fa", now):
-        return _err("Invalid or expired verification code", 400)
+    ip_address = get_client_ip(request)
+    retry_after = check_limit("login_otp_verify", email, ip_address, OTP_FAILURE_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
 
     user = User.objects.filter(id=user_id, email=email, is_active=True).first()
     if not user:
         return _err("Account is unavailable", 401)
+
+    now = timezone.now()
+    if not _is_valid_stateless_otp(otp_code, email, "staff", "login_2fa", now):
+        result = record_failure("login_otp_verify", email, ip_address, OTP_FAILURE_POLICY)
+        logger.warning(
+            "Login OTP failure account_hash=%s source_ip=%s count=%s",
+            hashlib.sha256(email.encode("utf-8")).hexdigest()[:12],
+            ip_address,
+            result.account_count,
+        )
+        _alert_admin_login_failure(
+            "login_otp_verify", user, ip_address, result.account_count, "Two-factor verification"
+        )
+        return _err("Invalid or expired verification code", 400)
+    clear_account_failures("login_otp_verify", email)
 
     user.last_login_at = timezone.now()
     user.save(update_fields=["last_login_at", "updated_at"])
@@ -6130,17 +6266,24 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 def auth_customer_login(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
-    email = str(body.get("email", "")).strip()
+    email = _normalize_email(body.get("email"))
     password = str(body.get("password", ""))
     remember_me = bool(body.get("rememberMe", False))
     if not email or not password:
         return _err("Email and password are required")
+    ip_address = get_client_ip(request)
+    retry_after = check_limit("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
     try:
         customer = Customer.objects.get(email=email)
     except Customer.DoesNotExist:
+        record_failure("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
         return _err("Invalid email or password", 401)
     if not customer.is_active or not verify_password(password, customer.password):
+        record_failure("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
         return _err("Invalid email or password", 401)
+    clear_account_failures("password_login", email)
     payload = _customer_payload(customer)
     token = create_token(
         {**payload, "rememberMe": remember_me},
@@ -6400,6 +6543,13 @@ def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
     if not _otp_mail_ready():
         return _err("OTP email service is not configured", 500)
 
+    ip_address = get_client_ip(request)
+    # Security: even requests for unknown addresses consume the allowance, which
+    # prevents account discovery from becoming an unlimited email-probing path.
+    retry_after = consume_event("password_reset_send", email, ip_address, OTP_SEND_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
+
     account = _get_reset_account(account_type, email, portal)
     if not account:
         return _err("Email is not registered for this portal", 404)
@@ -6439,14 +6589,22 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
     if password_error:
         return _err(password_error)
 
+    ip_address = get_client_ip(request)
+    retry_after = check_limit("password_reset_otp", email, ip_address, OTP_FAILURE_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
+
     account = _get_reset_account(account_type, email, portal)
     if not account:
+        record_failure("password_reset_otp", email, ip_address, OTP_FAILURE_POLICY)
         return _err("Email is not registered for this portal", 404)
 
     now = timezone.now()
     otp_scope = _password_reset_otp_scope(account_type, portal)
     if not _is_valid_stateless_otp(otp_code, email, otp_scope, "password_reset", now):
+        record_failure("password_reset_otp", email, ip_address, OTP_FAILURE_POLICY)
         return _err("Invalid or expired OTP", 400)
+    clear_account_failures("password_reset_otp", email)
 
     account.password = hash_password(new_password)
     account.save(update_fields=["password", "updated_at"])
@@ -6473,13 +6631,21 @@ def auth_password_reset_verify_otp(request: HttpRequest) -> JsonResponse:
     if not otp_code:
         return _err("OTP is required")
 
+    ip_address = get_client_ip(request)
+    retry_after = check_limit("password_reset_otp", email, ip_address, OTP_FAILURE_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
+
     if not _get_reset_account(account_type, email, portal):
+        record_failure("password_reset_otp", email, ip_address, OTP_FAILURE_POLICY)
         return _err("Email is not registered for this portal", 404)
 
     now = timezone.now()
     otp_scope = _password_reset_otp_scope(account_type, portal)
     if not _is_valid_stateless_otp(otp_code, email, otp_scope, "password_reset", now):
+        record_failure("password_reset_otp", email, ip_address, OTP_FAILURE_POLICY)
         return _err("Invalid or expired OTP", 400)
+    clear_account_failures("password_reset_otp", email)
 
     return _ok({"success": True, "message": "OTP verified successfully."})
 

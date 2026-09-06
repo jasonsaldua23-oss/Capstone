@@ -9,10 +9,13 @@ export default function LoginIndexPage() {
     redirect(getDefaultLoginPathForVariant(variant))
   }
 
+  // Security: with no public staff choices, skip the redundant one-card chooser
+  // and send visitors directly to the existing Customer login page.
+  redirect(loginPathForPortal('customer'))
+
+  // Security: advertise only the public customer portal. Staff login routes stay
+  // available through their direct URLs without being exposed in this chooser.
   const portals = [
-    { href: '/login/admin', title: 'Administrator', description: 'Manage operations, users, inventory, and reports.', accent: 'border-blue-200 hover:border-blue-500' },
-    { href: '/login/warehouse', title: 'Warehouse Staff', description: 'Manage stock, orders, loading, and dispatch.', accent: 'border-indigo-200 hover:border-indigo-500' },
-    { href: loginPathForPortal('driver'), title: 'Driver', description: 'View assigned trips and complete deliveries.', accent: 'border-emerald-200 hover:border-emerald-500' },
     { href: loginPathForPortal('customer'), title: 'Customer', description: 'Shop, submit requests, and track orders.', accent: 'border-amber-200 hover:border-amber-500' },
   ]
 
@@ -31,7 +34,7 @@ export default function LoginIndexPage() {
           <p className="mt-2 text-sm text-slate-600 sm:text-base">Choose your account portal to continue.</p>
         </div>
 
-        {/* One deployment exposes four explicit login routes without assigning a default role. */}
+        {/* The public chooser intentionally excludes staff portals. */}
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
           {portals.map((portal) => (
             <Link

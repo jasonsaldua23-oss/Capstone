@@ -1306,8 +1306,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         <div className="px-4 pt-2">
           <Button
             type="button"
-            onClick={() => setIsEditingSecurity(false)}
-            disabled={!isEditingSecurity}
+            onClick={() => setIsEditingSecurity(!isEditingSecurity)}
+            disabled={isSavingSecurity}
             className="w-full h-12 bg-[#0d61ad] text-white rounded-xl font-semibold hover:bg-[#0b579c] transition-colors shadow-[0_4px_12px_rgba(13,97,173,0.12)]"
           >
             {isEditingSecurity ? 'Save Security Settings' : 'Edit Security Settings'}

@@ -227,6 +227,10 @@ REST_FRAMEWORK = {
     ]
 }
 
+# Authentication abuse limits are enforced in the shared database so every
+# Gunicorn worker and deployment instance sees the same counters and lockouts.
+AUTH_LOGIN_ALERT_THRESHOLD = int(os.getenv("AUTH_LOGIN_ALERT_THRESHOLD", "3"))
+
 DATABASE_ROUTERS = ["core.db_router.CoreAppRouter"]
 
 # Gmail-only SMTP for OTP emails

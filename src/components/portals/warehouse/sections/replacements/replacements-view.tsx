@@ -722,7 +722,7 @@ export function WarehouseReplacementsView({
           setReturnQuantities({})
         }
       }}>
-        <DialogContent className="max-h-[90vh] w-[98vw] max-w-[1400px] overflow-y-auto p-0">
+        <DialogContent className="max-h-[90vh] w-[95vw] sm:max-w-4xl overflow-y-auto p-0">
           {selectedReplacement ? (() => {
             const meta = parseIssueMeta(selectedReplacement.notes)
             const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)

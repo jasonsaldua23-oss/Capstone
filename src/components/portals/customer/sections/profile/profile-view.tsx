@@ -1059,8 +1059,8 @@ export function CustomerProfileView({
         <div className="px-4 pt-2">
           <Button
             type="button"
-            onClick={() => setIsEditingSecurity(false)}
-            disabled={!isEditingSecurity}
+            onClick={() => setIsEditingSecurity(!isEditingSecurity)}
+            disabled={isSavingSecurity}
             className="w-full h-12 bg-[#14532d] text-white rounded-xl font-semibold hover:bg-[#0f3f22] transition-colors shadow-[0_4px_12px_rgba(20,83,45,0.12)]"
           >
             {isEditingSecurity ? 'Save Security Settings' : 'Edit Security Settings'}

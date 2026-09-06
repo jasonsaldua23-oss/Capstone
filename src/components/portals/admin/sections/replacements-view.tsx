@@ -1124,7 +1124,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
       </Card>
 
       <Dialog open={!!selectedReplacement} onOpenChange={(open) => !open && setSelectedReplacement(null)}>
-        <DialogContent className="max-h-[90vh] w-[95vw] max-w-[640px] overflow-y-auto p-0 sm:max-w-[640px]">
+        <DialogContent className="max-h-[90vh] w-[95vw] sm:max-w-4xl overflow-y-auto p-0">
           {selectedReplacement ? (() => {
             const meta = parseMeta(selectedReplacement.notes)
             const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)
