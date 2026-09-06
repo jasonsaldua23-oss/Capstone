@@ -47,6 +47,18 @@ services:
         sync: false
       - key: GMAIL_API_SENDER_EMAIL
         sync: false
+      # Push credentials are secrets managed by the host. Web browsers use VAPID;
+      # Capacitor devices use the Firebase Admin service account through FCM v1.
+      - key: WEB_PUSH_VAPID_PRIVATE_KEY
+        sync: false
+      - key: WEB_PUSH_VAPID_PUBLIC_KEY
+        sync: false
+      - key: WEB_PUSH_VAPID_SUBJECT
+        sync: false
+      - key: FCM_PROJECT_ID
+        sync: false
+      - key: FCM_SERVICE_ACCOUNT_JSON
+        sync: false
 
   - type: web
     name: aabtrading-frontend

@@ -1,4 +1,5 @@
 import base64
+import hmac
 import json
 import logging
 import threading
@@ -9,7 +10,7 @@ import requests
 
 from cryptography.hazmat.primitives import serialization
 from django.conf import settings
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from py_vapid import Vapid02
 from pywebpush import WebPushException, webpush
 
@@ -24,8 +25,17 @@ def _start_web_push_delivery(deliver) -> None:
 
     # Fix: push endpoints can take several seconds to time out, so delivery must not
     # keep an already-successful order or replacement request waiting for a response.
+    def run_with_fresh_connection() -> None:
+        # Fix: Gunicorn request threads must not leak their database connection into
+        # this background thread; Django opens a thread-local connection on demand.
+        close_old_connections()
+        try:
+            deliver()
+        finally:
+            close_old_connections()
+
     threading.Thread(
-        target=deliver,
+        target=run_with_fresh_connection,
         name="web-push-delivery",
         daemon=True,
     ).start()
@@ -47,11 +57,28 @@ def get_web_push_public_key() -> str:
 
 
 def web_push_is_configured() -> bool:
-    return bool(
-        settings.WEB_PUSH_VAPID_PRIVATE_KEY
-        and get_web_push_public_key()
-        and settings.WEB_PUSH_VAPID_SUBJECT
-    )
+    private_key = str(settings.WEB_PUSH_VAPID_PRIVATE_KEY or "").strip()
+    public_key = str(get_web_push_public_key() or "").strip().rstrip("=")
+    subject = str(settings.WEB_PUSH_VAPID_SUBJECT or "").strip()
+    if not private_key or not public_key or not subject:
+        return False
+
+    try:
+        path = Path(private_key)
+        vapid = Vapid02.from_file(str(path)) if path.is_file() else Vapid02.from_string(private_key)
+        derived_public_key = base64.urlsafe_b64encode(
+            vapid.public_key.public_bytes(
+                serialization.Encoding.X962,
+                serialization.PublicFormat.UncompressedPoint,
+            )
+        ).rstrip(b"=").decode("ascii")
+    except Exception:
+        logger.warning("The configured Web Push VAPID private key is invalid")
+        return False
+
+    # Fix: a mismatched public/private pair lets browsers subscribe but makes every
+    # later delivery fail. Treat the transport as disabled before that can happen.
+    return hmac.compare_digest(public_key, derived_public_key)
 
 
 # Devices registered from the Capacitor apps are stored in the same table with an
@@ -66,7 +93,8 @@ def _fcm_service_account_info() -> dict | None:
     raw = str(getattr(settings, "FCM_SERVICE_ACCOUNT_JSON", "") or "").strip()
     if raw:
         try:
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             logger.warning("FCM_SERVICE_ACCOUNT_JSON is not valid JSON; native push is disabled")
             return None
@@ -74,21 +102,53 @@ def _fcm_service_account_info() -> dict | None:
     path = str(getattr(settings, "FCM_SERVICE_ACCOUNT_FILE", "") or "").strip()
     if path and Path(path).is_file():
         try:
-            return json.loads(Path(path).read_text(encoding="utf-8"))
+            parsed = json.loads(Path(path).read_text(encoding="utf-8"))
+            return parsed if isinstance(parsed, dict) else None
         except (json.JSONDecodeError, OSError):
             logger.warning("FCM service account file could not be read; native push is disabled")
     return None
 
 
 def native_push_is_configured() -> bool:
-    return bool(_fcm_service_account_info())
+    info = _fcm_service_account_info() or {}
+    if not all(str(info.get(field) or "").strip() for field in ("project_id", "client_email", "private_key")):
+        return False
+    try:
+        _fcm_credentials(info)
+    except Exception:
+        # Fix: field presence alone is insufficient; an invalid PEM or incomplete
+        # service-account document otherwise passes deploy checks and fails at send time.
+        logger.warning("The configured FCM service account is invalid")
+        return False
+    return True
+
+
+def _fcm_error_codes(response: requests.Response) -> set[str]:
+    """Return structured FCM error codes without treating every 403/404 as stale."""
+    try:
+        error = response.json().get("error") or {}
+    except (ValueError, AttributeError):
+        return set()
+    if not isinstance(error, dict):
+        return set()
+
+    codes = {str(error.get("status") or "").strip().upper()}
+    for detail in error.get("details") or []:
+        if isinstance(detail, dict):
+            codes.add(str(detail.get("errorCode") or "").strip().upper())
+    return {code for code in codes if code}
+
+
+def _fcm_credentials(info: dict):
+    from google.oauth2 import service_account
+
+    return service_account.Credentials.from_service_account_info(info, scopes=[_FCM_SCOPE])
 
 
 def _fcm_access_token(info: dict) -> str:
     from google.auth.transport.requests import Request as GoogleAuthRequest
-    from google.oauth2 import service_account
 
-    credentials = service_account.Credentials.from_service_account_info(info, scopes=[_FCM_SCOPE])
+    credentials = _fcm_credentials(info)
     credentials.refresh(GoogleAuthRequest())
     return str(credentials.token or "")
 
@@ -144,8 +204,10 @@ def _send_to_native_devices(subscriptions: list[PushSubscription], payload: dict
                 },
                 timeout=10,
             )
-            if response.status_code in {404, 403}:
-                # The app was uninstalled or the token was rotated.
+            error_codes = _fcm_error_codes(response)
+            if "UNREGISTERED" in error_codes or "SENDER_ID_MISMATCH" in error_codes:
+                # These token-specific errors are permanent. Generic 403/404 errors
+                # can instead mean a project or IAM outage and must not erase devices.
                 subscription.delete()
             elif response.status_code >= 400:
                 logger.warning(

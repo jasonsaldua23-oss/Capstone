@@ -122,7 +122,12 @@ from .mixed_case import (
     reserve_order_item,
     serialize_mixed_component,
 )
-from .push_notifications import get_web_push_public_key, queue_web_push, web_push_is_configured
+from .push_notifications import (
+    get_web_push_public_key,
+    native_push_is_configured,
+    queue_web_push,
+    web_push_is_configured,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -8795,6 +8800,7 @@ def push_subscriptions_collection(request: HttpRequest) -> JsonResponse:
             "success": True,
             "enabled": web_push_is_configured(),
             "publicKey": get_web_push_public_key() if web_push_is_configured() else "",
+            "nativeEnabled": native_push_is_configured(),
         })
 
     body = _json_body(request)
@@ -8817,17 +8823,24 @@ def push_subscriptions_collection(request: HttpRequest) -> JsonResponse:
         return _ok({"success": True, "deleted": deleted})
 
     if is_native_device:
-        # A device token carries no encryption keys: FCM handles that itself.
-        subscription, created = PushSubscription.objects.update_or_create(
-            endpoint=endpoint,
-            **owner_filter,
-            defaults={
-                "p256dh": "",
-                "auth": "",
-                "user_agent": f"{native_platform} app"[:1000],
-                "is_active": True,
-            },
-        )
+        if not native_push_is_configured():
+            return _err("Native push is not configured", 503)
+        # Fix: an endpoint identifies one physical browser/app installation. Move it
+        # to the currently authenticated account so notifications cannot leak to a
+        # previous account that used the same device.
+        with transaction.atomic():
+            PushSubscription.objects.filter(endpoint=endpoint).exclude(**owner_filter).delete()
+            # A device token carries no encryption keys: FCM handles that itself.
+            subscription, created = PushSubscription.objects.update_or_create(
+                endpoint=endpoint,
+                **owner_filter,
+                defaults={
+                    "p256dh": "",
+                    "auth": "",
+                    "user_agent": f"{native_platform} app"[:1000],
+                    "is_active": True,
+                },
+            )
         return _ok(
             {"success": True, "created": created, "subscriptionId": subscription.id, "transport": "fcm"},
             201 if created else 200,
@@ -8841,16 +8854,20 @@ def push_subscriptions_collection(request: HttpRequest) -> JsonResponse:
     if not p256dh or not auth_key:
         return _err("subscription keys are required")
 
-    subscription, created = PushSubscription.objects.update_or_create(
-        endpoint=endpoint,
-        **owner_filter,
-        defaults={
-            "p256dh": p256dh,
-            "auth": auth_key,
-            "user_agent": str(request.headers.get("User-Agent") or "")[:1000] or None,
-            "is_active": True,
-        },
-    )
+    # Fix: a Web Push subscription is unique to this browser profile, not to the
+    # signed-in account. Transfer it when another account registers on the device.
+    with transaction.atomic():
+        PushSubscription.objects.filter(endpoint=endpoint).exclude(**owner_filter).delete()
+        subscription, created = PushSubscription.objects.update_or_create(
+            endpoint=endpoint,
+            **owner_filter,
+            defaults={
+                "p256dh": p256dh,
+                "auth": auth_key,
+                "user_agent": str(request.headers.get("User-Agent") or "")[:1000] or None,
+                "is_active": True,
+            },
+        )
     return _ok({"success": True, "created": created, "subscriptionId": subscription.id}, 201 if created else 200)
 
 

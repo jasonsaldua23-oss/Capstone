@@ -9,8 +9,8 @@ from .views_api import push_subscriptions_collection
 
 
 PUSH_SETTINGS = {
-    "WEB_PUSH_VAPID_PRIVATE_KEY": "test-private-key",
-    "WEB_PUSH_VAPID_PUBLIC_KEY": "test-public-key",
+    "WEB_PUSH_VAPID_PRIVATE_KEY": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+    "WEB_PUSH_VAPID_PUBLIC_KEY": "BFFcPW6545a5BNP-yn9U_c0MwemXvzddylFa0KbDtANfRTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q",
     "WEB_PUSH_VAPID_SUBJECT": "mailto:test@example.com",
 }
 
@@ -41,7 +41,7 @@ class PushNotificationTests(TestCase):
         with patch("core.views_api._require_auth", return_value=payload):
             return push_subscriptions_collection(request)
 
-    def test_same_browser_endpoint_can_be_registered_for_separate_accounts(self):
+    def test_browser_endpoint_moves_to_the_latest_authenticated_account(self):
         subscription = {
             "endpoint": "https://push.example.test/device-1",
             "keys": {"p256dh": "public-key", "auth": "auth-secret"},
@@ -58,7 +58,30 @@ class PushNotificationTests(TestCase):
 
         self.assertEqual(staff_response.status_code, 201)
         self.assertEqual(customer_response.status_code, 201)
-        self.assertEqual(PushSubscription.objects.filter(endpoint=subscription["endpoint"]).count(), 2)
+        self.assertEqual(PushSubscription.objects.filter(endpoint=subscription["endpoint"]).count(), 1)
+        saved = PushSubscription.objects.get(endpoint=subscription["endpoint"])
+        self.assertEqual(saved.customer_id, self.customer.id)
+        self.assertIsNone(saved.user_id)
+
+    def test_native_registration_fails_when_fcm_is_not_configured(self):
+        response = self._register(
+            {"type": "staff", "userId": self.user.id},
+            {"platform": "android", "token": "device-token"},
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(PushSubscription.objects.filter(endpoint="fcm:device-token").exists())
+
+    @patch("core.views_api.native_push_is_configured", return_value=True)
+    def test_native_endpoint_moves_to_the_latest_authenticated_account(self, _mocked_native_config):
+        subscription = {"platform": "android", "token": "shared-device-token"}
+        self._register({"type": "staff", "userId": self.user.id}, subscription)
+        response = self._register({"type": "customer", "userId": self.customer.id}, subscription)
+
+        self.assertEqual(response.status_code, 201)
+        saved = PushSubscription.objects.get(endpoint="fcm:shared-device-token")
+        self.assertEqual(saved.customer_id, self.customer.id)
+        self.assertIsNone(saved.user_id)
 
     @patch("core.push_notifications._start_web_push_delivery", side_effect=lambda deliver: deliver())
     @patch("core.push_notifications.webpush")

@@ -29,6 +29,19 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  async headers() {
+    return [
+      {
+        source: "/push-sw.js",
+        headers: [
+          // Fix: hosted CDNs must revalidate the worker so push handling updates
+          // reach installed browsers instead of remaining pinned to a stale script.
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     return {
       beforeFiles: [

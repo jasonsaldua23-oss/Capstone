@@ -16,8 +16,12 @@ export type PushRegistration = {
   message?: string
 }
 
-/** Tracks the listeners so a re-render cannot attach them twice. */
-let nativeListenersAttached = false
+/** Tracks listener setup and the one OS registration currently in flight. */
+let nativeListenersPromise: Promise<void> | null = null
+let pendingNativeRegistration: {
+  resolve: () => void
+  reject: (error: Error) => void
+} | null = null
 
 function decodeApplicationServerKey(value: string): Uint8Array {
   const padding = '='.repeat((4 - (value.length % 4)) % 4)
@@ -54,34 +58,42 @@ async function saveNativeToken(token: string): Promise<void> {
     body: JSON.stringify({ platform: getPlatform(), token }),
   })
   if (!response.ok) {
-    throw new Error('This device could not be registered for notifications.')
+    let detail = ''
+    try {
+      detail = String(((await response.json()) as { error?: string }).error || '').trim()
+    } catch {
+      // A proxy may return HTML for an upstream failure; retain the safe fallback.
+    }
+    throw new Error(detail || 'This device could not be registered for notifications.')
   }
 }
 
-/**
- * Register the native shell for push and keep it listening.
- *
- * A notification that arrives while the app is open does not appear in the tray on
- * either platform, so it is re-raised as a local notification; tapping either one
- * routes into the portal through the payload's url.
- */
-async function registerNativePush(): Promise<PushRegistration> {
-  const { PushNotifications } = await import('@capacitor/push-notifications')
+async function ensureNativePushListeners(): Promise<void> {
+  if (nativeListenersPromise) return nativeListenersPromise
 
-  if (!nativeListenersAttached) {
-    nativeListenersAttached = true
+  nativeListenersPromise = (async () => {
+    const { PushNotifications } = await import('@capacitor/push-notifications')
 
     await PushNotifications.addListener('registration', (token) => {
-      void saveNativeToken(token.value).catch(() => {
-        // Registration is best-effort; the next launch retries it.
-      })
+      // Fix: registration is successful only after the authenticated backend has
+      // persisted the FCM token. This prevents the prompt from reporting success
+      // while the device is still unreachable.
+      void saveNativeToken(token.value)
+        .then(() => pendingNativeRegistration?.resolve())
+        .catch((error) => pendingNativeRegistration?.reject(error as Error))
     })
 
-    await PushNotifications.addListener('registrationError', () => {
-      // Nothing to do here: the account still receives in-app notifications.
+    await PushNotifications.addListener('registrationError', (error) => {
+      const detail = String(error?.error || '').trim()
+      pendingNativeRegistration?.reject(
+        new Error(detail || 'This device could not register for notifications.'),
+      )
     })
 
     await PushNotifications.addListener('pushNotificationReceived', async (notification) => {
+      // iOS already presents foreground notifications through presentationOptions.
+      // Android does not, so mirror only Android messages as local notifications.
+      if (getPlatform() !== 'android') return
       try {
         const { LocalNotifications } = await import('@capacitor/local-notifications')
         await LocalNotifications.schedule({
@@ -105,16 +117,55 @@ async function registerNativePush(): Promise<PushRegistration> {
         window.location.assign(target)
       }
     })
+  })().catch((error) => {
+    // Allow a later attempt to recover if bridge/plugin initialization was early.
+    nativeListenersPromise = null
+    throw error
+  })
+
+  return nativeListenersPromise
+}
+
+/**
+ * Register the native shell for push and keep it listening.
+ *
+ * Android foreground messages are re-raised as local notifications; iOS uses the
+ * configured presentation options. Tapping either transport routes through the
+ * payload's url.
+ */
+async function registerNativePush(): Promise<PushRegistration> {
+  const { PushNotifications } = await import('@capacitor/push-notifications')
+  await ensureNativePushListeners()
+
+  if (pendingNativeRegistration) {
+    return { registered: false, transport: 'none', message: 'Notification registration is already in progress.' }
   }
 
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
+    const tokenSaved = new Promise<void>((resolve, reject) => {
+      pendingNativeRegistration = { resolve, reject }
+      // FCM normally answers immediately; bound the wait so a broken native setup
+      // produces an actionable failure instead of leaving the button spinning.
+      timeoutId = setTimeout(
+        () => reject(new Error('Notification registration timed out. Check the Firebase app configuration.')),
+        15_000,
+      )
+    })
     await PushNotifications.register()
+    await tokenSaved
+    return { registered: true, transport: 'fcm' }
   } catch (error) {
-    // The permission is granted and notifications raised by the app itself still
-    // arrive; only the remote token is missing, and the next launch retries it.
     console.warn('Native push registration failed:', error)
+    return {
+      registered: false,
+      transport: 'none',
+      message: (error as Error)?.message || 'This device could not register for notifications.',
+    }
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+    pendingNativeRegistration = null
   }
-  return { registered: true, transport: 'fcm' }
 }
 
 async function registerWebPush(): Promise<PushRegistration> {

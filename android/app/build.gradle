@@ -71,11 +71,25 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
+// CI can inject the Firebase client config without committing credentials. Local
+// builds may continue to place the downloaded file at android/app/google-services.json.
+def servicesJSON = file('google-services.json')
+def encodedServicesJSON = System.getenv('GOOGLE_SERVICES_JSON_BASE64')
+if (!servicesJSON.exists() && encodedServicesJSON) {
+    servicesJSON.bytes = encodedServicesJSON.decodeBase64()
+}
+
+if (servicesJSON.exists() && servicesJSON.length() > 0) {
+    apply plugin: 'com.google.gms.google-services'
+} else {
+    logger.warn("google-services.json not found. Debug builds can run, but remote push is unavailable.")
+    gradle.taskGraph.whenReady { graph ->
+        // Fix: never publish a release APK/AAB that silently cannot obtain FCM tokens.
+        if (graph.allTasks.any { it.name.toLowerCase().contains('release') }) {
+            throw new GradleException(
+                "Firebase configuration is required for a release build. Add android/app/google-services.json " +
+                "or set GOOGLE_SERVICES_JSON_BASE64."
+            )
+        }
     }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }

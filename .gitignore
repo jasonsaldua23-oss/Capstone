@@ -43,6 +43,8 @@ secrets.*
 !.env.example
 
 # Backend secrets
+android/app/google-services*.json
+android/app/*firebase-adminsdk*.json
 certificates/
 backend/.env
 backend/.env.*

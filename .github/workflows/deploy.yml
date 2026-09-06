@@ -38,10 +38,24 @@ jobs:
               --unit=aabtrading-migrate \
               --property=Type=oneshot \
               --property=User=ubuntu \
+              --property=Group=www-data \
               --property=WorkingDirectory=/srv/aabtrading/backend \
               --property=EnvironmentFile=/etc/aabtrading-backend.env \
               --property=EnvironmentFile=/etc/aabtrading-backend-production.env \
               /srv/aabtrading/.venv/bin/python manage.py migrate --noinput
+
+            # Push is a production requirement. Fail the deployment clearly when
+            # either hosted-web VAPID or Capacitor FCM credentials are absent or invalid.
+            sudo systemd-run --wait --pipe --collect \
+              --unit=aabtrading-push-config-check \
+              --property=Type=oneshot \
+              --property=User=ubuntu \
+              --property=Group=www-data \
+              --property=WorkingDirectory=/srv/aabtrading/backend \
+              --property=EnvironmentFile=/etc/aabtrading-backend.env \
+              --property=EnvironmentFile=/etc/aabtrading-backend-production.env \
+              /srv/aabtrading/.venv/bin/python manage.py shell --command \
+              'from core.push_notifications import native_push_is_configured, web_push_is_configured; assert web_push_is_configured(), "Web Push VAPID credentials are missing, invalid, or mismatched"; assert native_push_is_configured(), "FCM service-account credentials are missing or incomplete"'
             sudo systemctl restart aabtrading-django
 
             # Verify database-backed readiness before reporting a successful deploy.
