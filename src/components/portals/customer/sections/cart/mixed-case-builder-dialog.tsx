@@ -393,7 +393,7 @@ export function MixedCaseBuilderDialog({
                         type="number"
                         min={0}
                         max={maxAllowedForRow}
-                        value={quantity}
+                        value={quantity || ''}
                         onChange={(event) => updateQuantity(product, Number(event.target.value))}
                         aria-label={`${product.name} quantity per Mixed Case`}
                       />

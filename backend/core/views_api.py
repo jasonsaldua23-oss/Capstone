@@ -3176,6 +3176,10 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
         if all_assignments_map is None:
             all_assignments_map = _build_order_item_trip_assignments_map(order_ids, trip_id=None) if order_ids else {}
 
+        empties_adjustment_map = ctx.get("empties_adjustment_map")
+        if empties_adjustment_map is None:
+            empties_adjustment_map = empties_adjustments_for_orders(order_ids) if order_ids else {}
+
         trip_assignments_map = ctx.get("trip_assignments_map")
         if trip_assignments_map is None and ctx.get("all_assignments_map") is not None:
             # Fix: derive each trip's assignments from the batched all-trip map.
@@ -3244,6 +3248,8 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     "isDriverAssigned": bool(trip.driver_id),
                     "assignedDriverName": str(getattr(getattr(trip.driver, "user", None), "name", "") or "").strip() or None,
                     "totalAmount": dp.order.total_amount,
+                    "emptiesAdjustment": empties_adjustment_map.get(str(dp.order.id)),
+                    "amountDue": round(float(getattr(dp.order, "total_amount", 0) or 0) + float((empties_adjustment_map.get(str(dp.order.id)) or {}).get("amount") or 0), 2),
                     "scheduledReplacement": _get_scheduled_replacement_payload(dp.order),
                     "items": [
                         {

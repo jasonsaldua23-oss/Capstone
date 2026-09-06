@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { resolveClientImageUrl } from '@/lib/client-image'
-import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { getOrderTotalWithEmpties, EmptiesChargeRow } from '@/components/shared/empties-charge-note'
 import {
   ArrowLeft,
   ChevronRight,
@@ -354,9 +354,24 @@ export function HistoryView({
 
           {/* Receipt Total Summary */}
           {Number(totalAmount) > 0 ? (
-            <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs font-semibold text-slate-900">
-              <span className="text-slate-600">Total Order Value</span>
-              <span className="text-sm font-bold text-slate-900">{formatCurrency(totalAmount)}</span>
+            <div className="space-y-3 border-t border-slate-100 pt-3">
+              {(() => {
+                const upfrontDeposit = items.reduce((sum: number, item: any) => sum + Number(item?.netDeposit ?? item?.depositTotal ?? item?.depositCharged ?? 0), 0)
+                if (upfrontDeposit > 0) {
+                  return (
+                    <div className="flex items-center justify-between text-xs font-medium text-slate-600">
+                      <span>Container deposit</span>
+                      <span>{formatCurrency(upfrontDeposit)}</span>
+                    </div>
+                  )
+                }
+                return null
+              })()}
+              <EmptiesChargeRow order={order} className="text-xs" />
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-900">
+                <span className="text-slate-600">Total Order Value</span>
+                <span className="text-sm font-bold text-slate-900">{formatCurrency(totalAmount)}</span>
+              </div>
             </div>
           ) : null}
         </div>

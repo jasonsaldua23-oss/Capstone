@@ -100,6 +100,8 @@ const getReceiptItemSize = (item: any) => {
   return sizes.join(', ') || String(item?.sizeLabel || item?.size || '').trim()
 }
 
+import { useQuery } from '@tanstack/react-query'
+
 async function authFetch(url: string, init?: RequestInit) {
   const token = getTabAuthToken()
   const headers = new Headers(init?.headers || {})
@@ -125,26 +127,47 @@ async function authFetch(url: string, init?: RequestInit) {
 }
 
 export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string }) {
-  const [products, setProducts] = useState<RetailProduct[]>([])
-  const [sales, setSales] = useState<RetailSale[]>([])
+  const { data: products = [], isLoading: loadingProducts, refetch: refetchProducts } = useQuery({
+    queryKey: ['retail-products', warehouseId],
+    queryFn: async () => {
+      const warehouseParam = warehouseId ? `warehouseId=${encodeURIComponent(warehouseId)}&` : ''
+      const res = await authFetch(`/api/retail/products?${warehouseParam}pageSize=100`)
+      return (res.products || []) as RetailProduct[]
+    },
+    retry: true,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: sales = [], isLoading: loadingSales, refetch: refetchSales } = useQuery({
+    queryKey: ['retail-sales', warehouseId],
+    queryFn: async () => {
+      const warehouseParam = warehouseId ? `warehouseId=${encodeURIComponent(warehouseId)}&` : ''
+      const res = await authFetch(`/api/retail/sales?${warehouseParam}pageSize=20`)
+      return (res.sales || []) as RetailSale[]
+    },
+    retry: true,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    staleTime: 60 * 1000,
+  })
+
+  const loading = loadingProducts || loadingSales
   const [cart, setCart] = useState<RetailCartLine[]>([])
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('ALL')
-  const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [receipt, setReceipt] = useState<RetailSale | null>(null)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [walkInFirstName, setWalkInFirstName] = useState('')
   const [walkInLastName, setWalkInLastName] = useState('')
   const [walkInMiddleName, setWalkInMiddleName] = useState('')
+  const [walkInSuffix, setWalkInSuffix] = useState('')
   const [walkInContact, setWalkInContact] = useState('')
   const [walkInNotes, setWalkInNotes] = useState('')
   const [amountTendered, setAmountTendered] = useState('')
   const fulfillmentType = 'IMMEDIATE'
   const [mixedCapacity, setMixedCapacity] = useState(12)
-  const [mixedProductA, setMixedProductA] = useState('')
-  const [mixedProductB, setMixedProductB] = useState('')
-  const [mixedQuantityA, setMixedQuantityA] = useState(6)
+  const [mixedQuantities, setMixedQuantities] = useState<Record<string, number>>({})
 
   const printReceipt = () => {
     const receiptElement = document.getElementById('retail-pos-print-receipt')
@@ -176,35 +199,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     requestAnimationFrame(() => requestAnimationFrame(() => window.print()))
   }
 
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const warehouseParam = warehouseId ? `warehouseId=${encodeURIComponent(warehouseId)}&` : ''
-      const [productRes, salesRes] = await Promise.allSettled([
-        authFetch(`/api/retail/products?${warehouseParam}pageSize=100`),
-        authFetch(`/api/retail/sales?${warehouseParam}pageSize=20`),
-      ])
 
-      if (productRes.status === 'fulfilled') {
-        setProducts(productRes.value.products || [])
-      } else {
-        console.error('Failed to load retail products:', productRes.reason)
-        toast.error('Could not load products for this warehouse')
-      }
-
-      if (salesRes.status === 'fulfilled') {
-        setSales(salesRes.value.sales || [])
-      }
-    } catch (error: any) {
-      toast.error(error?.message || 'Unable to load retail portal data')
-    } finally {
-      setLoading(false)
-    }
-  }, [warehouseId])
-
-  useEffect(() => {
-    void loadData()
-  }, [loadData])
 
   // Extract unique categories for filter tabs
   const categories = useMemo(() => {
@@ -240,7 +235,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   useEffect(() => {
     if (availableCapacities.length > 0 && !availableCapacities.includes(mixedCapacity)) {
       setMixedCapacity(availableCapacities[0])
-      setMixedQuantityA(Math.max(1, Math.floor(availableCapacities[0] / 2)))
+      setMixedQuantities({})
     }
   }, [availableCapacities, mixedCapacity])
 
@@ -283,16 +278,35 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     toast.info('Sale cart cleared')
   }
 
+  const mixedSelectedRows = useMemo(
+    () =>
+      mixedProducts
+        .map((p) => ({ product: p, quantity: Math.max(0, Number(mixedQuantities[p.id] || 0)) }))
+        .filter((row) => row.quantity > 0),
+    [mixedProducts, mixedQuantities]
+  )
+  const mixedAdded = mixedSelectedRows.reduce((sum, row) => sum + row.quantity, 0)
+  const mixedRemaining = Math.max(0, mixedCapacity - mixedAdded)
+  const mixedExceeds = mixedAdded > mixedCapacity
+  const mixedComplete = mixedCapacity > 0 && mixedAdded === mixedCapacity && mixedSelectedRows.length >= 2
+
+  const updateMixedQuantity = (productId: string, nextValue: number) => {
+    setMixedQuantities((current) => {
+      const addedByOthers = mixedProducts.reduce(
+        (sum, p) => (p.id === productId ? sum : sum + Math.max(0, Number(current[p.id] || 0))),
+        0
+      )
+      const availableSlots = Math.max(0, mixedCapacity - addedByOthers)
+      const product = mixedProducts.find((p) => p.id === productId)
+      const stockLimit = product ? product.availableBaseUnits : 0
+      const safe = Math.max(0, Math.min(stockLimit, availableSlots, Math.floor(Number(nextValue || 0))))
+      return { ...current, [productId]: safe }
+    })
+  }
+
   const addMixedCase = () => {
-    const quantityB = mixedCapacity - mixedQuantityA
-    if (
-      !mixedProductA ||
-      !mixedProductB ||
-      mixedProductA === mixedProductB ||
-      mixedQuantityA <= 0 ||
-      quantityB <= 0
-    ) {
-      toast.error('Please choose two different products and split the full case capacity between them')
+    if (!mixedComplete || mixedExceeds) {
+      toast.error('Fill the full case capacity with at least two different products')
       return
     }
     setCart((current) => [
@@ -302,18 +316,24 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         mode: 'MIXED_CASE',
         quantity: 1,
         caseCapacity: mixedCapacity,
-        components: [
-          { productId: mixedProductA, quantityBaseUnits: mixedQuantityA, emptyBottlesProvided: 0 },
-          { productId: mixedProductB, quantityBaseUnits: quantityB, emptyBottlesProvided: 0 },
-        ],
+        components: mixedSelectedRows.map((row) => ({
+          productId: row.product.id,
+          quantityBaseUnits: row.quantity,
+          emptyBottlesProvided: 0,
+        })),
       },
     ])
+    setMixedQuantities({})
     toast.success(`Added Mixed Case (${mixedCapacity} bottles) to sale`)
   }
 
   const validateCustomerInfo = () => {
     if (!walkInFirstName.trim()) {
       toast.error('First name is required for walk-in customer')
+      return false
+    }
+    if (!walkInMiddleName.trim()) {
+      toast.error('Middle name is required for walk-in customer')
       return false
     }
     if (!walkInLastName.trim()) {
@@ -336,7 +356,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   }
 
   const requestBody = () => {
-    const walkInFullName = [walkInFirstName.trim(), walkInMiddleName.trim(), walkInLastName.trim()]
+    const walkInFullName = [walkInFirstName.trim(), walkInMiddleName.trim(), walkInLastName.trim(), walkInSuffix.trim()]
       .filter(Boolean)
       .join(' ')
 
@@ -383,11 +403,12 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       setWalkInFirstName('')
       setWalkInLastName('')
       setWalkInMiddleName('')
+      setWalkInSuffix('')
       setWalkInContact('')
       setWalkInNotes('')
       setAmountTendered('')
       toast.success('Retail sale completed successfully')
-      await loadData()
+      await Promise.all([refetchProducts(), refetchSales()])
     } catch (error: any) {
       toast.error(error?.message || 'Unable to complete this retail sale')
     } finally {
@@ -406,7 +427,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       })
       setReceipt(payload.sale)
       toast.success('Retail transaction updated')
-      await loadData()
+      await Promise.all([refetchProducts(), refetchSales()])
     } catch (error: any) {
       toast.error(error?.message || 'Unable to update the retail transaction')
     } finally {
@@ -414,14 +435,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     }
   }
 
-  const selectedProductAData = useMemo(
-    () => products.find((p) => p.id === mixedProductA),
-    [products, mixedProductA]
-  )
-  const selectedProductBData = useMemo(
-    () => products.find((p) => p.id === mixedProductB),
-    [products, mixedProductB]
-  )
 
   const cartTotalItemsCount = useMemo(
     () => cart.reduce((sum, item) => sum + item.quantity, 0),
@@ -486,7 +499,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void loadData()}
+            onClick={() => void Promise.all([refetchProducts(), refetchSales()])}
             disabled={loading}
             className="gap-2 rounded-xl border-slate-200 bg-white/80 shadow-xs hover:bg-slate-50"
           >
@@ -574,7 +587,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                     onClick={() => {
                       setSearch('')
                       setSelectedCategory('ALL')
-                      void loadData()
+                      void Promise.all([refetchProducts(), refetchSales()])
                     }}
                   >
                     <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
@@ -681,168 +694,153 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 <div>
                   <CardTitle className="text-base font-bold text-slate-900">Mixed Case Builder</CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    Combine two compatible glass bottle products into one full case for a counter sale
+                    Combine two or more compatible glass bottle products into one full case for a counter sale
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
 
             <CardContent className="p-4 sm:p-6 space-y-4">
-              <div className="grid gap-4 md:grid-cols-4">
-                <div>
-                  <Label htmlFor="mixed-capacity" className="text-xs font-semibold text-slate-700">
-                    Case Capacity
-                  </Label>
-                  {availableCapacities.length > 0 ? (
-                    <select
-                      id="mixed-capacity"
-                      value={mixedCapacity}
-                      onChange={(e) => {
-                        const cap = Number(e.target.value) || 12
-                        setMixedCapacity(cap)
-                        setMixedQuantityA(Math.max(1, Math.floor(cap / 2)))
-                      }}
-                      className="mt-1 h-9.5 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                    >
-                      {availableCapacities.map((c) => (
-                        <option key={c} value={c}>
-                          {c} bottles / case
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input
-                      id="mixed-capacity"
-                      type="number"
-                      min={2}
-                      value={mixedCapacity}
-                      onChange={(e) => {
-                        const cap = Math.max(2, Number(e.target.value) || 2)
-                        setMixedCapacity(cap)
-                        if (mixedQuantityA >= cap) setMixedQuantityA(Math.max(1, Math.floor(cap / 2)))
-                      }}
-                      className="mt-1 h-9.5 rounded-xl text-xs"
-                    />
-                  )}
-                </div>
-
-                <div>
-                  <Label htmlFor="mixed-a" className="text-xs font-semibold text-slate-700">
-                    Product A
-                  </Label>
+              {/* Case Capacity Selector */}
+              <div className="max-w-xs">
+                <Label htmlFor="mixed-capacity" className="text-xs font-semibold text-slate-700">
+                  Case Capacity
+                </Label>
+                {availableCapacities.length > 0 ? (
                   <select
-                    id="mixed-a"
-                    value={mixedProductA}
-                    onChange={(e) => setMixedProductA(e.target.value)}
+                    id="mixed-capacity"
+                    value={mixedCapacity}
+                    onChange={(e) => {
+                      const cap = Number(e.target.value) || 12
+                      setMixedCapacity(cap)
+                      setMixedQuantities({})
+                    }}
                     className="mt-1 h-9.5 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   >
-                    <option value="">Select product A...</option>
-                    {mixedProducts.map((p) => (
-                      <option key={p.id} value={p.id} disabled={p.id === mixedProductB}>
-                        {p.name}
-                        {getProductSizeLabel(p)} ({p.availableBaseUnits} available)
+                    {availableCapacities.map((c) => (
+                      <option key={c} value={c}>
+                        {c} bottles / case
                       </option>
                     ))}
                   </select>
-                </div>
-
-                <div>
-                  <Label htmlFor="mixed-b" className="text-xs font-semibold text-slate-700">
-                    Product B
-                  </Label>
-                  <select
-                    id="mixed-b"
-                    value={mixedProductB}
-                    onChange={(e) => setMixedProductB(e.target.value)}
-                    className="mt-1 h-9.5 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    <option value="">Select product B...</option>
-                    {mixedProducts.map((p) => (
-                      <option key={p.id} value={p.id} disabled={p.id === mixedProductA}>
-                        {p.name}
-                        {getProductSizeLabel(p)} ({p.availableBaseUnits} available)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <Label htmlFor="mixed-qty-a" className="text-xs font-semibold text-slate-700">
-                    Product A Quantity ({mixedQuantityA} pcs)
-                  </Label>
-                  <div className="mt-1 flex items-center gap-1.5">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-9.5 w-9.5 rounded-xl shrink-0"
-                      onClick={() => setMixedQuantityA((q) => Math.max(1, q - 1))}
-                      disabled={mixedQuantityA <= 1}
-                    >
-                      <Minus className="h-3.5 w-3.5" />
-                    </Button>
-                    <Input
-                      id="mixed-qty-a"
-                      type="number"
-                      min={1}
-                      max={mixedCapacity - 1}
-                      value={mixedQuantityA}
-                      onChange={(e) => {
-                        const val = Math.min(mixedCapacity - 1, Math.max(1, Number(e.target.value) || 1))
-                        setMixedQuantityA(val)
-                      }}
-                      className="h-9.5 rounded-xl text-center text-xs font-bold"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-9.5 w-9.5 rounded-xl shrink-0"
-                      onClick={() => setMixedQuantityA((q) => Math.min(mixedCapacity - 1, q + 1))}
-                      disabled={mixedQuantityA >= mixedCapacity - 1}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
+                ) : (
+                  <Input
+                    id="mixed-capacity"
+                    type="number"
+                    min={2}
+                    value={mixedCapacity}
+                    onChange={(e) => {
+                      const cap = Math.max(2, Number(e.target.value) || 2)
+                      setMixedCapacity(cap)
+                      setMixedQuantities({})
+                    }}
+                    className="mt-1 h-9.5 rounded-xl text-xs"
+                  />
+                )}
               </div>
 
-              {/* Proportional Split Bar Visualizer */}
-              <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3.5">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-2">
-                  <span>
-                    Product A: <strong className="text-indigo-600">{selectedProductAData?.name || 'Selected'} ({mixedQuantityA} pcs)</strong>
-                  </span>
-                  <span>
-                    Product B: <strong className="text-emerald-600">{selectedProductBData?.name || 'Selected'} ({Math.max(0, mixedCapacity - mixedQuantityA)} pcs)</strong>
-                  </span>
-                </div>
+              {/* Capacity / Added / Remaining Status Bar */}
+              <div className={`grid grid-cols-3 gap-2 rounded-xl p-3 text-center text-sm ${mixedExceeds ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50/60 text-indigo-800'}`}>
+                <div><p className="text-[11px] opacity-70">Capacity</p><p className="text-lg font-bold">{mixedCapacity}</p></div>
+                <div><p className="text-[11px] opacity-70">Added</p><p className="text-lg font-bold">{mixedAdded}</p></div>
+                <div><p className="text-[11px] opacity-70">Remaining</p><p className="text-lg font-bold">{mixedRemaining}</p></div>
+              </div>
 
-                <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200 flex">
-                  <div
-                    className="h-full bg-indigo-500 transition-all duration-300"
-                    style={{ width: `${(mixedQuantityA / mixedCapacity) * 100}%` }}
-                  />
-                  <div
-                    className="h-full bg-emerald-500 transition-all duration-300"
-                    style={{ width: `${((mixedCapacity - mixedQuantityA) / mixedCapacity) * 100}%` }}
-                  />
+              {/* Per-Product Quantity Picker Rows */}
+              {mixedProducts.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center">
+                  <Layers className="mx-auto h-7 w-7 text-slate-400" />
+                  <p className="mt-2 text-xs font-semibold text-slate-600">No eligible mixed case products</p>
+                  <p className="text-[11px] text-slate-500">Products need matching capacity and compatible packaging</p>
                 </div>
+              ) : (
+                <div className="space-y-2">
+                  {mixedProducts.map((product) => {
+                    const quantity = Math.max(0, Number(mixedQuantities[product.id] || 0))
+                    const maxAllowed = Math.min(product.availableBaseUnits, quantity + mixedRemaining)
+                    return (
+                      <div
+                        key={product.id}
+                        className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${
+                          quantity > 0 ? 'border-indigo-200 bg-indigo-50/30' : 'border-slate-200 bg-white'
+                        }`}
+                      >
+                        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
+                          <img
+                            src={product.imageUrl || '/ann-anns-logo.png'}
+                            alt={product.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => { e.currentTarget.src = '/ann-anns-logo.png' }}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-slate-900">
+                            {product.name}{getProductSizeLabel(product)}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {peso(product.retailUnitPrice || 0)}/{product.looseUnit || 'bottle'} · {product.availableBaseUnits} available
+                          </p>
+                          {quantity > 0 && (
+                            <p className="text-[11px] font-medium text-emerald-700">
+                              Subtotal: {peso(Number(product.retailUnitPrice || 0) * quantity)}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8 rounded-lg shrink-0"
+                            onClick={() => updateMixedQuantity(product.id, quantity - 1)}
+                            disabled={quantity <= 0}
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </Button>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={maxAllowed}
+                            value={quantity}
+                            onChange={(e) => updateMixedQuantity(product.id, Number(e.target.value))}
+                            className="h-8 w-14 rounded-lg text-center text-xs font-bold"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8 rounded-lg shrink-0"
+                            onClick={() => updateMixedQuantity(product.id, quantity + 1)}
+                            disabled={quantity >= maxAllowed}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
 
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-xs text-slate-500">
-                    Total: <strong>{mixedCapacity}</strong> glass bottles
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={addMixedCase}
-                    className="h-8.5 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-700"
-                  >
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                    Add Mixed Case to Cart
-                  </Button>
-                </div>
+              {/* Footer: Add to Cart */}
+              <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <span className="text-xs text-slate-500">
+                  {mixedComplete
+                    ? `${mixedSelectedRows.length} products · ${mixedCapacity} bottles`
+                    : mixedAdded > 0
+                      ? `${mixedRemaining} more bottle${mixedRemaining === 1 ? '' : 's'} needed`
+                      : 'Select at least two products to build a mixed case'}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={addMixedCase}
+                  disabled={!mixedComplete || mixedExceeds}
+                  className="h-8.5 rounded-xl bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
+                >
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Add Mixed Case to Cart
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -958,7 +956,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
               <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3.5">
                   <p className="text-xs font-bold text-slate-800">Walk-in Customer Details</p>
 
-                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                     <div>
                       <Label htmlFor="walk-in-first-name" className="text-xs font-semibold text-slate-700">
                         First Name <span className="text-rose-500">*</span>
@@ -968,6 +966,19 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                         value={walkInFirstName}
                         onChange={(e) => setWalkInFirstName(e.target.value)}
                         placeholder="e.g. Juan"
+                        className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="walk-in-middle-name" className="text-xs font-semibold text-slate-700">
+                        Middle Name <span className="text-rose-500">*</span>
+                      </Label>
+                      <Input
+                        id="walk-in-middle-name"
+                        value={walkInMiddleName}
+                        onChange={(e) => setWalkInMiddleName(e.target.value)}
+                        placeholder="e.g. Santos"
                         className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
                       />
                     </div>
@@ -988,14 +999,14 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
 
                   <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                     <div>
-                      <Label htmlFor="walk-in-middle-name" className="text-xs font-semibold text-slate-500">
-                        Middle Name (optional)
+                      <Label htmlFor="walk-in-suffix" className="text-xs font-semibold text-slate-500">
+                        Suffix (optional)
                       </Label>
                       <Input
-                        id="walk-in-middle-name"
-                        value={walkInMiddleName}
-                        onChange={(e) => setWalkInMiddleName(e.target.value)}
-                        placeholder="e.g. Santos"
+                        id="walk-in-suffix"
+                        value={walkInSuffix}
+                        onChange={(e) => setWalkInSuffix(e.target.value)}
+                        placeholder="e.g. Jr., III"
                         className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
                       />
                     </div>
@@ -1137,9 +1148,10 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                   type="number"
                                   min={0}
                                   max={line.quantity}
-                                  value={line.emptyBottlesProvided || 0}
+                                  value={line.emptyBottlesProvided || ''}
                                   onChange={(e) =>
                                     updateLine(line.key, {
+                                      emptyBottlesProvided: Math.max(0, Number(e.target.value) || 0),
                                     })
                                   }
                                   className="h-7 w-16 rounded-lg text-center text-xs font-bold border-emerald-300 bg-white"
@@ -1174,7 +1186,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                         type="number"
                                         min={0}
                                         max={component.quantityBaseUnits}
-                                        value={component.emptyBottlesProvided || 0}
+                                        value={component.emptyBottlesProvided || ''}
                                         onChange={(e) => {
                                           const components = [...(line.components || [])]
                                           components[componentIndex] = {

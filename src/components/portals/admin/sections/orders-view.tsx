@@ -1547,6 +1547,18 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                       </div>
                     ))}
                     <div className="h-px bg-slate-200" />
+                    {(() => {
+                      const upfrontDeposit = (selectedOrder.items || []).reduce((sum: number, item: any) => sum + Number(item?.netDeposit ?? item?.depositTotal ?? item?.depositCharged ?? 0), 0)
+                      if (upfrontDeposit > 0) {
+                        return (
+                          <div className="flex items-center justify-between text-xs font-medium text-slate-600">
+                            <span>Container deposit</span>
+                            <span>{formatPeso(upfrontDeposit)}</span>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                     {getEmptiesAdjustment(selectedOrder) ? (
                       <div className="text-right text-[12px] leading-4 text-[#8a7135]">
                         <p className="font-semibold text-[#7a5c15]">
