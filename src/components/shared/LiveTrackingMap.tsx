@@ -1284,7 +1284,11 @@ export default function LiveTrackingMap({
         return [loc];
       }
 
-      // Fix: keep the displayed vehicle on the available road while raw GPS drives rerouting.
+      // Fix: do not pin a detouring driver to the old road before the off-route
+      // check can see the actual deviation. GPS remains live while rerouting.
+      if (navigationPerspective && approximateDistanceMeters(authoritativeRoadPoint, bestSnap.point) > TRUCK_MAX_ROUTE_SNAP_METERS) {
+        return [loc];
+      }
 
       // Prefer a short local lookahead so orientation follows each turn on the active route.
       const localForwardHeading = calculateBearingAlongRoute(
@@ -1370,7 +1374,9 @@ export default function LiveTrackingMap({
         return location;
       }
 
-      const projected = projectPointOntoRoute([location.lat, location.lng], navigationRouteGeometry);
+      const projected = projectPointOntoRoute(
+        [location.actualLat ?? location.lat, location.actualLng ?? location.lng], navigationRouteGeometry
+      );
       if (!projected) return location;
 
       // Off-route: the monotonic progress clamp below would pin the icon to the
@@ -1610,6 +1616,41 @@ export default function LiveTrackingMap({
     if (typeof projected !== 'number') return null;
     return quantizeRouteSplitMeters(projected);
   }, [navTruck, navigationRouteGeometry]);
+  const [traveledRouteSections, setTraveledRouteSections] = useState<LiveRouteLine[]>([]);
+  const lastTraveledSectionRef = useRef<{ routeKey: string; routeId: string; line: LiveRouteLine } | null>(null);
+  const upcomingRouteId = renderedRouteLines.find((line) => line.id.endsWith('-route-upcoming'))?.id;
+  useEffect(() => {
+    // Capture history with the displayed map frame, after the new route is committed.
+    const frame = window.requestAnimationFrame(() => {
+      const previous = lastTraveledSectionRef.current;
+      if (previous && previous.routeId !== upcomingRouteId) {
+        // Fix: history belongs to this trip only, never to the next selected trip.
+        setTraveledRouteSections([]);
+        lastTraveledSectionRef.current = null;
+      } else if (previous && previous.routeKey !== navigationRouteKey) {
+        // Fix: retain only the portion actually traveled before replacing the route.
+        if (previous.line.points.length > 1) {
+          setTraveledRouteSections((sections) => [...sections, {
+            ...previous.line, id: `${previous.routeId}-history-${sections.length}`,
+          }]);
+        }
+        lastTraveledSectionRef.current = null;
+      }
+      const template = renderedRouteLines.find((line) => line.id === upcomingRouteId);
+      if (!template || navTruckSplitDistance === null || !navTruck) return;
+      const projection = projectPointOntoRoute(
+        [navTruck.actualLat ?? navTruck.lat, navTruck.actualLng ?? navTruck.lng], navigationRouteGeometry
+      );
+      // A detour must not mark an untraveled part of the old route as completed.
+      if (!projection || projection.distanceFromRouteMeters > TRUCK_MAX_ROUTE_SNAP_METERS) return;
+      lastTraveledSectionRef.current = {
+        routeKey: navigationRouteKey, routeId: template.id,
+        line: { ...template, points: splitRouteAtDistance(navigationRouteGeometry, navTruckSplitDistance).completed,
+          color: '#6b7280', selectable: false, snapToRoad: false },
+      };
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [navigationRouteKey, upcomingRouteId, navTruckSplitDistance, navigationRouteGeometry, renderedRouteLines, navTruck]);
   const navigationDisplayRouteLines = useMemo(() => {
     if (navigationRouteGeometry.length < 2 || navTruckSplitDistance === null) return renderedRouteLines;
 
@@ -1634,11 +1675,12 @@ export default function LiveTrackingMap({
       color: '#2563eb',
     };
     return [
+      ...traveledRouteSections,
       ...unrelatedLines,
       ...(completedLine.points.length > 1 ? [completedLine] : []),
       ...(upcomingLine.points.length > 1 ? [upcomingLine] : []),
     ];
-  }, [navTruckSplitDistance, navigationRouteGeometry, renderedRouteLines]);
+  }, [navTruckSplitDistance, navigationRouteGeometry, renderedRouteLines, traveledRouteSections]);
 
   const strictBounds = restrictToNegrosOccidental
     ? serviceBoundary

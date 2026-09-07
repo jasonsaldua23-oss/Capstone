@@ -142,6 +142,8 @@ export function TripDetailView({
   // Mobile bottom sheet and map UX state.
   const [mobileSheetSnapPoint, setMobileSheetSnapPoint] = useState<number | string | null>(0.52)
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false)
+  const isMobileSheetOpenRef = useRef(false)
+  useEffect(() => { isMobileSheetOpenRef.current = isMobileSheetOpen }, [isMobileSheetOpen])
   const [isMobileSheetClosing, setIsMobileSheetClosing] = useState(false)
   const [showMobileSheetPeek, setShowMobileSheetPeek] = useState(true)
   const [mobileSheetAnimationEpoch, setMobileSheetAnimationEpoch] = useState(0)
@@ -161,6 +163,8 @@ export function TripDetailView({
   const [routeOptions, setRouteOptions] = useState<DriverRouteOption[]>([])
   const [activeRouteOptionIndex, setActiveRouteOptionIndex] = useState(0)
   const [navigationRouteOrigin, setNavigationRouteOrigin] = useState<{ tripId: string; lat: number; lng: number } | null>(null)
+  const navigationRouteRequestInFlightRef = useRef(false)
+  const navigationStopsKeyRef = useRef('')
   const [is3DPerspective, setIs3DPerspective] = useState(false)
   const [voiceGuidanceEnabled, setVoiceGuidanceEnabled] = useState(true)
   const [previewDriverLocation, setPreviewDriverLocation] = useState<DriverGpsLocation | null>(null)
@@ -381,8 +385,7 @@ export function TripDetailView({
 
     if (mobileSheetSnapPoints.includes(next)) {
       setMobileSheetSnapPoint(next)
-      setShowMobileSheetPeek(false)
-      setIsMobileSheetOpen(true)
+      // Fix: Vaul resets its snap point after closing; that must not reopen the drawer.
       return
     }
 
@@ -409,6 +412,8 @@ export function TripDetailView({
   }
 
   const handleMobileSheetAnimationEnd = (open: boolean) => {
+    // Fix: ignore a delayed animation callback from an earlier open/close gesture.
+    if (open !== isMobileSheetOpenRef.current) return
     setShowMobileSheetPeek(!open)
     if (!open) setIsMobileSheetClosing(false)
     // Fix: recalculate the map once at the settled drawer position instead of
@@ -2035,29 +2040,32 @@ export function TripDetailView({
     ? `${Math.round(currentVehicleSpeedMps * 3.6)} km/h`
     : '-- km/h'
 
+  const navigationStopsKey = pendingDropPoints.map((point) => `${point.id}:${point.latitude},${point.longitude}`).join('|')
   useEffect(() => {
     if (!driverLocationMarker) return
+    // Fix: a newly completed or changed stop starts its next route at the current GPS fix.
+    const stopsChanged = navigationStopsKeyRef.current !== navigationStopsKey
+    navigationStopsKeyRef.current = navigationStopsKey
     const nextOrigin = {
       tripId: trip.id,
       lat: driverLocationMarker.lat,
       lng: driverLocationMarker.lng,
     }
     setNavigationRouteOrigin((previous) => {
-      if (!previous || previous.tripId !== trip.id) return nextOrigin
+      if (!previous || previous.tripId !== trip.id || stopsChanged) return nextOrigin
       const movedMeters = haversineKm(previous, nextOrigin) * 1000
-      // Fix: ignore normal GPS jitter so the instruction and ETA panel does not flicker.
-      // Threshold raised from 20m: at driving speed a 20m gate re-fetched OSRM
-      // (up to 3 requests per recompute) every ~1-2s, which routinely hit the
-      // public OSRM server's rate limit — the failed fetch used to wipe the
-      // displayed route, which is what made the truck appear to jump/vanish.
+      // Ignore normal GPS jitter so the instruction and ETA panel does not flicker.
       const activeRoutePoints = routeOptions[activeRouteOptionIndex]?.points
       const deviationMeters = activeRoutePoints ? distanceFromRouteMeters(nextOrigin, activeRoutePoints) : null
       // A missed turn or detour should reroute immediately — same as Google
       // Maps — instead of waiting for the periodic 60m recompute distance.
       const isOffRoute = typeof deviationMeters === 'number' && deviationMeters > 45
-      return movedMeters >= 60 || isOffRoute ? nextOrigin : previous
+      // Fix: keep on-route geometry so its traveled section survives long drives.
+      // While rerouting, allow the current request to finish before moving its origin again.
+      return (!activeRoutePoints && movedMeters >= 60) || (isOffRoute && !navigationRouteRequestInFlightRef.current)
+        ? nextOrigin : previous
     })
-  }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng])
+  }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng, navigationStopsKey])
 
   const fullRouteWaypoints = (() => {
     const start = warehouseRouteStart ? [warehouseRouteStart] : []
@@ -2069,7 +2077,7 @@ export function TripDetailView({
     return [...start, ...completedCoords, ...pendingCoords]
   })()
   const routeWaypoints = fullRouteWaypoints
-  // Stabilized driver origin that only changes when the driver moves ≥20m.
+  // Keep the origin stable until the driver needs a replacement route.
   // Must be declared before the route waypoint builders that reference it.
   const savedNavigationOrigin = navigationRouteOrigin
   const stableNavigationOrigin = savedNavigationOrigin && savedNavigationOrigin.tripId === trip.id
@@ -2079,9 +2087,7 @@ export function TripDetailView({
       : null
   const upcomingRouteWaypoints = (() => {
     const pendingCoords = pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
-    // Use the stabilized navigation origin (only updates every 20m) instead of
-    // raw GPS. This prevents OSRM re-fetch storms while still providing the
-    // required ≥2-point route geometry for the upcoming line.
+    // Use the stable origin to avoid restarting route requests for every GPS fix.
     if (stableNavigationOrigin) return [stableNavigationOrigin, ...pendingCoords]
     return pendingCoords
   })()
@@ -2112,10 +2118,13 @@ export function TripDetailView({
 
     let cancelled = false
     let retryTimeoutId: number | null = null
-    const hadRouteBeforeThisFetch = routeOptions.length > 0
+    let activeController: AbortController | null = null
 
     const run = async (attemptNumber: number) => {
+      // Fix: each retry needs a fresh signal after a previous request times out.
       const controller = new AbortController()
+      activeController = controller
+      navigationRouteRequestInFlightRef.current = true
       const timeout = window.setTimeout(() => controller.abort(), 12000)
       try {
         const coordinates = uniqueWaypoints
@@ -2223,22 +2232,21 @@ export function TripDetailView({
           setRouteOptions(normalizedOptions)
           setActiveRouteOptionIndex((previous) => Math.min(previous, Math.max(normalizedOptions.length - 1, 0)))
           setCurrentStepIndex(0)
-        } else if (!cancelled && !hadRouteBeforeThisFetch && attemptNumber === 0) {
-          // First-ever route request for this trip came back empty (rate limit,
-          // transient OSRM error). Retry once shortly after so opening the map
-          // reliably shows a planned route instead of staying blank.
+        } else if (!cancelled && attemptNumber < 2) {
+          // Fix: retry failed reroutes too, even when an older route is still visible.
           retryTimeoutId = window.setTimeout(() => {
-            if (!cancelled) void run(1)
+            if (!cancelled) void run(attemptNumber + 1)
           }, 2500)
         }
       } catch {
-        if (!cancelled && !hadRouteBeforeThisFetch && attemptNumber === 0) {
+        if (!cancelled && attemptNumber < 2) {
           retryTimeoutId = window.setTimeout(() => {
-            if (!cancelled) void run(1)
+            if (!cancelled) void run(attemptNumber + 1)
           }, 2500)
         }
       } finally {
         window.clearTimeout(timeout)
+        if (!cancelled) navigationRouteRequestInFlightRef.current = false
       }
     }
 
@@ -2246,6 +2254,8 @@ export function TripDetailView({
 
     return () => {
       cancelled = true
+      activeController?.abort()
+      navigationRouteRequestInFlightRef.current = false
       if (retryTimeoutId !== null) window.clearTimeout(retryTimeoutId)
     }
   }, [navigationWaypointsKey])
@@ -2261,7 +2271,6 @@ export function TripDetailView({
     (point) => [point.lat, point.lng] as [number, number]
   )
   const activeRouteOption = routeOptions[activeRouteOptionIndex] || null
-  const isRecommendedRouteActive = activeRouteOptionIndex === 0
 
   // Along-route distance to each maneuver equals the summed length of every step
   // before it. Shared by step advancement and the live distance-to-turn readout
@@ -2335,8 +2344,7 @@ export function TripDetailView({
     setActiveRouteOptionIndex(selectedIndex)
   }, [activeRouteOptionIndex, routeOptions, trip.id])
   const mapRouteLines = [
-    // Matches Google Maps navigation: the traveled portion of the route is not drawn
-    // behind the vehicle. Only the remaining path ahead is shown.
+    // The map splits the active geometry into traveled and upcoming sections.
     ...routeOptions
       .filter((_, optionIndex) => optionIndex !== activeRouteOptionIndex)
       .map((option) => ({
@@ -2353,13 +2361,13 @@ export function TripDetailView({
       ? [
         {
           id: `trip-${trip.id}-route-upcoming`,
-          // Preserve the existing recommended-route snapping until the driver explicitly chooses an alternative.
-          points: isRecommendedRouteActive ? upcomingRoutePoints : activeRouteOption?.points || upcomingRoutePoints,
+          // Fix: use the same verified geometry for the truck, route line, and instructions.
+          points: activeRouteOption?.points || upcomingRoutePoints,
           color: '#2563eb',
           label: `${trip.tripNumber} upcoming path`,
           opacity: 1,
           weight: 8,
-          snapToRoad: isRecommendedRouteActive,
+          snapToRoad: !activeRouteOption,
           selectable: Boolean(activeRouteOption),
           // Fix: begin the visible path and truck marker at the routed road position.
           preserveExactEndpoints: false,
