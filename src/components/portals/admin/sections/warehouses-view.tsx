@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { parseWarehouseSetup } from '@/lib/warehouse-setup'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -199,12 +200,12 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
     setIsLoading(true)
     setLoadError('')
     try {
-      const response = await fetch('/api/warehouses?page=1&pageSize=100')
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to load warehouse profile')
+      // Fix: retry transient failures and bypass cached reads before changing setup status.
+      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=100')
+      if (!result.ok || result.data?.success === false) {
+        throw new Error(result.data?.error || 'Failed to load warehouse profile')
       }
-      const rows = getCollection<any>(data, ['warehouses'])
+      const rows = parseWarehouseSetup(result.data)
       setWarehouses(rows)
       onWarehouseChanged?.(rows.length === 1)
 
@@ -603,10 +604,10 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
-            {totalWarehouses === 0 ? 'Warehouse Setup' : 'Warehouse'}
+            {totalWarehouses === 0 && !loadError ? 'Warehouse Setup' : 'Warehouse'}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {totalWarehouses === 0
+            {loadError ? 'Unable to refresh warehouse details. Please try again.' : totalWarehouses === 0
               ? 'Register the warehouse facility before using operational modules'
               : 'Facility details, live capacity utilization, stock health, and operational metrics'}
           </p>
@@ -647,7 +648,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500">Registration</p>
-                <p className="text-xl font-bold text-slate-900">{totalWarehouses >= 1 ? 'Complete' : 'Required'}</p>
+                <p className="text-xl font-bold text-slate-900">{totalWarehouses >= 1 ? 'Complete' : loadError ? 'Unavailable' : 'Required'}</p>
               </div>
             </div>
           </CardContent>
@@ -684,6 +685,9 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
       {loadError ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-5 py-6 text-center text-sm text-rose-700">
           {loadError}
+          <Button variant="outline" className="mt-3 mx-auto block" onClick={() => void fetchWarehouses()}>
+            Retry
+          </Button>
         </div>
       ) : warehouses.length === 0 ? (
         <Card className="border-dashed border-2 border-slate-200 bg-slate-50/50">

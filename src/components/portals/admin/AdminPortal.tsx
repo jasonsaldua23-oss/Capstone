@@ -48,6 +48,8 @@ import { DriversView } from './sections/drivers-view'
 import { DashboardView } from './sections/dashboard-view'
 import { TransportationView } from './sections/transportation-view'
 import { WarehousesView } from './sections/warehouses-view'
+import { parseWarehouseSetup } from '@/lib/warehouse-setup'
+import { safeFetchJson as fetchWarehouseJson } from './sections/shared'
 import { ReplacementsView } from './sections/replacements-view'
 import { TrackingView } from './sections/tracking-view'
 import { FeedbackView } from './sections/feedback-view'
@@ -445,25 +447,29 @@ export function AdminPortal() {
     focusKey: number
   } | null>(null)
   const [warehouseReady, setWarehouseReady] = useState<boolean | null>(null)
+  const [warehouseSetupError, setWarehouseSetupError] = useState('')
+  const [warehouseSetupAttempt, setWarehouseSetupAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     const checkWarehouseSetup = async () => {
+      setWarehouseSetupError('')
       try {
-        const result = await safeFetchJson(
+        const result = await fetchWarehouseJson(
           '/api/warehouses?page=1&pageSize=2',
           { cache: 'no-store', credentials: 'include' },
           { retries: 3, timeoutMs: 15000 }
         )
         if (!cancelled) {
-          const ready = result.ok && getCollection<any>(result.data, ['warehouses']).length === 1
+          // Fix: failed checks leave registration unknown instead of locking every menu.
+          if (!result.ok) throw new Error(result.data?.error || 'Unable to check warehouse setup')
+          const ready = parseWarehouseSetup(result.data).length === 1
           setWarehouseReady(ready)
           if (!ready) setActiveView('warehouses')
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          setWarehouseReady(false)
-          setActiveView('warehouses')
+          setWarehouseSetupError(error instanceof Error ? error.message : 'Unable to check warehouse setup')
         }
       }
     }
@@ -471,7 +477,7 @@ export function AdminPortal() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [warehouseSetupAttempt])
 
   const isPriorityNotification = (item: PortalNotification) => {
     const title = String(item?.title || '').toLowerCase()
@@ -1084,6 +1090,12 @@ export function AdminPortal() {
   }
 
   const renderActiveView = () => {
+    if (warehouseSetupError) {
+      return <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-sm text-gray-500">
+        <p>{warehouseSetupError}</p>
+        <Button variant="outline" onClick={() => setWarehouseSetupAttempt((attempt) => attempt + 1)}>Retry</Button>
+      </div>
+    }
     if (warehouseReady === null) {
       return <div className="flex min-h-[40vh] items-center justify-center text-sm text-gray-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Checking warehouse setup...</div>
     }
@@ -1164,7 +1176,7 @@ export function AdminPortal() {
   }
 
   // Do not reveal partially initialized admin content after authentication completes.
-  const isPortalInitializing = isLoading || warehouseReady === null || !initialNotificationsLoaded
+  const isPortalInitializing = isLoading || (warehouseReady === null && !warehouseSetupError) || !initialNotificationsLoaded
   if (isPortalInitializing) {
     return (
       <div className={`${portalFont.className} flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-cyan-50 to-emerald-50`}>
