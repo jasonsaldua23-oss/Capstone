@@ -14,13 +14,45 @@ export type EmptiesAdjustment = {
   amount?: number
   reason?: string
   recordedAt?: string | null
-  lines?: Array<{ containerTypeName?: string; shortQuantity?: number; amount?: number }>
+  lines?: Array<{ containerTypeId?: string; containerTypeName?: string; productNames?: string[]; quantityLabel?: string; shortQuantity?: number; amount?: number }>
 }
 
 export function getEmptiesAdjustment(order: any): EmptiesAdjustment | null {
   const adjustment = order?.emptiesAdjustment
   if (!adjustment || !(Number(adjustment.amount) > 0)) return null
-  return adjustment as EmptiesAdjustment
+  // Added: match declared empties to their order products, including mixed-case contents.
+  const declaredProducts = (order.items || []).flatMap((item: any) => [
+    ...(Number(item.emptyReturnedQuantity || 0) > 0 ? [item] : []),
+    ...(item.components || []).filter((component: any) => Number(component.emptyCoveredQuantity || 0) > 0),
+  ])
+  return {
+    ...adjustment,
+    lines: (adjustment.lines || []).map((line: NonNullable<EmptiesAdjustment['lines']>[number]) => {
+      const matchingProducts = declaredProducts
+        .filter((item: any) => line.containerTypeId
+          ? item.containerTypeId === line.containerTypeId
+          : Boolean(line.containerTypeName) && item.containerTypeName === line.containerTypeName)
+      // Added: include each product's stored size directly in the deposit explanation.
+      const productNames = matchingProducts
+        .map((item: any) => {
+          const name = String(item.productName || item.product?.name || '').replace(/[()]/g, '').trim()
+          const size = String(item.product?.size || item.product?.sizeLabel || item.product?.sizes?.join(', ') || '').replace(/[()]/g, '').trim()
+          return size && name && !name.toLowerCase().includes(size.toLowerCase()) ? `${name} ${size}` : name
+        })
+        .filter(Boolean)
+      // Shortfalls are stored as bottles; convert only when all matched products share a case size.
+      const caseSizes = matchingProducts.map((item: any) =>
+        String(item.productUnit || item.product?.unit || '').toLowerCase() === 'case'
+          ? Number(item.containersPerCase || item.quantityPerCase || item.product?.quantityPerCase || 0)
+          : 0
+      )
+      const caseSize = caseSizes[0] || 0
+      const shortQuantity = Number(line.shortQuantity || 0)
+      const useCases = caseSize > 0 && caseSizes.every((size: number) => size === caseSize) && shortQuantity % caseSize === 0
+      const quantityLabel = useCases ? `${shortQuantity / caseSize} case` : `${shortQuantity} bottle`
+      return { ...line, productNames: [...new Set<string>(productNames)], quantityLabel }
+    }),
+  }
 }
 
 /** The order total including any empties deposit charged back on delivery. */
@@ -30,13 +62,14 @@ export function getOrderTotalWithEmpties(order: any): number {
   return Number(order?.amountDue ?? total + Number(adjustment?.amount || 0))
 }
 
-/** "2 × 1L Returnable Glass Bottle declared but not returned" */
+/** "2 case 7Up 330ml declared but not returned" */
 export function describeEmptiesShortfall(adjustment: EmptiesAdjustment | null): string {
   if (!adjustment) return ''
   const lines = (adjustment.lines || []).filter((line) => Number(line?.shortQuantity || 0) > 0)
   if (!lines.length) return 'Declared empties were not handed over on delivery'
   return lines
-    .map((line) => `${line.shortQuantity} × ${line.containerTypeName || 'container'}`)
+    // A container charge can cover several products; keep its shared quantity intact.
+    .map((line) => `${line.quantityLabel || `${line.shortQuantity} bottle`} ${line.productNames?.length ? line.productNames.join(', ') : line.containerTypeName || 'container'}`)
     .join(', ')
     .concat(' declared but not returned')
 }

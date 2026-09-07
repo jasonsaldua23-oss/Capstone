@@ -882,11 +882,13 @@ export function CustomerProfileView({
             <p className="text-xs text-slate-400">
               {shippingCity ? `${shippingCity}, ${shippingProvince || 'Negros Occidental'} ${shippingZipCode || ''}`.trim() : 'City/Province not set'}
             </p>
+            {/* Fix: keep address changes locked with the rest of the profile fields. */}
             <Button
               type="button"
               variant="outline"
               className="w-full h-10 mt-1 rounded-xl border-emerald-200 bg-white text-[#14532d] hover:bg-[#eef8f2] hover:text-[#14532d] font-semibold"
               onClick={() => setIsAddressDialogOpen(true)}
+              disabled={!isEditingProfile}
             >
               <MapPin className="h-4 w-4 mr-2" />
               Change Delivery Address

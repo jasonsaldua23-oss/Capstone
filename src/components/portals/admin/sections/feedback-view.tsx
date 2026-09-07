@@ -388,6 +388,11 @@ export function FeedbackView() {
                           <span className="text-[1rem] font-semibold leading-none tracking-wide text-[#2047a8] md:text-[1.15rem]">
                             {orderNumber}
                           </span>
+                          {orderNumber.toUpperCase().startsWith('RPL-') && (
+                            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
+                              Replacement
+                            </span>
+                          )}
                         </div>
                         <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-slate-500">
                           {renderStars(Number(item.rating || 0))}

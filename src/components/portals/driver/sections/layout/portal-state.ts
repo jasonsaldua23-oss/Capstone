@@ -456,12 +456,16 @@ export function useDriverPortalState() {
     const lat = Number(position.coords.latitude)
     const lng = Number(position.coords.longitude)
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    // Fix: nullable browser sensors must stay unavailable. Number(null) is 0,
+    // which incorrectly marked the driver as stopped and froze road matching.
+    const optionalSensorNumber = (value: number | null) =>
+      value !== null && Number.isFinite(Number(value)) ? Number(value) : null
     return {
       lat,
       lng,
       accuracy: Number.isFinite(Number(position.coords.accuracy)) ? Number(position.coords.accuracy) : null,
-      heading: Number.isFinite(Number(position.coords.heading)) ? Number(position.coords.heading) : null,
-      speed: Number.isFinite(Number(position.coords.speed)) ? Number(position.coords.speed) : null,
+      heading: optionalSensorNumber(position.coords.heading),
+      speed: optionalSensorNumber(position.coords.speed),
       recordedAt: Number(position.timestamp || Date.now()),
     }
   }

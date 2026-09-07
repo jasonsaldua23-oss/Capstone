@@ -2819,6 +2819,8 @@ export function WarehousePortal() {
   const buildTripEditorOrder = (point: any) => {
     const order = point?.order || {}
     const items = Array.isArray(order?.items) ? order.items : []
+    const totalCases = Number(order?.totalCases)
+    const totalWeight = Number(order?.totalWeight)
     const productSummary = items
       .map((item: any) => String(item?.product?.name || item?.productName || item?.name || '').trim())
       .filter(Boolean)
@@ -2837,6 +2839,9 @@ export function WarehousePortal() {
       distanceKm: null,
       status: String(point?.orderStatus || order?.status || point?.status || 'PENDING').trim() || 'PENDING',
       currentTripOrder: true,
+      // Fix: preserve the backend's warehouse-scoped load for orders already on the trip.
+      totalCases: Number.isFinite(totalCases) ? Math.max(0, totalCases) : undefined,
+      totalWeight: Number.isFinite(totalWeight) ? Math.max(0, totalWeight) : undefined,
     }
   }
 
@@ -3062,21 +3067,28 @@ export function WarehousePortal() {
         payload.driverId = driverId
         payload.vehicleId = vehicleId
       }
-      const response = await fetch(`/api/trips/${trip.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.error || 'Failed to update trip')
+      // A mutation must not retry, but it still needs a deadline so network loss
+      // cannot leave the editor permanently locked in its saving state.
+      const result = await safeFetchJson(
+        `/api/trips/${trip.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+        { retries: 0, timeoutMs: 60000 }
+      )
+      const data = result.data || {}
+      if (!result.ok || data?.success === false) {
+        throw new Error(result.error || data?.error || 'Failed to update trip')
       }
       const updatedTrip = data?.trip
       if (updatedTrip?.id) {
         setTrips((prev) => prev.map((entry) => (entry.id === updatedTrip.id ? updatedTrip : entry)))
         setSelectedTrip((current) => (current?.id === updatedTrip.id ? updatedTrip : current))
       }
-      await fetchOrdersData({ showLoading: false, silent: true })
+      // Fix: the PATCH response already updates the visible trip; refresh related lists in
+      // the background so a slow orders query cannot leave the Save button spinning.
       emitDataSync(['trips', 'orders'])
       toast.success('Trip updated')
       return true
@@ -4552,7 +4564,8 @@ export function WarehousePortal() {
       if (!normalizedSize) return normalizedBaseName
       const trailingSizePattern = new RegExp(`\\s*\\(?${escapeRegex(normalizedSize)}\\)?\\s*$`, 'i')
       const baseWithoutTrailingSize = normalizedBaseName.replace(trailingSizePattern, '').trim()
-      return `${baseWithoutTrailingSize || normalizedBaseName} (${normalizedSize})`
+      // Fix: match admin replacement details by showing sizes without parentheses.
+      return `${baseWithoutTrailingSize || normalizedBaseName} ${normalizedSize}`
     }
     const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
       const unitHint = String(
@@ -4729,6 +4742,30 @@ export function WarehousePortal() {
     })
   }
 
+  // Fix: route previews must use the replacement request, not rounded loading quantities.
+  const getRouteReplacementProducts = (order: any): string => {
+    const replacement: any = replacements.find((entry: any) => {
+      const meta = parseIssueMeta(entry.notes)
+      const linkedId = String(entry.replacementOrderId || entry.linkedReplacementOrderId || meta?.replacementOrderId || '')
+      const linkedNumber = String(entry.replacementOrderNumber || entry.linkedReplacementOrderNumber || meta?.replacementOrderNumber || '')
+      return (linkedId && linkedId === String(order.id)) || (linkedNumber && linkedNumber === String(order.orderNumber))
+    })
+    if (!replacement) return String(order.products || '')
+    const meta = parseIssueMeta(replacement.notes)
+    const rawLines = replacement.replacementLines?.length ? replacement.replacementLines : meta?.replacementLines || replacement.replacementItems || meta?.replacementItems || []
+    const displayLines = buildReplacementLines(replacement, meta)
+    return displayLines.map((line, index) => {
+      const source = rawLines[index] || {}
+      const mode = String(source.lineInputMode || source.replacementInputMode || source.inputMode || '').toLowerCase()
+      // Bottle requests carry an exact count even when the delivery order reserves a whole pack.
+      const bottleQty = Number(source.quantityToReplaceBottles ?? source.damagedBottles ?? source.quantityToReplace)
+      const quantity = mode === 'bottle' && Number.isFinite(bottleQty)
+        ? `${bottleQty} bottle`
+        : String(source.quantityToReplaceDisplay || line.quantityToReplaceDisplay || line.quantityToReplace).replace(/\(s\)/g, '')
+      return `${line.replacementProductName} ${quantity}`
+    }).join(', ')
+  }
+
   const formatIssueStatus = (entry: WarehouseReplacementItem) => {
     const meta = parseIssueMeta(entry?.notes)
     const hasOutstandingReplacementQty = (() => {
@@ -4787,7 +4824,7 @@ export function WarehousePortal() {
 
   const updateIssueStatus = async (
     replacementId: string,
-    status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
+    status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'IN_PROGRESS' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
     options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
   ) => {
     setUpdatingReplacementId(replacementId)
@@ -5779,8 +5816,8 @@ export function WarehousePortal() {
                                 ) : null}
                               </div>
                               <div className="text-[11px] text-gray-600">{order.address || order.city || ''}</div>
-                              {order.products && (
-                                <div className="mt-0.5 text-[11px] text-gray-500">{order.products}</div>
+                              {getRouteReplacementProducts(order) && (
+                                <div className="mt-0.5 text-[11px] text-gray-500">{getRouteReplacementProducts(order)}</div>
                               )}
                               {(() => {
                                 // Check if this is a multi-warehouse order

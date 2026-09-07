@@ -175,6 +175,54 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
       const date = rep.createdAt || new Date().toISOString()
       const processedDate = rep.processedAt || rep.pickupCompleted || null
 
+      // Build per-product lines for the table
+      const rawLines: any[] =
+        (Array.isArray(rep.replacementLines) && rep.replacementLines.length > 0 ? rep.replacementLines : null) ??
+        (Array.isArray(rep.replacementItems) && rep.replacementItems.length > 0 ? rep.replacementItems : null) ??
+        (Array.isArray(meta.replacementLines) && meta.replacementLines.length > 0 ? meta.replacementLines : null) ??
+        (Array.isArray(meta.replacementItems) && meta.replacementItems.length > 0 ? meta.replacementItems : null) ??
+        []
+
+      type LineEntry = { productName: string; qty: number; unitLabel: string; reason: string }
+
+      let lines: LineEntry[] = []
+      if (rawLines.length > 0) {
+        lines = rawLines.map((line: any) => {
+          const pName = String(
+            line.originalProductName ?? line.productName ?? line.replacementProductName ?? 'Product'
+          ).trim()
+          const rawQty = Math.max(Number(line.quantityToReplace ?? line.quantity ?? line.quantityReplaced ?? 0), 0)
+          const lineUnit = String(
+            line.productUnit ?? line.replacementProductUnit ?? line.originalProductUnit ?? line.unit ?? ''
+          ).trim().toLowerCase()
+
+          let lineLabel = 'bottles'
+          let lineQty = rawQty
+          if (lineUnit.includes('case')) { lineLabel = 'cases' }
+          else if (lineUnit.includes('pack')) { lineLabel = 'packs' }
+          else if (lineUnit.includes('bundle')) { lineLabel = 'bundles' }
+          else if (lineUnit.includes('bottle')) { lineLabel = 'bottles' }
+
+          // If display hint is available prefer it
+          if (line.quantityToReplaceDisplay) {
+            const m = String(line.quantityToReplaceDisplay).match(/^(\d+(?:\.\d+)?)\s*(\w+)?$/)
+            if (m) {
+              lineQty = Number(m[1])
+              if (m[2]) lineLabel = m[2].toLowerCase()
+            }
+          }
+
+          const lineReason = String(line.reason || rep.reason || 'N/A').trim()
+
+          return { productName: pName, qty: lineQty, unitLabel: lineLabel, reason: lineReason }
+        })
+      }
+
+      // Fallback single-line when no structured lines
+      if (lines.length === 0) {
+        lines = [{ productName: originalProduct, qty: quantity, unitLabel, reason }]
+      }
+
       return {
         id: rep.id,
         repNumber,
@@ -193,6 +241,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         status,
         date,
         processedDate,
+        lines,
       }
     })
   }, [replacements, ordersMap])
@@ -347,9 +396,18 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     { header: 'Replacement ID', key: 'repNumber' },
     { header: 'Order Ref', key: 'orderRef' },
     { header: 'Client', key: 'client' },
-    { header: 'Original Product', key: 'originalProduct' },
-    { header: 'Qty', accessor: (r) => `${r.quantity} ${r.unitLabel}` },
-    { header: 'Reason', key: 'reason' },
+    {
+      header: 'Original Item',
+      accessor: (r) => (r.lines as any[]).map((l: any) => l.productName).join('\n'),
+    },
+    {
+      header: 'Qty',
+      accessor: (r) => (r.lines as any[]).map((l: any) => `${l.qty} ${l.unitLabel}`).join('\n'),
+    },
+    {
+      header: 'Reason',
+      accessor: (r) => (r.lines as any[]).map((l: any) => l.reason).join('\n'),
+    },
     {
       header: 'Status',
       accessor: (r) =>
@@ -641,7 +699,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
                 <th className="p-3.5">Order Ref</th>
                 <th className="p-3.5">Client / Customer</th>
                 <th className="p-3.5">Original Item</th>
-                <th className="p-3.5 text-center">Qty</th>
+                <th className="p-3.5">Qty</th>
                 <th className="p-3.5">Reason & Description</th>
                 <th className="p-3.5">Status</th>
                 <th className="p-3.5">Loss (₱)</th>
@@ -659,15 +717,29 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
                       {row.clientEmail && <div className="text-[11px] text-slate-400">{row.clientEmail}</div>}
                     </td>
                     <td className="p-3.5">
-                      <div className="font-medium text-slate-800">{row.originalProduct}</div>
+                      <div className="space-y-1">
+                        {row.lines.map((line: { productName: string; qty: number; unitLabel: string }, i: number) => (
+                          <div key={i} className="font-medium text-slate-800 leading-tight">{line.productName}</div>
+                        ))}
+                      </div>
                     </td>
-                    <td className="p-3.5 text-center">
-                      <span className="font-bold text-slate-900">{row.quantity}</span>
-                      <span className="ml-1 text-[11px] text-slate-400 font-normal">{row.unitLabel}</span>
+                    <td className="p-3.5">
+                      <div className="space-y-1">
+                        {row.lines.map((line: { productName: string; qty: number; unitLabel: string }, i: number) => (
+                          <div key={i} className="whitespace-nowrap">
+                            <span className="font-bold text-slate-900">{line.qty}</span>
+                            <span className="ml-1 text-[11px] text-slate-400 font-normal">{line.unitLabel}</span>
+                          </div>
+                        ))}
+                      </div>
                     </td>
                     <td className="p-3.5 max-w-xs">
-                      <div className="font-medium text-slate-800">{row.reason}</div>
-                      {row.description && <div className="text-[11px] text-slate-400 line-clamp-1">{row.description}</div>}
+                      <div className="space-y-1">
+                        {row.lines.map((line: { productName: string; qty: number; unitLabel: string; reason: string }, i: number) => (
+                          <div key={i} className="font-medium text-slate-800 leading-tight">{line.reason}</div>
+                        ))}
+                      </div>
+                      {row.description && <div className="mt-1 text-[11px] text-slate-400 line-clamp-1">{row.description}</div>}
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
                     <td className="p-3.5">

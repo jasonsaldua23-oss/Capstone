@@ -3238,6 +3238,13 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                 order_returns = order_returns_map.get(str(dp.order.id), [])
                 order_warehouse_id = str(getattr(dp.order, "warehouse_id", "") or "").strip() or None
                 order_warehouse = warehouse_cache.get(order_warehouse_id)
+                # Fix: edit-trip route rows need each existing order's warehouse-scoped
+                # load; the trip-level totals cannot identify the load of selected rows.
+                order_load_cases, order_load_weight = _calculate_orders_load_for_warehouse(
+                    [dp.order],
+                    str(getattr(trip, "warehouse_id", "") or "").strip() or None,
+                    allocations_map,
+                )
                 row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number
                 # The empties the customer claimed at checkout, for the driver to verify.
@@ -3257,6 +3264,8 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     "warehouseProvince": str(getattr(order_warehouse, "province", "") or "").strip() or None,
                     "loadedAt": dp.order.loaded_at.isoformat() if dp.order.loaded_at else None,
                     "status": _normalize_order_status(dp.order.status),
+                    "totalCases": order_load_cases,
+                    "totalWeight": round(order_load_weight, 2),
                     "isDriverAssigned": bool(trip.driver_id),
                     "assignedDriverName": str(getattr(getattr(trip.driver, "user", None), "name", "") or "").strip() or None,
                     "totalAmount": dp.order.total_amount,
@@ -9353,8 +9362,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
     current_status_normalized = str(_normalize_replacement_status(getattr(r, "status", None), r.replacement_mode) or "").upper()
     if current_status_normalized == ReplacementStatus.CANCELLED:
         return _err("Cancelled replacement requests cannot be updated", 409)
-    allowed_schedule_targets = {ReplacementStatus.APPROVED, ReplacementStatus.IN_PROGRESS}
-    if create_replacement_order and normalized_status not in allowed_schedule_targets:
+    if create_replacement_order and normalized_status != ReplacementStatus.IN_PROGRESS:
         return _err("Replacement is not eligible for scheduling delivery", 400)
     if create_replacement_order and not replacement_delivery_date:
         return _err("replacementDeliveryDate is required when createReplacementOrder is true", 400)
@@ -9362,11 +9370,19 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         return _err("Manual schedule confirmation is required", 400)
     if create_replacement_order and not is_warehouse_role:
         return _err("Only warehouse staff can schedule replacement deliveries", 403)
-    if not create_replacement_order and not is_admin_role:
+    # Added: warehouse staff may perform exactly one status-only transition:
+    # APPROVED -> IN_PROGRESS. Scheduling is unlocked only after this step.
+    is_warehouse_start_processing = (
+        not create_replacement_order
+        and is_warehouse_role
+        and current_status_normalized == ReplacementStatus.APPROVED
+        and normalized_status == ReplacementStatus.IN_PROGRESS
+    )
+    if not create_replacement_order and not is_admin_role and not is_warehouse_start_processing:
         return _err("Only admin can set replacement UNDER_REVIEW, APPROVED, or REJECTED", 403)
     if is_admin_role and normalized_status not in {ReplacementStatus.UNDER_REVIEW, ReplacementStatus.APPROVED, ReplacementStatus.REJECTED}:
         return _err("Admin can only set replacement to UNDER_REVIEW, APPROVED, or REJECTED here", 400)
-    if create_replacement_order and current_status_normalized not in allowed_schedule_targets:
+    if create_replacement_order and current_status_normalized != ReplacementStatus.IN_PROGRESS:
         return _err("Replacement is not eligible for warehouse scheduling yet", 400)
     if normalized_status in {ReplacementStatus.RESOLVED_ON_DELIVERY, ReplacementStatus.COMPLETED}:
         if _replacement_has_outstanding_quantity(r):
@@ -11799,6 +11815,13 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
             def _format_route_plan_qty_label(item: OrderItem) -> str:
                 raw_qty = max(_int(getattr(item, "quantity", 0), 0), 0)
                 item_unit = _normalize_product_unit(getattr(item, "product_unit", None))
+                # Fix: multi-product replacements store exact bottle counts per item;
+                # the order quantity is rounded to packs/cases for loading.
+                item_notes = str(getattr(item, "notes", "") or "")
+                if str(o.order_number or "").upper().startswith("RPL-") and "ReplacementUnitMode=BOTTLE" in item_notes:
+                    bottle_match = re.search(r"ReplacementRequestedBottles=(\d+)", item_notes)
+                    if bottle_match and int(bottle_match.group(1)) > 0:
+                        return f"{int(bottle_match.group(1))} bottle"
                 if scheduled_replacement and len(order_items) == 1:
                     exact_qty = max(
                         _int(scheduled_replacement.get("quantityRemaining"), 0),
@@ -11806,17 +11829,18 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                     )
                     if exact_qty > 0:
                         if str(scheduled_replacement.get("unitMode") or "").strip().upper() == "BOTTLE":
-                            return f"{exact_qty} bottle(s)"
+                            return f"{exact_qty} bottle"
                         if item_unit == PRODUCT_UNIT_PACK_BUNDLE:
-                            return f"{exact_qty} pack(s)"
-                        return f"{exact_qty} case(s)"
+                            return f"{exact_qty} pack"
+                        return f"{exact_qty} case"
                 if item_unit == PRODUCT_UNIT_PACK_BUNDLE:
-                    return f"{raw_qty} pack(s)"
-                return f"{raw_qty} case(s)"
+                    return f"{raw_qty} pack"
+                return f"{raw_qty} case"
 
             products_preview = ", ".join(
                 [
-                    f"{str(getattr(item.product, 'name', '') or getattr(item, 'product_name', '') or 'Product').strip()} {_format_route_plan_qty_label(item)}"
+                    # Include the stored size without adding parentheses in the route preview.
+                    f"{str(getattr(item.product, 'name', '') or getattr(item, 'product_name', '') or 'Product').strip()} {_get_product_size_label(getattr(item, 'product', None)).replace('(', '').replace(')', '')} {_format_route_plan_qty_label(item)}".replace("  ", " ")
                     for item in order_items[:3]
                     if getattr(item, "product", None) or str(getattr(item, "product_name", "") or "").strip()
                 ]

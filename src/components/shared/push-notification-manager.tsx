@@ -178,7 +178,7 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
           type="button"
           onClick={dismissPrompt}
           disabled={isEnabling}
-          className="h-11 rounded-lg border border-[#DDE3EA] bg-white text-[14px] font-semibold text-[#2A2A2A] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
+          className="h-10 rounded-lg border border-[#DDE3EA] bg-white text-[13px] font-semibold text-[#2A2A2A] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
         >
           Not Now
         </button>
@@ -186,9 +186,9 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
           type="button"
           disabled={isEnabling}
           onClick={enablePush}
-          className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#0B3B82] px-3 text-[14px] font-semibold text-white transition-colors hover:bg-[#093068] disabled:opacity-60 motion-reduce:transition-none"
+          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-[#0B3B82] px-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#093068] disabled:opacity-60 motion-reduce:transition-none"
         >
-          {isEnabling ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : null}
+          {isEnabling ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : null}
           {isEnabling ? 'Turning On' : 'Turn On Notifications'}
         </button>
       </div>

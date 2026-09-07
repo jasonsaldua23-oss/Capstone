@@ -845,25 +845,7 @@ export function WarehouseTripsSection({
                                     Allocated: {Number(point.order.allocatedQtyForSelectedWarehouse || 0)} / {Number(point?.order?.totalOrderQty || 0)}
                                   </p>
                                 ) : null}
-                                {(() => {
-                                  const legs = Array.isArray(point?.order?.fulfillments)
-                                    ? point.order.fulfillments
-                                    : Array.isArray(point?.order?.shipments)
-                                      ? point.order.shipments
-                                      : Array.isArray(point?.order?.fulfillmentLegs)
-                                        ? point.order.fulfillmentLegs
-                                        : []
-                                  if (legs.length === 0) return null
-                                  const delivered = legs.filter((leg: any) => {
-                                    const s = String(leg?.status || '').toUpperCase()
-                                    return ['DELIVERED', 'COMPLETED', 'FULFILLED', 'ARRIVED'].includes(s)
-                                  }).length
-                                  return (
-                                    <p className="mt-1 text-[11px] text-slate-500">
-                                      Fulfillment legs: {delivered}/{legs.length} delivered
-                                    </p>
-                                  )
-                                })()}
+                                {/* Fulfillment leg counts are omitted from the drop-point display. */}
                                 <div className="mt-4">
                                   <div className="flex items-center gap-2">
                                     <Button

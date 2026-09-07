@@ -166,7 +166,12 @@ export function CustomerOrdersView(props: any) {
     if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) || ['CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(orderStatus)) return 'Cancelled'
     if (rawStatus === 'REJECTED') return 'Rejected'
     if (rawStatus === 'APPROVED') return 'Verified'
-    if (['IN_PROGRESS', 'NEEDS_FOLLOW_UP', 'FOR_PICKUP', 'FOR_DELIVERY'].includes(rawStatus)) return 'Assigned for Redelivery'
+    // Fix: starting warehouse processing does not assign a replacement delivery.
+    if (rawStatus === 'IN_PROGRESS') {
+      const hasScheduledDelivery = Boolean(record?.scheduledDeliveryDate || record?.replacementOrderId || record?.replacementOrderNumber)
+      return hasScheduledDelivery ? 'Assigned for Redelivery' : 'Processing'
+    }
+    if (['NEEDS_FOLLOW_UP', 'FOR_PICKUP', 'FOR_DELIVERY'].includes(rawStatus)) return 'Assigned for Redelivery'
     return getReplacementStatusLabel(record?.status)
   }
   const formatQuantityWithUnit = (item: any): string => {
@@ -1332,4 +1337,3 @@ export function CustomerOrdersView(props: any) {
     </section>
   )
 }
-

@@ -30,7 +30,6 @@ export function WarehouseReplacementsView({
   buildReplacementLines,
   receiveReplacementReturn,
 }: WarehouseReplacementsViewProps) {
-  const [replacementDeliveryDate, setReplacementDeliveryDate] = useState('')
   const [rowScheduleDates, setRowScheduleDates] = useState<Record<string, string>>({})
   const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({})
   const [statusFilter, setStatusFilter] = useState('ALL')
@@ -47,8 +46,6 @@ export function WarehouseReplacementsView({
     return raw < todayDateInput
   }
   const openReplacementDetails = (entry: any) => {
-    const scheduled = String(entry?.scheduledDeliveryDate || '').trim()
-    setReplacementDeliveryDate(scheduled)
     setSelectedReplacement(entry)
   }
   const hasStrictScheduledFollowUp = (entry: any): boolean => {
@@ -86,7 +83,7 @@ export function WarehouseReplacementsView({
       return 'Scheduled for Delivery'
     }
     if (rawStatus === 'IN_PROGRESS' && !hasScheduledFollowUp) {
-      return 'Approved'
+      return 'Processing'
     }
     return formatIssueStatus(entry)
   }
@@ -668,7 +665,8 @@ export function WarehouseReplacementsView({
                     const evidenceUrls = collectEvidenceUrls(ret, meta)
                     const evidenceCount = evidenceUrls.length
                     const hasEvidence = evidenceCount > 0
-                    const statusLabel = formatIssueStatus(ret)
+                    // Fix: distinguish warehouse processing from a scheduled delivery in the table too.
+                    const statusLabel = getWarehouseStatusLabel(ret, meta)
                     return (
                       <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="p-4 font-medium">{ret.replacementNumber}</td>
@@ -697,6 +695,31 @@ export function WarehouseReplacementsView({
                           {ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'N/A'}
                         </td>
                         <td className="p-4 min-w-[220px]">
+                            {/* Added: keep processing and scheduling beside the request they update. */}
+                            <div className="flex flex-col items-start gap-2" aria-busy={updatingReplacementId === ret.id}>
+                              <div key={rawStatus} className="flex flex-col items-start gap-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+                                {rawStatus === 'APPROVED' ? (
+                                  <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => void updateIssueStatus(ret.id, 'IN_PROGRESS', { notes: 'Warehouse started processing the approved replacement' })}>
+                                    {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                    Start Processing
+                                  </Button>
+                                ) : rawStatus === 'IN_PROGRESS' && !hasStrictScheduledFollowUp(ret) ? (
+                                  <>
+                                    <label className="space-y-1 text-xs font-medium text-slate-600">
+                                      <span className="block">Delivery date</span>
+                                      <input type="date" min={todayDateInput} value={rowScheduleDates[ret.id] || ''} disabled={Boolean(updatingReplacementId)} onChange={(event) => setRowScheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))} className="h-9 w-[170px] rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
+                                    </label>
+                                    <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId) || !rowScheduleDates[ret.id] || isPastScheduleDate(rowScheduleDates[ret.id])} onClick={() => {
+                                      const deliveryDate = rowScheduleDates[ret.id]
+                                      if (!deliveryDate || isPastScheduleDate(deliveryDate)) return
+                                      void updateIssueStatus(ret.id, 'IN_PROGRESS', { notes: `Replacement delivery scheduled on ${deliveryDate}`, createReplacementOrder: true, replacementDeliveryDate: deliveryDate, manualScheduleConfirmed: true })
+                                    }}>
+                                      {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                      Schedule Delivery
+                                    </Button>
+                                  </>
+                                ) : null}
+                              </div>
                             <Button
                               size="sm"
                               variant="outline"
@@ -704,6 +727,7 @@ export function WarehouseReplacementsView({
                             >
                               View Details
                             </Button>
+                            </div>
                         </td>
                       </tr>
                     )
@@ -718,7 +742,6 @@ export function WarehouseReplacementsView({
       <Dialog open={!!selectedReplacement} onOpenChange={(open) => {
         if (!open) {
           setSelectedReplacement(null)
-          setReplacementDeliveryDate('')
           setReturnQuantities({})
         }
       }}>
@@ -735,8 +758,6 @@ export function WarehouseReplacementsView({
               String(selectedReplacement?.linkedReplacementOrderId || selectedReplacement?.replacementOrderId || '').trim() ||
               String(selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber || '').trim()
             )
-            const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
-            const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
             const sourceLines =
               Array.isArray(selectedReplacement?.replacementLines) && selectedReplacement.replacementLines.length
                 ? selectedReplacement.replacementLines
@@ -800,35 +821,18 @@ export function WarehouseReplacementsView({
               return billedQuantity > 0 ? billedQuantity * basePrice : 0
             })
             const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
-            const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
-            const hasOutstandingReplacementQty =
-              totalQtyToReplace > 0 && totalQtyReplaced < totalQtyToReplace
-            const isClosedStatus = ['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) || (
-              ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty
-            )
             const statusLabel = getWarehouseStatusLabel(selectedReplacement, meta)
-            const canScheduleDelivery = rawStatus === 'APPROVED' && !isClosedStatus
-            const isResolvedReplacement = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty
-            const isScheduledReplacement = hasStrictScheduledFollowUp(selectedReplacement)
-            const shouldShowSchedulePickerInModal =
-              canScheduleDelivery && !isScheduledReplacement
-            const isResolvedCase = Boolean(
-              selectedReplacement?.isClosed ||
-              ((rawStatus === 'COMPLETED' || rawStatus === 'RESOLVED_ON_DELIVERY') && !hasOutstandingReplacementQty) ||
-              (totalQtyToReplace > 0 && totalQtyReplaced >= totalQtyToReplace)
-            )
             const details = [
               ['Replacement #', selectedReplacement.replacementNumber],
               ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
               ['Customer', selectedReplacement.customerName || selectedReplacement.order?.customer?.name || 'N/A'],
               ['Status', statusLabel],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
-              ['Reason', selectedReplacement.reason || 'N/A'],
               ['Notes', selectedReplacement.customerNotes || meta?.customerNotes || 'No customer notes provided.'],
             ] as Array<[string, string]>
             return (
               <>
-                <div className="space-y-4 p-6 pb-28">
+                <div className="space-y-4 p-6">
                 <DialogHeader>
                   <DialogTitle>Replacement Details</DialogTitle>
                   <DialogDescription>Complete information for {selectedReplacement.replacementNumber}</DialogDescription>
@@ -850,6 +854,7 @@ export function WarehouseReplacementsView({
                       <thead className="bg-slate-50 text-xs text-slate-500">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Original Product</th>
+                          <th className="px-3 py-2 text-left font-medium">Reason</th>
                           <th className="px-3 py-2 text-left font-medium">Replacement Product</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity to Replace</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity Replaced</th>
@@ -867,6 +872,10 @@ export function WarehouseReplacementsView({
                                 <p className="text-xs text-slate-500">{(line as any).originalProductCategory}</p>
                               ) : null}
                             </td>
+                            {/* Added: show the submitted reason beside its product, matching admin details. */}
+                            <td className="px-3 py-2 text-slate-900">
+                              {String(sourceLines[index]?.reason || selectedReplacement.reason || 'N/A').trim()}
+                            </td>
                             <td className="px-3 py-2">
                               <p className="font-semibold text-slate-900">{line.replacementProductName}</p>
                               {String((line as any).replacementProductCategory || '').trim() ? (
@@ -880,7 +889,7 @@ export function WarehouseReplacementsView({
                           )
                         })}
                         <tr className="border-t bg-slate-50">
-                          <td className="px-3 py-2 font-semibold text-slate-700" colSpan={4}>Total Loss</td>
+                          <td className="px-3 py-2 font-semibold text-slate-700" colSpan={5}>Total Loss</td>
                           <td className="px-3 py-2 font-bold text-red-600">{totalLoss > 0 ? `- ${formatPeso(totalLoss)}` : '--'}</td>
                         </tr>
                       </tbody>
@@ -991,51 +1000,7 @@ export function WarehouseReplacementsView({
                     </Button>
                   </div>
                 ) : null}
-                <div className="sticky bottom-0 left-0 right-0 border-t bg-slate-50/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85">
-                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {shouldShowSchedulePickerInModal ? (
-                        <>
-                          <input
-                            type="date"
-                            className="h-9 w-[170px] shrink-0 rounded-md border border-slate-300 px-3 text-sm text-slate-700"
-                            value={replacementDeliveryDate}
-                            onChange={(event) => setReplacementDeliveryDate(event.target.value)}
-                            min={todayDateInput}
-                          />
-                          <Button
-                            size="sm"
-                            className="h-9 shrink-0 whitespace-nowrap px-4 bg-blue-600 text-white hover:bg-blue-700"
-                            onClick={() => {
-                              if (!replacementDeliveryDate) return
-                              if (isPastScheduleDate(replacementDeliveryDate)) return
-                              const nextStatus = rawStatus === 'APPROVED' ? 'APPROVED' : 'NEEDS_FOLLOW_UP'
-                              void updateIssueStatus(selectedReplacement.id, nextStatus, {
-                                notes: shouldShowSchedulePickerInModal
-                                  ? `Warehouse scheduled driver partial follow-up delivery on ${replacementDeliveryDate}`
-                                  : `Replacement delivery scheduled on ${replacementDeliveryDate}`,
-                                createReplacementOrder: true,
-                                replacementDeliveryDate,
-                                manualScheduleConfirmed: true,
-                              })
-                            }}
-                            disabled={updatingReplacementId === selectedReplacement.id || !replacementDeliveryDate || isPastScheduleDate(replacementDeliveryDate)}
-                          >
-                            Schedule Delivery
-                          </Button>
-                        </>
-                      ) : rawStatus === 'UNDER_REVIEW' || rawStatus === 'PENDING' || rawStatus === 'REPORTED' ? (
-                        <p className="text-sm text-slate-500">Waiting for admin review and approval.</p>
-                      ) : isScheduledReplacement && !isResolvedReplacement ? (
-                        <p className="text-sm text-blue-700">Scheduled replacement is already queued for Create Trip.</p>
-                      ) : (
-                        <p className="text-sm text-slate-500">This replacement is already finalized.</p>
-                      )}
-                      {updatingReplacementId === selectedReplacement.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
-                    </div>
-                  </div>
-                </div>
+                {/* Workflow actions are available in the table row. */}
               </>
             )
           })() : null}

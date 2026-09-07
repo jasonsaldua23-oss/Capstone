@@ -6,6 +6,7 @@ import { ArrowLeft, CalendarDays, ClipboardList, Download, MapPin, Package, Phon
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { EmptiesChargeRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 const RECEIPT_BUSINESS_NAME = "Ann Ann's Beverages Trading"
 
@@ -67,7 +68,17 @@ export function CustomerReceiptDialog(props: any) {
       : 0)
   )
   const orderDiscount = Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0)
-  const orderTotal = Number(selectedOrder?.totalAmount || 0)
+  // Added: show delivery empties charges in both the preview and downloaded receipt.
+  const orderTotal = getOrderTotalWithEmpties(selectedOrder)
+  const orderTax = Number(selectedOrder?.tax || 0)
+  const orderShipping = Number(selectedOrder?.shippingCost || 0)
+  const recordedDeposit = (selectedOrder?.items || []).reduce(
+    (sum: number, item: any) => sum + Number(item?.netDeposit ?? item?.depositTotal ?? 0), 0,
+  )
+  // Match the order details breakdown: older orders may store deposits not included in the total.
+  const remainingCharges = Math.round((Number(selectedOrder?.totalAmount || 0) - (orderSubtotal - orderDiscount + orderTax + orderShipping)) * 100) / 100
+  const orderDeposit = Math.min(recordedDeposit, Math.max(0, remainingCharges))
+  const otherCharges = Math.round((remainingCharges - orderDeposit) * 100) / 100
   const orderDiscountPercent = (() => {
     const explicitPercent = Number(selectedOrder?.discountDetails?.percent)
     if (Number.isFinite(explicitPercent) && explicitPercent > 0) return explicitPercent
@@ -243,6 +254,19 @@ export function CustomerReceiptDialog(props: any) {
                         <p className="font-semibold text-[#16a34a]">-{formatPeso(orderDiscount)}</p>
                       </>
                     ) : null}
+                    {/* Added: itemize the amounts that explain the increase over the subtotal. */}
+                    {[
+                      ['Container deposit', orderDeposit],
+                      ['Tax', orderTax],
+                      ['Delivery fee', orderShipping],
+                      ['Other charges', otherCharges],
+                    ].map(([label, amount]) => Math.abs(Number(amount)) >= 0.01 ? (
+                      <div key={String(label)} className="pt-2 text-[#0f2347]">
+                        <p className="font-semibold">{label}</p>
+                        <p className="font-semibold">{Number(amount) > 0 ? '+' : ''}{formatPeso(Number(amount))}</p>
+                      </div>
+                    ) : null)}
+                    <EmptiesChargeRow order={selectedOrder} className="flex-wrap gap-x-2 gap-y-1 pt-2" />
                   </div>
                   <div className="flex flex-col items-center justify-center border-l border-[#b9e6ca] bg-[#f1fbf4] px-4 py-4">
                     <p className="text-xs font-bold tracking-[0.04em] text-[#16a34a]">TOTAL PRICE</p>

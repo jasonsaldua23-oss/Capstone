@@ -1531,11 +1531,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                                           ? `Coordinates: ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`
                                           : 'Coordinates: Not available'}
                                       </p>
-                                      {point?.order ? (
-                                        <p className="mt-1 text-[11px] text-slate-500">
-                                          Fulfillment legs: {deriveOrderFulfillmentSummary(point.order).deliveredLegs}/{deriveOrderFulfillmentSummary(point.order).totalLegs} delivered
-                                        </p>
-                                      ) : null}
+                                      {/* Fulfillment leg counts are omitted from the drop-point display. */}
                                       <div className="mt-4">
                                         <Button
                                           type="button"

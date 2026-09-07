@@ -475,8 +475,15 @@ export function TripDetailView({
       ? product.sizes.map((value: any) => String(value).trim()).filter(Boolean).join(', ')
       : ''
     const sizeFromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
-    const sizeLabel = sizeFromArray || sizeFromField
-    return sizeLabel ? `${baseName} ${sizeLabel}` : baseName
+    // Fix: show the stored size without parentheses, including when it is already in the name.
+    const sizeLabel = (sizeFromArray || sizeFromField).replace(/[()]/g, '').trim()
+    if (!sizeLabel) return baseName
+    const nameWithPlainSize = baseName.replace(/\(([^()]*)\)/g, (match, value: string) =>
+      value.trim().toLowerCase() === sizeLabel.toLowerCase() ? value.trim() : match
+    )
+    return nameWithPlainSize.toLowerCase().includes(sizeLabel.toLowerCase())
+      ? nameWithPlainSize
+      : `${nameWithPlainSize} ${sizeLabel}`
   }
   const getItemCategoryLabel = (item: any): string => {
     const product = item?.product || {}
@@ -522,7 +529,8 @@ export function TripDetailView({
     const formatCountUnit = (count: number, rawUnitStr: string) => {
       const u = String(rawUnitStr || '').toLowerCase()
       const singular = u.includes('bottle') ? 'bottle' : u.includes('case') ? 'case' : u.includes('pack') ? 'pack' : u.includes('bundle') ? 'bundle' : 'unit'
-      const label = count === 1 ? singular : `${singular}s`
+      // Fix: keep case/bottle labels in the requested form while respecting the recorded unit.
+      const label = count === 1 || singular === 'case' || singular === 'bottle' ? singular : `${singular}s`
       return `x${count} ${label}`
     }
 
@@ -1550,8 +1558,10 @@ export function TripDetailView({
         lat: currentLocation.lat,
         lng: currentLocation.lng,
         accuracy: Number.isFinite(Number(currentLocation.accuracy)) ? Number(currentLocation.accuracy) : null,
-        heading: Number.isFinite(Number(currentLocation.heading)) ? Number(currentLocation.heading) : null,
-        speed: Number.isFinite(Number(currentLocation.speed)) ? Number(currentLocation.speed) : null,
+        // Fix: preserve unavailable sensors instead of coercing null to zero,
+        // which made road matching treat a moving driver as stationary.
+        heading: currentLocation.heading != null && Number.isFinite(Number(currentLocation.heading)) ? Number(currentLocation.heading) : null,
+        speed: currentLocation.speed != null && Number.isFinite(Number(currentLocation.speed)) ? Number(currentLocation.speed) : null,
         recordedAt: toRecordedAtMs(currentLocation.recordedAt) ?? Date.now(),
       })
       return
@@ -1571,8 +1581,9 @@ export function TripDetailView({
             lat,
             lng,
             accuracy: Number.isFinite(acc) ? acc : null,
-            heading: Number.isFinite(Number(position.coords.heading)) ? Number(position.coords.heading) : null,
-            speed: Number.isFinite(Number(position.coords.speed)) ? Number(position.coords.speed) : null,
+            // Browser heading and speed are nullable when the sensor has no reading.
+            heading: position.coords.heading !== null && Number.isFinite(Number(position.coords.heading)) ? Number(position.coords.heading) : null,
+            speed: position.coords.speed !== null && Number.isFinite(Number(position.coords.speed)) ? Number(position.coords.speed) : null,
             recordedAt: Number(position.timestamp || Date.now()),
           })
         }
@@ -1599,6 +1610,9 @@ export function TripDetailView({
   const cameraPermissionSteps = getCameraPermissionSteps()
   // Normalizes unknown inputs to valid numeric coordinates or null.
   const toCoordinate = (value: unknown) => {
+    // Fix: Number(null) and Number('') are zero, but missing GPS fields are not
+    // real zero values and must not influence route matching or speed display.
+    if (value === null || value === undefined || value === '') return null
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
   }
@@ -2898,9 +2912,10 @@ export function TripDetailView({
                                   }`}>
                                   {dropPoint.status === 'COMPLETED' ? <CheckCircle className="h-4 w-4" /> : dropPoint.sequence}
                                 </div>
-                                <div className="flex-1">
+                                {/* Fix: let mobile details shrink so the status badge stays inside the card. */}
+                                <div className="min-w-0 flex-1">
                                   <div className="flex items-start justify-between gap-2">
-                                    <div>
+                                    <div className="min-w-0 flex-1 break-words">
                                       <p className="font-medium text-slate-900">{dropPoint.locationName}</p>
                                       <p className="text-sm text-slate-500">{stripPhilippinesFromAddress(dropPoint.address)}</p>
                                       {dropPoint.order ? (
@@ -2945,7 +2960,7 @@ export function TripDetailView({
                                                 const orderNumberKey = String(dropPoint.order?.orderNumber || '').trim().toUpperCase()
                                                 const isReplacementOrder = Boolean((dropPoint.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
                                                 return (
-                                                  <div className="mb-1 flex items-center gap-2">
+                                                  <div className="mb-1 flex flex-wrap items-center gap-2">
                                                     <p className="text-[11px] font-semibold text-slate-600">
                                                       {isReplacementOrder ? 'Replacement Details' : 'Order Details'}
                                                     </p>

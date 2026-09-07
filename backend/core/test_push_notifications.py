@@ -1,10 +1,10 @@
 import json
 from unittest.mock import Mock, patch
 
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 from .models import Customer, PushSubscription, RoleType, User
-from .push_notifications import queue_web_push
+from .push_notifications import _send_to_native_devices, queue_web_push
 from .views_api import push_subscriptions_collection
 
 
@@ -13,6 +13,26 @@ PUSH_SETTINGS = {
     "WEB_PUSH_VAPID_PUBLIC_KEY": "BFFcPW6545a5BNP-yn9U_c0MwemXvzddylFa0KbDtANfRTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q",
     "WEB_PUSH_VAPID_SUBJECT": "mailto:test@example.com",
 }
+
+
+class NativePushPresentationTests(SimpleTestCase):
+    # Verify the delivery payload without contacting Firebase or using the database.
+    @override_settings(FCM_PROJECT_ID="test-project")
+    @patch("core.push_notifications.requests.post")
+    @patch("core.push_notifications._fcm_access_token", return_value="test-access-token")
+    @patch("core.push_notifications._fcm_service_account_info", return_value={"project_id": "test-project"})
+    def test_android_alert_uses_high_importance_channel(self, _info, _token, post):
+        post.return_value = Mock(status_code=200)
+        post.return_value.json.return_value = {"name": "test-message"}
+        device = Mock(endpoint="fcm:test-device", id="test-subscription")
+        _send_to_native_devices([device], {"title": "Order update", "body": "Ready", "data": {"url": "/customer"}})
+        message = post.call_args.kwargs["json"]["message"]
+        self.assertEqual(message["android"]["priority"], "high")
+        self.assertEqual(message["android"]["notification"]["channel_id"], "delivery_updates")
+        self.assertEqual(message["android"]["notification"]["sound"], "default")
+        self.assertEqual(message["android"]["notification"]["notification_priority"], "PRIORITY_HIGH")
+        self.assertEqual(message["data"]["url"], "/customer")
+        device.delete.assert_not_called()
 
 
 @override_settings(**PUSH_SETTINGS)

@@ -14,7 +14,7 @@ import { isRescheduledOrder } from './order-status'
 import { formatOrderedQuantityWithContainer } from './order-item-display'
 
 const DAMAGE_REASON_OPTIONS = ['Broken seal', 'Cracked bottle', 'Leaking', 'Expired', 'Crushed case', 'Other']
-const MAX_EVIDENCE_PHOTOS = 2
+const EVIDENCE_PHOTOS_PER_PRODUCT = 2
 
 export function CustomerOrderDetailsDialog(props: any) {
   const {
@@ -45,6 +45,8 @@ export function CustomerOrderDetailsDialog(props: any) {
     { key: 'line-1', productId: '', quantity: '1', inputMode: 'case', reason: 'Broken seal', description: '' },
   ])
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([])
+  // Added: each selected replacement product allows two evidence photos.
+  const maxEvidencePhotos = Math.max(1, replacementLines.filter((line) => line.productId).length) * EVIDENCE_PHOTOS_PER_PRODUCT
   const [customerNotes, setCustomerNotes] = useState('')
   const [isSubmittingReplacement, setIsSubmittingReplacement] = useState(false)
   const evidencePreviewUrls = useMemo(
@@ -622,7 +624,8 @@ export function CustomerOrderDetailsDialog(props: any) {
         }
       }}
     >
-      <DialogContent className="w-[95vw] max-w-[720px] sm:max-w-3xl rounded-xl border border-slate-200 bg-white p-4">
+      {/* Fix: keep long replacement forms inside the mobile viewport and allow scrolling. */}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain w-[95vw] max-w-[720px] sm:max-w-3xl rounded-xl border border-slate-200 bg-white p-4">
         <p className="text-base font-semibold text-slate-900">Request Replacement</p>
         <p className="mt-1 text-xs text-slate-600">Select one or more products and set reason per product.</p>
         {hasCompletedReplacementRequest || hasActiveReplacementRequest ? (
@@ -716,7 +719,8 @@ export function CustomerOrderDetailsDialog(props: any) {
             </div>
           ))}
           <Button variant="outline" className="h-9 text-xs" onClick={addReplacementLine}>Add Product</Button>
-          <label className="space-y-1 text-xs font-medium text-slate-700">
+          {/* Fix: start Notes on its own row below Add Product. */}
+          <label className="block space-y-1 text-xs font-medium text-slate-700">
             Notes
             <textarea
               value={customerNotes}
@@ -737,12 +741,16 @@ export function CustomerOrderDetailsDialog(props: any) {
               onChange={(event) => {
                 const files = Array.from(event.target.files || [])
                   .filter((file) => file.type.startsWith('image/'))
-                  .slice(0, MAX_EVIDENCE_PHOTOS)
-                setEvidenceFiles(files)
+                // Fix: append within the remaining slots without replacing earlier uploads.
+                setEvidenceFiles((previous) => [
+                  ...previous,
+                  ...files.slice(0, Math.max(0, maxEvidencePhotos - previous.length)),
+                ])
+                event.target.value = ''
               }}
             />
           </label>
-          <p className="text-[11px] text-slate-500">{evidenceFiles.length} / {MAX_EVIDENCE_PHOTOS} photo(s) selected</p>
+          <p className="text-[11px] text-slate-500">{evidenceFiles.length} / {maxEvidencePhotos} photo(s) selected (2 per product)</p>
           {evidencePreviewUrls.length > 0 ? (
             <div className="grid grid-cols-3 gap-2 rounded-md border border-slate-200 bg-white p-2 md:grid-cols-4">
               {evidencePreviewUrls.map((preview) => (

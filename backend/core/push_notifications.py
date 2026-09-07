@@ -200,6 +200,15 @@ def _send_to_native_devices(subscriptions: list[PushSubscription], payload: dict
                         },
                         # Every value in an FCM data block has to be a string.
                         "data": {key: str(value) for key, value in data.items() if value is not None},
+                        # Fix: request prompt delivery and the app's audible, heads-up channel.
+                        "android": {
+                            "priority": "high",
+                            "notification": {
+                                "channel_id": "delivery_updates",
+                                "sound": "default",
+                                "notification_priority": "PRIORITY_HIGH",
+                            },
+                        },
                     }
                 },
                 timeout=10,

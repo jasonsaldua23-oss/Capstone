@@ -280,6 +280,8 @@ def empties_adjustments_for_orders(order_ids: list[str]) -> dict[str, dict[str, 
         if entry is None:
             continue
         entry["lines"].append({
+            # Added: identify the order products associated with this container charge.
+            "containerTypeId": str(row.container_type_id or ""),
             "containerTypeName": container_names.get(str(row.container_type_id), "Container"),
             "shortQuantity": _int(getattr(row, "container_count", 0), 0),
             "amount": float(_money(Decimal(str(row.amount or 0)))),

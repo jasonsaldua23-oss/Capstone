@@ -90,26 +90,8 @@ async function ensureNativePushListeners(): Promise<void> {
       )
     })
 
-    await PushNotifications.addListener('pushNotificationReceived', async (notification) => {
-      // iOS already presents foreground notifications through presentationOptions.
-      // Android does not, so mirror only Android messages as local notifications.
-      if (getPlatform() !== 'android') return
-      try {
-        const { LocalNotifications } = await import('@capacitor/local-notifications')
-        await LocalNotifications.schedule({
-          notifications: [
-            {
-              id: Math.floor(Math.random() * 1_000_000),
-              title: notification.title || "Ann Ann's Beverages Trading",
-              body: notification.body || '',
-              extra: notification.data,
-            },
-          ],
-        })
-      } catch {
-        // Without the local-notifications plugin the payload is simply not mirrored.
-      }
-    })
+    // Capacitor 7 presents foreground alerts via presentationOptions on Android and iOS.
+    // Do not schedule a second local notification for the same remote message.
 
     await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
       const target = String(action.notification?.data?.url || '/')
@@ -129,12 +111,24 @@ async function ensureNativePushListeners(): Promise<void> {
 /**
  * Register the native shell for push and keep it listening.
  *
- * Android foreground messages are re-raised as local notifications; iOS uses the
- * configured presentation options. Tapping either transport routes through the
+ * Both platforms use the configured presentation options for foreground alerts.
+ * Tapping a notification routes through the
  * payload's url.
  */
 async function registerNativePush(): Promise<PushRegistration> {
   const { PushNotifications } = await import('@capacitor/push-notifications')
+  // Fix: FCM's fallback channel has default importance, which does not request a heads-up banner.
+  // Create our channel before registering so foreground and background pushes use the same settings.
+  if (getPlatform() === 'android') {
+    await PushNotifications.createChannel({
+      id: 'delivery_updates',
+      name: 'Order and delivery updates',
+      description: 'Order, replacement and trip notifications',
+      importance: 4,
+      visibility: 0,
+      vibration: true,
+    })
+  }
   await ensureNativePushListeners()
 
   if (pendingNativeRegistration) {

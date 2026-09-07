@@ -24,6 +24,7 @@ from .models import (
     Product,
     ProductPackaging,
     Replacement,
+    ReplacementStatus,
     StockBatch,
     Trip,
     TripDropPoint,
@@ -3806,7 +3807,11 @@ class TripsPostCreationContractTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201, response.content.decode())
-        self.assertEqual(response.json()["trip"]["weightRemaining"], 0.0)
+        trip_payload = response.json()["trip"]
+        self.assertEqual(trip_payload["weightRemaining"], 0.0)
+        # Regression: existing orders reopened in Edit Trip retain their per-order load.
+        self.assertEqual(trip_payload["dropPoints"][0]["order"]["totalCases"], 5)
+        self.assertEqual(trip_payload["dropPoints"][0]["order"]["totalWeight"], 50.0)
 
 
 class PaginationGuardsContractTests(TestCase):
@@ -4834,6 +4839,112 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Forbidden")
+
+class WarehouseReplacementProcessingContractTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        warehouse_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
+        self.warehouse_user = User.objects.create(
+            email="warehouse.replacement.processing@example.com",
+            password="hashed",
+            name="Warehouse Replacement User",
+            role=warehouse_role,
+            is_active=True,
+        )
+        self.warehouse = Warehouse.objects.create(
+            name="Replacement Processing Warehouse",
+            code="WH-REPL-PROCESS",
+            address="Replacement Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            manager_id=self.warehouse_user.id,
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="warehouse.replacement.customer@example.com",
+            password="hashed",
+            name="Replacement Customer",
+            is_active=True,
+        )
+        self.warehouse_token = create_token(
+            {
+                "userId": self.warehouse_user.id,
+                "email": self.warehouse_user.email,
+                "name": self.warehouse_user.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+
+    def create_approved_replacement(self, suffix: str) -> Replacement:
+        order = Order.objects.create(
+            order_number=f"ORD-REPL-{suffix}",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=110,
+            warehouse_id=self.warehouse.id,
+        )
+        return Replacement.objects.create(
+            replacement_number=f"RET-{suffix}",
+            order=order,
+            customer_id=self.customer.id,
+            reason="Damaged item",
+            status=ReplacementStatus.APPROVED,
+            replacement_mode="CUSTOMER_SUBMITTED",
+        )
+
+    @patch("core.views_api._email_replacement_outcome_to_customer")
+    @patch("core.views_api._email_replacement_update_to_staff")
+    def test_warehouse_starts_processing_before_scheduling_replacement(
+        self,
+        _email_staff,
+        _email_customer,
+    ) -> None:
+        replacement = self.create_approved_replacement("PROCESS-001")
+
+        response = self.client.patch(
+            "/api/orders",
+            data=json.dumps(
+                {
+                    "scope": "replacement",
+                    "replacementId": replacement.id,
+                    "status": "IN_PROGRESS",
+                    "notes": "Warehouse started processing the approved replacement",
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        replacement.refresh_from_db()
+        self.assertEqual(replacement.status, ReplacementStatus.IN_PROGRESS)
+
+    def test_warehouse_cannot_schedule_replacement_before_starting_processing(self) -> None:
+        replacement = self.create_approved_replacement("NO-SKIP-001")
+
+        response = self.client.patch(
+            "/api/orders",
+            data=json.dumps(
+                {
+                    "scope": "replacement",
+                    "replacementId": replacement.id,
+                    "status": "IN_PROGRESS",
+                    "createReplacementOrder": True,
+                    "replacementDeliveryDate": (timezone.now() + timedelta(days=1)).date().isoformat(),
+                    "manualScheduleConfirmed": True,
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["error"], "Replacement is not eligible for warehouse scheduling yet")
+        replacement.refresh_from_db()
+        self.assertEqual(replacement.status, ReplacementStatus.APPROVED)
 
 
 class PasswordPolicyContractTests(TestCase):

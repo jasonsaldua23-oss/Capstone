@@ -139,7 +139,8 @@ export function splitRouteAtDistance(route: [number, number][], distanceMeters: 
 
   return {
     completed: completed.length >= 2 ? completed : [],
-    remaining: remaining.length >= 2 ? remaining : route,
+    // Fix: reaching the endpoint must not redraw the entire traveled route blue.
+    remaining: remaining.length >= 2 ? remaining : [],
   };
 }
 

@@ -24,7 +24,7 @@ const orderBadgeClass: Record<string, string> = {
   RESCHEDULED: 'bg-amber-100 text-amber-800 hover:bg-amber-100',
   DELIVERED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
   COMPLETED: 'bg-emerald-200 text-emerald-950 hover:bg-emerald-200',
-  CANCELLED: 'bg-slate-200 text-slate-700 hover:bg-slate-200',
+  CANCELLED: 'bg-red-100 text-red-800 hover:bg-red-100',
 }
 
 function formatStage(value: string) {

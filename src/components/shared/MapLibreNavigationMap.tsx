@@ -110,16 +110,24 @@ function createTruckElement(showSelfBadge: boolean, is3DPerspective: boolean) {
   return element;
 }
 
-function rotateTruckElement(element: HTMLElement, heading: number, cameraBearing: number) {
-  applyTruckScreenHeading(element, calculateTruckScreenRotation(heading, cameraBearing));
+function rotateTruckElement(element: HTMLElement, heading: number, map: maplibregl.Map, position: maplibregl.LngLat) {
+  // Fix: project the road tangent through the pitched camera so the body stays
+  // parallel to the visible road, including while the driver pans or zooms.
+  const radians = heading * Math.PI / 180;
+  const origin = map.project(position);
+  const forward = map.project([
+    position.lng + Math.sin(radians) * 0.00001 / Math.max(Math.cos(position.lat * Math.PI / 180), 0.01),
+    position.lat + Math.cos(radians) * 0.00001,
+  ]);
+  const screenHeading = Math.hypot(forward.x - origin.x, forward.y - origin.y) > 0.000001
+    ? Math.atan2(forward.x - origin.x, origin.y - forward.y) * 180 / Math.PI
+    : calculateTruckScreenRotation(heading, map.getBearing());
+  applyTruckScreenHeading(element, screenHeading);
 }
 
 function applyTruckScreenHeading(element: HTMLElement, screenHeading: number) {
   element.querySelectorAll<HTMLElement>('[data-truck-image]').forEach((image) => {
-    // Both assets rotate against the camera. While the 3D camera is following
-    // the vehicle its bearing already matches the heading, so this resolves to
-    // roughly zero rotation; it is what keeps the vehicle pointing the right way
-    // once the driver pans the map and the camera bearing stops tracking them.
+    // Keep artwork orientation separate from the projected road direction.
     const declaredForwardHeading = Number(image.dataset.assetForwardHeading);
     const assetForwardHeading = Number.isFinite(declaredForwardHeading)
       ? declaredForwardHeading
@@ -241,6 +249,7 @@ export default function MapLibreNavigationMap({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapReadyRef = useRef(false);
   const truckMarkersRef = useRef(new Map<string, TruckMarkerEntry>());
   const dropPinMarkersRef = useRef(new Map<string, DropPinMarkerEntry>());
   const routeLayerIdsRef = useRef<string[]>([]);
@@ -284,15 +293,14 @@ export default function MapLibreNavigationMap({
       maxPitch: 85,
     });
     mapRef.current = map;
+    // Fix: remember initial readiness; loaded() becomes false again during tile/source updates.
+    map.once('load', () => { mapReadyRef.current = true; });
 
-    // Keeps the vehicle pointing along its heading as the camera rotates. The
-    // heading is already resolved and smoothed upstream, so this stays O(1) per
-    // marker rather than re-deriving it from route geometry on every frame.
+    // Fix: refresh screen alignment whenever camera pitch or bearing changes.
     const syncTruckRotations = () => {
-      const bearing = map.getBearing();
-      truckMarkersRef.current.forEach(({ element }) => {
+      truckMarkersRef.current.forEach(({ element, marker }) => {
         const heading = Number(element.dataset.routeHeading);
-        if (Number.isFinite(heading)) rotateTruckElement(element, heading, bearing);
+        if (Number.isFinite(heading)) rotateTruckElement(element, heading, map, marker.getLngLat());
       });
     };
     const markUserExploring = () => {
@@ -315,6 +323,7 @@ export default function MapLibreNavigationMap({
       // Mark the instance unavailable before MapLibre tears down its style so
       // later effect cleanups cannot query layers on a half-disposed map.
       mapRef.current = null;
+      mapReadyRef.current = false;
       map.remove();
     };
   }, []);
@@ -355,7 +364,7 @@ export default function MapLibreNavigationMap({
       entry.element.querySelectorAll<HTMLElement>('[data-truck-image]').forEach((image) => {
         image.style.display = image.dataset.mode === (is3DPerspective ? '3d' : '2d') ? 'block' : 'none';
       });
-      if (hasRouteHeading) rotateTruckElement(entry.element, heading, map.getBearing());
+      if (hasRouteHeading) rotateTruckElement(entry.element, heading, map, entry.marker.getLngLat());
     });
     truckMarkersRef.current.forEach((entry, id) => {
       if (!activeTruckIds.has(id)) {
@@ -432,31 +441,7 @@ export default function MapLibreNavigationMap({
     }
     const features: GeoJSON.Feature[] = [...pinBridgeCacheRef.current.features];
 
-    locations.filter((location) => location.markerType === 'truck').forEach((location) => {
-      const actualLat = Number(location.actualLat);
-      const actualLng = Number(location.actualLng);
-      if (!Number.isFinite(actualLat) || !Number.isFinite(actualLng)) return;
-      if (Math.abs(location.lat - actualLat) < 0.000001 && Math.abs(location.lng - actualLng) < 0.000001) return;
-
-      // Added: keep the truck on the routed road and show its off-road GPS fix
-      // as a small gray dotted bridge, matching standard navigation behavior.
-      features.push({
-        type: 'Feature',
-        properties: { id: String(location.id) },
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            [location.lng, location.lat],
-            [actualLng, actualLat],
-          ],
-        },
-      });
-      features.push({
-        type: 'Feature',
-        properties: { id: String(location.id) },
-        geometry: { type: 'Point', coordinates: [actualLng, actualLat] },
-      });
-    });
+    // Fix: the road-matched vehicle is the only driver marker; bridges remain for drop points.
     const data: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
 
     const updateBridges = () => {
@@ -687,7 +672,9 @@ export default function MapLibreNavigationMap({
       routeLayerIdsRef.current = activeLayerIds;
       routeSourceIdsRef.current = activeSourceIds;
     };
-    if (map.loaded()) updateRoutes();
+    // Fix: keep the traveled section grey as the truck moves, even while tiles
+    // or the previous GeoJSON update are loading. The load event only fires once.
+    if (mapReadyRef.current) updateRoutes();
     else map.once('load', updateRoutes);
     return () => { map.off('load', updateRoutes); };
   }, [routeLines, routeSignature]);

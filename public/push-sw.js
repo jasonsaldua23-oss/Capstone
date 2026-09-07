@@ -15,6 +15,9 @@ self.addEventListener('push', (event) => {
       data,
       // Group repeated updates for the same order or trip without hiding unrelated events.
       tag: data.referenceId ? `${data.referenceType || 'notification'}:${data.referenceId}` : undefined,
+      // Fix: replacing an order/trip notification should alert again instead of updating silently.
+      renotify: Boolean(data.referenceId),
+      silent: false,
     })
   )
 })

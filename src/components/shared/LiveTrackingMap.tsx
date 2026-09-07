@@ -1284,17 +1284,7 @@ export default function LiveTrackingMap({
         return [loc];
       }
 
-      // Off-route guard (driver navigation only): if the nearest routed road is
-      // farther than the snap budget, the driver has left the active route.
-      // Following the raw GPS fix keeps the vehicle moving with the driver
-      // instead of being yanked back onto a stale road; it re-snaps once the
-      // reroute arrives. Other maps keep their existing always-snap behavior.
-      if (
-        navigationPerspective &&
-        approximateDistanceMeters(authoritativeRoadPoint, bestSnap.point) > TRUCK_MAX_ROUTE_SNAP_METERS
-      ) {
-        return [loc];
-      }
+      // Fix: keep the displayed vehicle on the available road while raw GPS drives rerouting.
 
       // Prefer a short local lookahead so orientation follows each turn on the active route.
       const localForwardHeading = calculateBearingAlongRoute(
@@ -1307,10 +1297,12 @@ export default function LiveTrackingMap({
           ? normalizeAngle(bestSnap.heading)
           : null;
       const routeHeading = calculateBearingAlongRoute(bestSnap, bestPolyline, TRUCK_ROUTE_LOOKAHEAD_METERS);
-      // The local forward road tangent follows turns immediately. The completed
-      // arrival bearing and device heading remain fallbacks for sparse geometry.
+      // Fix: navigation follows the segment beneath the vehicle; looking ahead
+      // across a bend would tilt its body before it reaches the turn.
       const headingCandidate =
-        typeof localForwardHeading === 'number' && Number.isFinite(localForwardHeading)
+        navigationPerspective && typeof segmentHeading === 'number'
+          ? segmentHeading
+          : typeof localForwardHeading === 'number' && Number.isFinite(localForwardHeading)
           ? normalizeAngle(localForwardHeading)
           : typeof routeHeading === 'number' && Number.isFinite(routeHeading)
             ? normalizeAngle(routeHeading)
@@ -1322,9 +1314,8 @@ export default function LiveTrackingMap({
                   ? normalizeAngle(loc.markerHeading)
                   : undefined;
       // Fix: when the driver's actual GPS heading disagrees with the route
-      // tangent by more than 90°, the driver is likely moving a different
-      // direction (e.g. turning around). Use the GPS heading so the truck
-      // icon faces the direction the driver is actually moving.
+      // tangent by more than 90°, reverse the navigation icon along the road
+      // so its body stays aligned even when the GPS heading is noisy.
       const gpsHeading =
         typeof loc.markerHeading === 'number' && Number.isFinite(loc.markerHeading) && loc.markerHeading >= 0
           ? normalizeAngle(loc.markerHeading)
@@ -1335,8 +1326,8 @@ export default function LiveTrackingMap({
         if (gpsHeading !== null && routeDerivedHeading !== null) {
           const delta = Math.abs(shortestAngleDelta(gpsHeading, routeDerivedHeading));
           // A delta > 90° means the driver is heading roughly opposite to the
-          // route tangent — use the GPS heading so the icon visually matches.
-          if (delta > 90) return gpsHeading;
+          // route tangent; navigation still keeps the body parallel to the road.
+          if (delta > 90) return navigationPerspective ? normalizeAngle(routeDerivedHeading + 180) : gpsHeading;
         }
         return headingCandidate;
       })();
@@ -1553,6 +1544,19 @@ export default function LiveTrackingMap({
                 ? pointAtRouteDistance(navigationRouteGeometry, animatedRouteProgress)
                 : null;
 
+            // Fix: orientation follows the segment under this animation frame,
+            // rather than blending headings across a bend before reaching it.
+            const animatedSegment = animatedRoadPoint
+              ? nearestPointOnPolyline(animatedRoadPoint, navigationRouteGeometry)
+              : null;
+            const roadHeading = animatedSegment && Number.isFinite(animatedSegment.heading)
+              ? normalizeAngle(animatedSegment.heading)
+              : null;
+            const alignedHeading = roadHeading !== null && typeof endHeading === 'number'
+              && Math.abs(shortestAngleDelta(roadHeading, endHeading)) > 90
+              ? normalizeAngle(roadHeading + 180)
+              : roadHeading;
+
             return {
               ...targetLoc,
               // In navigation mode interpolate distance along the routed road,
@@ -1560,10 +1564,10 @@ export default function LiveTrackingMap({
               lat: animatedRoadPoint?.[0] ?? lerp(previous.lat, targetLoc.lat, easedProgress),
               lng: animatedRoadPoint?.[1] ?? lerp(previous.lng, targetLoc.lng, easedProgress),
               routeProgressMeters: animatedRouteProgress,
-              markerHeading:
+              markerHeading: alignedHeading ?? (
                 typeof startHeading === 'number' && typeof endHeading === 'number'
                   ? lerpAngle(startHeading, endHeading, easedProgress)
-                  : endHeading,
+                  : endHeading),
             };
           });
           // Keep reroute continuity synchronized with the exact interpolated

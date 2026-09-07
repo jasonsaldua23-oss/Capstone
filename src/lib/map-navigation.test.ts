@@ -88,6 +88,20 @@ test('completed route grows progressively while the active route starts at the v
   assert.notDeepEqual(later.completed.at(-1), earlier.completed.at(-1));
 });
 
+// Fix regression: arrival and predicted overshoot must leave only the grey route.
+test('arrival never restores the completed route as an upcoming blue line', () => {
+  const route: [number, number][] = [[10, 123], [10, 123.001], [10.001, 123.001]];
+  const endpoint = projectPointOntoRoute(route[route.length - 1], route);
+  assert.ok(endpoint);
+
+  for (const distance of [endpoint.distanceAlongMeters, endpoint.distanceAlongMeters + 20]) {
+    const split = splitRouteAtDistance(route, distance);
+    assert.deepEqual(split.completed, route);
+    assert.deepEqual(split.remaining, []);
+  }
+  assert.deepEqual(splitRouteAtDistance(route, 0).remaining, route);
+});
+
 test('a crawling or absent speed reading never drives prediction', () => {
   // Below the noise floor a reported speed says nothing about real movement.
   assert.equal(navigationReckoningSpeedMps(0), 0);

@@ -65,6 +65,8 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
   const [selectedReplacement, setSelectedReplacement] = useState<any | null>(null)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
+  // Added: row rejection has its own target so it does not open the details dialog.
+  const [rejectTargetId, setRejectTargetId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
 
   const fetchReplacements = async () => {
@@ -166,7 +168,8 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
       if (!normalizedSize) return normalizedBaseName
       const trailingSizePattern = new RegExp(`\\s*\\(?${escapeRegex(normalizedSize)}\\)?\\s*$`, 'i')
       const baseWithoutTrailingSize = normalizedBaseName.replace(trailingSizePattern, '').trim()
-      return `${baseWithoutTrailingSize || normalizedBaseName} (${normalizedSize})`
+      // Fix: display the product size directly without parentheses.
+      return `${baseWithoutTrailingSize || normalizedBaseName} ${normalizedSize}`
     }
     const toDisplayQty = (line: any, fallbackNumeric: number, mode: 'toReplace' | 'replaced') => {
       const productNameForLine = String(line?.originalProductName || line?.replacementProductName || line?.productName || '').trim()
@@ -358,6 +361,8 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
         replacementProductName: formatProductNameWithSize(replacementBaseName, replacementSize),
         originalProductCategory: originalCategory,
         replacementProductCategory: replacementCategory,
+        // Added: retain each product's reason for its own row in the details table.
+        reason: String(line?.reason || replacement?.reason || 'N/A').trim(),
         quantityToReplace,
         quantityReplaced,
         quantityRemaining,
@@ -666,7 +671,8 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
       return 'Scheduled for Delivery'
     }
     if (rawMode === 'CUSTOMER_SUBMITTED' && rawStatus === 'IN_PROGRESS' && !hasScheduledFollowUp) {
-      return 'Approved'
+      // Fix: warehouse has started work, but has not scheduled delivery yet.
+      return 'Processing'
     }
     if (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && hasOutstandingReplacementQty(item, meta)) {
       return hasScheduledFollowUp ? 'Scheduled for Delivery' : 'Needs Follow-up'
@@ -1004,15 +1010,21 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                     <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>
                     <th className="text-left p-4 font-medium text-gray-600">Reported</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Scheduled Date</th>
                     <th className="text-left p-4 font-medium text-gray-600">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {replacementsBySource.customerRequests.map((item: any) => {
                     const meta = parseMeta(item?.notes)
+                    // Fix: delivery clears the active schedule field, but the saved metadata retains its date.
+                    const scheduledDate = String(item?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
                     const rawStatus = String(item?.status || '').trim().toUpperCase()
                     const issueReason = getReplacementDetailsText(item, meta)
                     const replacementLines = buildReplacementLines(item, meta)
+                    const requestedQuantity = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
+                    const replacedQuantity = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
+                    const isFullyReplaced = requestedQuantity > 0 && replacedQuantity >= requestedQuantity
                     const orderNumberKey = String(item?.orderNumber || item?.order?.orderNumber || '').trim().toUpperCase()
                     const orderItems =
                       (Array.isArray(item?.order?.items) ? item.order.items : []).length > 0
@@ -1104,7 +1116,29 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                         <td className="p-4 text-gray-500">
                           {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}
                         </td>
+                        {/* Added: show the replacement's scheduled delivery date separately from its report date. */}
+                        <td className="p-4 text-gray-500">
+                          {scheduledDate ? new Date(scheduledDate).toLocaleDateString() : statusLabel === 'Completed' ? 'Not recorded' : 'Not scheduled'}
+                        </td>
                         <td className="p-4 min-w-[220px]">
+                          {/* Added: expose the next workflow step directly in the row. */}
+                          <div className="flex flex-col items-start gap-2" aria-busy={updatingReplacementId === item.id}>
+                            <div key={rawStatus} className="flex flex-wrap gap-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+                              {rawStatus === 'UNDER_REVIEW' ? (
+                                <>
+                                  <Button size="sm" className="h-9 bg-emerald-600 text-white transition-colors hover:bg-emerald-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => void updateIssueStatus(item.id, 'APPROVED', { notes: 'Replacement approved for processing' })}>
+                                    {updatingReplacementId === item.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                    Approve
+                                  </Button>
+                                  <Button size="sm" variant="outline" className="h-9 border-rose-200 text-rose-700 transition-colors hover:bg-rose-50 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => { setRejectTargetId(item.id); setRejectReason(''); setRejectDialogOpen(true) }}>Reject</Button>
+                                </>
+                              ) : !hasStrictScheduledFollowUp(item) && !item.isClosed && !isFullyReplaced && !['APPROVED', 'COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) ? (
+                                <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => void updateIssueStatus(item.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}>
+                                  {updatingReplacementId === item.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                  Under Review
+                                </Button>
+                              ) : null}
+                            </div>
                           <Button
                             size="sm"
                             variant="outline"
@@ -1112,6 +1146,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                           >
                             View Details
                           </Button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -1137,8 +1172,6 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
               String(selectedReplacement?.linkedReplacementOrderId || selectedReplacement?.replacementOrderId || '').trim() ||
               String(selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber || '').trim()
             )
-            const totalQtyToReplace = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityToReplace || 0), 0), 0)
-            const totalQtyReplaced = replacementLines.reduce((sum, line) => sum + Math.max(Number(line.quantityReplaced || 0), 0), 0)
             const sourceLines =
               Array.isArray(selectedReplacement?.replacementLines) && selectedReplacement.replacementLines.length
                 ? selectedReplacement.replacementLines
@@ -1204,28 +1237,19 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
               return lineLoss
             })
             const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
-            const rawStatus = String(selectedReplacement?.status || '').toUpperCase()
-            const hasOutstanding = hasOutstandingReplacementQty(selectedReplacement, meta)
-            const isScheduledReplacement = hasStrictScheduledFollowUp(selectedReplacement)
-            const isResolvedCase = Boolean(
-              selectedReplacement?.isClosed ||
-              ((rawStatus === 'COMPLETED' || rawStatus === 'RESOLVED_ON_DELIVERY') && !hasOutstanding) ||
-              (totalQtyToReplace > 0 && totalQtyReplaced >= totalQtyToReplace)
-            )
-            const isFinalizedStatus = ['COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) || isResolvedCase
             const details = [
               ['Replacement #', selectedReplacement.replacementNumber || 'N/A'],
               ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
               ['Customer', selectedReplacement.customerName || selectedReplacement.order?.customer?.name || 'N/A'],
               ['Warehouse', selectedReplacement.warehouseName || selectedReplacement.warehouseCode || selectedReplacement.order?.warehouseName || selectedReplacement.order?.warehouseCode || 'N/A'],
-              ['Warehouse Location', selectedReplacement.warehouseCity || selectedReplacement.warehouseProvince || selectedReplacement.order?.warehouseCity || selectedReplacement.order?.warehouseProvince || 'N/A'],
               ['Status', formatIssueStatus(selectedReplacement)],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
-              ['Reason', selectedReplacement.reason || 'N/A'],
+              // Added: show the customer's submitted notes, separate from staff workflow notes.
+              ['Customer Notes', selectedReplacement.customerNotes || meta?.customerNotes || 'No customer notes provided.'],
             ] as Array<[string, string]>
             return (
               <>
-                <div className="space-y-4 p-6 pb-28">
+                <div className="space-y-4 p-6">
                 <DialogHeader>
                   <DialogTitle>Replacement Details</DialogTitle>
                   <DialogDescription>Complete information for {selectedReplacement.replacementNumber || 'this replacement'}</DialogDescription>
@@ -1247,6 +1271,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                       <thead className="bg-slate-50 text-xs text-slate-500">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Original Product</th>
+                          <th className="px-3 py-2 text-left font-medium">Reason</th>
                           <th className="px-3 py-2 text-left font-medium">Replacement Product</th>
                           <th className="px-3 py-2 text-left font-medium">Quantity to Replace</th>
                           <th className="px-3 py-2 text-left font-medium">Replaced</th>
@@ -1264,6 +1289,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                                 <p className="text-xs text-slate-500">{line.originalProductCategory}</p>
                               ) : null}
                             </td>
+                            <td className="px-3 py-2 text-slate-900">{line.reason}</td>
                             <td className="px-3 py-2">
                               <p className="font-semibold text-slate-900">{line.replacementProductName}</p>
                               {String(line.replacementProductCategory || '').trim() ? (
@@ -1279,7 +1305,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                           )
                         })}
                         <tr className="border-t bg-slate-50">
-                          <td className="px-3 py-2 font-semibold text-slate-700" colSpan={4}>Total Loss</td>
+                          <td className="px-3 py-2 font-semibold text-slate-700" colSpan={5}>Total Loss</td>
                           <td className="px-3 py-2 font-bold text-red-600">{totalLoss > 0 ? `- ${formatPeso(totalLoss)}` : '--'}</td>
                         </tr>
                       </tbody>
@@ -1338,55 +1364,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                   </div>
                 ) : null}
                 </div>
-                <div className="sticky bottom-0 left-0 right-0 border-t bg-slate-50/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85">
-                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {rawStatus === 'UNDER_REVIEW' ? (
-                        <>
-                          <Button
-                            size="sm"
-                            className="bg-emerald-600 text-white hover:bg-emerald-700"
-                            onClick={() => updateIssueStatus(selectedReplacement.id, 'APPROVED', {
-                              notes: 'Replacement approved for processing',
-                            })}
-                            disabled={updatingReplacementId === selectedReplacement.id}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => {
-                              setRejectReason('')
-                              setRejectDialogOpen(true)
-                            }}
-                            disabled={updatingReplacementId === selectedReplacement.id}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      ) : !isScheduledReplacement && !isFinalizedStatus && rawStatus !== 'APPROVED' ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-blue-200 text-blue-700 hover:bg-blue-50"
-                          onClick={() => updateIssueStatus(selectedReplacement.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}
-                          disabled={updatingReplacementId === selectedReplacement.id}
-                        >
-                          Under Review
-                        </Button>
-                      ) : isScheduledReplacement ? (
-                        <p className="text-sm text-blue-700">Scheduled replacement is already queued for trip planning.</p>
-                      ) : (
-                        <p className="text-sm text-slate-500">This replacement is already finalized.</p>
-                      )}
-                      {updatingReplacementId === selectedReplacement.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
+                {/* Workflow actions are available in the table row. */}
               </>
             )
           })() : null}
@@ -1413,23 +1391,23 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
               <Button
                 variant="outline"
                 onClick={() => setRejectDialogOpen(false)}
-                disabled={Boolean(selectedReplacement?.id && updatingReplacementId === selectedReplacement.id)}
+                disabled={Boolean(updatingReplacementId)}
               >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
                 onClick={() => {
-                  if (!selectedReplacement?.id) return
+                  if (!rejectTargetId) return
                   const reason = rejectReason.trim()
                   if (!reason) {
                     toast.error('Rejection reason is required')
                     return
                   }
                   setRejectDialogOpen(false)
-                  void updateIssueStatus(selectedReplacement.id, 'REJECTED', { notes: reason })
+                  void updateIssueStatus(rejectTargetId, 'REJECTED', { notes: reason })
                 }}
-                disabled={Boolean(selectedReplacement?.id && updatingReplacementId === selectedReplacement.id)}
+                disabled={Boolean(updatingReplacementId)}
               >
                 Confirm Reject
               </Button>
