@@ -449,8 +449,8 @@ export default function Home() {
       <AuthContext.Provider value={{ user, setUser, logout, isLoading }}>
         <PortalContext.Provider value={{ portal, setPortal }}>
           <Toaster position="top-right" />
-          {/* Added once here so every authenticated portal can register its device. */}
-          <PushNotificationManager user={user} />
+          {/* Pass the active portal so the shared notification prompt uses relevant copy. */}
+          <PushNotificationManager user={user} portal={portal} />
           {(portal === 'driver' || portal === 'customer') && (
             <InstallAppPrompt portal={portal} enabled={pathname === homePathForPortal(portal)} />
           )}

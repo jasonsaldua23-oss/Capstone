@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Bell, Loader2, X } from 'lucide-react'
 
-import type { AuthUser } from '@/types'
+import type { AuthUser, PortalType } from '@/types'
 import { enableNotifications, resumeNotificationsIfAllowed } from '@/lib/native/notifications'
 import { isNativeApp } from '@/lib/native/platform'
 
@@ -19,7 +19,28 @@ function decodeApplicationServerKey(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0))
 }
 
-export function PushNotificationManager({ user }: { user: AuthUser }) {
+// Added: describe notifications in the context of the portal currently being used.
+const portalPromptCopy: Record<PortalType, { title: string; description: string }> = {
+  admin: {
+    title: 'Stay updated on operations',
+    description: 'Receive order, delivery and inventory alerts on this device, even when the admin portal is closed.',
+  },
+  warehouse: {
+    title: 'Stay updated on warehouse activity',
+    description: 'Receive order, stock and dispatch updates on this device, even when the warehouse portal is closed.',
+  },
+  driver: {
+    title: 'Stay updated on your trips',
+    description: 'Receive trip assignments and delivery updates on this device, even when the driver portal is closed.',
+  },
+  customer: {
+    title: 'Stay updated on your orders',
+    description: 'Receive updates about your orders and deliveries on this device, even when the customer portal is closed.',
+  },
+}
+
+export function PushNotificationManager({ user, portal }: { user: AuthUser; portal: PortalType }) {
+  const promptCopy = portalPromptCopy[portal]
   const [publicKey, setPublicKey] = useState('')
   const [showPrompt, setShowPrompt] = useState(false)
   const [isEnabling, setIsEnabling] = useState(false)
@@ -143,7 +164,8 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
       role="dialog"
       aria-modal="false"
       aria-labelledby="push-prompt-title"
-      className="fixed left-1/2 top-1/2 z-[140] w-[calc(100%-2rem)] max-w-[26rem] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[#DDE3EA] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_20px_40px_-20px_rgba(16,24,40,0.32)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-200"
+      // Changed: anchor to the right edge and clear mobile bottom navigation and safe areas.
+      className="fixed right-4 bottom-[calc(6rem+env(safe-area-inset-bottom))] md:right-6 md:bottom-6 z-[140] w-[calc(100%-2rem)] max-w-[26rem] rounded-xl border border-[#DDE3EA] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_20px_40px_-20px_rgba(16,24,40,0.32)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-200"
     >
       <div className="flex items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#EAF2FC]">
@@ -151,10 +173,10 @@ export function PushNotificationManager({ user }: { user: AuthUser }) {
         </span>
         <div className="min-w-0 flex-1">
           <p id="push-prompt-title" className="text-[15px] font-semibold leading-6 text-[#2A2A2A]">
-            Get delivery updates on this device
+            {promptCopy.title}
           </p>
           <p className="mt-1 text-[13px] leading-[18px] text-[#5A6472]">
-            Order, delivery and trip updates arrive on this device even while the portal is closed.
+            {promptCopy.description}
           </p>
         </div>
         <button
