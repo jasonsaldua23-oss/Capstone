@@ -34,6 +34,8 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+        <!-- Driver GPS and uploads continue when the portal WebView is suspended. -->
+        <service android:name=".DriverTrackingService" android:exported="false" android:foregroundServiceType="location" android:stopWithTask="false" />
     </application>
 
     <!-- Permissions -->
@@ -46,6 +48,9 @@
     <!-- Live driver tracking and delivery destinations. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Order, trip and delivery alerts. Android 13 and later prompt for this. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

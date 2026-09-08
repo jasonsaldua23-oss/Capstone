@@ -24,6 +24,7 @@ import {
   calculateNavigationViewportInsets,
   projectPointOntoRoute,
   shouldRefreshDriverRoute,
+  selectFollowedRoute,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -165,11 +166,21 @@ export function TripDetailView({
   const [navigationRouteOrigin, setNavigationRouteOrigin] = useState<{ tripId: string; lat: number; lng: number; revision: number } | null>(null)
   const navigationRouteRequestInFlightRef = useRef(false)
   const navigationRouteLastRequestAtRef = useRef(0)
+  const navigationRouteRetryAtRef = useRef(0)
+  const navigationRouteAbortRef = useRef<AbortController | null>(null)
+  const navigationRouteSelectionEpochRef = useRef(0)
   const [navigationRouteCheckEpoch, setNavigationRouteCheckEpoch] = useState(0)
   useEffect(() => {
     // Fix: request completion and a stationary detour must recover without another GPS event.
-    const timer = window.setInterval(() => setNavigationRouteCheckEpoch((value) => value + 1), 2000)
-    return () => window.clearInterval(timer)
+    const check = () => setNavigationRouteCheckEpoch((value) => value + 1)
+    const timer = window.setInterval(check, 1000)
+    window.addEventListener('online', check)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('online', check)
+      document.removeEventListener('visibilitychange', check)
+    }
   }, [trip.id])
   const navigationStopsKeyRef = useRef('')
   const [is3DPerspective, setIs3DPerspective] = useState(false)
@@ -1998,6 +2009,18 @@ export function TripDetailView({
   const navigationStopsKey = pendingDropPoints.map((point) => `${point.id}:${point.latitude},${point.longitude}`).join('|')
   useEffect(() => {
     if (!driverLocationMarker) return
+    // Fix: following a light-blue road promotes it before requesting new geometry.
+    const followedIndex = selectFollowedRoute(
+      [driverLocationMarker.lat, driverLocationMarker.lng], routeOptions.map((option) => option.points),
+      activeRouteOptionIndex, driverLocationMarker.markerHeading
+    )
+    if (followedIndex !== activeRouteOptionIndex) {
+      navigationRouteSelectionEpochRef.current += 1
+      navigationRouteAbortRef.current?.abort()
+      navigationRouteRequestInFlightRef.current = false
+      setActiveRouteOptionIndex(followedIndex)
+      return
+    }
     // Fix: a newly completed or changed stop starts its next route at the current GPS fix.
     const stopsChanged = navigationStopsKeyRef.current !== navigationStopsKey
     navigationStopsKeyRef.current = navigationStopsKey
@@ -2013,11 +2036,11 @@ export function TripDetailView({
       return shouldRefreshDriverRoute({
         point: [nextOrigin.lat, nextOrigin.lng], route: activeRoutePoints || [],
         heading: driverLocationMarker.markerHeading, speed: effectiveDriverLocation?.speed,
-        inFlight: navigationRouteRequestInFlightRef.current,
+        inFlight: navigationRouteRequestInFlightRef.current || Date.now() < navigationRouteRetryAtRef.current,
         elapsedMs: Date.now() - navigationRouteLastRequestAtRef.current,
       }) ? nextOrigin : previous
     })
-  }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng, navigationStopsKey, navigationRouteCheckEpoch])
+  }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng, driverLocationMarker?.markerHeading, navigationStopsKey, navigationRouteCheckEpoch, routeOptions, activeRouteOptionIndex])
 
   const fullRouteWaypoints = (() => {
     const start = warehouseRouteStart ? [warehouseRouteStart] : []
@@ -2072,12 +2095,17 @@ export function TripDetailView({
     let cancelled = false
     let retryTimeoutId: number | null = null
     let activeController: AbortController | null = null
+    const selectionEpoch = navigationRouteSelectionEpochRef.current
 
     const run = async (attemptNumber: number) => {
+      // Fix: a delayed retry must not replace a route selected since this request began.
+      if (cancelled || selectionEpoch !== navigationRouteSelectionEpochRef.current) return
       // Fix: each retry needs a fresh signal after a previous request times out.
       const controller = new AbortController()
       activeController = controller
+      navigationRouteAbortRef.current = controller
       navigationRouteRequestInFlightRef.current = true
+      navigationRouteRetryAtRef.current = 0
       navigationRouteLastRequestAtRef.current = Date.now()
       const timeout = window.setTimeout(() => controller.abort(), 12000)
       try {
@@ -2095,11 +2123,13 @@ export function TripDetailView({
           { signal: controller.signal }
         )
         const payload = await response.json().catch(() => ({}))
+        // Fix: a slow response cannot replace a route the driver has already selected/followed.
+        if (cancelled || selectionEpoch !== navigationRouteSelectionEpochRef.current) return
         const rawRoutes = Array.isArray(payload?.routes) ? [...payload.routes] : []
 
         // OSRM may return no native alternatives. Ask it for two modestly shaped
         // road routes while keeping every real delivery coordinate as a waypoint.
-        if (response.ok && rawRoutes.length < 3 && uniqueWaypoints.length >= 2 && !routeOptions.length) {
+        if (response.ok && rawRoutes.length < 3 && uniqueWaypoints.length >= 2 && !routeOptions.length && !isTracking) {
           const start = uniqueWaypoints[0]
           const firstStop = uniqueWaypoints[1]
           const midpoint = {
@@ -2196,26 +2226,28 @@ export function TripDetailView({
         // Keep the last known-good route on an empty/failed response instead of
         // wiping it — a transient OSRM hiccup should not blank the driver's map
         // or make the vehicle marker disappear mid-trip.
-        if (!cancelled && normalizedOptions.length > 0) {
+        if (!cancelled && selectionEpoch === navigationRouteSelectionEpochRef.current && normalizedOptions.length > 0) {
           setRouteOptions(normalizedOptions)
           // Fix: alternative indexes belong to the previous response, not to a rerouted trip.
           setActiveRouteOptionIndex(0)
           setCurrentStepIndex(0)
-        } else if (!cancelled && attemptNumber < 2) {
+        } else if (!cancelled && selectionEpoch === navigationRouteSelectionEpochRef.current && attemptNumber < 2) {
+          navigationRouteRetryAtRef.current = Date.now() + 2500
           // Fix: retry failed reroutes too, even when an older route is still visible.
           retryTimeoutId = window.setTimeout(() => {
             if (!cancelled) void run(attemptNumber + 1)
           }, 2500)
         }
       } catch {
-        if (!cancelled && attemptNumber < 2) {
+        if (!cancelled && selectionEpoch === navigationRouteSelectionEpochRef.current) navigationRouteRetryAtRef.current = Date.now() + 2500
+        if (!cancelled && selectionEpoch === navigationRouteSelectionEpochRef.current && attemptNumber < 2) {
           retryTimeoutId = window.setTimeout(() => {
             if (!cancelled) void run(attemptNumber + 1)
           }, 2500)
         }
       } finally {
         window.clearTimeout(timeout)
-        if (!cancelled) navigationRouteRequestInFlightRef.current = false
+        if (!cancelled && navigationRouteAbortRef.current === controller) navigationRouteRequestInFlightRef.current = false
       }
     }
 
@@ -2310,6 +2342,9 @@ export function TripDetailView({
     const selectedIndex = routeOptions.findIndex((option) => option.id === optionId)
     if (selectedIndex < 0 || selectedIndex === activeRouteOptionIndex) return
     // Added: promote the tapped light-blue route and its instructions to the active route.
+    navigationRouteSelectionEpochRef.current += 1
+    navigationRouteAbortRef.current?.abort()
+    navigationRouteRequestInFlightRef.current = false
     setActiveRouteOptionIndex(selectedIndex)
   }, [activeRouteOptionIndex, routeOptions, trip.id])
   const mapRouteLines = [

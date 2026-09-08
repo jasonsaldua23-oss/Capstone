@@ -348,6 +348,30 @@ class FeedbackRatingContractTests(TestCase):
 
 
 class DriverLocationAccuracyContractTests(TestCase):
+    def test_delayed_upload_cannot_replace_a_newer_fix(self) -> None:
+        recent = timezone.now() - timedelta(seconds=2)
+        for timestamp, latitude in [(recent, 10.68), (recent - timedelta(minutes=1), 10.67)]:
+            response = self.client.post('/api/driver/location',
+                data={'latitude': latitude, 'longitude': 122.95, 'accuracy': 10, 'recordedAt': int(timestamp.timestamp() * 1000)},
+                content_type='application/json', HTTP_AUTHORIZATION=f'Bearer {self.token}')
+            self.assertEqual(response.status_code, 200)
+        saved = LocationLog.objects.get(driver=self.driver)
+        self.assertEqual(saved.latitude, 10.68)
+        self.assertAlmostEqual(saved.recorded_at.timestamp(), recent.timestamp(), places=2)
+
+    def test_offline_fix_keeps_capture_time_and_future_fix_is_rejected(self) -> None:
+        captured = timezone.now() - timedelta(minutes=5)
+        response = self.client.post('/api/driver/location',
+            data={'latitude': 10.68, 'longitude': 122.95, 'accuracy': 10, 'recordedAt': int(captured.timestamp() * 1000)},
+            content_type='application/json', HTTP_AUTHORIZATION=f'Bearer {self.token}')
+        self.assertEqual(response.status_code, 200)
+        self.assertAlmostEqual(LocationLog.objects.get(driver=self.driver).recorded_at.timestamp(), captured.timestamp(), places=2)
+        response = self.client.post('/api/driver/location',
+            data={'latitude': 10.69, 'longitude': 122.95, 'accuracy': 10, 'recordedAt': int((timezone.now() + timedelta(hours=1)).timestamp() * 1000)},
+            content_type='application/json', HTTP_AUTHORIZATION=f'Bearer {self.token}')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(LocationLog.objects.get(driver=self.driver).latitude, 10.68)
+
     def setUp(self) -> None:
         self.client = Client()
         self.driver = User.objects.create(

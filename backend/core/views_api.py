@@ -11467,30 +11467,51 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     altitude = _to_float_or_none(body.get("altitude"))
     raw_speed = _to_float_or_none(body.get("speed"))
     gps_speed = raw_speed if raw_speed is not None and 0 <= raw_speed <= 50 else None
+    # Preserve capture time across background/offline retries, rather than labelling stale GPS as live.
+    recorded_at = timezone.now()
+    if body.get("recordedAt") is not None:
+        milliseconds = _to_float_or_none(body.get("recordedAt"))
+        try:
+            if milliseconds is None or not math.isfinite(milliseconds) or milliseconds <= 0:
+                return _err("Invalid location timestamp")
+            captured_at = datetime.fromtimestamp(milliseconds / 1000, tz=recorded_at.tzinfo)
+        except (ValueError, OverflowError, OSError):
+            return _err("Invalid location timestamp")
+        if captured_at > recorded_at + timedelta(seconds=30):
+            return _err("Location timestamp is in the future")
+        recorded_at = min(captured_at, recorded_at)
     requested_trip_id = str(body.get("tripId") or "").strip()
     active_statuses = {"IN_PROGRESS", "IN_TRANSIT", "OUT_FOR_DELIVERY"}
     active_trip = Trip.objects.filter(driver_id=d.id, status__in=list(active_statuses)).order_by("-updated_at").first()
     trip_id = None
     trip_resolution = "none"
+    tracking_allowed = False
     if requested_trip_id:
         requested_trip = Trip.objects.filter(id=requested_trip_id, driver_id=d.id).first()
         if requested_trip:
             trip_id = requested_trip.id
+            tracking_allowed = requested_trip.status in active_statuses | {"PLANNED"}
             trip_resolution = "requested_trip_matched_driver"
         elif active_trip:
             trip_id = active_trip.id
+            tracking_allowed = True
             trip_resolution = "fallback_active_trip"
     else:
         trip_id = active_trip.id if active_trip else None
+        tracking_allowed = bool(active_trip)
         trip_resolution = "auto_active_trip" if trip_id else "none"
     with transaction.atomic():
+        # Lock before reading: concurrent first uploads must not create competing latest rows.
+        User.objects.select_for_update().get(id=d.id)
         log = (
             LocationLog.objects.select_for_update()
             .filter(driver_id=d.id)
             .order_by("-recorded_at", "-id")
             .first()
         )
-        now = timezone.now()
+        if log and recorded_at < log.recorded_at:
+            return _ok({"success": True, "ignored": "older_location", "locationLogId": log.id})
+        now = recorded_at
         if log:
             log.trip_id = trip_id
             log.latitude = lat
@@ -11535,6 +11556,7 @@ def driver_location(request: HttpRequest) -> JsonResponse:
         "tripIdUsed": trip_id,
         "tripIdRequested": requested_trip_id or None,
         "tripResolution": trip_resolution,
+        "trackingAllowed": tracking_allowed,
     })
 
 

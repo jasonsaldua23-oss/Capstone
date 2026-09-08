@@ -9,6 +9,7 @@ import {
   predictedRouteProgressMeters,
   projectPointOntoRoute,
   shouldRefreshDriverRoute,
+  selectFollowedRoute,
   resolveDriverRouteProgress,
   quantizeRouteSplitMeters,
   resolveNavigationHeading,
@@ -23,11 +24,21 @@ test('a detour retries after a request finishes without needing a changed GPS co
   const sample = { point: [10.005, 123.002] as [number, number], route: [[10, 123], [10.01, 123]] as [number, number][], elapsedMs: 13000 };
   assert.equal(shouldRefreshDriverRoute({ ...sample, inFlight: true }), false);
   assert.equal(shouldRefreshDriverRoute({ ...sample, inFlight: false }), true);
-  assert.equal(shouldRefreshDriverRoute({ ...sample, inFlight: false, elapsedMs: 1000 }), false);
+  assert.equal(shouldRefreshDriverRoute({ ...sample, inFlight: false, elapsedMs: 0 }), true);
   // Repeated failures do not permanently exhaust rerouting for this coordinate.
   for (let attempt = 1; attempt <= 6; attempt++) {
     assert.equal(shouldRefreshDriverRoute({ ...sample, inFlight: false, elapsedMs: attempt * 13000 }), true);
   }
+});
+
+test('following an alternative promotes it immediately without flapping on the shared road', () => {
+  const routes: [number, number][][] = [
+    [[10, 123], [10.01, 123]], [[10, 123], [10.005, 123], [10.01, 123.002]],
+  ];
+  assert.equal(selectFollowedRoute([10.0075, 123.001], routes, 0), 1);
+  assert.equal(selectFollowedRoute([10.003, 123], routes, 0), 0);
+  assert.equal(selectFollowedRoute([10.003, 123], routes, 1), 1);
+  assert.equal(selectFollowedRoute([10.02, 123.01], routes, 0), 0);
 });
 
 test('missing routes recover and on-route travel does not trigger repeated requests', () => {

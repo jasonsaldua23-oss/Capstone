@@ -8,6 +8,8 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Register before the bridge loads the driver portal.
+        registerPlugin(DriverTrackingPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Each build is one portal: replace the default client with the one that

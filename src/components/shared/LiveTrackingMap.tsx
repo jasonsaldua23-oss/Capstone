@@ -423,16 +423,14 @@ const NAV_CAMERA_LOOKAHEAD_METERS = 95;
 const NAV_CAMERA_ANIMATION_SECONDS = 0.35;
 const TRUCK_DEFAULT_SMOOTHING_DURATION_MS = 1000;
 const TRUCK_MIN_SMOOTHING_DURATION_MS = 450;
-// Matches the animation span to the real elapsed time between GPS fixes (see
-// the *1 factor below) instead of a short cap, so fast movement over a long
-// update gap plays out as continuous travel rather than a dash-then-freeze.
-const TRUCK_MAX_SMOOTHING_DURATION_MS = 9000;
+// Fix: follow the GPS cadence, but bound catch-up so stale fixes cannot leave the truck far behind.
+const TRUCK_MAX_SMOOTHING_DURATION_MS = 2000;
 const TRUCK_STATIONARY_THRESHOLD_METERS = 1.5;
 // Beyond this distance from the active route the driver is treated as off-route
 // (a missed turn or a self-chosen detour). The icon then follows the live GPS
 // position instead of being pinned to the stale route — this is what stops the
 // vehicle from freezing when the driver changes roads, until the reroute lands.
-const TRUCK_MAX_ROUTE_SNAP_METERS = 60;
+const TRUCK_MAX_ROUTE_SNAP_METERS = 45;
 const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
 // Stationary clamp: with speed at or below this, route progress is frozen so
@@ -1350,6 +1348,14 @@ export default function LiveTrackingMap({
     });
   }, [completedRouteHeading, navigationPerspective, safeLocations, renderedRouteLines]);
 
+  // Fix: unrelated portal renders must not restart the interpolation clock.
+  const truckTargetSignature = JSON.stringify(snappedLocations);
+  const [mapVisibilityEpoch, setMapVisibilityEpoch] = useState(0);
+  useEffect(() => {
+    const refresh = () => setMapVisibilityEpoch((value) => value + 1);
+    document.addEventListener('visibilitychange', refresh);
+    return () => document.removeEventListener('visibilitychange', refresh);
+  }, []);
   useEffect(() => {
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
@@ -1406,7 +1412,9 @@ export default function LiveTrackingMap({
         : { ...location, routeProgressMeters: acceptedDistance };
     });
 
-    setSmoothedLocations((previousLocations) => {
+    // One effect owns one animation loop; React state updaters must not schedule side effects.
+    const previousLocations = smoothedLocationsRef.current;
+    {
       const previousById = new Map(previousLocations.map((loc) => [loc.id, loc]));
       const hasMovement = stabilizedTargets.some((loc) => {
         if (loc.markerType !== 'truck') return false;
@@ -1424,6 +1432,12 @@ export default function LiveTrackingMap({
         return distanceMoved > 0.05 || headingChanged || progressChanged;
       });
 
+      if (document.hidden || observedUpdateInterval > 15000) {
+        // Browsers suspend painting in the background. Keep actual progress current instead of replaying a stale journey.
+        smoothedLocationsRef.current = stabilizedTargets;
+        setSmoothedLocations(stabilizedTargets);
+        return;
+      }
       if (!hasMovement) {
         const nextLocations = stabilizedTargets.map((targetLocation) => {
           if (targetLocation.markerType !== 'truck') return targetLocation;
@@ -1441,7 +1455,8 @@ export default function LiveTrackingMap({
             : targetLocation;
         });
         smoothedLocationsRef.current = nextLocations;
-        return nextLocations;
+        setSmoothedLocations(nextLocations);
+        return;
       }
 
       const startTime = performance.now();
@@ -1463,14 +1478,13 @@ export default function LiveTrackingMap({
       const animate = (now: number) => {
         const elapsedMs = now - startTime;
         const progress = Math.min(1, elapsedMs / animationDurationMs);
-        // Smoothstep keeps velocity continuous at both ends while using almost
-        // the entire GPS interval, so multi-second updates still look continuous.
-        const easedProgress = progress * progress * (3 - 2 * progress);
+        // Linear progress avoids decelerating to a stop at every GPS sample.
+        const easedProgress = progress;
         // Time the next fix is overdue by, which is how far past the predicted
         // position the icon is allowed to keep coasting.
         const overdueMs = Math.max(0, elapsedMs - animationDurationMs);
 
-        setSmoothedLocations(() => {
+        {
           const nextLocations = stabilizedTargets.map((targetLoc) => {
             if (targetLoc.markerType !== 'truck') {
               return targetLoc;
@@ -1557,8 +1571,8 @@ export default function LiveTrackingMap({
           // Keep reroute continuity synchronized with the exact interpolated
           // frame that also drives the grey/active route split.
           smoothedLocationsRef.current = nextLocations;
-          return nextLocations;
-        });
+          setSmoothedLocations(nextLocations);
+        }
 
         if (elapsedMs < totalLoopDurationMs) {
           animationFrameRef.current = window.requestAnimationFrame(animate);
@@ -1568,8 +1582,7 @@ export default function LiveTrackingMap({
       };
 
       animationFrameRef.current = window.requestAnimationFrame(animate);
-      return previousLocations;
-    });
+    }
 
     return () => {
       if (animationFrameRef.current !== null) {
@@ -1577,7 +1590,7 @@ export default function LiveTrackingMap({
         animationFrameRef.current = null;
       }
     };
-  }, [navigationPerspective, navigationRouteGeometry, navigationRouteKey, snappedLocations]);
+  }, [navigationPerspective, navigationRouteKey, truckTargetSignature, mapVisibilityEpoch]);
 
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
   const navTruck = singleTruck.length === 1 ? singleTruck[0] : null;
@@ -1653,8 +1666,9 @@ export default function LiveTrackingMap({
       color: '#2563eb',
     };
     return [
-      ...traveledRouteSections,
       ...unrelatedLines,
+      // Traveled grey stays above overlapping alternative routes; the active blue segment stays on top.
+      ...traveledRouteSections,
       ...(completedLine.points.length > 1 ? [completedLine] : []),
       ...(upcomingLine.points.length > 1 ? [upcomingLine] : []),
     ];

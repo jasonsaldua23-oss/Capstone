@@ -14,6 +14,61 @@ function effectBetween(startText, endText) {
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
+test('the production animation keeps one frame loop, moves off-route, and reconciles hidden GPS', async () => {
+  const navigation = await import('../src/lib/map-navigation.ts');
+  const mapSource = fs.readFileSync(new URL('../src/components/shared/LiveTrackingMap.tsx', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('map.tsx', mapSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const helpers = new Set(['normalizeAngle', 'shortestAngleDelta', 'lerp', 'lerpAngle', 'toLocalXY', 'fromLocalXY', 'approximateDistanceMeters', 'nearestPointOnSegment', 'nearestPointOnPolyline']);
+  let declarations = '';
+  let effect;
+  const visit = node => {
+    if (ts.isFunctionDeclaration(node) && helpers.has(node.name?.text)) declarations += node.getText(tree) + '\n';
+    if (ts.isVariableStatement(node) && node.declarationList.declarations.some(d => d.name.getText(tree).startsWith('TRUCK_'))) declarations += node.getText(tree) + '\n';
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'useEffect' && node.arguments[0]?.getText(tree).includes('const receivedAt = performance.now()')) effect = node.getText(tree);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  assert.ok(effect);
+  const frames = new Map();
+  let frameId = 0;
+  let clock = 0;
+  const truck = (lat, lng = 123) => ({ id: 'driver', markerType: 'truck', lat, lng, actualLat: lat, actualLng: lng, speedMps: 2, markerHeading: 0 });
+  const context = {
+    ...navigation, useEffect: fn => fn(), performance: { now: () => clock }, document: { hidden: false },
+    window: { requestAnimationFrame: fn => { frames.set(++frameId, fn); return frameId; }, cancelAnimationFrame: id => frames.delete(id) },
+    animationFrameRef: { current: null }, lastTruckTargetAtRef: { current: null }, acceptedRouteProgressRef: { current: null },
+    smoothedLocationsRef: { current: [truck(10)] }, snappedLocations: [truck(10.0002)],
+    navigationPerspective: true, navigationRouteGeometry: [[10, 123], [10.01, 123]], navigationRouteKey: 'road',
+    truckTargetSignature: 'fix', mapVisibilityEpoch: 0,
+    setSmoothedLocations: value => assert.ok(Array.isArray(value), 'state updaters must never own animation scheduling'),
+  };
+  vm.createContext(context);
+  vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2020 }), context);
+  const run = () => vm.runInContext(ts.transpile(effect, { target: ts.ScriptTarget.ES2020 }), context);
+  const frame = ms => { clock = ms; const [id, fn] = frames.entries().next().value; frames.delete(id); fn(ms); };
+  run();
+  assert.equal(frames.size, 1);
+  frame(450);
+  const halfway = context.smoothedLocationsRef.current[0].lat;
+  frame(900);
+  assert.ok(context.smoothedLocationsRef.current[0].lat > halfway);
+  assert.equal(frames.size, 1, 'interpolation owns exactly one future frame');
+  context.snappedLocations = [truck(10.0003, 123.002)];
+  run();
+  frame(1300);
+  assert.ok(context.smoothedLocationsRef.current[0].lng > 123, 'a detour moves the truck off the obsolete route');
+  context.document.hidden = true;
+  context.snappedLocations = [truck(10.002, 123.003)];
+  run();
+  assert.equal(frames.size, 0);
+  assert.equal(context.smoothedLocationsRef.current[0].lat, 10.002, 'hidden fixes update actual progress without waiting for a paint');
+  context.document.hidden = false;
+  clock = 60000;
+  context.snappedLocations = [truck(10.004, 123.003)];
+  run();
+  assert.equal(context.smoothedLocationsRef.current[0].lat, 10.004, 'resume adopts the current fix instead of replaying the stale journey');
+});
+
 test('the production waypoint builder always anchors at the assigned warehouse', () => {
   const tree = ts.createSourceFile('trip.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let initializer;
@@ -53,7 +108,7 @@ test('an unavailable GPS speed reaches the map as unknown, not a parked vehicle'
 });
 
 test('a finished request is reconsidered on the clock at unchanged GPS, including repeated failures', async () => {
-  const { shouldRefreshDriverRoute } = await import('../src/lib/map-navigation.ts');
+  const { shouldRefreshDriverRoute, selectFollowedRoute } = await import('../src/lib/map-navigation.ts');
   const code = effectBetween('  useEffect(() => {\n    if (!driverLocationMarker) return', '\n\n  const fullRouteWaypoints');
   let origin = { tripId: 'trip', lat: 10, lng: 123, revision: 1 };
   const context = {
@@ -62,7 +117,9 @@ test('a finished request is reconsidered on the clock at unchanged GPS, includin
     navigationRouteOrigin: origin, navigationRouteCheckEpoch: 1,
     navigationRouteRequestInFlightRef: { current: true }, navigationRouteLastRequestAtRef: { current: 0 },
     routeOptions: [{ points: [[10, 123], [10.01, 123]] }], activeRouteOptionIndex: 0,
-    Date: { now: () => 13000 }, shouldRefreshDriverRoute,
+    Date: { now: () => 13000 }, shouldRefreshDriverRoute, selectFollowedRoute,
+    navigationRouteRetryAtRef: { current: 0 },
+    navigationRouteAbortRef: { current: null }, navigationRouteSelectionEpochRef: { current: 0 },
     setNavigationRouteOrigin: fn => { origin = fn(origin); },
   };
   vm.runInNewContext(code, context);
@@ -90,6 +147,8 @@ test('warehouse is the first requested waypoint and its legs cannot override liv
     navigationRouteWaypoints: [warehouse, gps, stop], navigationWaypointsKey: 'trip:2',
     stableNavigationOrigin: gps, driverMarkerHeading: undefined, effectiveDriverLocation: { speed: null },
     navigationRouteRequestInFlightRef: { current: false }, navigationRouteLastRequestAtRef: { current: 0 },
+    navigationRouteRetryAtRef: { current: 0 }, isTracking: true,
+    navigationRouteAbortRef: { current: null }, navigationRouteSelectionEpochRef: { current: 0 },
     routeOptions: [{ points: [[10, 123], [10.01, 123]] }],
     setRouteOptions: value => { options = value; }, setActiveRouteOptionIndex: () => {},
     setRouteSteps: () => {}, setCurrentStepIndex: () => {},
@@ -126,4 +185,48 @@ test('warehouse is the first requested waypoint and its legs cannot override liv
   cleanup();
   await flush();
   assert.equal(context.navigationRouteRequestInFlightRef.current, false);
+});
+
+test('following an alternative promotes it locally while a routing request is pending', async () => {
+  const { selectFollowedRoute } = await import('../src/lib/map-navigation.ts');
+  const code = effectBetween('  useEffect(() => {\n    if (!driverLocationMarker) return', '\n\n  const fullRouteWaypoints');
+  const controller = new AbortController();
+  let selected = 0;
+  const context = {
+    useEffect: fn => fn(), trip: { id: 'trip' },
+    driverLocationMarker: { lat: 10.005, lng: 123.002, markerHeading: 0 },
+    routeOptions: [{ points: [[10, 123], [10.01, 123]] }, { points: [[10, 123.002], [10.01, 123.002]] }],
+    activeRouteOptionIndex: 0, selectFollowedRoute,
+    navigationRouteSelectionEpochRef: { current: 0 }, navigationRouteAbortRef: { current: controller },
+    navigationRouteRequestInFlightRef: { current: true },
+    setActiveRouteOptionIndex: value => { selected = value; },
+    navigationStopsKey: '', navigationRouteCheckEpoch: 0,
+  };
+  vm.runInNewContext(code, context);
+  assert.equal(selected, 1);
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(context.navigationRouteSelectionEpochRef.current, 1);
+  assert.equal(context.navigationRouteRequestInFlightRef.current, false);
+});
+
+test('an obsolete slow route response cannot replace a locally selected alternative', async () => {
+  const code = effectBetween('  useEffect(() => {\n    const uniqueWaypoints = navigationRouteWaypoints', '\n\n  useEffect(() => {\n    const activeOption');
+  let resolveResponse;
+  let cleanup;
+  const context = {
+    useEffect: fn => { cleanup = fn(); }, AbortController, Date,
+    window: { setTimeout: () => 1, clearTimeout: () => {} },
+    navigationRouteWaypoints: [{ lat: 10, lng: 123 }, { lat: 10.01, lng: 123 }], navigationWaypointsKey: 'trip',
+    stableNavigationOrigin: null, driverMarkerHeading: undefined, effectiveDriverLocation: null, isTracking: true,
+    navigationRouteRequestInFlightRef: { current: false }, navigationRouteLastRequestAtRef: { current: 0 },
+    navigationRouteRetryAtRef: { current: 0 }, navigationRouteAbortRef: { current: null },
+    navigationRouteSelectionEpochRef: { current: 0 },
+    fetch: () => new Promise(resolve => { resolveResponse = resolve; }),
+    setRouteOptions: () => assert.fail('stale response replaced the selected route'),
+  };
+  vm.runInNewContext(code, context);
+  context.navigationRouteSelectionEpochRef.current++;
+  resolveResponse({ ok: true, json: async () => ({ routes: [] }) });
+  await flush();
+  cleanup();
 });

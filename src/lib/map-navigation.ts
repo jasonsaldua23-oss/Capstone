@@ -11,13 +11,30 @@ export function shouldRefreshDriverRoute({ point, route, heading, speed, inFligh
   point: [number, number]; route: [number, number][]; heading?: number | null;
   speed?: number | null; inFlight: boolean; elapsedMs: number;
 }) {
-  if (inFlight || elapsedMs < 5000) return false;
+  // Failed-request backoff is owned by the caller; a fresh detour must not wait five seconds.
+  if (inFlight || elapsedMs < 0) return false;
   const projection = projectPointOntoRoute(point, route);
   if (!projection || projection.distanceFromRouteMeters > 45) return true;
   const segmentHeading = bearingBetweenMapPoints(route[projection.segmentIndex], route[projection.segmentIndex + 1]);
   return typeof heading === 'number' && Number.isFinite(heading) && heading >= 0
     && typeof speed === 'number' && speed > 1 && segmentHeading !== null
     && Math.abs(shortestMapAngleDelta(segmentHeading, heading)) > 110;
+}
+
+// Promote a known alternative once GPS clearly follows its road, without flapping at shared junctions.
+export function selectFollowedRoute(point: [number, number], routes: [number, number][][], activeIndex: number, heading?: number | null) {
+  const matches = routes.map((route, index) => {
+    const projection = projectPointOntoRoute(point, route);
+    if (!projection) return { index, distance: Infinity, score: Infinity };
+    const bearing = bearingBetweenMapPoints(route[projection.segmentIndex], route[projection.segmentIndex + 1]);
+    const penalty = typeof heading === 'number' && Number.isFinite(heading) && heading >= 0 && bearing !== null
+      ? Math.abs(shortestMapAngleDelta(bearing, heading)) * 0.3 : 0;
+    return { index, distance: projection.distanceFromRouteMeters, score: projection.distanceFromRouteMeters + penalty };
+  });
+  const current = matches[activeIndex];
+  const best = matches.reduce((left, right) => right.score < left.score ? right : left, { index: activeIndex, distance: Infinity, score: Infinity });
+  return best.distance <= 45 && best.index !== activeIndex && (!current || current.score - best.score >= 15)
+    ? best.index : activeIndex;
 }
 
 // Fix: suppress small GPS jitter without locking a moving vehicle to its furthest historical position.
