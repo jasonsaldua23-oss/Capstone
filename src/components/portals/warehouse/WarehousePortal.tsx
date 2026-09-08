@@ -35,6 +35,7 @@ import {
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { WarehouseTripsSection } from './WarehouseTripsSection'
 import { WarehouseHeader } from './sections/layout/warehouse-header'
+import { searchWarehouseRecords, type WarehouseSearchResult } from '@/lib/warehouse-search'
 import { useWarehousePortalLayoutState, type PortalNotification, type WarehouseView } from './sections/layout/portal-state'
 import { WarehouseDashboardView } from './sections/dashboard/dashboard-view'
 import { WarehouseInventoryView } from './sections/inventory/inventory-view'
@@ -689,6 +690,8 @@ export function WarehousePortal() {
   const [createTripOpen, setCreateTripOpen] = useState(false)
   const [editingTripState, setEditingTripState] = useState<TripEditorState | null>(null)
   const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties'>('inventory')
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [searchInventoryId, setSearchInventoryId] = useState('')
   const [loadingInventory, setLoadingInventory] = useState(true)
   const [loadingWarehouses, setLoadingWarehouses] = useState(true)
   const [loadingBatches, setLoadingBatches] = useState(true)
@@ -1833,6 +1836,22 @@ export function WarehousePortal() {
       ? inventory.filter((item) => item?.warehouse?.id === assignedWarehouse.id)
       : inventory
   }, [assignedWarehouse, inventory])
+  // Added: reuse warehouse-scoped data so global search cannot expose another facility.
+  const globalSearchResults = useMemo(() => hasAssignedWarehouse
+    ? searchWarehouseRecords(globalSearchQuery, scopedOrders, scopedInventory)
+    : [], [globalSearchQuery, scopedOrders, scopedInventory, hasAssignedWarehouse])
+  const openGlobalSearchResult = (result: WarehouseSearchResult) => {
+    setGlobalSearchQuery('')
+    setActiveView(result.kind)
+    if (result.kind === 'inventory') {
+      setInventorySubView('inventory')
+      setSearchInventoryId(result.id)
+      return
+    }
+    const order = scopedOrders.find((entry) => String(entry.id) === result.id)
+    if (order) void openOrderDetail(order)
+  }
+
   const scopedInventoryTransactions = useMemo(() => {
     if (!assignedWarehouse) return inventoryTransactions
     const filtered = inventoryTransactions.filter((entry) =>
@@ -4984,6 +5003,11 @@ export function WarehousePortal() {
 
       <div className="relative z-[1] flex min-h-screen flex-1 flex-col lg:pl-64">
         <WarehouseHeader
+          searchQuery={globalSearchQuery}
+          searchResults={globalSearchResults}
+          searchLoading={loadingOrders || loadingInventory || loadingWarehouses}
+          onSearchChange={setGlobalSearchQuery}
+          onSearchSelect={openGlobalSearchResult}
           userName={String(user?.name || '')}
           userEmail={String(user?.email || '')}
           userAvatar={String(user?.avatar || '')}
@@ -5182,10 +5206,17 @@ export function WarehousePortal() {
               </TabsList>
 
               <TabsContent value="inventory" className="mt-0">
+                {/* Added: keep the selected search result visible with an explicit way to restore all stock. */}
+                {searchInventoryId && (
+                  <div className="mb-3 flex items-center justify-between text-sm text-slate-600">
+                    <span>Showing inventory search result</span>
+                    <Button variant="outline" size="sm" onClick={() => setSearchInventoryId('')}>Show all inventory</Button>
+                  </div>
+                )}
                 <WarehouseInventoryView
                   openAddStockDialog={openAddStockDialog}
                   loadingInventory={loadingInventory}
-                  scopedInventory={scopedInventory}
+                  scopedInventory={searchInventoryId ? scopedInventory.filter((item) => String(item.id) === searchInventoryId) : scopedInventory}
                   getStockStatus={getStockStatus}
                   getAvailableQty={getAvailableQty}
                   formatPeso={formatPeso}

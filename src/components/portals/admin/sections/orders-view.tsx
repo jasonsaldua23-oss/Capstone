@@ -467,6 +467,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
   }
   const getOrderStatusTextClass = (status: string) => {
     const value = String(status || '').trim().toUpperCase()
+    // Changed: match the blue delivery badge in the order details.
+    if (value === 'OUT FOR DELIVERY') return 'text-blue-700'
     if (value === 'PENDING') return 'text-yellow-700'
     if (value === 'PREPARING') return 'text-lime-700'
     if (value === 'CANCELLED') return 'text-red-700'
@@ -475,6 +477,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
   }
   const getOrderStatusBadgeClass = (status: string) => {
     const value = String(status || '').trim().toUpperCase()
+    // Changed: show out-for-delivery orders in blue instead of the gray fallback.
+    if (value === 'OUT FOR DELIVERY') return 'bg-blue-100 text-blue-800 hover:bg-blue-100'
     if (value === 'PENDING') return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
     if (value === 'PREPARING') return 'bg-lime-100 text-lime-800 hover:bg-lime-100'
     if (value === 'CANCELLED') return 'bg-red-100 text-red-700 hover:bg-red-100'

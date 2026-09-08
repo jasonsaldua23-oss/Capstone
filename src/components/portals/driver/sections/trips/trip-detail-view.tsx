@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
-import { AnimatePresence, motion } from 'framer-motion'
 import { emitDataSync } from '@/lib/data-sync'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,7 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from '@/components/ui/drawer'
+import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { prepareImageForUpload } from '@/lib/client-image'
 import { burnPodOverlay, formatPodOverlayLines, type PodOverlaySnapshot } from '@/lib/pod-camera-overlay'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
@@ -24,6 +23,7 @@ import type { AuthUser } from '@/types'
 import {
   calculateNavigationViewportInsets,
   projectPointOntoRoute,
+  shouldRefreshDriverRoute,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -56,6 +56,7 @@ const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMa
 type DriverRouteOption = {
   id: string
   points: [number, number][]
+  originPoints: [number, number][]
   steps: OsrmStep[]
 }
 
@@ -140,12 +141,11 @@ export function TripDetailView({
   const [selectedDropPointForDetails, setSelectedDropPointForDetails] = useState<DropPoint | null>(null)
 
   // Mobile bottom sheet and map UX state.
-  const [mobileSheetSnapPoint, setMobileSheetSnapPoint] = useState<number | string | null>(0.52)
-  const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false)
-  const isMobileSheetOpenRef = useRef(false)
-  useEffect(() => { isMobileSheetOpenRef.current = isMobileSheetOpen }, [isMobileSheetOpen])
-  const [isMobileSheetClosing, setIsMobileSheetClosing] = useState(false)
-  const [showMobileSheetPeek, setShowMobileSheetPeek] = useState(true)
+  // Fix: one mounted sheet owns the whole drag, including its collapsed summary.
+  const [mobileSheetPeekHeight, setMobileSheetPeekHeight] = useState(112)
+  const mobileSheetPeekSnap = `${mobileSheetPeekHeight}px`
+  const [mobileSheetSnapPoint, setMobileSheetSnapPoint] = useState<number | string | null>('112px')
+  const isMobileSheetOpen = typeof mobileSheetSnapPoint === 'number'
   const [mobileSheetAnimationEpoch, setMobileSheetAnimationEpoch] = useState(0)
   const [mobileMapRecenterSignal, setMobileMapRecenterSignal] = useState(0)
   const [mobileMapZoomInSignal, setMobileMapZoomInSignal] = useState(0)
@@ -162,8 +162,15 @@ export function TripDetailView({
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [routeOptions, setRouteOptions] = useState<DriverRouteOption[]>([])
   const [activeRouteOptionIndex, setActiveRouteOptionIndex] = useState(0)
-  const [navigationRouteOrigin, setNavigationRouteOrigin] = useState<{ tripId: string; lat: number; lng: number } | null>(null)
+  const [navigationRouteOrigin, setNavigationRouteOrigin] = useState<{ tripId: string; lat: number; lng: number; revision: number } | null>(null)
   const navigationRouteRequestInFlightRef = useRef(false)
+  const navigationRouteLastRequestAtRef = useRef(0)
+  const [navigationRouteCheckEpoch, setNavigationRouteCheckEpoch] = useState(0)
+  useEffect(() => {
+    // Fix: request completion and a stationary detour must recover without another GPS event.
+    const timer = window.setInterval(() => setNavigationRouteCheckEpoch((value) => value + 1), 2000)
+    return () => window.clearInterval(timer)
+  }, [trip.id])
   const navigationStopsKeyRef = useRef('')
   const [is3DPerspective, setIs3DPerspective] = useState(false)
   const [voiceGuidanceEnabled, setVoiceGuidanceEnabled] = useState(true)
@@ -173,12 +180,12 @@ export function TripDetailView({
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const cameraGpsRef = useRef<{ latitude: number; longitude: number } | null>(null)
   const lastReverseGeocodeKeyRef = useRef('')
-  const mobileSheetTouchStartYRef = useRef<number | null>(null)
   const spokenNavigationPromptsRef = useRef<Set<string>>(new Set())
   const mobileMapViewportRef = useRef<HTMLDivElement | null>(null)
   const mobileTopOverlayRef = useRef<HTMLDivElement | null>(null)
   const mobileDrawerRef = useRef<HTMLDivElement | null>(null)
-  const mobileSheetPeekRef = useRef<HTMLButtonElement | null>(null)
+  const mobileSheetPeekRef = useRef<HTMLDivElement | null>(null)
+  const mobileSheetHeaderGestureRef = useRef({ startY: 0, dragged: false })
   const isMobileViewport = useIsMobile()
   // Derived drop points sorted by sequence for consistent rendering and logic.
   const sortedDropPoints = useMemo(
@@ -215,7 +222,22 @@ export function TripDetailView({
   ).length
   const canCompleteTrip = sortedDropPoints.length > 0 && unresolvedDropPointCount === 0
   const highlightedDropPoint = activeDropPoint || sortedDropPoints[0] || null
-  const mobileSheetSnapPoints: Array<number | string> = [0.52, 0.88, 1]
+  const mobileSheetSnapPoints = useMemo<Array<number | string>>(
+    () => [mobileSheetPeekSnap, 0.52, 0.88, 1], [mobileSheetPeekSnap]
+  )
+  useEffect(() => {
+    const header = mobileSheetPeekRef.current
+    if (!header || !isMobileViewport) return
+    // Include the safe-area padding and wrapped text so collapse never hides the trip summary.
+    const observer = new ResizeObserver(() => {
+      const height = Math.ceil(header.getBoundingClientRect().height)
+      if (height <= 0) return
+      setMobileSheetPeekHeight(height)
+      setMobileSheetSnapPoint((previous) => typeof previous === 'number' ? previous : `${height}px`)
+    })
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [isMobileViewport, mobileSheetAnimationEpoch])
   // Vaul renders the sheet at the height of its largest snap point and slides it
   // down for the smaller ones, so the scrollable area has to be capped at the part
   // that is actually on screen. Without this the list below the fold could not be
@@ -287,11 +309,7 @@ export function TripDetailView({
     if (!mapViewport || !topOverlay) return
 
     const updateCameraInsets = () => {
-      const bottomOverlay = isMobileSheetOpen || isMobileSheetClosing
-        ? mobileDrawerRef.current
-        : showMobileSheetPeek
-          ? mobileSheetPeekRef.current
-          : null
+      const bottomOverlay = mobileDrawerRef.current
       const measured = calculateNavigationViewportInsets(
         mapViewport.getBoundingClientRect(),
         topOverlay.getBoundingClientRect(),
@@ -328,7 +346,7 @@ export function TripDetailView({
       window.removeEventListener('resize', updateCameraInsets)
       window.visualViewport?.removeEventListener('resize', updateCameraInsets)
     }
-  }, [isMobileSheetClosing, isMobileSheetOpen, isMobileViewport, mobileSheetAnimationEpoch, mobileSheetSnapPoint, showMobileSheetPeek])
+  }, [isMobileSheetOpen, isMobileViewport, mobileSheetAnimationEpoch, mobileSheetSnapPoint])
 
   // Refresh immediately after writes so status changes reflect server DB state without delay.
   const refreshTripsInBackground = () => {
@@ -361,83 +379,20 @@ export function TripDetailView({
 
   // Reset mobile sheet and recenter state when user switches to a different trip.
   useEffect(() => {
-    setIsMobileSheetOpen(false)
-    setIsMobileSheetClosing(false)
-    setShowMobileSheetPeek(true)
-    setMobileSheetSnapPoint(0.52)
+    setMobileSheetSnapPoint(mobileSheetPeekSnap)
     setMobileMapRecenterCenter(null)
     setMobileMapRecenterSignal(0)
   }, [trip.id])
 
-  // Opens full mobile sheet and hides the collapsed peek button.
-  const openMobileSheet = () => {
-    setIsMobileSheetClosing(false)
-    setShowMobileSheetPeek(false)
-    setIsMobileSheetOpen(true)
-  }
-
-  // Normalizes snap points to known values so drawer state remains predictable.
+  // Fix: downward gestures stop at the summary instead of dismissing into an empty strip.
   const handleMobileSheetSnapPointChange = (next: number | string | null) => {
-    if (next === null || next === undefined) {
-      setMobileSheetSnapPoint(0.52)
-      return
-    }
-
-    if (mobileSheetSnapPoints.includes(next)) {
-      setMobileSheetSnapPoint(next)
-      // Fix: Vaul resets its snap point after closing; that must not reopen the drawer.
-      return
-    }
-
-    setMobileSheetSnapPoint(0.52)
+    setMobileSheetSnapPoint(next !== null && mobileSheetSnapPoints.includes(next) ? next : mobileSheetPeekSnap)
   }
-
-  // Controls open/close state. During closing, the preview sits beneath the
-  // drawer so the moving sheet reveals it as one continuous surface.
   const handleMobileSheetOpenChange = (open: boolean) => {
-    if (!open) {
-      setIsMobileSheetClosing(true)
-      setShowMobileSheetPeek(true)
-      setIsMobileSheetOpen(false)
-      setMobileSheetSnapPoint(0.52)
-      return
-    }
-
-    setIsMobileSheetClosing(false)
-    setShowMobileSheetPeek(false)
-    setIsMobileSheetOpen(open)
-    if (open && typeof mobileSheetSnapPoint === 'number' && mobileSheetSnapPoint < 0.52) {
-      setMobileSheetSnapPoint(0.52)
-    }
+    if (!open) setMobileSheetSnapPoint(mobileSheetPeekSnap)
   }
-
-  const handleMobileSheetAnimationEnd = (open: boolean) => {
-    // Fix: ignore a delayed animation callback from an earlier open/close gesture.
-    if (open !== isMobileSheetOpenRef.current) return
-    setShowMobileSheetPeek(!open)
-    if (!open) setIsMobileSheetClosing(false)
-    // Fix: recalculate the map once at the settled drawer position instead of
-    // forcing layout and React updates during every transform animation frame.
+  const handleMobileSheetAnimationEnd = () => {
     setMobileSheetAnimationEpoch((previous) => previous + 1)
-  }
-
-  // Touch handlers enable upward swipe on peek button to open the sheet.
-  const handleMobileSheetPeekTouchStart = (event: React.TouchEvent<HTMLButtonElement>) => {
-    mobileSheetTouchStartYRef.current = event.touches[0]?.clientY ?? null
-  }
-
-  const handleMobileSheetPeekTouchMove = (event: React.TouchEvent<HTMLButtonElement>) => {
-    if (mobileSheetTouchStartYRef.current === null) return
-    const currentY = event.touches[0]?.clientY
-    if (typeof currentY !== 'number') return
-    if (mobileSheetTouchStartYRef.current - currentY > 24) {
-      openMobileSheet()
-      mobileSheetTouchStartYRef.current = null
-    }
-  }
-
-  const handleMobileSheetPeekTouchEnd = () => {
-    mobileSheetTouchStartYRef.current = null
   }
 
   const dropPointStatusColors: Record<string, string> = {
@@ -1769,14 +1724,13 @@ export function TripDetailView({
     nextPendingIndex === -1 ? [] : mappableDropPoints.slice(Math.max(nextPendingIndex, 0))
   // Route/mapping derived values for start point, live driver marker, and waypoints.
   const warehouseRouteStart = (() => {
+    // Fix: only the assigned warehouse can supply the trip origin.
     const warehouseLat =
       toCoordinate(trip.warehouseLatitude) ??
-      toCoordinate(trip.warehouse?.latitude) ??
-      toCoordinate(trip.startLatitude)
+      toCoordinate(trip.warehouse?.latitude)
     const warehouseLng =
       toCoordinate(trip.warehouseLongitude) ??
-      toCoordinate(trip.warehouse?.longitude) ??
-      toCoordinate(trip.startLongitude)
+      toCoordinate(trip.warehouse?.longitude)
     if (warehouseLat === null || warehouseLng === null) return null
     return { lat: warehouseLat, lng: warehouseLng }
   })()
@@ -1970,7 +1924,8 @@ export function TripDetailView({
         : undefined,
       // Ground speed lets the map extrapolate between fixes rather than only
       // animating toward a position the driver has already left.
-      speedMps: Number.isFinite(Number(sourceLocation.speed)) && Number(sourceLocation.speed) >= 0
+      // Fix: an unavailable speed sensor must not freeze a moving GPS position as "parked".
+      speedMps: sourceLocation.speed != null && Number.isFinite(Number(sourceLocation.speed)) && Number(sourceLocation.speed) >= 0
         ? Number(sourceLocation.speed)
         : undefined,
     }
@@ -2050,22 +2005,19 @@ export function TripDetailView({
       tripId: trip.id,
       lat: driverLocationMarker.lat,
       lng: driverLocationMarker.lng,
+      revision: (navigationRouteOrigin?.revision || 0) + 1,
     }
     setNavigationRouteOrigin((previous) => {
       if (!previous || previous.tripId !== trip.id || stopsChanged) return nextOrigin
-      const movedMeters = haversineKm(previous, nextOrigin) * 1000
-      // Ignore normal GPS jitter so the instruction and ETA panel does not flicker.
       const activeRoutePoints = routeOptions[activeRouteOptionIndex]?.points
-      const deviationMeters = activeRoutePoints ? distanceFromRouteMeters(nextOrigin, activeRoutePoints) : null
-      // A missed turn or detour should reroute immediately — same as Google
-      // Maps — instead of waiting for the periodic 60m recompute distance.
-      const isOffRoute = typeof deviationMeters === 'number' && deviationMeters > 45
-      // Fix: keep on-route geometry so its traveled section survives long drives.
-      // While rerouting, allow the current request to finish before moving its origin again.
-      return (!activeRoutePoints && movedMeters >= 60) || (isOffRoute && !navigationRouteRequestInFlightRef.current)
-        ? nextOrigin : previous
+      return shouldRefreshDriverRoute({
+        point: [nextOrigin.lat, nextOrigin.lng], route: activeRoutePoints || [],
+        heading: driverLocationMarker.markerHeading, speed: effectiveDriverLocation?.speed,
+        inFlight: navigationRouteRequestInFlightRef.current,
+        elapsedMs: Date.now() - navigationRouteLastRequestAtRef.current,
+      }) ? nextOrigin : previous
     })
-  }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng, navigationStopsKey])
+  }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng, navigationStopsKey, navigationRouteCheckEpoch])
 
   const fullRouteWaypoints = (() => {
     const start = warehouseRouteStart ? [warehouseRouteStart] : []
@@ -2091,13 +2043,14 @@ export function TripDetailView({
     if (stableNavigationOrigin) return [stableNavigationOrigin, ...pendingCoords]
     return pendingCoords
   })()
-  const navigationRouteWaypoints = stableNavigationOrigin && pendingDropPoints.length > 0
-    ? [
-      stableNavigationOrigin,
-      ...pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number })),
-    ]
-    : routeWaypoints
-  const navigationWaypointsKey = `${trip.id}:` + navigationRouteWaypoints
+  // Fix: every trip route starts at the warehouse; GPS is an intermediate waypoint for detours.
+  const navigationRouteWaypoints = warehouseRouteStart ? [
+    warehouseRouteStart,
+    ...completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number })),
+    ...(stableNavigationOrigin ? [stableNavigationOrigin] : []),
+    ...pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number })),
+  ] : []
+  const navigationWaypointsKey = `${trip.id}:${navigationRouteOrigin?.revision || 0}:` + navigationRouteWaypoints
     .map((point) => `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`)
     .join('|')
 
@@ -2125,13 +2078,20 @@ export function TripDetailView({
       const controller = new AbortController()
       activeController = controller
       navigationRouteRequestInFlightRef.current = true
+      navigationRouteLastRequestAtRef.current = Date.now()
       const timeout = window.setTimeout(() => controller.abort(), 12000)
       try {
         const coordinates = uniqueWaypoints
           .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
           .join(';')
+        // Fix: a U-turn must leave the GPS waypoint in the driver's current direction.
+        const gpsWaypointIndex = uniqueWaypoints.findIndex((point) => point.lat === stableNavigationOrigin?.lat && point.lng === stableNavigationOrigin?.lng)
+        const bearingQuery = attemptNumber === 0 && gpsWaypointIndex >= 0 && driverMarkerHeading !== undefined
+          && Number(effectiveDriverLocation?.speed) > 1
+          ? `&bearings=${uniqueWaypoints.map((_, index) => index === gpsWaypointIndex ? `${Math.round(driverMarkerHeading)},60` : '').join(';')}&continue_straight=true`
+          : ''
         const response = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=3`,
+          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=3${bearingQuery}`,
           { signal: controller.signal }
         )
         const payload = await response.json().catch(() => ({}))
@@ -2139,7 +2099,7 @@ export function TripDetailView({
 
         // OSRM may return no native alternatives. Ask it for two modestly shaped
         // road routes while keeping every real delivery coordinate as a waypoint.
-        if (response.ok && rawRoutes.length < 3 && uniqueWaypoints.length >= 2) {
+        if (response.ok && rawRoutes.length < 3 && uniqueWaypoints.length >= 2 && !routeOptions.length) {
           const start = uniqueWaypoints[0]
           const firstStop = uniqueWaypoints[1]
           const midpoint = {
@@ -2196,10 +2156,18 @@ export function TripDetailView({
         // Added: keep all returned routes so the driver can choose an alternative without changing the stop order.
         const normalizedOptions: DriverRouteOption[] = rawRoutes
           .map((route: any, routeIndex: number) => {
-            const points = (Array.isArray(route?.geometry?.coordinates) ? route.geometry.coordinates : [])
+            const legs = Array.isArray(route?.legs) ? route.legs : []
+            // Fix: warehouse legs remain visible, but only legs ahead of GPS drive the truck and instructions.
+            const navigationLegIndex = Math.max(0, gpsWaypointIndex)
+            const legPoints = (selectedLegs: any[]): [number, number][] => selectedLegs
+              .flatMap((leg: any) => (leg.steps || []).flatMap((step: any) => step.geometry?.coordinates || []))
               .map((pair: any) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
-              .filter((point: [number, number]) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
-            const steps: OsrmStep[] = (Array.isArray(route?.legs) ? route.legs : [])
+              .filter((point: [number, number], index: number, points: [number, number][]) =>
+                Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
+                (index === 0 || point[0] !== points[index - 1][0] || point[1] !== points[index - 1][1]))
+            const points = legPoints(legs.slice(navigationLegIndex))
+            const originPoints = legPoints(legs.slice(0, navigationLegIndex))
+            const steps: OsrmStep[] = legs.slice(navigationLegIndex)
               .flatMap((leg: any) => (Array.isArray(leg?.steps) ? leg.steps : []))
               .map((step: any) => ({
                 maneuver: {
@@ -2221,7 +2189,7 @@ export function TripDetailView({
                   Number.isFinite(step.maneuver.location[0]) &&
                   Number.isFinite(step.maneuver.location[1])
               )
-            return { id: String(routeIndex), points, steps }
+            return { id: String(routeIndex), points, originPoints, steps }
           })
           .filter((route: DriverRouteOption) => route.points.length > 1)
 
@@ -2230,7 +2198,8 @@ export function TripDetailView({
         // or make the vehicle marker disappear mid-trip.
         if (!cancelled && normalizedOptions.length > 0) {
           setRouteOptions(normalizedOptions)
-          setActiveRouteOptionIndex((previous) => Math.min(previous, Math.max(normalizedOptions.length - 1, 0)))
+          // Fix: alternative indexes belong to the previous response, not to a rerouted trip.
+          setActiveRouteOptionIndex(0)
           setCurrentStepIndex(0)
         } else if (!cancelled && attemptNumber < 2) {
           // Fix: retry failed reroutes too, even when an older route is still visible.
@@ -2267,7 +2236,7 @@ export function TripDetailView({
     spokenNavigationPromptsRef.current.clear()
   }, [activeRouteOptionIndex, routeOptions])
 
-  const upcomingRoutePoints = upcomingRouteWaypoints.map(
+  const upcomingRoutePoints = navigationRouteWaypoints.map(
     (point) => [point.lat, point.lng] as [number, number]
   )
   const activeRouteOption = routeOptions[activeRouteOptionIndex] || null
@@ -2344,6 +2313,12 @@ export function TripDetailView({
     setActiveRouteOptionIndex(selectedIndex)
   }, [activeRouteOptionIndex, routeOptions, trip.id])
   const mapRouteLines = [
+    // Fix: keep the warehouse as the fixed trip origin without snapping a detour onto an earlier leg.
+    ...(activeRouteOption && activeRouteOption.originPoints.length > 1 ? [{
+      id: `trip-${trip.id}-route-origin`, points: activeRouteOption.originPoints,
+      color: '#6b7280', label: `${trip.tripNumber} warehouse origin`, opacity: 1, weight: 8,
+      snapToRoad: false, selectable: false,
+    }] : []),
     // The map splits the active geometry into traveled and upcoming sections.
     ...routeOptions
       .filter((_, optionIndex) => optionIndex !== activeRouteOptionIndex)
@@ -2867,10 +2842,11 @@ export function TripDetailView({
                 )}
 
                 <Drawer
-                  open={isMobileSheetOpen && !hasBlockingDialogOpen}
+                  open={!hasBlockingDialogOpen}
                   onOpenChange={handleMobileSheetOpenChange}
                   direction="bottom"
-                  dismissible
+                  dismissible={false}
+                  repositionInputs={false}
                   handleOnly={false}
                   modal={false}
                   fixed
@@ -2882,14 +2858,60 @@ export function TripDetailView({
                   <DrawerContent
                     ref={mobileDrawerRef}
                     hideOverlay
-                    className="driver-trip-drawer-motion !bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 min-h-[7rem] max-h-[100dvh] transform-gpu will-change-transform rounded-none border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
+                    className="driver-trip-drawer-motion !bottom-0 !left-0 !right-0 !w-full !max-w-none !z-[1200] !mt-0 !h-[100dvh] !max-h-[100dvh] transform-gpu will-change-transform !rounded-t-[24px] [&>div:first-child]:hidden border-x-0 border-t border-white/80 bg-white/96 shadow-[0_-18px_50px_rgba(15,23,42,0.18)]"
                   >
                     <div
+                      ref={mobileSheetPeekRef}
+                      aria-hidden={false}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={isMobileSheetOpen ? 'Collapse trip drop points' : 'Expand trip drop points'}
+                      aria-expanded={isMobileSheetOpen}
+                      className="!m-0 !h-auto min-h-[112px] !w-full shrink-0 touch-none !rounded-none !bg-transparent px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 text-left"
+                      onPointerDown={(event) => {
+                        mobileSheetHeaderGestureRef.current = { startY: event.clientY, dragged: false }
+                      }}
+                      onPointerMove={(event) => {
+                        if (Math.abs(event.clientY - mobileSheetHeaderGestureRef.current.startY) > 5) {
+                          mobileSheetHeaderGestureRef.current.dragged = true
+                        }
+                      }}
+                      onClick={() => {
+                        // Fix: a released drag must not also trigger the summary's tap action.
+                        if (!mobileSheetHeaderGestureRef.current.dragged) {
+                          setMobileSheetSnapPoint(isMobileSheetOpen ? mobileSheetPeekSnap : 0.52)
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setMobileSheetSnapPoint(isMobileSheetOpen ? mobileSheetPeekSnap : 0.52)
+                        }
+                      }}
+                    >
+                      <span className="mx-auto mb-2 block h-1.5 w-14 rounded-full bg-slate-300" />
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
+                          <p className="text-[11px] text-slate-500">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <p className="text-xs font-black text-slate-900">
+                            {currentVehicleSpeedLabel}
+                          </p>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                            {effectiveCompletedDropPoints}/{trip.totalDropPoints} Delivered
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      inert={!isMobileSheetOpen}
                       className="overflow-y-auto overscroll-contain px-4 pb-[calc(env(safe-area-inset-bottom)+4.5rem)] pt-2 pr-3"
-                      style={{ maxHeight: `calc(${mobileSheetVisibleFraction * 100}dvh - 1.5rem)` }}
+                      style={{ maxHeight: `calc(${(isMobileSheetOpen ? mobileSheetVisibleFraction : 1) * 100}dvh - ${mobileSheetPeekHeight}px)` }}
                     >
                       <DrawerTitle className="sr-only">Trip drop points</DrawerTitle>
-                      <DrawerHandle className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-slate-300" />
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
@@ -3097,42 +3119,6 @@ export function TripDetailView({
                   </DrawerContent>
                 </Drawer>
               </div>
-
-              <AnimatePresence mode="wait">
-                {!hasBlockingDialogOpen && !isMobileSheetOpen && showMobileSheetPeek ? (
-                  <motion.button
-                    ref={mobileSheetPeekRef}
-                    key="mobile-sheet-peek"
-                    type="button"
-                    initial={isMobileSheetClosing ? false : { opacity: 0, y: 12, scale: 0.99 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.99 }}
-                    transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                    className={`fixed inset-x-0 bottom-0 w-full max-w-none rounded-t-[24px] border border-white/85 bg-white/96 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 text-left shadow-[0_-10px_26px_rgba(15,23,42,0.2)] ${isMobileSheetClosing ? 'z-[1190]' : 'z-[1250]'}`}
-                    onClick={openMobileSheet}
-                    onTouchStart={handleMobileSheetPeekTouchStart}
-                    onTouchMove={handleMobileSheetPeekTouchMove}
-                    onTouchEnd={handleMobileSheetPeekTouchEnd}
-                  >
-                    <span className="mx-auto mb-2 block h-1.5 w-14 rounded-full bg-slate-300" />
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Drop Points</p>
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
-                        <p className="text-[11px] text-slate-500">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <p className="text-xs font-black text-slate-900">
-                          {currentVehicleSpeedLabel}
-                        </p>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                          {effectiveCompletedDropPoints}/{trip.totalDropPoints} Delivered
-                        </span>
-                      </div>
-                    </div>
-                  </motion.button>
-                ) : null}
-              </AnimatePresence>
             </div>
           ) : null}
 

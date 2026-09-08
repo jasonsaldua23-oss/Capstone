@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+import type { WarehouseSearchResult } from '@/lib/warehouse-search'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,6 +17,11 @@ import { Bell, ChevronDown, LogOut, Menu, Search } from 'lucide-react'
 import type { PortalNotification } from './portal-state'
 
 type WarehouseHeaderProps = {
+  searchQuery: string
+  searchResults: WarehouseSearchResult[]
+  searchLoading: boolean
+  onSearchChange: (query: string) => void
+  onSearchSelect: (result: WarehouseSearchResult) => void
   userName: string
   userEmail: string
   userAvatar?: string
@@ -30,6 +37,11 @@ type WarehouseHeaderProps = {
 }
 
 export function WarehouseHeader({
+  searchQuery,
+  searchResults,
+  searchLoading,
+  onSearchChange,
+  onSearchSelect,
   userName,
   userEmail,
   userAvatar,
@@ -43,6 +55,11 @@ export function WarehouseHeader({
   formatNotificationTime,
   onLogout,
 }: WarehouseHeaderProps) {
+  const [searchOpen, setSearchOpen] = useState(false)
+  const selectResult = (result: WarehouseSearchResult) => {
+    setSearchOpen(false)
+    onSearchSelect(result)
+  }
   return (
     <header className="sticky top-0 z-10 border-b border-white/25 bg-white/42 backdrop-blur-2xl">
       <div className="flex items-center justify-between px-4 py-3">
@@ -50,9 +67,36 @@ export function WarehouseHeader({
           <Button variant="ghost" size="icon" className="text-slate-700 hover:bg-white/45 hover:text-slate-950 lg:hidden" onClick={onOpenSidebar}>
             <Menu className="h-5 w-5" />
           </Button>
-          <div className="relative hidden md:block">
+          {/* Added: real search results with keyboard access and dismissal outside the search. */}
+          <div className="relative hidden md:block" onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSearchOpen(false)
+          }} onKeyDown={(event) => {
+            if (event.key === 'Escape') setSearchOpen(false)
+          }}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input placeholder="Search requests, orders, inventory..." className="w-64 border-white/40 bg-white/50 pl-10 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-md" />
+            <Input placeholder="Search requests, orders, inventory..." aria-label="Search requests, orders, inventory" value={searchQuery}
+              onChange={(event) => { onSearchChange(event.target.value); setSearchOpen(true) }}
+              onFocus={() => setSearchOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && searchOpen && searchResults.length && !searchLoading) {
+                  event.preventDefault()
+                  selectResult(searchResults[0])
+                }
+              }}
+              className="w-64 border-white/40 bg-white/50 pl-10 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-md" />
+            {searchOpen && searchQuery.trim() && (
+              <div className="absolute left-0 top-full mt-2 max-h-80 w-96 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                {searchLoading ? <p role="status" className="px-3 py-3 text-sm text-slate-500">Loading search records...</p>
+                  : searchResults.length === 0 ? <p role="status" className="px-3 py-3 text-sm text-slate-500">No matching requests, orders or inventory.</p>
+                    : searchResults.map((result) => (
+                      <button key={`${result.kind}:${result.id}`} type="button" onClick={() => selectResult(result)}
+                        className="block w-full rounded-lg px-3 py-2 text-left hover:bg-slate-50 focus-visible:bg-slate-50">
+                        <p className="text-sm font-medium text-slate-900">{result.label}</p>
+                        <p className="text-xs text-slate-500">{result.description}</p>
+                      </button>
+                    ))}
+              </div>
+            )}
           </div>
         </div>
 

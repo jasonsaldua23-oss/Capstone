@@ -6,6 +6,26 @@ export function shortestMapAngleDelta(from: number, to: number) {
   return ((to - from + 540) % 360) - 180;
 }
 
+// Fix: retry on a clock, including missing routes and U-turns, without cancelling an active request.
+export function shouldRefreshDriverRoute({ point, route, heading, speed, inFlight, elapsedMs }: {
+  point: [number, number]; route: [number, number][]; heading?: number | null;
+  speed?: number | null; inFlight: boolean; elapsedMs: number;
+}) {
+  if (inFlight || elapsedMs < 5000) return false;
+  const projection = projectPointOntoRoute(point, route);
+  if (!projection || projection.distanceFromRouteMeters > 45) return true;
+  const segmentHeading = bearingBetweenMapPoints(route[projection.segmentIndex], route[projection.segmentIndex + 1]);
+  return typeof heading === 'number' && Number.isFinite(heading) && heading >= 0
+    && typeof speed === 'number' && speed > 1 && segmentHeading !== null
+    && Math.abs(shortestMapAngleDelta(segmentHeading, heading)) > 110;
+}
+
+// Fix: suppress small GPS jitter without locking a moving vehicle to its furthest historical position.
+export function resolveDriverRouteProgress(projected: number, previous: number | undefined, stationary: boolean) {
+  if (previous === undefined || Math.abs(projected - previous) > 25) return projected;
+  return stationary ? previous : Math.max(previous, projected);
+}
+
 export function bearingBetweenMapPoints(from: [number, number], to: [number, number]) {
   const refLat = (from[0] + to[0]) / 2;
   const dx = (to[1] - from[1]) * Math.cos((refLat * Math.PI) / 180);

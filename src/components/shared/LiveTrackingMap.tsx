@@ -11,6 +11,7 @@ import {
   pointAtRouteDistance,
   predictedRouteProgressMeters,
   projectPointOntoRoute,
+  resolveDriverRouteProgress,
   quantizeRouteSplitMeters,
   splitRouteAtDistance,
   NAVIGATION_DEAD_RECKONING_MAX_MS,
@@ -427,7 +428,6 @@ const TRUCK_MIN_SMOOTHING_DURATION_MS = 450;
 // update gap plays out as continuous travel rather than a dash-then-freeze.
 const TRUCK_MAX_SMOOTHING_DURATION_MS = 9000;
 const TRUCK_STATIONARY_THRESHOLD_METERS = 1.5;
-const TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS = 120;
 // Beyond this distance from the active route the driver is treated as off-route
 // (a missed turn or a self-chosen detour). The icon then follows the live GPS
 // position instead of being pinned to the stale route — this is what stops the
@@ -1204,6 +1204,8 @@ export default function LiveTrackingMap({
   );
 
   const routeOriginPoint = useMemo<[number, number] | null>(() => {
+    const warehouseOrigin = renderedRouteLines.find((line) => line.id.endsWith('-route-origin'))?.points[0];
+    if (warehouseOrigin) return warehouseOrigin;
     const routePolylines = renderedRouteLines
       .map((line) => ({
         points: line.points,
@@ -1365,10 +1367,6 @@ export default function LiveTrackingMap({
         Math.min(TRUCK_MAX_SMOOTHING_DURATION_MS, observedUpdateInterval * 0.9)
       )
       : TRUCK_DEFAULT_SMOOTHING_DURATION_MS;
-    const previousAcceptedProgress = acceptedRouteProgressRef.current;
-    const routeGeometryChanged = Boolean(
-      previousAcceptedProgress && previousAcceptedProgress.routeKey !== navigationRouteKey
-    );
     const stabilizedTargets = snappedLocations.map((location) => {
       if (location.markerType !== 'truck' || navigationRouteGeometry.length < 2) {
         return location;
@@ -1395,32 +1393,12 @@ export default function LiveTrackingMap({
         Number.isFinite(reportedSpeedMps) && reportedSpeedMps <= TRUCK_PARKED_SPEED_MPS;
       let acceptedDistance = projected.distanceAlongMeters;
       if (previousProgress?.routeKey === navigationRouteKey) {
-        // Monotonic forward progress: GPS noise or slight off-route deviations
-        // must not move the progress backward on the current route. That same
-        // clamp would ratchet a parked vehicle forward one jitter sample at a
-        // time, so while the fix reports itself stopped the progress is held.
-        acceptedDistance = isReportedStationary
-          ? previousProgress.distanceMeters
-          : Math.max(previousProgress.distanceMeters, projected.distanceAlongMeters);
-      } else if (routeGeometryChanged) {
-        const previousVisibleLocation = smoothedLocationsRef.current.find(
-          (candidate) => candidate.id === location.id && candidate.markerType === 'truck'
+        // Fix: hold small GPS jitter, but release the clamp for real backtracking.
+        acceptedDistance = resolveDriverRouteProgress(
+          projected.distanceAlongMeters, previousProgress.distanceMeters, isReportedStationary
         );
-        const previousVisibleProgress = previousVisibleLocation
-          ? projectPointOntoRoute(
-            [previousVisibleLocation.lat, previousVisibleLocation.lng],
-            navigationRouteGeometry
-          )
-          : null;
-        if (
-          previousVisibleProgress &&
-          previousVisibleProgress.distanceFromRouteMeters <= TRUCK_REROUTE_CONTINUITY_MAX_DISTANCE_METERS
-        ) {
-          // Fix: refreshed OSRM geometry must not retract the already-grey path.
-          // Continue from the visible truck's position on the replacement route.
-          acceptedDistance = Math.max(acceptedDistance, previousVisibleProgress.distanceAlongMeters);
-        }
       }
+      // Fix: a replacement route always starts progress from GPS, not the old route's prediction.
       acceptedRouteProgressRef.current = { routeKey: navigationRouteKey, distanceMeters: acceptedDistance };
       const roadPoint = pointAtRouteDistance(navigationRouteGeometry, acceptedDistance);
       return roadPoint
@@ -1458,7 +1436,7 @@ export default function LiveTrackingMap({
               lat: previous.lat,
               lng: previous.lng,
               markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
-              routeProgressMeters: previous.routeProgressMeters ?? targetLocation.routeProgressMeters,
+              routeProgressMeters: targetLocation.routeProgressMeters,
             }
             : targetLocation;
         });
