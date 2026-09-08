@@ -729,6 +729,7 @@ export function useDriverPortalState() {
               nativeTrackingRunningRef.current = status.running
               setIsTracking(status.running)
               if (status.error) toast.error(status.error, { id: 'driver-native-tracking' })
+              else toast.dismiss('driver-native-tracking')
             },
           )
           if (generation !== trackingGenerationRef.current) { await watch.clear(); return false }

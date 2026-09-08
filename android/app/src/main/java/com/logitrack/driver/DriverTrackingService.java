@@ -25,6 +25,7 @@ import org.json.JSONObject;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -55,6 +56,43 @@ public class DriverTrackingService extends Service implements LocationListener {
     private long lastFixTime;
     private long retryAt;
     private int failures;
+
+    /** Keep the response small; it is only used to explain a rejected upload in the status card. */
+    private static String readResponse(java.io.InputStream stream) throws java.io.IOException {
+        if (stream == null) return "";
+        try (java.io.InputStream input = stream;
+             java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = input.read(buffer)) != -1 && bytes.size() < 4096) {
+                bytes.write(buffer, 0, Math.min(length, 4096 - bytes.size()));
+            }
+            return new String(bytes.toByteArray(), StandardCharsets.UTF_8).trim();
+        }
+    }
+
+    private static String responseDetail(String responseBody) {
+        if (responseBody == null || responseBody.isEmpty()) return "";
+        try {
+            String detail = new JSONObject(responseBody).optString("error", "").trim();
+            if (!detail.isEmpty()) return detail;
+        } catch (Exception ignored) {
+            // Some proxies return a short HTML/text error page. Use it only when it is safe and useful.
+        }
+        String compact = responseBody.replaceAll("\\s+", " ").trim();
+        return compact.length() > 160 ? compact.substring(0, 160) : compact;
+    }
+
+    private static final class UploadRejectedException extends java.io.IOException {
+        final int statusCode;
+        final String detail;
+
+        UploadRejectedException(int statusCode, String detail) {
+            super("Location upload rejected");
+            this.statusCode = statusCode;
+            this.detail = detail;
+        }
+    }
 
     static JSObject status() {
         JSObject value = new JSObject();
@@ -137,7 +175,6 @@ public class DriverTrackingService extends Service implements LocationListener {
         fix.put("recordedAt", location.getTime());
         latest = fix;
         pending = fix;
-        lastError = null;
         DriverTrackingPlugin.publish("location", fix);
     }
 
@@ -154,12 +191,16 @@ public class DriverTrackingService extends Service implements LocationListener {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(sendingSession.endpoint).openConnection();
-            connection.setInstanceFollowRedirects(false);
+            // Follow an origin redirect (for example apex -> www) so the background
+            // service uses the same API endpoint as the foreground WebView.
+            connection.setInstanceFollowRedirects(true);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(10000);
             connection.setReadTimeout(10000);
             connection.setDoOutput(true);
+            connection.setUseCaches(false);
             connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("Accept", "application/json");
             if (sendingSession.token != null && !sendingSession.token.isEmpty()) connection.setRequestProperty("Authorization", "Bearer " + sendingSession.token);
             if (sendingSession.cookie != null && !sendingSession.cookie.isEmpty()) connection.setRequestProperty("Cookie", sendingSession.cookie);
             JSObject body = new JSObject();
@@ -173,30 +214,55 @@ public class DriverTrackingService extends Service implements LocationListener {
             int code = connection.getResponseCode();
             if (version != configurationVersion || stopped) return;
             if (code >= 200 && code < 300) {
-                try (java.io.InputStream input = connection.getInputStream()) {
-                    java.io.ByteArrayOutputStream responseBytes = new java.io.ByteArrayOutputStream();
-                    byte[] buffer = new byte[1024];
-                    int length;
-                    while ((length = input.read(buffer)) != -1) responseBytes.write(buffer, 0, length);
-                    JSONObject response = new JSONObject(new String(responseBytes.toByteArray(), StandardCharsets.UTF_8));
-                    // A trip completed elsewhere must stop sharing even while the WebView is asleep.
-                    if (response.has("trackingAllowed") && !response.optBoolean("trackingAllowed")) {
-                        stopSelf();
-                        return;
+                // A proxy or an older backend may return an empty 2xx body. The upload
+                // is still accepted; only inspect JSON when the body is present.
+                String responseBody = readResponse(connection.getInputStream());
+                if (!responseBody.isEmpty()) {
+                    try {
+                        JSONObject response = new JSONObject(responseBody);
+                        // A trip completed elsewhere must stop sharing even while the WebView is asleep.
+                        if (response.has("trackingAllowed") && !response.optBoolean("trackingAllowed")) {
+                            stopSelf();
+                            return;
+                        }
+                    } catch (Exception ignored) {
+                        // A successful upload does not become a failure because a proxy
+                        // wrapped the JSON in an unexpected response format.
                     }
                 }
                 if (pending == fix) pending = null;
                 failures = 0;
+                // Tell the resumed WebView when a previously failed upload has recovered,
+                // so it can dismiss the stale retry toast immediately.
+                boolean recovered = lastError != null;
                 lastError = null;
+                if (recovered) DriverTrackingPlugin.publish("status", status());
             } else if (code == 401 || code == 403) {
                 fail("Sign in again to continue sharing your location.");
                 stopSelf();
-            } else throw new java.io.IOException("Location upload was not accepted");
+            } else {
+                String detail = responseDetail(readResponse(connection.getErrorStream()));
+                // A malformed sample cannot be fixed by retrying the same payload. Drop
+                // only that sample and let the next GPS fix be uploaded normally.
+                if (code >= 400 && code < 500 && code != 429) {
+                    if (pending == fix) pending = null;
+                    failures = 0;
+                    retryAt = 0;
+                    fail(String.format(Locale.US, "Location upload rejected (%d)%s.", code,
+                        detail.isEmpty() ? "" : ": " + detail));
+                } else {
+                    throw new UploadRejectedException(code, detail);
+                }
+            }
         } catch (Exception error) {
             if (!stopped && version == configurationVersion) {
                 // Latest-only retry matches the server's latest-location contract and cannot replay old positions.
                 retryAt = System.currentTimeMillis() + Math.min(30000, 1000L << Math.min(++failures, 5));
-                fail("Location upload interrupted. Retrying automatically.");
+                if (error instanceof UploadRejectedException rejected && rejected.statusCode >= 500) {
+                    fail(String.format(Locale.US, "Location upload interrupted (%d). Retrying automatically.", rejected.statusCode));
+                } else {
+                    fail("Location upload interrupted. Retrying automatically.");
+                }
             }
         } finally { if (connection != null) connection.disconnect(); }
     }
