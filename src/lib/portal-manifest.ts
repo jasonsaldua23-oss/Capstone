@@ -32,7 +32,7 @@ const portalManifest = {
   },
   customer: {
     name: "Ann Ann's Beverages Trading Shop",
-    short_name: 'AAB Shop',
+    short_name: 'AAB SHOP',
     description: 'Order beverages and track deliveries from Ann Ann’s Beverages Trading.',
     start_url: '/customer',
     scope: '/customer',

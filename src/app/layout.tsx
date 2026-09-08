@@ -29,7 +29,6 @@ export const metadata: Metadata = {
     title: "Ann Ann's Beverages Trading",
     description: "Logistics operations portal",
   },
-  manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

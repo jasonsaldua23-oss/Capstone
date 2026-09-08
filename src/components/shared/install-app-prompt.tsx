@@ -3,20 +3,15 @@
 /**
  * The install offer shown once per login in the Driver and Customer portals.
  *
- * It is shaped like the browser's own install banner - a card under the address bar
- * carrying the app icon, "Install <app>", the site it comes from, and a single
- * action - because people recognise that card and know what it does. It leaves the
- * page beneath it usable, and a tap anywhere else dismisses it.
+ * It offers the native Capacitor APK, rather than the browser's PWA shortcut. It
+ * leaves the page beneath it usable, and a tap anywhere else dismisses it.
  *
  * Nothing renders when the portal is already installed, already running in the app
  * shell, or when the browser cannot install at all.
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { Share, SquarePlus } from 'lucide-react'
-
 import { useInstallPrompt } from '@/lib/native/install-prompt'
-import { cn } from '@/lib/utils'
 
 type InstallAppPromptProps = {
   portal: 'driver' | 'customer'
@@ -25,22 +20,28 @@ type InstallAppPromptProps = {
 
 const portalCopy = {
   driver: {
-    appName: 'AAB Trading Driver',
+    appName: 'AAB Driver',
     icon: '/aab-trading-driver.png',
+    downloadUrl: '/downloads/aab-driver.apk',
   },
   customer: {
-    appName: 'AAB Trading Shop',
+    appName: 'AAB SHOP',
     icon: '/aab-trading-shop.png',
+    downloadUrl: '/downloads/aab-shop.apk',
   },
 } as const
 
 export function InstallAppPrompt({ portal, enabled = true }: InstallAppPromptProps) {
-  const { isOpen, isIosInstructions, install, dismiss } = useInstallPrompt({ enabled, portal })
   const copy = portalCopy[portal]
+  const { isOpen, isIosInstructions, install, dismiss } = useInstallPrompt({
+    enabled,
+    portal,
+    nativeDownloadUrl: copy.downloadUrl,
+  })
   const cardRef = useRef<HTMLDivElement | null>(null)
   const [isInstalling, setIsInstalling] = useState(false)
   const [error, setError] = useState('')
-  // The card names the site it installs from, exactly as the browser's banner does.
+  // Keep the origin visible so the user knows this is the trusted native APK source.
   const [host] = useState(() => (typeof window === 'undefined' ? '' : window.location.host))
 
   // The browser's banner closes as soon as you touch the page behind it. The
@@ -65,10 +66,9 @@ export function InstallAppPrompt({ portal, enabled = true }: InstallAppPromptPro
     setError('')
     const outcome = await install()
     setIsInstalling(false)
-    // Accepting or declining the browser's dialog both close the offer; only a
-    // failure keeps the card up, and then it has to say what to do about it.
+    // The APK download hands installation to Android; only a failed download keeps the card up.
     if (outcome === 'unavailable') {
-      setError('This browser cannot install the app. Open the portal in Chrome or Edge to install it.')
+      setError('The native Android app is not available on this device.')
     } else if (outcome === 'failed') {
       setError('The install did not start. Tap Install to try again.')
     }
@@ -110,18 +110,9 @@ export function InstallAppPrompt({ portal, enabled = true }: InstallAppPromptPro
           </p>
         ) : null}
 
-        {isIosInstructions ? (
-          <ol className="mt-3 space-y-2 border-t border-[#DDE3EA] pt-3 text-[13px] leading-[18px] text-[#5A6472]">
-            <li className="flex items-center gap-2">
-              <Share className="h-4 w-4 shrink-0" />
-              Tap the Share button in Safari.
-            </li>
-            <li className="flex items-center gap-2">
-              <SquarePlus className="h-4 w-4 shrink-0" />
-              Choose &ldquo;Add to Home Screen&rdquo;.
-            </li>
-          </ol>
-        ) : null}
+        <p className="mt-3 border-t border-[#DDE3EA] pt-3 text-[12px] leading-4 text-[#5A6472]">
+          This downloads the native Capacitor app for background tracking and device notifications.
+        </p>
       </div>
     </div>
   )

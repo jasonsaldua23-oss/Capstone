@@ -81,13 +81,17 @@ function getRememberedTabLoginPortal(allowedPortals: PortalType[]): PortalType |
   }
 }
 
-function applyBrowserBranding(title: string, iconPath: string, manifestPath?: string) {
+function applyBrowserBranding(title: string, iconPath: string, manifestPath?: string | null) {
   if (typeof document === 'undefined') return
   document.title = title
 
   // Legacy sessions can initially render at "/" before moving to their canonical
   // portal path. Keep the manifest aligned during that brief transition as well.
-  if (manifestPath) {
+  if (manifestPath === null) {
+    // Driver and Shop browser installs must download the native Capacitor APK,
+    // never register a browser PWA shortcut for the same portal.
+    document.head.querySelectorAll('link[rel="manifest"]').forEach((link) => link.remove())
+  } else if (manifestPath) {
     let manifestLink = document.head.querySelector('link[rel="manifest"]') as HTMLLinkElement | null
     if (!manifestLink) {
       manifestLink = document.createElement('link')
@@ -298,12 +302,12 @@ export default function Home() {
     }
 
     if (portal === 'customer') {
-      applyBrowserBranding('AAB TRADING SHOP', '/aab-trading-shop.png', manifestPathForPortal('customer'))
+      applyBrowserBranding('AAB SHOP', '/aab-trading-shop.png', null)
       return
     }
 
     if (portal === 'driver') {
-      applyBrowserBranding('AAB TRADING DRIVER', '/aab-trading-driver.png', manifestPathForPortal('driver'))
+      applyBrowserBranding('AAB DRIVER', '/aab-trading-driver.png', null)
       return
     }
 

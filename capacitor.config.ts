@@ -19,12 +19,12 @@ const PRODUCTION_ORIGIN = 'https://annannsbeveragestrading.com'
 const variantConfig: Record<AppVariant, { appId: string; appName: string; path: string }> = {
   driver: {
     appId: 'com.logitrack.driver',
-    appName: 'AAB Trading Driver',
+    appName: 'AAB Driver',
     path: '/driver/login',
   },
   customer: {
     appId: 'com.logitrack.customer',
-    appName: 'AAB Trading Shop',
+    appName: 'AAB SHOP',
     path: '/customer/login',
   },
   admin: {

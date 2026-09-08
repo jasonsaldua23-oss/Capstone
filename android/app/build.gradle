@@ -19,6 +19,7 @@ def portalConfig = capacitorConfigFile.exists()
     : [:]
 def portalAppId = portalConfig.appId ?: "com.logitrack.driver"
 def portalAppName = portalConfig.appName ?: "AAB Trading"
+def portalIconVariant = portalAppId == "com.logitrack.customer" ? "customer" : "driver"
 
 android {
     namespace "com.logitrack.driver"
@@ -50,6 +51,15 @@ android {
         }
     }
 }
+
+// Fix: launcher artwork follows the portal being built instead of the shared
+// Capacitor placeholder icon. The synced config selects the app identity, and
+// this task selects the matching Driver or Shop logo before Android packages it.
+def syncPortalIcons = tasks.register("syncPortalIcons", Copy) {
+    from file("../portal-icons/${portalIconVariant}")
+    into file("src/main/res")
+}
+tasks.named("preBuild").configure { dependsOn(syncPortalIcons) }
 
 repositories {
     flatDir{

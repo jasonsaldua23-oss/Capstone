@@ -4,11 +4,9 @@ import type { Metadata } from 'next'
 
 import { ForgotPasswordScreen } from '@/components/auth/ForgotPasswordScreen'
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
-import { manifestPathForPortal } from '@/lib/portal-manifest'
 
 export const metadata: Metadata = {
-  manifest: manifestPathForPortal('driver'),
-  title: 'Forgot Password | AAB TRADING',
+  title: 'Forgot Password | AAB DRIVER',
 }
 
 export default function DriverForgotPasswordRoute() {
