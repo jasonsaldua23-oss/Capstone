@@ -66,7 +66,10 @@ export async function signInWithGoogleNatively(): Promise<NativeGoogleSignIn> {
     const { SocialLogin } = await import('@capgo/capacitor-social-login')
     const response = await SocialLogin.login({
       provider: 'google',
-      options: { scopes: ['email', 'profile'] },
+      // The Android plugin already requests the email/profile/openid defaults.
+      // Passing a custom scopes array requires a special MainActivity marker and
+      // made the customer Capacitor shell reject Google sign-in before opening it.
+      options: {},
     })
 
     const idToken = (response.result as { idToken?: string | null })?.idToken
