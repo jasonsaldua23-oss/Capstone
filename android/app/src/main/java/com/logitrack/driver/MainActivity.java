@@ -3,8 +3,19 @@ package com.logitrack.driver;
 import android.os.Bundle;
 
 import com.getcapacitor.BridgeActivity;
+import ee.forgr.capacitor.social.login.ModifiedMainActivityForSocialLoginPlugin;
 
-public class MainActivity extends BridgeActivity {
+/**
+ * The social-login plugin requires this marker before it accepts explicit Google
+ * scopes. The customer shell loads the portal remotely, so the native marker also
+ * protects it while a CDN is still serving an older web bundle.
+ */
+public class MainActivity extends BridgeActivity implements ModifiedMainActivityForSocialLoginPlugin {
+
+    @Override
+    public void IHaveModifiedTheMainActivityForTheUseWithSocialLoginPlugin() {
+        // Marker required by @capgo/capacitor-social-login for Google scopes.
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
