@@ -5,6 +5,8 @@ self.addEventListener('push', (event) => {
   } catch {
     payload = { body: event.data ? event.data.text() : '' }
   }
+  // A malformed payload must not prevent the OS from showing a received push.
+  if (!payload || typeof payload !== 'object') payload = {}
 
   const data = payload.data || {}
   event.waitUntil(
@@ -27,10 +29,11 @@ self.addEventListener('notificationclick', (event) => {
   const targetUrl = new URL(event.notification.data?.url || '/', self.location.origin).href
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clients) => {
       const existingClient = clients.find((client) => new URL(client.url).origin === self.location.origin)
       if (existingClient) {
-        existingClient.navigate(targetUrl)
+        // Keep the worker alive until navigation finishes, including a cold-started portal.
+        await existingClient.navigate(targetUrl)
         return existingClient.focus()
       }
       return self.clients.openWindow(targetUrl)

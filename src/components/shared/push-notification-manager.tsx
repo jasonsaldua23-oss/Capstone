@@ -69,6 +69,26 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
 
   useEffect(() => {
     let cancelled = false
+    let preparing = false
+    let retries = 0
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    // Recover registration while the session is open so closing it does not leave an unsaved endpoint.
+    const scheduleRetry = (prepare: () => Promise<void>) => {
+      if (!cancelled && retries++ < 3) retryTimer = setTimeout(() => void prepare(), 30_000)
+    }
+    const watchRecovery = (prepare: () => Promise<void>) => {
+      const resume = () => {
+        if (!document.hidden) void prepare()
+      }
+      window.addEventListener('online', resume)
+      document.addEventListener('visibilitychange', resume)
+      return () => {
+        cancelled = true
+        if (retryTimer) clearTimeout(retryTimer)
+        window.removeEventListener('online', resume)
+        document.removeEventListener('visibilitychange', resume)
+      }
+    }
 
     // Inside the Driver and Customer apps the OS owns the permission and the token,
     // so registration goes through the native bridge rather than the service worker.
@@ -78,15 +98,24 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
     // web branch, where the Android web view has no Notification API and nothing
     // was ever offered.
     if (isNativeApp()) {
-      void (async () => {
-        const resumed = await resumeNotificationsIfAllowed()
-        if (!resumed.registered && !cancelled && sessionStorage.getItem('push-prompt-dismissed') !== '1') {
-          setShowPrompt(true)
+      const prepareNative = async () => {
+        if (preparing || cancelled) return
+        preparing = true
+        try {
+          const resumed = await resumeNotificationsIfAllowed()
+          if (cancelled) return
+          if (resumed.registered) {
+            setShowPrompt(false)
+          } else {
+            if (sessionStorage.getItem('push-prompt-dismissed') !== '1') setShowPrompt(true)
+            scheduleRetry(prepareNative)
+          }
+        } finally {
+          preparing = false
         }
-      })()
-      return () => {
-        cancelled = true
       }
+      void prepareNative()
+      return watchRecovery(prepareNative)
     }
 
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
@@ -94,9 +123,11 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
     }
 
     async function preparePush() {
+      if (preparing || cancelled) return
+      preparing = true
       try {
         const response = await fetch('/api/push-subscriptions', { cache: 'no-store' })
-        if (!response.ok) return
+        if (!response.ok) throw new Error('Notification settings could not be loaded.')
         const config = await response.json() as PushConfig
         if (!config.enabled || !config.publicKey || cancelled) return
         setPublicKey(config.publicKey)
@@ -113,13 +144,14 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
         // Fix: background push registration is best-effort; avoid promoting a
         // caught failure into Next.js's blocking development error overlay.
         console.warn('Push notification setup failed:', pushError)
+        scheduleRetry(preparePush)
+      } finally {
+        preparing = false
       }
     }
 
     void preparePush()
-    return () => {
-      cancelled = true
-    }
+    return watchRecovery(preparePush)
   }, [registerSubscription, user.id, user.type])
 
   const enablePush = async () => {

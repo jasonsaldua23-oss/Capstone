@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import threading
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -18,6 +19,33 @@ from .models import PushSubscription
 
 
 logger = logging.getLogger(__name__)
+
+
+def _deliver_with_retry(send):
+    """Retry temporary provider/network failures in the existing delivery thread."""
+    for attempt in range(3):
+        try:
+            response = send()
+        except (WebPushException, requests.RequestException) as error:
+            response = getattr(error, "response", None)
+            status = getattr(response, "status_code", None)
+            if attempt == 2 or (status is not None and status != 429 and status < 500):
+                raise
+        else:
+            # Some provider clients return no response (and tests may use a mock).
+            # Unknown status is treated as a completed send; only numeric HTTP
+            # statuses can trigger retry/backoff logic.
+            raw_status = getattr(response, "status_code", 200)
+            status = raw_status if isinstance(raw_status, int) else 200
+            if attempt == 2 or (status != 429 and status < 500):
+                return response
+        # Respect provider throttling; this never blocks the order/trip request.
+        delay = 60 if status == 429 else 2 ** attempt
+        try:
+            delay = max(delay, float(response.headers.get("Retry-After", 0)))
+        except (AttributeError, TypeError, ValueError):
+            pass
+        time.sleep(delay)
 
 
 def _start_web_push_delivery(deliver) -> None:
@@ -188,7 +216,7 @@ def _send_to_native_devices(subscriptions: list[PushSubscription], payload: dict
         if not device_token:
             continue
         try:
-            response = requests.post(
+            response = _deliver_with_retry(lambda: requests.post(
                 url,
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 json={
@@ -212,7 +240,7 @@ def _send_to_native_devices(subscriptions: list[PushSubscription], payload: dict
                     }
                 },
                 timeout=10,
-            )
+            ))
             error_codes = _fcm_error_codes(response)
             if "UNREGISTERED" in error_codes or "SENDER_ID_MISMATCH" in error_codes:
                 # These token-specific errors are permanent. Generic 403/404 errors
@@ -247,7 +275,7 @@ def _send_to_subscriptions(subscriptions: Iterable[PushSubscription], payload: d
     encoded_payload = json.dumps(payload)
     for subscription in browser_subscriptions:
         try:
-            webpush(
+            _deliver_with_retry(lambda: webpush(
                 subscription_info={
                     "endpoint": subscription.endpoint,
                     "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
@@ -257,7 +285,7 @@ def _send_to_subscriptions(subscriptions: Iterable[PushSubscription], payload: d
                 vapid_claims={"sub": settings.WEB_PUSH_VAPID_SUBJECT},
                 timeout=5,
                 ttl=60 * 60,
-            )
+            ))
         except WebPushException as exc:
             status_code = getattr(getattr(exc, "response", None), "status_code", None)
             if status_code in {404, 410}:
