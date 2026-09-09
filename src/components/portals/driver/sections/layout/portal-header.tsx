@@ -38,6 +38,7 @@ export function DriverPortalHeader({
             size="icon"
             className="relative h-10 w-10 shrink-0 rounded-full border border-blue-200/70 bg-[#0e5aa8] text-white shadow-sm shadow-blue-900/30 hover:bg-[#0d4f92]"
             onClick={onOpenNotifications}
+            aria-label={`Notifications, ${unreadCount} unread`}
           >
             <Bell className="h-4.5 w-4.5" />
             {unreadCount > 0 && (

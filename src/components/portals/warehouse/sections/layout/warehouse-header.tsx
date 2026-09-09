@@ -31,6 +31,7 @@ type WarehouseHeaderProps = {
   onOpenSidebar: () => void
   onNotificationsOpen: (open: boolean) => void
   onClearNotifications: () => void
+  onMarkAllRead: () => void
   onNotificationClick: (notification: PortalNotification) => void
   formatNotificationTime: (createdAt: string) => string
   onLogout: () => void
@@ -51,6 +52,7 @@ export function WarehouseHeader({
   onOpenSidebar,
   onNotificationsOpen,
   onClearNotifications,
+  onMarkAllRead,
   onNotificationClick,
   formatNotificationTime,
   onLogout,
@@ -109,7 +111,7 @@ export function WarehouseHeader({
                 {unreadNotifications > 0 ? (
                   // Changed: show the unread total instead of a status-only dot.
                   <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-white">
-                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                    {unreadNotifications}
                   </span>
                 ) : null}
               </Button>
@@ -117,6 +119,7 @@ export function WarehouseHeader({
             <DropdownMenuContent align="end" className="w-[min(26rem,calc(100vw-1rem))] p-0">
               <div className="flex items-center justify-between px-3 py-2">
                 <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" disabled={notificationsLoading || unreadNotifications === 0} onClick={onMarkAllRead}>Mark all read</Button>
                 <Button
                   type="button"
                   variant="ghost"
@@ -138,10 +141,11 @@ export function WarehouseHeader({
                   notifications.map((item) => (
                     <DropdownMenuItem
                       key={item.id}
-                      className="block cursor-pointer rounded-none border-b px-3 py-2 last:border-b-0"
+                      className={`block cursor-pointer rounded-none border-b px-3 py-2 last:border-b-0 ${!item.isRead ? 'bg-sky-50 focus:bg-sky-100' : ''}`}
                       onSelect={() => onNotificationClick(item)}
                     >
-                      <p className="text-sm font-medium text-gray-900">{item.title}</p>
+                      {/* Fix: retain a visible unread label and highlight until acknowledged. */}
+                      <p className={`text-sm text-gray-900 ${!item.isRead ? 'font-bold' : 'font-medium'}`}>{!item.isRead && <span className="mr-2 text-xs text-blue-700">Unread</span>}{item.title}</p>
                       <p className="whitespace-normal text-xs text-gray-600">{item.message}</p>
                       <p className="mt-1 text-[11px] text-gray-500">{formatNotificationTime(item.createdAt)}</p>
                     </DropdownMenuItem>

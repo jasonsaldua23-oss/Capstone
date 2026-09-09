@@ -24,6 +24,7 @@ import { getCollection, getWarehouseIdFromRow, formatPeso, safeFetchJson } from 
 import {
   getInventoryAlertLevel,
   getInventoryAvailableQty,
+  getInventoryLooseRemainder,
   getInventoryReservedBaseUnits,
   getInventoryUnitsPerCase,
 } from '@/lib/report-metrics'
@@ -93,6 +94,7 @@ const getGlassDepositPreset = (category: unknown, sizes: unknown, unit: unknown)
 }
 
 export function InventoryView() {
+  const [inventorySearch, setInventorySearch] = useState('')
   const [inventory, setInventory] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
@@ -315,8 +317,10 @@ export function InventoryView() {
     return level === 'healthy' ? 'healthy' : 'restock'
   }
   const filteredInventory = useMemo(() => {
-    return inventory
-  }, [inventory])
+    // Added: search the existing product identifiers without changing stock data.
+    const query = inventorySearch.trim().toLowerCase()
+    return inventory.filter((item) => [item.id, item.product?.name, item.product?.sku, item.product?.sizes?.join(' ')].some((value) => String(value || '').toLowerCase().includes(query)))
+  }, [inventory, inventorySearch])
 
   const exportInventoryCsv = () => {
     if (filteredInventory.length === 0) {
@@ -359,7 +363,7 @@ export function InventoryView() {
         item.product?.price ?? 0,
         getThreshold(item),
         getQuantityPerCase(item),
-        Math.max(Number(item.looseBottles ?? item.loose_bottles ?? 0), 0),
+        getInventoryLooseRemainder(item),
         getAvailableQty(item),
         getReservedQty(item),
         getReservedBaseQty(item),
@@ -596,11 +600,19 @@ export function InventoryView() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="shrink-0">
               <CardTitle>Inventory</CardTitle>
             </div>
-            <div className="flex w-full flex-wrap items-center justify-end gap-2">
+            {/* Fix: align search with the inventory heading; wrap controls when space is limited. */}
+            <Input
+              aria-label="Search inventory"
+              placeholder="Search inventory…"
+              value={inventorySearch}
+              onChange={(event) => setInventorySearch(event.target.value)}
+              className="h-12 w-full text-base sm:w-80 sm:shrink-0"
+            />
+            <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-2 xl:w-auto">
               <div className="flex h-10 min-w-0 flex-1 items-center rounded-md border border-input bg-slate-50 px-3 text-sm text-slate-600 sm:w-[260px] sm:flex-none">
                 Warehouse: {warehouses[0]?.name || warehouses[0]?.code || 'Not registered'}
               </div>
@@ -656,7 +668,7 @@ export function InventoryView() {
                     const reservedBaseQty = getReservedBaseQty(item)
                     const availableQty = getAvailableQty(item)
                     const quantityPerCase = getQuantityPerCase(item)
-                    const looseBottles = Math.max(Number(item.looseBottles ?? item.loose_bottles ?? 0), 0)
+                    const looseBottles = getInventoryLooseRemainder(item)
                     const baseUnitLabel = getBaseUnitLabel(item)
                     const availableOrderFormat = getOrderFormatLabel(item, availableQty)
                     const reservedOrderFormat = getOrderFormatLabel(item, reservedQty)

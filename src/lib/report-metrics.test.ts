@@ -14,6 +14,7 @@ import {
   countActiveTrips,
   formatOrderReportStatus,
   getInventoryAvailableQty,
+  getInventoryLooseRemainder,
   getInventoryThreshold,
   normalizeOrderReportStatus,
   summarizeOrderReportRows,
@@ -22,6 +23,17 @@ import {
   summarizeStockHealth,
   summarizeWarehouseDashboardOrders,
 } from './report-metrics.ts'
+
+test('inventory shows complete loose sets as cases and preserves remaining bottles', () => {
+  const item = { quantity: 33, reservedQuantity: 24, looseBottles: 12, product: { quantityPerCase: 12 } }
+  assert.equal(getInventoryAvailableQty(item), 10)
+  assert.equal(getInventoryLooseRemainder(item), 0)
+  assert.equal(getInventoryAvailableQty({ ...item, looseBottles: 26 }), 11)
+  assert.equal(getInventoryLooseRemainder({ ...item, looseBottles: 26 }), 2)
+  assert.equal(getInventoryLooseRemainder({ ...item, product: { quantityPerCase: 24 } }), 12)
+  assert.equal(item.quantity, 33)
+  assert.equal(item.looseBottles, 12)
+})
 
 test('inventory availability and stock health use reserved quantities', () => {
   const items = [

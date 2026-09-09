@@ -59,20 +59,19 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
     }
   }, [])
 
-  const markAllNotificationsAsRead = useCallback(async () => {
+  const markAllNotificationsAsRead = useCallback(async (ids?: string[]) => {
     try {
       const response = await fetch('/api/notifications', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markAll: true }),
+        body: JSON.stringify(ids ? { ids } : { markAll: true }),
       })
       if (!response.ok) return
-      setUnreadNotifications(0)
-      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })))
+      await fetchNotifications({ silent: true })
     } catch (error) {
       console.error('Failed to mark notifications as read:', error)
     }
-  }, [])
+  }, [fetchNotifications])
 
   const clearAllNotifications = useCallback(async () => {
     try {
@@ -91,11 +90,9 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
 
   const handleNotificationsOpen = useCallback(async (open: boolean) => {
     if (!open) return
-    const currentUnreadCount = await fetchNotifications()
-    if (currentUnreadCount && currentUnreadCount > 0) {
-      await markAllNotificationsAsRead()
-    }
-  }, [fetchNotifications, markAllNotificationsAsRead])
+    // Fix: opening the feed does not acknowledge unread alerts.
+    await fetchNotifications()
+  }, [fetchNotifications])
 
   const formatNotificationTime = useCallback((createdAt: string) => {
     const date = new Date(createdAt)
@@ -128,6 +125,7 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
     notificationsLoading,
     unreadNotifications,
     handleNotificationsOpen,
+    markAllNotificationsAsRead,
     clearAllNotifications,
     formatNotificationTime,
     handleLogout,

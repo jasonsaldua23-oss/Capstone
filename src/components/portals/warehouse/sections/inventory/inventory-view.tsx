@@ -1,12 +1,15 @@
 'use client'
 
 import { Pencil, Plus } from 'lucide-react'
+import { useState } from 'react'
+import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import type { WarehouseInventoryViewProps } from '../shared/types'
 import { formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
+import { getInventoryLooseRemainder } from '@/lib/report-metrics'
 
 export function WarehouseInventoryView({
   openAddStockDialog,
@@ -17,6 +20,12 @@ export function WarehouseInventoryView({
   formatPeso,
   openEditDialog,
 }: WarehouseInventoryViewProps) {
+  const [inventorySearch, setInventorySearch] = useState('')
+
+  // Added: search within the staff member's existing warehouse scope.
+  const query = inventorySearch.trim().toLowerCase()
+  const filteredInventory = scopedInventory.filter((item) => [item.id, item.product?.name, item.product?.sku, item.product?.sizes?.join(' ')].some((value) => String(value || '').toLowerCase().includes(query)))
+
   const getThresholdValue = (item: any) =>
     Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0) || 0)
   const getReservedQty = (item: any) => Number(item?.reservedQuantity ?? item?.reserved_quantity ?? 0)
@@ -36,10 +45,12 @@ export function WarehouseInventoryView({
             </Button>
           </div>
         </CardHeader>
+        {/* Added: reserve a responsive row so search never compresses stock controls. */}
+        <div className="px-6 pb-4"><Input aria-label="Search inventory" placeholder="Search inventory…" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} className="h-12 w-full md:max-w-xl text-base" /></div>
         <CardContent className="p-0">
         {loadingInventory ? (
           <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />
-        ) : scopedInventory.length === 0 ? (
+        ) : filteredInventory.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
@@ -60,7 +71,7 @@ export function WarehouseInventoryView({
                   </tr>
                 </thead>
                 <tbody>
-                  {scopedInventory.map((item) => {
+                  {filteredInventory.map((item) => {
                     const status = getStockStatus(item)
                     const availableQty = getAvailableQty(item)
                     const reservedQty = getReservedQty(item)
@@ -74,7 +85,7 @@ export function WarehouseInventoryView({
                       ),
                       0
                     )
-                    const looseBottles = Math.max(Number(item.looseBottles ?? item.loose_bottles ?? 0), 0)
+                    const looseBottles = getInventoryLooseRemainder(item)
                     const sizes = Array.isArray(item.product?.sizes) ? item.product.sizes.filter(Boolean) : []
                     const sizeLabel = sizes.length > 0 ? sizes.join(', ') : 'No size'
                     const categoryLabel = String(item.product?.category?.name || item.product?.category || '').trim()

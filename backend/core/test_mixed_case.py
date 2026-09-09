@@ -496,7 +496,8 @@ class MixedCaseInventoryTests(MixedCaseFixtureMixin, TestCase):
         )
         inventory.refresh_from_db()
         line.refresh_from_db()
-        self.assertEqual(inventory.loose_bottles, 24)
+        # Full loose sets return to cases without changing the total base units.
+        self.assertEqual((inventory.quantity, inventory.loose_bottles), (2, 0))
         self.assertEqual(line.returned_base_units, 12)
 
     def test_depleted_source_batch_is_preserved_and_reactivated_by_return(self):
@@ -547,10 +548,10 @@ class MixedCaseInventoryTests(MixedCaseFixtureMixin, TestCase):
 
         source_batch.refresh_from_db()
         inventory = Inventory.objects.get(product=component.product, warehouse=self.warehouse)
-        self.assertEqual(source_batch.loose_units, 24)
+        self.assertEqual((source_batch.quantity, source_batch.loose_units), (1, 0))
         self.assertEqual(source_batch.status, "ACTIVE")
-        self.assertEqual(inventory.quantity, 0)
-        self.assertEqual(inventory.loose_bottles, 24)
+        self.assertEqual(inventory.quantity, 1)
+        self.assertEqual(inventory.loose_bottles, 0)
 
 
 class MixedCaseApiTests(MixedCaseFixtureMixin, TestCase):

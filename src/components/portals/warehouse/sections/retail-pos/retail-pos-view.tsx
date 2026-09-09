@@ -46,6 +46,8 @@ import { toast } from 'sonner'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { getTabAuthToken } from '@/lib/client-auth'
+import { emitDataSync } from '@/lib/data-sync'
+import { invalidateInventoryStockCaches } from '@/lib/portal-data-cache'
 
 type RetailProduct = {
   id: string
@@ -399,6 +401,9 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         body: JSON.stringify({ ...requestBody(), quoteToken: quoted.quoteToken, idempotencyKey: crypto.randomUUID() }),
       })
       setReceipt(payload.sale)
+      // Fix: a committed retail sale changes shared stock, not only the POS lists.
+      invalidateInventoryStockCaches()
+      emitDataSync(['inventory', 'stock-batches', 'inventory-transactions'])
       setCart([])
       setWalkInFirstName('')
       setWalkInLastName('')
@@ -426,6 +431,9 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         body: JSON.stringify({ warehouseId, ...body }),
       })
       setReceipt(payload.sale)
+      // Fix: cancellations/restocking and pickup completion must refresh inventory too.
+      invalidateInventoryStockCaches()
+      emitDataSync(['inventory', 'stock-batches', 'inventory-transactions'])
       toast.success('Retail transaction updated')
       await Promise.all([refetchProducts(), refetchSales()])
     } catch (error: any) {

@@ -201,13 +201,24 @@ export function getInventoryAvailableBaseUnits(item: any) {
 }
 
 export function getInventoryAvailableQty(item: any) {
-  const availablePhysicalCases = Math.max(0, getInventoryQuantity(item) - getInventoryReservedQty(item))
   const unitsPerCase = getInventoryUnitsPerCase(item)
+  // Fix: include complete loose sets in the displayed case total without
+  // modifying stored quantities or counting those bottles twice.
+  const loose = Math.max(0, asNumber(item?.looseBaseUnits ?? item?.loose_base_units ?? item?.looseBottles ?? item?.loose_bottles))
+  const completeLooseCases = unitsPerCase > 0 ? Math.floor(loose / unitsPerCase) : 0
+  const availablePhysicalCases = Math.max(0, getInventoryQuantity(item) + completeLooseCases - getInventoryReservedQty(item))
   if (unitsPerCase <= 0) return availablePhysicalCases
   return Math.min(
     availablePhysicalCases,
     Math.floor(getInventoryAvailableBaseUnits(item) / unitsPerCase)
   )
+}
+
+export function getInventoryLooseRemainder(item: any) {
+  // Fix: full sets are already included in Available; show only leftover units.
+  const capacity = getInventoryUnitsPerCase(item)
+  const loose = Math.max(0, asNumber(item?.looseBaseUnits ?? item?.loose_base_units ?? item?.looseBottles ?? item?.loose_bottles))
+  return capacity > 0 ? loose % capacity : loose
 }
 
 export function getInventoryThreshold(item: any) {

@@ -16,6 +16,7 @@ from .mixed_case import (
     consume_order_reservations,
     inventory_base_units,
     release_order_reservations,
+    repack_batch_loose_stock,
     reserve_base_unit_order_item,
     reserve_order_item,
     units_per_case,
@@ -1058,10 +1059,12 @@ def _restock_consumed_retail_inventory(order: Order, performed_by: str) -> None:
             if batch:
                 batch.quantity += standard_cases
         else:
-            # Opened cases are returned as traceable loose stock; no stock is lost.
+            # Restore units to the original batch, repacking complete cases below.
             inventory.loose_bottles += quantity_units
             if batch:
                 batch.loose_units += quantity_units
+        if batch:
+            repack_batch_loose_stock(inventory, batch)
         inventory.save(update_fields=["quantity", "loose_bottles", "updated_at"])
         if batch:
             batch.status = "ACTIVE"

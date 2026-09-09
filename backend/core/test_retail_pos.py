@@ -206,6 +206,16 @@ class RetailPosApiTests(TestCase):
         self.assertRegex(created.json()["sale"]["transactionNumber"], r"^RCP-\d{4}-\d{4}$")
         self.assertEqual(created.json()["sale"]["items"][0]["sizes"], ["330ml"])
         self.assertEqual(Order.objects.filter(sales_channel="RETAIL_POS").count(), 1)
+        # Regression: verify the physical deduction and the Inventory panel's API,
+        # not merely that a sale/ledger row exists. A retry must not deduct again.
+        inventory = Inventory.objects.get(warehouse=self.warehouse, product=self.product)
+        self.assertEqual((inventory.quantity, inventory.loose_bottles), (1, 10))
+        batch = StockBatch.objects.get(inventory=inventory)
+        self.assertEqual((batch.quantity, batch.loose_units), (1, 10))
+        stock_response = self.client.get("/api/inventory", **self.auth)
+        self.assertEqual(stock_response.status_code, 200, stock_response.content)
+        stock_row = next(row for row in stock_response.json()["inventory"] if row["id"] == inventory.id)
+        self.assertEqual((stock_row["quantity"], stock_row["looseBottles"]), (1, 10))
         self.assertEqual(
             InventoryTransaction.objects.filter(reference_type="retail_sale", type="OUT").count(),
             1,
@@ -342,6 +352,11 @@ class RetailPosApiTests(TestCase):
             },
         )
         self.assertEqual(cancelled.status_code, 200, cancelled.content)
+        # A two-bottle cancellation completes the remaining ten bottles into a case.
+        inventory = Inventory.objects.get(warehouse=self.warehouse, product=self.product)
+        batch = StockBatch.objects.get(inventory=inventory)
+        self.assertEqual((inventory.quantity, inventory.loose_bottles), (2, 0))
+        self.assertEqual((batch.quantity, batch.loose_units), (2, 0))
         original_return.refresh_from_db()
         self.assertEqual(original_return.status, BottleReturn.ReturnStatus.ACCEPTED)
         self.assertTrue(BottleReturn.objects.filter(order_id=sale_id, status=BottleReturn.ReturnStatus.REJECTED).exists())

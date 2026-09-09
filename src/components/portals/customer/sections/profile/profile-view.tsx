@@ -645,6 +645,7 @@ export function CustomerProfileView({
         setRealNotifications([])
         setUnreadCount(0)
         toast.success('Cleared all notifications')
+        onUnreadCountChange?.(0)
       }
     } catch (error) {
       console.error(error)
@@ -709,22 +710,26 @@ export function CustomerProfileView({
         ) : (
           <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
             {realNotifications.map((n, idx) => {
-              const handleItemClick = () => {
+              const handleItemClick = async () => {
                 if (!n.isRead) {
-                  setRealNotifications((prev) =>
-                    prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
-                  )
-                  if (onUnreadCountChange) {
-                    const nextUnread = Math.max(0, realNotifications.filter((item) => !item.isRead && item.id !== n.id).length)
-                    onUnreadCountChange(nextUnread)
-                  }
-                  if (n.id) {
-                    void fetch('/api/notifications', {
+                  // Fix: only acknowledge an alert after its read status is persisted.
+                  try {
+                    const response = await fetch('/api/notifications', {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ ids: [n.id] }),
-                    }).catch(() => {})
+                    })
+                    if (!response.ok) throw new Error('Unable to mark notification as read')
+                    const payload = await response.json()
+                    setUnreadCount(Number(payload.unreadCount) || 0)
+                    onUnreadCountChange?.(Number(payload.unreadCount) || 0)
+                  } catch {
+                    toast.error('Unable to mark notification as read. Please try again.')
+                    return
                   }
+                  setRealNotifications((prev) =>
+                    prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+                  )
                 }
                 if (onNavigateNotification) {
                   onNavigateNotification(n)

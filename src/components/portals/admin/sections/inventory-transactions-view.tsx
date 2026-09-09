@@ -188,7 +188,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
         // Internal loose-bottle remainders are reconciliation records, not stock-in rows for this screen.
         if (String(tx.referenceType || '').toLowerCase() === 'replacement_bottle_remainder') return false
         const t = String(tx.stockType || tx.type || '').toUpperCase()
-        return ['STOCK_IN', 'IN', 'RETURN'].includes(t) || ['STOCK_OUT', 'OUT', 'RESERVE_CONSUMED'].includes(t)
+        // Fix: reservation consumption does not deduct physical stock a second time.
+        return ['STOCK_IN', 'IN', 'RETURN'].includes(t) || ['STOCK_OUT', 'OUT'].includes(t)
       })
       setTransactions(stockInOutOnly)
       setTotal(data?.total ?? stockInOutOnly.length)
@@ -232,7 +233,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
         </Badge>
       )
     }
-    if (normalized === 'STOCK_OUT' || normalized === 'OUT' || normalized === 'RESERVE_CONSUMED') {
+    if (normalized === 'STOCK_OUT' || normalized === 'OUT') {
       return (
         <Badge className="bg-red-100 text-red-700 border-red-200 gap-1 whitespace-nowrap">
           <ArrowUp className="h-3 w-3" />

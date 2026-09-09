@@ -79,6 +79,27 @@ class Driver:
 
 
 class NotificationsApiContractTests(TestCase):
+    def test_all_panels_keep_unread_status_until_explicit_read(self):
+        # Fix regression coverage: loading a limited feed must preserve the exact
+        # unread total and read state for Client, Driver, Admin and Staff alike.
+        customer = Customer.objects.create(email="notification.client@example.com", password="hashed", name="Client")
+        for role in ["ADMIN", "WAREHOUSE_STAFF", "DRIVER", "CUSTOMER"]:
+            with self.subTest(role=role):
+                is_customer = role == "CUSTOMER"
+                owner = {"customer": customer} if is_customer else {"user": self.primary_user}
+                notifications = [Notification.objects.create(**owner, title=f"{role} alert", message="Unread alert", type="ORDER") for _ in range(12)]
+                token = create_token({"type": "customer" if is_customer else "staff", "userId": customer.id if is_customer else self.primary_user.id, "role": role})
+                headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+                for _ in range(2):
+                    response = self.client.get("/api/notifications?limit=1", **headers)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.json()["unreadCount"], 12)
+                    self.assertFalse(response.json()["notifications"][0]["isRead"])
+                response = self.client.patch("/api/notifications", data=json.dumps({"ids": [notifications[0].id]}), content_type="application/json", **headers)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["unreadCount"], 11)
+                Notification.objects.filter(pk__in=[item.id for item in notifications]).delete()
+
     def setUp(self) -> None:
         self.client = Client()
         self.admin_role = Role.objects.create(name="ADMIN", description="Admin")

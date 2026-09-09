@@ -171,6 +171,22 @@ export function CustomerPortal() {
   const [backView, setBackView] = useState<string>('orders')
   const [backAddressView, setBackAddressView] = useState<string>('profile')
   const [headerUnreadCount, setHeaderUnreadCount] = useState(0)
+  // Fix: the bell must refresh even before the notification/profile page mounts.
+  useEffect(() => {
+    let disposed = false
+    const refreshUnread = async () => {
+      try {
+        const response = await fetch('/api/notifications', { cache: 'no-store' })
+        if (!response.ok) return
+        const payload = await response.json()
+        if (!disposed) setHeaderUnreadCount(Number(payload.unreadCount) || 0)
+      } catch { /* Preserve the last known count during a temporary outage. */ }
+    }
+    void refreshUnread()
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshUnread() }, 15000)
+    window.addEventListener('focus', refreshUnread)
+    return () => { disposed = true; window.clearInterval(interval); window.removeEventListener('focus', refreshUnread) }
+  }, [user?.id])
   const notifInitialSubViewRef = useRef<'real-notifications' | 'menu'>('menu')
   const [profileViewKey, setProfileViewKey] = useState(0)
 

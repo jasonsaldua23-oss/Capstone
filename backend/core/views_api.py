@@ -3912,7 +3912,13 @@ def _release_order_reservations(order: Order, performed_by: str | None) -> None:
         )
 
 
+@transaction.atomic
 def _mark_order_delivered(order: Order, performed_by: str | None, delivered_at: datetime | None = None) -> None:
+    # Fix: serialize delivery retries and re-read status after the lock, so stock
+    # and its ledger commit together exactly once even with stale request objects.
+    locked_order = Order.objects.select_for_update().get(pk=order.pk)
+    order.status = locked_order.status
+    order.request_status = locked_order.request_status
     if _normalize_order_status(order.status) == OrderStatus.DELIVERED:
         timeline, _ = OrderTimeline.objects.get_or_create(order=order)
         if not timeline.delivered_at:
@@ -4042,6 +4048,7 @@ def _reconcile_delivered_order_from_completed_drop_point(order: Order, performed
     return True
 
 
+@transaction.atomic
 def _allocate_inventory_for_order_item(
     *,
     product: Product,
@@ -4058,7 +4065,8 @@ def _allocate_inventory_for_order_item(
     if requested_qty <= 0:
         raise ValueError(f"Quantity for product {sku_label} must be greater than zero")
 
-    inventory_qs = Inventory.objects.select_related("warehouse").filter(product=product)
+    # Fix: concurrent deliveries must serialize deductions from the same stock.
+    inventory_qs = Inventory.objects.select_for_update(of=("self",)).select_related("warehouse").filter(product=product).order_by("id")
     if warehouse_id:
         inventory_qs = inventory_qs.filter(warehouse_id=warehouse_id)
 
@@ -4130,7 +4138,7 @@ def _allocate_inventory_for_order_item(
 
     inventory_by_id = {inv.id: inv for inv in inventories}
     batches = list(
-        StockBatch.objects.select_related("inventory")
+        StockBatch.objects.select_for_update(of=("self",)).select_related("inventory")
         .filter(inventory_id__in=list(inventory_by_id.keys()), quantity__gt=0)
     )
     if not batches:
@@ -4138,6 +4146,8 @@ def _allocate_inventory_for_order_item(
 
     ordered_batches = _sorted_batches_for_policy(batches, allocation_policy)
     remaining = effective_requested_qty
+    # Fix: several FEFO batches belong to one item movement, not duplicate OUT rows.
+    movements: dict[str, dict[str, Any]] = {}
 
     for batch in ordered_batches:
         if remaining <= 0:
@@ -4165,20 +4175,9 @@ def _allocate_inventory_for_order_item(
             reason=f"Order allocation for {order.order_number}",
         )
 
-        InventoryTransaction.objects.create(
-            warehouse=inventory.warehouse,
-            product=product,
-            type="OUT",
-            quantity=take_qty,
-            quantity_unit=InventoryQuantityUnit.CASE,
-            stock_unit_label="Case",
-            # Fix: the FEFO/FIFO path must persist the stock values used by the details dialog.
-            previous_stock=previous_qty,
-            updated_stock=inventory.quantity,
-            reference_type="order_item",
-            reference_id=order_item.id,
-            notes=f"{allocation_policy} allocation for order {order.order_number}; batch {batch.batch_number}",
-        )
+        movement = movements.setdefault(inventory.id, {"inventory": inventory, "previous": previous_qty, "quantity": 0, "batches": []})
+        movement["quantity"] += take_qty
+        movement["batches"].append(batch.batch_number)
 
         allocation_rows.append(
             {
@@ -4192,6 +4191,16 @@ def _allocate_inventory_for_order_item(
     if remaining > 0:
         raise ValueError(f"Insufficient stock for product {product.sku}. Missing quantity: {remaining}")
 
+    for movement in movements.values():
+        inventory = movement["inventory"]
+        InventoryTransaction.objects.create(
+            warehouse=inventory.warehouse, product=product, type="OUT",
+            quantity=movement["quantity"], quantity_unit=InventoryQuantityUnit.CASE,
+            stock_unit_label="Case", previous_stock=movement["previous"], updated_stock=inventory.quantity,
+            reference_type="order_item", reference_id=order_item.id, order_item=order_item,
+            performed_by=performed_by,
+            notes=f"{allocation_policy} allocation for order {order.order_number}; batches {', '.join(movement['batches'])}",
+        )
     return allocation_rows
 
 
@@ -7885,6 +7894,8 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
         .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
         # Internal loose-bottle reconciliation is not a user-facing stock-in/out movement.
         .exclude(reference_type="replacement_bottle_remainder")
+        # Fix: consuming a reservation is bookkeeping, not a second stock-out.
+        .exclude(type="RESERVE_CONSUMED")
     )
     staff_role = str(staff.get("role") or "").strip().upper()
     staff_user_id = str(staff.get("userId") or "").strip()

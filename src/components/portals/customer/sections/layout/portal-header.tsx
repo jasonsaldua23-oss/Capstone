@@ -45,12 +45,14 @@ export function CustomerPortalHeader(props: any) {
               size="icon"
               className="relative h-10 w-10 rounded-lg text-slate-700 hover:bg-slate-50 md:h-11 md:w-11 md:rounded-xl"
               onClick={onOpenNotifications}
+              aria-label={`Notifications, ${unreadCount} unread`}
               title="Notifications"
             >
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-white">
-                  {unreadCount > 9 ? '9+' : unreadCount}
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-white">
+                  {/* Fix: show the exact unread total, including double-digit counts. */}
+                  {unreadCount}
                 </span>
               )}
             </Button>

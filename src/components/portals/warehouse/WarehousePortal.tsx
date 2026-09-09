@@ -659,6 +659,7 @@ export function WarehousePortal() {
     notificationsLoading,
     unreadNotifications,
     handleNotificationsOpen,
+    markAllNotificationsAsRead,
     clearAllNotifications,
     formatNotificationTime,
     handleLogout,
@@ -3669,6 +3670,8 @@ export function WarehousePortal() {
   }
 
   const handleNotificationClick = (notification: PortalNotification) => {
+    // Fix: acknowledge only the notification explicitly selected by the user.
+    if (!notification.isRead) void markAllNotificationsAsRead([notification.id])
     const referenceType = String(notification.referenceType || notification.type || '').trim().toLowerCase()
     const referenceId = String(notification.referenceId || '').trim()
 
@@ -5018,6 +5021,7 @@ export function WarehousePortal() {
           onNotificationsOpen={(open) => { void handleNotificationsOpen(open) }}
           onClearNotifications={() => { void clearAllNotifications() }}
           onNotificationClick={handleNotificationClick}
+          onMarkAllRead={() => { void markAllNotificationsAsRead() }}
           formatNotificationTime={formatNotificationTime}
           onLogout={handleLogout}
         />

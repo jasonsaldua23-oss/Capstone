@@ -69,6 +69,25 @@ def units_per_case(product: Product) -> int:
     return max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
 
 
+def repack_batch_loose_stock(inventory: Inventory, batch: StockBatch) -> int:
+    """Convert full loose quantities within their source batch, preserving units."""
+    # Added: use the registered capacity, never assume twelve or merge expiry lots.
+    capacity = _int(inventory.product.quantity_per_unit, 0)
+    if capacity <= 0:
+        return 0
+    cases, remainder = divmod(max(0, _int(batch.loose_units, 0)), capacity)
+    if not cases:
+        return 0
+    converted_units = cases * capacity
+    if inventory.loose_bottles < converted_units:
+        raise ValueError("Batch loose stock exceeds the inventory loose stock")
+    batch.quantity += cases
+    batch.loose_units = remainder
+    inventory.quantity += cases
+    inventory.loose_bottles -= converted_units
+    return cases
+
+
 def base_unit_price(product: Product) -> Decimal:
     return (_decimal_price(product.price) / Decimal(units_per_case(product))).quantize(
         UNIT_PRICE,
@@ -192,7 +211,8 @@ def allocatable_standard_cases(inventory: Inventory, product: Product | None = N
         batch_cases = max(0, _int(batch.quantity, 0))
         batch_units = batch_cases * per_case + max(0, _int(batch.loose_units, 0))
         remaining_units = max(0, batch_units - reserved_by_batch.get(batch.id, 0))
-        available_cases += min(batch_cases, remaining_units // per_case)
+        # Added: the allocator repacks complete loose sets under the stock lock.
+        available_cases += min(batch_units // per_case, remaining_units // per_case)
 
     return min(available_cases, available_base_units(inventory, resolved_product) // per_case)
 
@@ -408,6 +428,14 @@ def _reserve_product_units(
         .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.now()))
         .filter(Q(quantity__gt=0) | Q(loose_units__gt=0))
     )
+    # Added: existing full loose batches become reservable cases on the next sale.
+    repacked = False
+    for batch in batches:
+        if repack_batch_loose_stock(inventory, batch):
+            batch.save(update_fields=["quantity", "loose_units", "updated_at"])
+            repacked = True
+    if repacked:
+        inventory.save(update_fields=["quantity", "loose_bottles", "updated_at"])
     if not batches and inventory.loose_bottles <= 0:
         raise ValueError(f"No available stock batches for product {product.sku}")
 
@@ -675,6 +703,21 @@ def _consume_reservation(reservation: InventoryReservation, performed_by: str | 
     tx_quantity = standard_cases if standard_cases > 0 else quantity_units
     is_retail_sale = reservation.order_item.order.sales_channel == SalesChannel.RETAIL_POS
     stock_unit_label = "Case" if quantity_unit == InventoryQuantityUnit.CASE else require_category_spec(product.category)["looseUnit"]
+    # Fix: batch reservations for one item/unit share one physical movement.
+    # The inventory lock above serializes this lookup with concurrent consumers;
+    # reservation status still controls whether stock may be deducted at all.
+    existing_movement = InventoryTransaction.objects.filter(
+        warehouse=inventory.warehouse, product=product, type="OUT",
+        order_item_id=reservation.order_item_id,
+        mixed_case_component_id=reservation.mixed_case_component_id,
+        quantity_unit=quantity_unit,
+        reference_type="retail_sale" if is_retail_sale else ("mixed_case_component" if reservation.mixed_case_component_id else "order_item"),
+    ).first()
+    if existing_movement:
+        existing_movement.quantity += tx_quantity
+        existing_movement.updated_stock = inventory.quantity if standard_cases > 0 else inventory_base_units(inventory, product)
+        existing_movement.save(update_fields=["quantity", "updated_stock"])
+        return
     InventoryTransaction.objects.create(
         warehouse=inventory.warehouse,
         product=product,
@@ -1000,9 +1043,12 @@ def receive_component_return(
                 batch = StockBatch.objects.select_for_update(of=("self",)).get(id=reservation.stock_batch_id)
                 batch.loose_units = max(0, _int(batch.loose_units, 0)) + take
                 batch.status = "ACTIVE"
-                batch.save(update_fields=["loose_units", "status", "updated_at"])
             inventory.loose_bottles = max(0, _int(inventory.loose_bottles, 0)) + take
-            inventory.save(update_fields=["loose_bottles", "updated_at"])
+            # Added: a full returned set restores a case in both stock records.
+            if batch is not None:
+                repack_batch_loose_stock(inventory, batch)
+                batch.save(update_fields=["quantity", "loose_units", "status", "updated_at"])
+            inventory.save(update_fields=["quantity", "loose_bottles", "updated_at"])
             ReturnReceiptLine.objects.create(
                 receipt=receipt,
                 replacement_line=line,
