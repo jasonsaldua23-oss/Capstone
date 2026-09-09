@@ -6312,7 +6312,8 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
     if not credential:
         return _err("Google credential is required")
 
-    if not getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", ""):
+    # Fix: use the same explicit audience configuration as the token verifier.
+    if not (getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "") or getattr(settings, "GOOGLE_OAUTH_CLIENT_IDS", [])):
         return _err("Google OAuth is not configured on the server", 500)
 
     try:

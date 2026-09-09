@@ -1,8 +1,12 @@
 package com.logitrack.driver;
 
 import android.os.Bundle;
+import android.content.Intent;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.PluginHandle;
+import ee.forgr.capacitor.social.login.GoogleProvider;
+import ee.forgr.capacitor.social.login.SocialLoginPlugin;
 import ee.forgr.capacitor.social.login.ModifiedMainActivityForSocialLoginPlugin;
 
 /**
@@ -18,9 +22,24 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     }
 
     @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        // Fix: Google's consent resolution must complete the pending native login,
+        // including cancellation; the marker interface alone does not forward it.
+        if (requestCode >= GoogleProvider.REQUEST_AUTHORIZE_GOOGLE_MIN
+                && requestCode < GoogleProvider.REQUEST_AUTHORIZE_GOOGLE_MAX && bridge != null) {
+            PluginHandle handle = bridge.getPlugin("SocialLogin");
+            if (handle != null && handle.getInstance() instanceof SocialLoginPlugin login) {
+                login.handleGoogleLoginIntent(requestCode, data == null ? new Intent() : data);
+            }
+        }
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         // Register before the bridge loads the driver portal.
         registerPlugin(DriverTrackingPlugin.class);
+        registerPlugin(DriverSpeechPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Each build is one portal: replace the default client with the one that

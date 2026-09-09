@@ -20,7 +20,7 @@ export type NativeGoogleSignIn =
 
 /** The Web OAuth client the ID token must be minted for. */
 function webClientId(): string {
-  return process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+  return (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim()
 }
 
 let initialised = false

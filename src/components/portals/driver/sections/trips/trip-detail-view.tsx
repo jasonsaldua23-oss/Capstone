@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { emitDataSync } from '@/lib/data-sync'
+import { speakDriverNavigation, stopDriverNavigationSpeech } from '@/lib/native/driver-speech'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -383,9 +384,8 @@ export function TripDetailView({
     // Fix: route steps refresh as the driver's GPS position changes. Keep spoken
     // prompt keys across those refreshes so the same instruction is not repeated.
     spokenNavigationPromptsRef.current.clear()
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel()
-    }
+    stopDriverNavigationSpeech()
+    return stopDriverNavigationSpeech
   }, [trip.id])
 
   // Reset mobile sheet and recenter state when user switches to a different trip.
@@ -692,29 +692,10 @@ export function TripDetailView({
   }
 
   const speakNavigationPrompt = (message: string) => {
-    const text = String(message || '').trim()
-    if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return
-
-    const synthesis = window.speechSynthesis
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'en-PH'
-    utterance.rate = 1
-    utterance.pitch = 1
-    utterance.volume = 1
-
-    const voices = synthesis.getVoices()
-    const preferredVoice =
-      voices.find((voice) => /^en(-|_)?ph/i.test(voice.lang)) ||
-      voices.find((voice) => /^en(-|_)?us/i.test(voice.lang)) ||
-      voices.find((voice) => /^en/i.test(voice.lang)) ||
-      null
-    if (preferredVoice) {
-      utterance.voice = preferredVoice
-      utterance.lang = preferredVoice.lang
-    }
-
-    synthesis.cancel()
-    synthesis.speak(utterance)
+    // Fix: Android speaks through its TTS engine; the web retains its existing voice settings.
+    void speakDriverNavigation(message).catch((error) => {
+      toast.error(error instanceof Error ? error.message : 'Voice guidance could not play.', { id: 'driver-voice-error' })
+    })
   }
 
   const buildVoicePrompt = (
@@ -1759,6 +1740,10 @@ export function TripDetailView({
     return Date.now() - ts <= maxAgeMs
   }
   const normalizedTripStatus = String(trip.status || '').toUpperCase()
+  useEffect(() => {
+    // Fix: muting or ending navigation must stop native audio as well as browser audio.
+    if (!voiceGuidanceEnabled || normalizedTripStatus !== 'IN_PROGRESS') stopDriverNavigationSpeech()
+  }, [voiceGuidanceEnabled, normalizedTripStatus])
   const hasNearbyDropPointForWarehouseStart = warehouseRouteStart
     ? mappableDropPoints.some((point) =>
       haversineKm(

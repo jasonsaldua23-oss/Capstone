@@ -62,7 +62,7 @@ export function CustomerLoginPage() {
   // Verification takes over the whole page rather than opening over the form, matching
   // the mobile app, so the form (and the Google button inside it) unmounts while it is up.
   const isOtpPageOpen = isOtpModalOpen || isLoginOtpOpen
-  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+  const googleClientId = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim()
   /**
    * Google refuses to sign anyone in from inside an app's web view - the request
    * comes back as `disallowed_useragent` - and Identity Services also needs FedCM
@@ -254,7 +254,8 @@ export function CustomerLoginPage() {
     return () => clearTimeout(timer)
     // isOtpPageOpen: returning from the verification page gives the form a new ref
     // container, and GIS only fills the node it was handed.
-  }, [authMode, googleSignInAvailable, renderGoogleButton, isOtpPageOpen])
+    // Fix: refs are absent during the session check, even if GIS is already cached.
+  }, [authMode, googleSignInAvailable, renderGoogleButton, isOtpPageOpen, isCheckingSession])
 
   useEffect(() => {
     if (!googleSignInAvailable) return
@@ -508,7 +509,8 @@ export function CustomerLoginPage() {
       style={{ backgroundImage: "url('/customer-login-bg.png')" }}
     >
       {googleSignInAvailable ? (
-        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={renderGoogleButton} />
+        // Fix: onReady also runs when returning to login with an already-loaded GIS script.
+        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onReady={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
       <div className="relative z-[1] mx-auto flex w-full max-w-md items-center justify-center">

@@ -15,6 +15,7 @@ type CapacitorGlobal = {
   isNativePlatform?: () => boolean
   getPlatform?: () => string
   isPluginAvailable?: (name: string) => boolean
+  nativePromise?: (...args: unknown[]) => Promise<unknown>
 }
 
 function capacitor(): CapacitorGlobal | null {
@@ -56,7 +57,8 @@ export function getNativePortal(): ScopedPortal | null {
 export function isNativeApp(): boolean {
   const cap = capacitor()
   if (!cap) return hasNativeUserAgent()
-  if (typeof cap.isNativePlatform === 'function') return Boolean(cap.isNativePlatform())
+  // Fix: the imported Capacitor web shim can exist before the Android bridge.
+  if (cap.isNativePlatform?.()) return true
   const platform = String(cap.getPlatform?.() || '').toLowerCase()
   if (platform && platform !== 'web') return true
   return hasNativeUserAgent()
@@ -74,13 +76,15 @@ export function isNativeApp(): boolean {
  */
 export function waitForNativeBridge(timeoutMs = 3000): Promise<boolean> {
   if (typeof window === 'undefined') return Promise.resolve(false)
-  if (capacitor()) return Promise.resolve(true)
+  // A web shim is not a usable native transport, even when window.Capacitor exists.
+  const bridgeReady = () => typeof capacitor()?.nativePromise === 'function'
+  if (bridgeReady()) return Promise.resolve(true)
   if (!isNativeApp()) return Promise.resolve(false)
 
   return new Promise((resolve) => {
     const startedAt = Date.now()
     const poll = window.setInterval(() => {
-      if (capacitor()) {
+      if (bridgeReady()) {
         window.clearInterval(poll)
         resolve(true)
         return

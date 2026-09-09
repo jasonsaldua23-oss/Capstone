@@ -702,7 +702,8 @@ export function useDriverPortalState() {
     if (isNativeCapacitorApp()) {
       // The WebView only reports a position once the app itself holds the OS
       // permission, so it is requested before the browser API is used below.
-      const locationAccess = await ensureLocationPermission()
+      // Fix: native continuous tracking cannot run with Android's approximate-only grant.
+      const locationAccess = await ensureLocationPermission({ precise: true })
       if (!locationAccess.granted) {
         setLocationPermission('denied')
         setIsTracking(false)
@@ -894,6 +895,9 @@ export function useDriverPortalState() {
       locationUploaderRef.current?.resume()
       if (nativeTrackingRef.current) {
         void nativeTrackingRef.current.refresh().catch((error) => toast.error(String(error)))
+      } else if (isNativeCapacitorApp() && currentTrackingTripIdRef.current) {
+        // Fix: retry after returning from Settings, including an earlier precise-permission denial.
+        void startLocationTracking()
       } else if (watchIdRef.current !== null) {
         // The browser may have suspended its watch. Request a fresh fix without leaving the trip.
         lastAcceptedFixAtRef.current = 0

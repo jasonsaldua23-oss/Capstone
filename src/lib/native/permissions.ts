@@ -78,19 +78,27 @@ export async function ensureCameraPermission(): Promise<PermissionOutcome> {
  * Location access. The driver portal tracks position continuously while a trip is
  * running, so it asks for the precise permission rather than the coarse one.
  */
-export async function ensureLocationPermission(): Promise<PermissionOutcome> {
+export async function ensureLocationPermission({ precise = false }: { precise?: boolean } = {}): Promise<PermissionOutcome> {
   if (typeof window === 'undefined') return denied('Location is not available here.')
 
+  // Fix: do not fall into WebView geolocation while native plugins are still loading.
+  if (isNativeApp()) {
+    await waitForNativeBridge()
+    if (!isPluginAvailable('Geolocation')) return denied('Location is not ready. Reopen the app and try again.')
+  }
   if (isNativeApp() && isPluginAvailable('Geolocation')) {
     try {
       const { Geolocation } = await import('@capacitor/geolocation')
       let status = await Geolocation.checkPermissions()
-      if (status.location !== 'granted' && status.coarseLocation !== 'granted') {
+      // The driver service needs FINE access; keep approximate access usable for address picking.
+      if (status.location !== 'granted' && (precise || status.coarseLocation !== 'granted')) {
         status = await Geolocation.requestPermissions({ permissions: ['location'] })
       }
-      if (status.location === 'granted' || status.coarseLocation === 'granted') return OK
+      if (status.location === 'granted' || (!precise && status.coarseLocation === 'granted')) return OK
       return denied(
-        'Location access is required to track deliveries. Enable location for this app in your device settings.',
+        precise
+          ? 'Precise location is required to track deliveries. Enable location and Use precise location for this app in device settings.'
+          : 'Location access is required. Enable location for this app in device settings.',
         status.location === 'denied',
       )
     } catch {
