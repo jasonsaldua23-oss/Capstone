@@ -235,6 +235,17 @@ function useCustomerPortalState() {
   const [addressSearch, setAddressSearch] = useState("");
   const [addressSearchResults, setAddressSearchResults] = useState<Array<{ displayName: string; latitude: number; longitude: number }>>([]);
   const [searchingAddress, setSearchingAddress] = useState(false);
+  // Cancel obsolete address retries when the query changes or the portal unmounts.
+  const addressSearchRequest = useRef<AbortController | null>(null);
+  const addressSearchRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    setSearchingAddress(false);
+    return () => {
+      clearTimeout(addressSearchRetry.current);
+      addressSearchRequest.current?.abort();
+      addressSearchRequest.current = null;
+    };
+  }, [addressSearch]);
   const [feedbackOrderId, setFeedbackOrderId] = useState<string | null>(null);
   const [ratingDialogOrder, setRatingDialogOrder] = useState<CustomerOrder | null>(null);
   const [deliveryRatingValue, setDeliveryRatingValue] = useState(5);
@@ -1314,23 +1325,33 @@ function useCustomerPortalState() {
   async function handleSearchAddress() {
     const query = addressSearch.trim();
     if (!query) return setError("Type an address to search.");
+    clearTimeout(addressSearchRetry.current);
+    addressSearchRequest.current?.abort();
+    const controller = new AbortController();
+    addressSearchRequest.current = controller;
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 20_000);
     setSearchingAddress(true);
     setError(null);
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=ph&limit=15&addressdetails=1&q=${encodeURIComponent(`${query}, Negros Occidental, Philippines`)}`);
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=ph&limit=15&addressdetails=1&q=${encodeURIComponent(`${query}, Negros Occidental, Philippines`)}`, { signal: controller.signal });
       if (!response.ok) throw new Error("Address search failed.");
       const rows = await response.json();
+      if (controller.signal.aborted) return;
       const next = (Array.isArray(rows) ? rows : []).map((row: any) => ({
         displayName: String(row.display_name || ""),
         latitude: Number(row.lat),
         longitude: Number(row.lon),
       })).filter((row: { latitude: number; longitude: number }) => Number.isFinite(row.latitude) && Number.isFinite(row.longitude) && withinNegrosOccidental(row.latitude, row.longitude));
       setAddressSearchResults(next);
-      if (next.length === 0) setError("No matching address was found inside the supported Negros Occidental area.");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Address search failed.");
-    } finally {
       setSearchingAddress(false);
+      if (next.length === 0) setError("No matching address was found inside the supported Negros Occidental area.");
+    } catch {
+      if (addressSearchRequest.current !== controller || (controller.signal.aborted && !timedOut)) return;
+      // Keep the search spinner active while the external address service recovers.
+      addressSearchRetry.current = setTimeout(() => { void handleSearchAddress(); }, 5000);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

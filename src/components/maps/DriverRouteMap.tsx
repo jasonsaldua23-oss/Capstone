@@ -429,7 +429,7 @@ export function DriverRouteMap({
     }
 
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 12000)
+    // Shared fetch retries timed-out route reads; this signal only cancels obsolete routes.
 
     const run = async () => {
       try {
@@ -464,7 +464,6 @@ export function DriverRouteMap({
 
     return () => {
       cancelled = true
-      window.clearTimeout(timeout)
       controller.abort()
     }
   }, [routeWaypointsKey, routeWaypoints])

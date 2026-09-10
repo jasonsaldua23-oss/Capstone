@@ -150,13 +150,15 @@ async function fetchJsonWithRetry(
   // Retry wrapper with timeout and auth token injection for portal API calls.
   const retries = typeof retryConfig === 'number' ? retryConfig : (retryConfig.retries ?? 5)
   const timeoutMs = typeof retryConfig === 'number' ? 10000 : (retryConfig.timeoutMs ?? 10000)
+  // GET timeouts now recover in the shared fetch layer instead of exhausting this wrapper.
+  const isRead = String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'GET'
   let lastResponse: Response | null = null
   let lastData: any = {}
   let lastRaw = ''
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     const controller = new AbortController()
-    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+    const timeoutId = isRead ? undefined : window.setTimeout(() => controller.abort(), timeoutMs)
     try {
       const token = getTabAuthToken()
       const headers = new Headers(init?.headers)
@@ -167,7 +169,7 @@ async function fetchJsonWithRetry(
         ...(init || {}),
         headers,
         credentials: init?.credentials ?? 'include',
-        signal: controller.signal,
+        signal: isRead ? (init?.signal ?? (input instanceof Request ? input.signal : undefined)) : controller.signal,
       })
       const raw = await response.text()
       let data: any = {}

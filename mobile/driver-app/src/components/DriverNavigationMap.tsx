@@ -65,6 +65,8 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
   const [route, setRoute] = useState<RouteState | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Retry route reads without replacing the last route with a network error.
+  const [routeRetry, setRouteRetry] = useState(0);
   const [zoom, setZoom] = useState(16.5);
   const [navigation3D, setNavigation3D] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -122,14 +124,23 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
 
   useEffect(() => {
     if (routeWaypoints.length < 2) return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
     setLoading(true);
+    setRouteError(null);
     const coordinates = routeWaypoints.map(([longitude, latitude]) => `${longitude},${latitude}`).join(";");
     fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true`, { signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json();
-        if (!response.ok || !payload?.routes?.[0]) throw new Error("No driving route is available.");
+        if (cancelled) return;
+        if (!response.ok) throw new TypeError("Temporary route read failure");
+        if (!payload?.routes?.[0]) {
+          setRouteError("No driving route is available.");
+          setLoading(false);
+          return;
+        }
         const rawRoute = payload.routes[0];
         const steps = (rawRoute.legs || []).flatMap((leg: any) => leg.steps || []).map((step: any) => ({
           maneuver: {
@@ -148,18 +159,21 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
           duration: Number(rawRoute.duration || 0),
         });
         setRouteError(null);
+        setLoading(false);
       })
-      .catch((error) => {
-        if (error instanceof Error && error.name === "AbortError") return;
-        // Preserve the last successful route during a transient OSRM failure.
-        setRouteError("Route could not refresh. Delivery actions are still available.");
+      .catch(() => {
+        if (cancelled) return;
+        // A fresh effect supplies a fresh timeout signal on every retry.
+        retryTimer = setTimeout(() => setRouteRetry((value) => value + 1), 5000);
       })
-      .finally(() => setLoading(false));
+      .finally(() => clearTimeout(timeout));
     return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [routeWaypointKey]);
+  }, [routeWaypointKey, routeRetry]);
 
   useEffect(() => {
     if (!route || !currentLocation) return;

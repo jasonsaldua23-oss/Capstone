@@ -297,12 +297,14 @@ export async function safeFetchJson(
 ): Promise<{ ok: boolean; status: number; data: any }> {
   const retries = options?.retries ?? 1
   const timeoutMs = options?.timeoutMs ?? 12000
+  // Let the shared GET retry policy own timeouts instead of returning a load error here.
+  const isRead = String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'GET'
 
   let attempt = 0
   while (attempt <= retries) {
     const controller = new AbortController()
     let timedOut = false
-    const timer = window.setTimeout(() => {
+    const timer = isRead ? undefined : window.setTimeout(() => {
       timedOut = true
       controller.abort()
     }, timeoutMs)
@@ -319,7 +321,7 @@ export async function safeFetchJson(
         credentials: 'include',
         ...init,
         headers,
-        signal: controller.signal,
+        signal: isRead ? (init?.signal ?? (input instanceof Request ? input.signal : undefined)) : controller.signal,
       })
 
       const text = await response.text()

@@ -37,9 +37,9 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const { token, headers, timeoutMs = 30000, cacheTtlMs, ...init } = options;
+  const { token, headers, timeoutMs = 30000, cacheTtlMs, signal, ...init } = options;
   const method = String(init.method || "GET").toUpperCase();
-  const ttl = method === "GET" && !init.signal ? getCacheTtl(path, cacheTtlMs) : 0;
+  const ttl = method === "GET" && !signal ? getCacheTtl(path, cacheTtlMs) : 0;
   if (method !== "GET") clearApiCache();
 
   if (ttl > 0) {
@@ -59,28 +59,66 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
     }
     if (token) reqHeaders.set("Authorization", `Bearer ${token}`);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
-    try {
-      response = await fetch(`${API_BASE_URL}${path}`, {
-        ...init,
-        headers: reqHeaders,
-        signal: init.signal || controller.signal,
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new ApiError("The server took too long to respond. Please try again.", 0, null);
+    // Fix: failed reads stay pending so every mobile section keeps its loading state.
+    // Writes run once; replaying a submission could create a duplicate order or replacement.
+    let payload: any;
+    let attempt = 0;
+    while (true) {
+      if (signal?.aborted) throw signal.reason || new Error("Request cancelled");
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const abortFromCaller = () => controller.abort();
+      signal?.addEventListener("abort", abortFromCaller, { once: true });
+      try {
+        const response = await fetch(`${API_BASE_URL}${path}`, {
+          ...init,
+          headers: reqHeaders,
+          signal: controller.signal,
+        });
+        // Keep the timeout active during body reads; malformed GET data must also retry.
+        if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500)) {
+          throw new TypeError("Temporary read failure");
+        }
+        payload = await response.json().catch((error) => {
+          if (method === "GET" && response.ok) throw error;
+          return {};
+        });
+        if (!response.ok) {
+          throw new ApiError(payload?.error || payload?.message || `Request failed: ${response.status}`, response.status, payload);
+        }
+        if (method === "GET" && (payload?.success === false || payload?.dbUnavailable)) {
+          throw new TypeError("Data is temporarily unavailable");
+        }
+        if (signal?.aborted) throw signal.reason || new Error("Request cancelled");
+        break;
+      } catch (error) {
+        // Caller cancellation and access/validation errors retain their existing handling.
+        if (signal?.aborted) throw signal.reason || error;
+        if (error instanceof ApiError) throw error;
+        if (method !== "GET") {
+          if (controller.signal.aborted) throw new ApiError("The server took too long to respond. Please try again.", 0, null);
+          throw new ApiError("Unable to reach the server. Check your connection and try again.", 0, null);
+        }
+        if (!(error instanceof TypeError) && !(error instanceof SyntaxError) && !controller.signal.aborted) throw error;
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abortFromCaller);
       }
-      throw new ApiError("Unable to reach the server. Check your connection and try again.", 0, null);
-    } finally {
-      clearTimeout(timeout);
-    }
 
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = payload?.error || payload?.message || `Request failed: ${response.status}`;
-      throw new ApiError(message, response.status, payload);
+      // Back off during outages, without leaving an uncancellable retry timer behind.
+      const delay = Math.min(1000 * 2 ** Math.min(attempt++, 5), 30_000);
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(retryTimer);
+          reject(signal?.reason || new Error("Request cancelled"));
+        };
+        const retryTimer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, delay);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      });
     }
     if (ttl > 0 && requestGeneration === cacheGeneration) {
       responseCache.set(path, { payload: clonePayload(payload), expiresAt: Date.now() + ttl });

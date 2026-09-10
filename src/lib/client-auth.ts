@@ -1,5 +1,7 @@
 'use client'
 
+import { retryingApiRead } from './retrying-api-read'
+
 const TAB_AUTH_TOKEN_KEY = 'tab-auth-token'
 const PERSISTENT_TAB_AUTH_TOKEN_KEY = 'persistent-tab-auth-token'
 // Persistent credentials are scoped too: another portal must not replace this role on restart.
@@ -30,6 +32,13 @@ type CachedApiResponse = {
 const apiResponseCache = new Map<string, CachedApiResponse>()
 const inFlightApiReads = new Map<string, Promise<Response>>()
 let apiCacheGeneration = 0
+// Cancel old-session retries so they cannot publish data after an account change.
+let apiReadSession = new AbortController()
+
+function resetApiReadSession() {
+  apiReadSession.abort()
+  apiReadSession = new AbortController()
+}
 
 const uncachedApiPrefixes = [
   '/api/auth/',
@@ -46,11 +55,8 @@ const referenceApiPrefixes = [
 ]
 
 function isApiRequest(input: RequestInfo | URL): boolean {
-  if (typeof input === 'string') {
-    return input.startsWith('/api/')
-  }
-
-  const requestUrl = input instanceof URL ? input.toString() : input.url
+  // Absolute same-origin API URLs need the same auth and loading recovery as relative URLs.
+  const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
   try {
     const parsed = new URL(requestUrl, window.location.origin)
     return parsed.origin === window.location.origin && parsed.pathname.startsWith('/api/')
@@ -92,6 +98,7 @@ export function setTabAuthToken(token: string, options?: { persistent?: boolean 
   const persistent = Boolean(options?.persistent)
   // A new account token must never reuse responses from the previous session.
   clearApiResponseCache()
+  resetApiReadSession()
 
   // Fix: keep the active credential tab-scoped even when "Remember me" is enabled.
   // Otherwise another portal login can overwrite localStorage and change this tab's role.
@@ -129,6 +136,7 @@ export function hasPersistentTabAuthToken(): boolean {
 
 export function clearTabAuthToken() {
   clearApiResponseCache()
+  resetApiReadSession()
   const token = getTabAuthToken()
   const portal = tokenPortal(token) || requestedPortal()
   if (portal) localStorage.removeItem(`${PERSISTENT_TAB_AUTH_TOKEN_KEY}:${portal}`)
@@ -151,10 +159,22 @@ export function installTabAuthFetchInterceptor() {
   }
 
   const originalFetch = window.fetch.bind(window)
+  const interceptorLifetime = new AbortController()
   fetchWindow.__originalFetch__ = originalFetch
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (!isApiRequest(input)) {
+      // Address lookup and route geometry also load portal information, but must
+      // never receive our API authorization headers or enter the API response cache.
+      const url = getApiUrl(input)
+      if (getRequestMethod(input, init) === 'GET' && url?.protocol === 'https:' &&
+        ['nominatim.openstreetmap.org', 'router.project-osrm.org'].includes(url.hostname)) {
+        const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+        return retryingApiRead(
+          (signal) => originalFetch(input, { ...init, signal }),
+          [apiReadSession.signal, interceptorLifetime.signal, ...(callerSignal ? [callerSignal] : [])],
+        )
+      }
       return originalFetch(input, init)
     }
 
@@ -186,11 +206,23 @@ export function installTabAuthFetchInterceptor() {
     }
 
     const apiUrl = getApiUrl(input)
+    // All portal GETs share recovery, including no-store reads and replacement details.
+    // Keep the fetch unresolved until data arrives so existing loading UI stays active.
+    const callerSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+    const readSignals = [
+      apiReadSession.signal,
+      interceptorLifetime.signal,
+      ...(callerSignal ? [callerSignal] : []),
+    ]
+    const read = () => retryingApiRead(
+      (attemptSignal) => originalFetch(input, { ...requestInit, signal: attemptSignal }),
+      readSignals,
+    )
     const cacheTtl = apiUrl ? getApiCacheTtl(apiUrl.pathname) : 0
     const requestCache = init?.cache ?? (input instanceof Request ? input.cache : undefined)
     // Explicit revalidation must bypass the in-memory cache as well as HTTP caching.
     if (!apiUrl || cacheTtl <= 0 || init?.signal || ['no-store', 'reload', 'no-cache'].includes(requestCache || '')) {
-      return originalFetch(input, requestInit)
+      return read()
     }
 
     const cacheKey = `${apiUrl.pathname}${apiUrl.search}`
@@ -205,7 +237,7 @@ export function installTabAuthFetchInterceptor() {
 
     // Cache only successful API responses; failed requests must always be retried.
     const requestGeneration = apiCacheGeneration
-    const request = originalFetch(input, requestInit)
+    const request = read()
       .then((response) => {
         const cacheControl = String(response.headers.get('Cache-Control') || '').toLowerCase()
         const responseAllowsCache = !cacheControl.includes('no-store') && !cacheControl.includes('private')
@@ -229,6 +261,7 @@ export function installTabAuthFetchInterceptor() {
   fetchWindow[FETCH_PATCH_FLAG] = true
 
   return () => {
+    interceptorLifetime.abort()
     const currentWindow = window as Window & {
       [FETCH_PATCH_FLAG]?: boolean
       __originalFetch__?: typeof fetch

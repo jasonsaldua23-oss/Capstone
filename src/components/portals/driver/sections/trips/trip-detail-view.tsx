@@ -2167,7 +2167,7 @@ export function TripDetailView({
       navigationRouteRequestInFlightRef.current = true
       navigationRouteRetryAtRef.current = 0
       navigationRouteLastRequestAtRef.current = Date.now()
-      const timeout = window.setTimeout(() => controller.abort(), 12000)
+      // Shared fetch owns timeouts and recovery; keep this signal for route changes/unmounts.
       try {
         const coordinates = uniqueWaypoints
           .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
@@ -2309,7 +2309,6 @@ export function TripDetailView({
           }, 2500)
         }
       } finally {
-        window.clearTimeout(timeout)
         if (!cancelled && navigationRouteAbortRef.current === controller) navigationRouteRequestInFlightRef.current = false
       }
     }

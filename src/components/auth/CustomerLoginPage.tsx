@@ -1,5 +1,6 @@
 'use client'
 
+import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -131,6 +132,8 @@ export function CustomerLoginPage() {
 
       persistCustomerWelcomeState(data?.created ? 'new' : 'existing', String(data?.user?.name || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: true })
+      // Added: show the success toast after navigation mounts the portal's toaster.
+      sessionStorage.setItem('login-success-pending', 'customer')
       router.replace(CUSTOMER_HOME_PATH)
     } catch {
       toast.error('Unable to reach authentication service. Please check your connection and try again.')
@@ -152,6 +155,8 @@ export function CustomerLoginPage() {
     persistCustomerWelcomeState('existing', String(data.user.name || '').trim())
     if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
     setIsLoginOtpOpen(false)
+    // Added: show the success toast after navigation mounts the portal's toaster.
+    sessionStorage.setItem('login-success-pending', 'customer')
     router.replace(CUSTOMER_HOME_PATH)
     return true
   }
@@ -220,11 +225,15 @@ export function CustomerLoginPage() {
   useEffect(() => {
     let cancelled = false
 
+    // Session reads precede the portal interceptor, so apply the same loading recovery here.
+    const controller = new AbortController()
     async function checkSession() {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 3000)
       try {
-        const response = await fetch('/api/auth/me', { signal: controller.signal })
+        const response = await retryingApiRead(
+          (signal) => fetch('/api/auth/me', { signal }),
+          controller.signal,
+        )
+        if (cancelled) return
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
@@ -232,7 +241,6 @@ export function CustomerLoginPage() {
       } catch (error) {
         console.warn('Customer session check timed out or failed:', error)
       } finally {
-        clearTimeout(timeout)
         if (!cancelled) setIsCheckingSession(false)
       }
     }
@@ -240,6 +248,7 @@ export function CustomerLoginPage() {
     checkSession()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [router])
 
@@ -323,6 +332,8 @@ export function CustomerLoginPage() {
 
       persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+      // Added: show the success toast after navigation mounts the portal's toaster.
+      sessionStorage.setItem('login-success-pending', 'customer')
       router.replace(CUSTOMER_HOME_PATH)
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')

@@ -1,5 +1,6 @@
 'use client'
 
+import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -52,11 +53,15 @@ export function AdminLoginPage() {
   useEffect(() => {
     let cancelled = false
 
+    // Session reads precede the portal interceptor, so apply the same loading recovery here.
+    const controller = new AbortController()
     async function checkSession() {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 3000)
       try {
-        const response = await fetch('/api/auth/me', { signal: controller.signal, cache: 'no-store', credentials: 'include' })
+        const response = await retryingApiRead(
+          (signal) => fetch('/api/auth/me', { signal, cache: 'no-store', credentials: 'include' }),
+          controller.signal,
+        )
+        if (cancelled) return
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
@@ -64,7 +69,6 @@ export function AdminLoginPage() {
       } catch (error) {
         console.warn('Admin session check timed out or failed:', error)
       } finally {
-        clearTimeout(timeout)
         if (!cancelled) setIsCheckingSession(false)
       }
     }
@@ -72,6 +76,7 @@ export function AdminLoginPage() {
     checkSession()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [router])
 
@@ -133,6 +138,8 @@ export function AdminLoginPage() {
       persistAdminWelcomeState(data.user)
       // Keep the client token in persistent storage only when the user opted in.
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+      // Added: show the success toast after navigation mounts the portal's toaster.
+      sessionStorage.setItem('login-success-pending', 'admin')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
@@ -170,6 +177,8 @@ export function AdminLoginPage() {
       persistAdminWelcomeState(data.user)
       // The 2FA challenge preserves the same remember-me choice on the server and client.
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+      // Added: show the success toast after navigation mounts the portal's toaster.
+      sessionStorage.setItem('login-success-pending', 'admin')
       router.replace('/')
     } catch {
       toast.error('Unable to verify code. Please try again.')
@@ -209,6 +218,8 @@ export function AdminLoginPage() {
       persistAdminWelcomeState(data.user)
       // The 2FA challenge preserves the same remember-me choice on the server and client.
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+      // Added: show the success toast after navigation mounts the portal's toaster.
+      sessionStorage.setItem('login-success-pending', 'admin')
       router.replace('/')
       return true
     }

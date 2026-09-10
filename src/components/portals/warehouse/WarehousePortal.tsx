@@ -2358,12 +2358,14 @@ export function WarehousePortal() {
   ) => {
     const retries = options?.retries ?? 5
     const timeoutMs = options?.timeoutMs ?? 12000
+    // Read timeouts retry in the shared fetch layer while section loaders remain pending.
+    const isRead = String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'GET'
     let lastError = 'Request failed'
     let lastStatus = 0
 
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const controller = new AbortController()
-      const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+      const timeout = isRead ? undefined : window.setTimeout(() => controller.abort(), timeoutMs)
       try {
         const token = getTabAuthToken()
         const headers = new Headers(init?.headers)
@@ -2374,7 +2376,7 @@ export function WarehousePortal() {
           ...(init || {}),
           headers,
           credentials: init?.credentials ?? 'include',
-          signal: controller.signal,
+          signal: isRead ? (init?.signal ?? (input instanceof Request ? input.signal : undefined)) : controller.signal,
         })
         lastStatus = response.status
         const data = await response.json().catch(() => ({}))

@@ -62,9 +62,6 @@ export const MAIL_REQUEST_TIMEOUT_MS = 30_000;
 // durable repair is on the backend, where that latency is generated.
 const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
 
-// Budget for the automatic second attempt at a timed-out GET (see apiRequest).
-const RETRY_REQUEST_TIMEOUT_MS = 10_000;
-
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const { token, headers, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, cacheTtlMs, signal, ...init } = options;
   const method = String(init.method || "GET").toUpperCase();
@@ -86,61 +83,66 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
     if (!(init.body instanceof FormData)) reqHeaders.set("Content-Type", "application/json");
     if (token) reqHeaders.set("Authorization", `Bearer ${token}`);
 
-    // Added: stop requests from hanging indefinitely on unreliable mobile networks.
-    //
-    // One aborted read used to be fatal. Measured against this backend on 31 Aug
-    // 2026 - POST /api/auth/customer/login (a full Postgres round trip) at 0.83s,
-    // 0.87s, 0.85s, 0.83s, 0.83s over localhost and 0.98-1.53s over the LAN
-    // address the app actually calls, with the eight concurrent requests
-    // refreshData fires all landing in 0.61-0.67s. Nothing here costs anything
-    // close to 25s, so an abort at that mark is a transient stall (a Wi-Fi
-    // handover, a cold pooler connect), not the true cost of the call. Retrying
-    // an idempotent read once recovers the load instead of surfacing "The request
-    // timed out." over an empty screen.
-    //
-    // Only GETs retry - replaying a POST could place a second order - and only
-    // when OUR timer fired: a request the caller cancelled stays cancelled.
-    const maxAttempts = method === "GET" ? 2 : 1;
-    let response: Response | undefined;
-
-    for (let attempt = 1; attempt <= maxAttempts && !response; attempt += 1) {
-      // The retry gets a shorter budget so recovering from a stall cannot cost
-      // more than the stall itself: 25s + 10s worst case, not 25s twice. Ten
-      // seconds is still ~7x the slowest response measured over the LAN, so a
-      // second attempt that has not answered by then is not going to.
-      const attemptTimeoutMs = attempt === 1 ? timeoutMs : Math.min(timeoutMs, RETRY_REQUEST_TIMEOUT_MS);
+    // Fix: failed reads stay pending so every mobile section keeps its loading state.
+    // Writes run once; replaying a submission could create a duplicate order or replacement.
+    let payload: any;
+    let attempt = 0;
+    while (true) {
+      if (signal?.aborted) throw signal.reason || new Error("Request cancelled");
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), attemptTimeoutMs);
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       const abortFromCaller = () => controller.abort();
       signal?.addEventListener("abort", abortFromCaller, { once: true });
-
       try {
-        response = await fetch(`${API_BASE_URL}${path}`, {
+        const response = await fetch(`${API_BASE_URL}${path}`, {
           ...init,
           headers: reqHeaders,
           signal: controller.signal,
         });
-      } catch (error) {
-        const cancelledByCaller = Boolean(signal?.aborted);
-        if (!cancelledByCaller && attempt < maxAttempts) continue;
-        if (controller.signal.aborted) {
-          throw new Error("The request timed out. Check your connection and try again.");
+        // Keep the timeout active during body reads; malformed GET data must also retry.
+        if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500)) {
+          throw new TypeError("Temporary read failure");
         }
-        throw error;
+        payload = await response.json().catch((error) => {
+          if (method === "GET" && response.ok) throw error;
+          return {};
+        });
+        if (!response.ok) {
+          throw new ApiError(payload?.error || payload?.message || `Request failed: ${response.status}`, response.status, payload);
+        }
+        if (method === "GET" && (payload?.success === false || payload?.dbUnavailable)) {
+          throw new TypeError("Data is temporarily unavailable");
+        }
+        if (signal?.aborted) throw signal.reason || new Error("Request cancelled");
+        break;
+      } catch (error) {
+        // Caller cancellation and access/validation errors retain their existing handling.
+        if (signal?.aborted) throw signal.reason || error;
+        if (error instanceof ApiError) throw error;
+        if (method !== "GET") {
+          if (controller.signal.aborted) throw new ApiError("The request timed out. Check your connection and try again.", 0, null);
+          throw error;
+        }
+        if (!(error instanceof TypeError) && !(error instanceof SyntaxError) && !controller.signal.aborted) throw error;
       } finally {
         clearTimeout(timer);
         signal?.removeEventListener("abort", abortFromCaller);
       }
-    }
 
-    // Unreachable: every path through the loop above either assigns a response or
-    // throws. Present so the retry rewrite cannot silently widen the type below.
-    if (!response) throw new Error("The request timed out. Check your connection and try again.");
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = payload?.error || payload?.message || `Request failed: ${response.status}`;
-      throw new ApiError(message, response.status, payload);
+      // Back off during outages, without leaving an uncancellable retry timer behind.
+      const delay = Math.min(1000 * 2 ** Math.min(attempt++, 5), 30_000);
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(retryTimer);
+          reject(signal?.reason || new Error("Request cancelled"));
+        };
+        const retryTimer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, delay);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      });
     }
     if (ttl > 0 && requestGeneration === cacheGeneration) {
       responseCache.set(path, { payload: clonePayload(payload), expiresAt: Date.now() + ttl });

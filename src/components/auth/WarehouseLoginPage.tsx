@@ -1,5 +1,6 @@
 'use client'
 
+import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -48,11 +49,15 @@ export function WarehouseLoginPage() {
   useEffect(() => {
     let cancelled = false
 
+    // Session reads precede the portal interceptor, so apply the same loading recovery here.
+    const controller = new AbortController()
     async function checkSession() {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 3000)
       try {
-        const response = await fetch('/api/auth/me', { signal: controller.signal })
+        const response = await retryingApiRead(
+          (signal) => fetch('/api/auth/me', { signal }),
+          controller.signal,
+        )
+        if (cancelled) return
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
@@ -66,7 +71,6 @@ export function WarehouseLoginPage() {
       } catch (error) {
         console.warn('Warehouse session check timed out or failed:', error)
       } finally {
-        clearTimeout(timeout)
         if (!cancelled) setIsCheckingSession(false)
       }
     }
@@ -74,6 +78,7 @@ export function WarehouseLoginPage() {
     checkSession()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [router])
 
@@ -125,6 +130,8 @@ export function WarehouseLoginPage() {
 
       persistWarehouseWelcomeState(data.user)
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+      // Added: show the success toast after navigation mounts the portal's toaster.
+      sessionStorage.setItem('login-success-pending', 'warehouse')
       router.replace('/')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')

@@ -157,6 +157,8 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
   const [route, setRoute] = useState<RouteState | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Retry route reads without replacing the last route with a network error.
+  const [routeRetry, setRouteRetry] = useState(0);
   const [zoom, setZoom] = useState(NAVIGATION_3D_ZOOM);
   const [navigation3D, setNavigation3D] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -164,6 +166,9 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
   // Without this the map fails silently: a style or WebGL failure leaves the shell
   // background showing and nothing explains why.
   const [mapError, setMapError] = useState<string | null>(null);
+  // Failed map assets reload while the existing spinner stays visible.
+  const [mapRetry, setMapRetry] = useState(0);
+  const [mapRecovering, setMapRecovering] = useState(false);
   const [fallbackOrigin, setFallbackOrigin] = useState<RouteCoordinate | null>(null);
   const [renderedPosition, setRenderedPosition] = useState<RouteCoordinate | null>(null);
   const [renderedHeading, setRenderedHeading] = useState(0);
@@ -222,14 +227,23 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
 
   useEffect(() => {
     if (routeWaypoints.length < 2) return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
     setLoading(true);
+    setRouteError(null);
     // Added: use the same OSRM driving geometry and turn steps as the native navigation map.
     fetch(`https://router.project-osrm.org/route/v1/driving/${routeWaypointKey}?overview=full&geometries=geojson&steps=true`, { signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json();
-        if (!response.ok || !payload?.routes?.[0]) throw new Error("No driving route is available.");
+        if (cancelled) return;
+        if (!response.ok) throw new TypeError("Temporary route read failure");
+        if (!payload?.routes?.[0]) {
+          setRouteError("No driving route is available.");
+          setLoading(false);
+          return;
+        }
         const rawRoute = payload.routes[0];
         const steps = (rawRoute.legs || []).flatMap((leg: any) => leg.steps || []).map((step: any) => ({
           maneuver: {
@@ -248,17 +262,21 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
           duration: Number(rawRoute.duration || 0),
         });
         setRouteError(null);
+        setLoading(false);
       })
-      .catch((error) => {
-        if (error instanceof Error && error.name === "AbortError") return;
-        setRouteError("Route could not refresh. Delivery actions are still available.");
+      .catch(() => {
+        if (cancelled) return;
+        // A fresh effect supplies a fresh timeout signal on every retry.
+        retryTimer = setTimeout(() => setRouteRetry((value) => value + 1), 5000);
       })
-      .finally(() => setLoading(false));
+      .finally(() => clearTimeout(timeout));
     return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [routeWaypointKey]);
+  }, [routeWaypointKey, routeRetry]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -270,6 +288,7 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       return;
     }
 
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let map: MapLibreMap;
     try {
       map = new maplibregl.Map({
@@ -282,13 +301,15 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       });
     } catch (error) {
       // MapLibre needs WebGL; when it is unavailable the constructor throws.
+      setMapRecovering(false);
       setMapError(`Map could not start: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     mapRef.current = map;
     setMapError(null);
-    map.on("error", (event: { error?: { message?: string } }) => {
-      setMapError(`Map failed to load: ${event?.error?.message || "the map style or tiles could not be fetched"}`);
+    map.on("error", () => {
+      setMapRecovering(true);
+      if (retryTimer === undefined) retryTimer = setTimeout(() => setMapRetry((value) => value + 1), 5000);
     });
     map.on("load", () => {
       map.addSource("driver-completed-route", { type: "geojson", data: routeGeoJson([]) });
@@ -300,6 +321,9 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       // nothing but the shell background.
       map.resize();
       setMapReady(true);
+      setMapRecovering(false);
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
     });
     // React Native Web sizes the container through its own layout pass, which can
     // land after MapLibre has measured it. A canvas that measured 0x0 never paints
@@ -314,6 +338,7 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
 
     return () => {
       observer?.disconnect();
+      clearTimeout(retryTimer);
       vehicleMarkerRef.current?.remove();
       vehicleIsoRef.current = null;
       vehicleBackRef.current = null;
@@ -323,7 +348,7 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       mapRef.current = null;
       setMapReady(false);
     };
-  }, [routeWaypointKey, trip.id]);
+  }, [routeWaypointKey, trip.id, mapRetry]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -580,7 +605,7 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
           </Text>
         </View>
       </View>
-      {loading ? <ActivityIndicator style={styles.loader} color="#0f172a" /> : null}
+      {loading || mapRecovering ? <ActivityIndicator style={styles.loader} color="#0f172a" /> : null}
       <View style={styles.controls}>
         <View style={styles.zoomGroup}>
           <Pressable accessibilityLabel="Zoom in" style={styles.control} onPress={() => changeZoom(Math.min(20, zoom + 1))}><Text style={styles.controlText}>+</Text></Pressable>

@@ -4,6 +4,7 @@ import { useState, useEffect, createContext, useContext, Component, ErrorInfo, R
 import { usePathname, useRouter } from 'next/navigation'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
+import { toast } from 'sonner'
 import { AdminPortal, CustomerPortal, DriverPortal, WarehousePortal } from '@/components/portals'
 import { clearTabAuthToken, getTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
@@ -418,6 +419,14 @@ export default function Home() {
       window.removeEventListener(DRIVER_ACTIVITY_EVENT, onDriverTrackingActivity)
     }
   }, [isMounted, user, portal, sessionExpiredPortal])
+
+  // Added: consume explicit login success once, after the destination toaster mounts.
+  useEffect(() => {
+    if (!isMounted || isLoading || authError || !user) return
+    if (sessionStorage.getItem('login-success-pending') !== portal) return
+    sessionStorage.removeItem('login-success-pending')
+    toast.success('Logged in successfully!')
+  }, [isMounted, isLoading, authError, user, portal])
 
   const logoutToPortal = (targetPortal: PortalType) => {
     const nextPortal = allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal

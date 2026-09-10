@@ -1,0 +1,170 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
+import { setImmediate } from 'node:timers/promises'
+import vm from 'node:vm'
+import ts from 'typescript'
+
+// Load the real web interceptor in browser/Capacitor-like globals, without production traffic.
+function loadPortal(portal, native, fetch) {
+  const session = new Map([['tab-login-portal', portal], ['tab-auth-token', 'test-token']])
+  const storage = (values) => ({
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  })
+  const window = {
+    fetch,
+    location: { origin: 'https://annannsbeveragestrading.com', pathname: `/${portal}` },
+    ...(native ? { Capacitor: { isNativePlatform: () => true } } : {}),
+  }
+  const context = {
+    window, sessionStorage: storage(session), localStorage: storage(new Map()),
+    Request, Response, URL, Headers, AbortController, AbortSignal, DOMException,
+    Error, TypeError, SyntaxError, JSON, atob, setTimeout, clearTimeout,
+  }
+  const modules = new Map()
+  function load(name) {
+    if (modules.has(name)) return modules.get(name)
+    const source = readFileSync(new URL(`../src/lib/${name}.ts`, import.meta.url), 'utf8')
+    const compiled = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText
+    const exports = {}
+    vm.runInNewContext(compiled, { ...context, exports, require: (path) => load(path.replace('./', '')) })
+    modules.set(name, exports)
+    return exports
+  }
+  const client = load('client-auth')
+  const uninstall = client.installTabAuthFetchInterceptor()
+  return { window, client, uninstall }
+}
+
+async function flush() {
+  for (let i = 0; i < 10; i++) await setImmediate()
+}
+
+for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
+  for (const native of [false, true]) {
+    test(`${portal} ${native ? 'Capacitor context' : 'browser'}: no-store data loads retry until successful`, async (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout'] })
+      // Simulate WebViews without the newer AbortSignal convenience methods.
+      t.mock.method(AbortSignal, 'any', () => { throw new Error('Unsupported') })
+      t.mock.method(AbortSignal, 'timeout', () => { throw new Error('Unsupported') })
+      t.mock.method(AbortSignal.prototype, 'throwIfAborted', () => { throw new Error('Unsupported') })
+      let calls = 0
+      let loading = true
+      const { window, uninstall } = loadPortal(portal, native, async (_, init) => {
+        calls++
+        assert.equal(init.headers.get('X-Portal'), portal)
+        assert.equal(init.headers.get('Authorization'), 'Bearer test-token')
+        if (calls <= 2) throw new TypeError('Failed to fetch')
+        if (calls === 3) return new Response('Unavailable', { status: 503 })
+        return Response.json({ replacements: [{ id: 'real-record' }] })
+      })
+      const pending = window.fetch('/api/replacements', { cache: 'no-store' }).then(async (response) => {
+        const data = await response.json()
+        loading = false
+        return data
+      })
+      for (let i = 0; i < 3; i++) {
+        await flush()
+        assert.equal(loading, true)
+        assert.equal(calls, i + 1)
+        t.mock.timers.tick(30_000)
+      }
+      assert.deepEqual(await pending, { replacements: [{ id: 'real-record' }] })
+      assert.equal(loading, false)
+      uninstall()
+    })
+  }
+}
+
+test('web interceptor preserves one-shot writes and cancels outstanding reads on logout', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let calls = 0
+  const { window, client, uninstall } = loadPortal('customer', true, async () => {
+    calls++
+    throw new TypeError('Failed to fetch')
+  })
+  await assert.rejects(window.fetch('/api/customer/replacements', { method: 'POST' }), TypeError)
+  assert.equal(calls, 1)
+  const pending = window.fetch('https://annannsbeveragestrading.com/api/customer/orders')
+  const rejected = assert.rejects(pending, { name: 'AbortError' })
+  await flush()
+  client.clearTabAuthToken()
+  await rejected
+  t.mock.timers.tick(60_000)
+  assert.equal(calls, 2)
+  uninstall()
+})
+
+test('address search retries without forwarding portal credentials', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let calls = 0
+  const { window, uninstall } = loadPortal('customer', true, async (_, init) => {
+    calls++
+    assert.equal(new Headers(init.headers).has('Authorization'), false)
+    assert.equal(new Headers(init.headers).has('X-Portal'), false)
+    if (calls === 1) throw new TypeError('Failed to fetch')
+    return Response.json([{ lat: '10.6', lon: '122.9' }])
+  })
+  const pending = window.fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&q=Bacolod')
+  await flush()
+  t.mock.timers.tick(1000)
+  assert.deepEqual(await (await pending).json(), [{ lat: '10.6', lon: '122.9' }])
+  assert.equal(calls, 2)
+  uninstall()
+})
+
+test('API read URLs throughout src use recovery, including cached and uncached sections', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const urls = new Set()
+  function scan(directory) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory)
+      if (entry.isDirectory()) { scan(path); continue }
+      if (!/\.tsx?$/.test(entry.name) || entry.name.endsWith('.test.ts')) continue
+      const source = ts.createSourceFile(path.pathname, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true)
+      function visit(node) {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+          ['fetch', 'safeFetchJson', 'fetchJsonWithRetry'].includes(node.expression.text)) {
+          const [input, init] = node.arguments
+          const method = init && ts.isObjectLiteralExpression(init)
+            ? init.properties.find((property) => property.name?.getText(source) === 'method') : undefined
+          if (!method || (ts.isPropertyAssignment(method) && method.initializer.getText(source).replace(/['"]/g, '').toUpperCase() === 'GET')) {
+            // Substitute template values only in the mocked URL; no real requests are sent.
+            const url = input && (ts.isStringLiteral(input) || ts.isNoSubstitutionTemplateLiteral(input)) ? input.text
+              : input && ts.isTemplateExpression(input) ? input.head.text + input.templateSpans.map((span) => 'audit' + span.literal.text).join('') : ''
+            if (url.startsWith('/api/')) urls.add(url)
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(source)
+    }
+  }
+  scan(new URL('../src/', import.meta.url))
+  assert.ok(urls.size > 20, 'audit must discover the real section read URLs')
+  const calls = new Map()
+  const { window, uninstall } = loadPortal('admin', false, async (input) => {
+    const count = (calls.get(input) || 0) + 1
+    calls.set(input, count)
+    if (count === 1) throw new TypeError('Failed to fetch')
+    return Response.json({ success: true, auditUrl: input })
+  })
+  // Cached and explicit-refresh requests take different branches in the actual interceptor.
+  for (const cache of [undefined, 'no-store']) {
+    for (const url of urls) {
+      const input = `${url}${url.includes('?') ? '&' : '?'}auditCache=${cache || 'default'}`
+      const pending = window.fetch(input, cache ? { cache } : undefined)
+      await flush()
+      assert.equal(calls.get(input), 1)
+      t.mock.timers.tick(1000)
+      assert.equal((await (await pending).json()).auditUrl, input)
+      assert.equal(calls.get(input), 2)
+    }
+  }
+  t.diagnostic(`Verified recovery for ${urls.size} distinct source API read URLs in both cache modes.`)
+  uninstall()
+})

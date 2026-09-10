@@ -39,11 +39,24 @@ export function NativeGoogleButton({ onCredential, onError, disabled }: NativeGo
 
   useEffect(() => {
     let cancelled = false
-    void canSignInWithGoogleNatively().then((available) => {
-      if (!cancelled) setIsAvailable(available)
-    })
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    // The remote portal can mount before the native bridge; keep checking instead
+    // of permanently hiding Google login after the first three-second timeout.
+    const checkAvailability = async () => {
+      let available = false
+      try {
+        available = await canSignInWithGoogleNatively()
+      } catch {
+        // A bridge still starting can reject plugin queries; retry after it settles.
+      }
+      if (cancelled) return
+      setIsAvailable(available)
+      if (!available) retryTimer = setTimeout(() => void checkAvailability(), 1000)
+    }
+    void checkAvailability()
     return () => {
       cancelled = true
+      clearTimeout(retryTimer)
     }
   }, [])
 
@@ -57,8 +70,11 @@ export function NativeGoogleButton({ onCredential, onError, disabled }: NativeGo
         await onCredential(result.idToken)
         return
       }
-      // An empty message is the person closing the account picker themselves.
-      if (result.message) onError(result.message)
+      // Every unsuccessful native result needs visible feedback after the picker closes.
+      onError(result.message || 'Google sign-in did not complete. Please try again.')
+    } catch (error) {
+      // Surface callback/startup failures instead of silently ending the sign-in spinner.
+      onError(error instanceof Error ? error.message : 'Google sign-in could not be completed. Please try again.')
     } finally {
       setIsSigningIn(false)
     }

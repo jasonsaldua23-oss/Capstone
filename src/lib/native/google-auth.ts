@@ -33,7 +33,8 @@ let initialised = false
 export async function canSignInWithGoogleNatively(): Promise<boolean> {
   if (typeof window === 'undefined' || !isNativeApp()) return false
   if (!webClientId()) return false
-  await waitForNativeBridge()
+  // A timed-out bridge check must not mistake a web shim for a usable plugin.
+  if (!(await waitForNativeBridge())) return false
   return isPluginAvailable('SocialLogin')
 }
 
@@ -57,11 +58,11 @@ async function ensureInitialised(): Promise<void> {
  * follow a deliberate action.
  */
 export async function signInWithGoogleNatively(): Promise<NativeGoogleSignIn> {
-  if (!(await canSignInWithGoogleNatively())) {
-    return { ok: false, message: 'Google sign-in is not available on this device.' }
-  }
-
   try {
+    // Include readiness errors in the result instead of leaving an unhandled rejection.
+    if (!(await canSignInWithGoogleNatively())) {
+      return { ok: false, message: 'Google sign-in is not available on this device.' }
+    }
     await ensureInitialised()
     const { SocialLogin } = await import('@capgo/capacitor-social-login')
     const response = await SocialLogin.login({
@@ -79,13 +80,11 @@ export async function signInWithGoogleNatively(): Promise<NativeGoogleSignIn> {
     return { ok: true, idToken }
   } catch (error) {
     const reason = String((error as Error)?.message || '')
-    // The person backing out of the account picker is not a failure to report.
-    if (/cancel/i.test(reason)) {
-      return { ok: false, message: '' }
-    }
+    // Fix: Android can report cancellation after account selection, too. Do not
+    // swallow it: a closed picker without a token must explain why login stopped.
     return {
       ok: false,
-      message: reason || 'Google sign-in could not be completed on this device.',
+      message: reason || 'Google sign-in did not complete. Please choose your account and try again.',
     }
   }
 }
