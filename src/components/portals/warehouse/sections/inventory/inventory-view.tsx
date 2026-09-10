@@ -1,6 +1,6 @@
 'use client'
 
-import { Archive, Pencil, Plus } from 'lucide-react'
+import { Pencil, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -19,22 +19,22 @@ export function WarehouseInventoryView({
   getAvailableQty,
   formatPeso,
   openEditDialog,
-  openRegisterProductDialog,
-  openArchivedProductsPage,
 }: WarehouseInventoryViewProps) {
   const [inventorySearch, setInventorySearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [sizeFilter, setSizeFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
 
+  // Added: search within the staff member's existing warehouse scope.
   // Added: filter choices use only products within the staff member's warehouse scope.
   const sizesFor = (item: any): string[] => Array.isArray(item.product?.sizes)
     ? item.product.sizes.map((size: any) => String(size).trim()).filter(Boolean) : []
   const categoryFor = (item: any) => String(item.product?.category?.name || item.product?.category || '').trim()
   const sizeOptions = Array.from(new Set(scopedInventory.flatMap(sizesFor)))
   const categoryOptions = Array.from(new Set(scopedInventory.map(categoryFor).filter(Boolean)))
-
+  
   const query = inventorySearch.trim().toLowerCase()
+  const filteredInventory = scopedInventory.filter((item) => [item.id, item.product?.name, item.product?.sku, item.product?.sizes?.join(' ')].some((value) => String(value || '').toLowerCase().includes(query)))
   // Added: search and all filters apply together without sorting or altering stock data.
   const filteredInventory = scopedInventory.filter((item) =>
     [item.id, item.product?.name, item.product?.sku, sizesFor(item).join(' ')].some((value) => String(value || '').toLowerCase().includes(query))
@@ -56,20 +56,10 @@ export function WarehouseInventoryView({
               <CardTitle>Inventory</CardTitle>
               <CardDescription>Warehouse staff can edit product details and add stock by batch.</CardDescription>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={openRegisterProductDialog}>
-                <Plus className="mr-2 h-4 w-4" />
-                Register Product
-              </Button>
-              <Button type="button" variant="outline" onClick={openArchivedProductsPage}>
-                <Archive className="mr-2 h-4 w-4" />
-                Archived Products
-              </Button>
-              <Button onClick={openAddStockDialog} className="bg-blue-600 text-white hover:bg-blue-700">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Stock
-              </Button>
-            </div>
+            <Button onClick={openAddStockDialog} className="bg-blue-600 text-white hover:bg-blue-700">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Stock
+            </Button>
           </div>
         </CardHeader>
         {/* Toolbar: Search and Filters */}
