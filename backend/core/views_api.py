@@ -7799,21 +7799,10 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         return _err("Product not found", 404)
     if request.method == "GET":
         return _ok({"success": True, "product": _serialize_model(prod)})
-    # Admins may restore archived products from their inventory archive page;
-    # all other product mutations remain warehouse-staff operations.
-    staff, err = _require_staff(request)
+    # Product edits, archiving, and restoration are limited to warehouse staff.
+    _, err = _require_warehouse_operator(request)
     if err:
         return err
-    staff_role = str(staff.get("role") or "").strip().upper()
-    requested_body = _json_body(request) if request.method == "PUT" else {}
-    is_admin_restore = (
-        staff_role in {RoleType.ADMIN, RoleType.SUPER_ADMIN}
-        and set(requested_body.keys()) == {"isActive"}
-        and requested_body.get("isActive") is True
-        and not prod.is_active
-    )
-    if staff_role != RoleType.WAREHOUSE_STAFF and not is_admin_restore:
-        return _err("Only warehouse staff can perform warehouse operations", 403)
     if request.method == "DELETE":
         actor_name = str(p.get("name") or "Staff").strip() or "Staff"
         product_name = str(prod.name or "Product").strip() or "Product"

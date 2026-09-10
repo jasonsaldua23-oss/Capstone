@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { subscribeDataSync } from '@/lib/data-sync'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
-import { Archive, ArrowLeft, Download, Loader2, RotateCcw } from 'lucide-react'
+import { Archive, ArrowLeft, Download, Loader2 } from 'lucide-react'
 import { getCollection, getWarehouseIdFromRow, formatPeso, safeFetchJson } from './shared'
 import {
   getInventoryAlertLevel,
@@ -41,7 +41,6 @@ export function InventoryView() {
   const [archivedProducts, setArchivedProducts] = useState<any[]>([])
   const [archivedSearch, setArchivedSearch] = useState('')
   const [loadingArchivedProducts, setLoadingArchivedProducts] = useState(false)
-  const [restoringProductId, setRestoringProductId] = useState<string | null>(null)
   const cacheAtRef = useRef(0)
   const refreshInFlightRef = useRef<Promise<void> | null>(null)
 
@@ -294,28 +293,6 @@ export function InventoryView() {
     }
   }
 
-  const restoreArchivedProduct = async (product: any) => {
-    const productId = String(product?.id || '')
-    if (!productId || restoringProductId) return
-    setRestoringProductId(productId)
-    try {
-      const result = await safeFetchJson(`/api/products/${productId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: true }),
-      })
-      if (!result.ok) throw new Error(result.data?.error || 'Failed to restore product')
-      setArchivedProducts((current) => current.filter((item) => String(item.id) !== productId))
-      invalidateInventoryStockCaches()
-      emitDataSync(['inventory', 'products', 'stock-batches'])
-      toast.success(`${product.name || 'Product'} restored successfully`)
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to restore product')
-    } finally {
-      setRestoringProductId(null)
-    }
-  }
-
   const archivedQuery = archivedSearch.trim().toLowerCase()
   const filteredArchivedProducts = archivedProducts.filter((product) =>
     [product?.name, product?.sku, product?.category, ...(Array.isArray(product?.sizes) ? product.sizes : [])]
@@ -332,7 +309,7 @@ export function InventoryView() {
             </Button>
             <div>
               <CardTitle>Archived Products</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Restore products to return them to active inventory.</p>
+              <p className="mt-1 text-sm text-slate-500">View products archived by warehouse staff.</p>
             </div>
           </div>
           <Input
@@ -354,29 +331,32 @@ export function InventoryView() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-sm">
+              <table className="w-full min-w-[640px] text-sm">
                 <thead className="border-y bg-slate-50 text-slate-600">
                   <tr>
                     <th className="p-3 text-left font-medium">Product</th>
                     <th className="p-3 text-left font-medium">SKU</th>
                     <th className="p-3 text-left font-medium">Category</th>
                     <th className="p-3 text-left font-medium">Size</th>
-                    <th className="p-3 text-right font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredArchivedProducts.map((product) => (
                     <tr key={product.id} className="border-b last:border-0">
-                      <td className="p-3 font-semibold text-slate-900">{product.name || 'Product'}</td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-3 font-semibold text-slate-900">
+                          <img
+                            src={product.imageUrl || '/logo.svg'}
+                            alt={product.name || 'Archived product'}
+                            className="h-10 w-10 rounded-md border bg-white object-cover"
+                            onError={(event) => { event.currentTarget.src = '/logo.svg' }}
+                          />
+                          <span>{product.name || 'Product'}</span>
+                        </div>
+                      </td>
                       <td className="p-3 text-slate-600">{product.sku || 'N/A'}</td>
                       <td className="p-3 text-slate-600">{product.category || 'N/A'}</td>
                       <td className="p-3 text-slate-600">{Array.isArray(product.sizes) && product.sizes.length ? product.sizes.join(', ') : 'N/A'}</td>
-                      <td className="p-3 text-right">
-                        <Button type="button" variant="outline" onClick={() => void restoreArchivedProduct(product)} disabled={restoringProductId === String(product.id)}>
-                          {restoringProductId === String(product.id) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
-                          Restore
-                        </Button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>

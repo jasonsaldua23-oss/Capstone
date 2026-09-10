@@ -313,7 +313,7 @@ class ProductWeightApiContractTests(TestCase):
         self.assertEqual(response.status_code, 409, response.content.decode())
         self.assertIn("order reservation", response.json()["error"])
 
-    def test_admin_can_restore_archived_product_without_product_edit_access(self) -> None:
+    def test_admin_cannot_restore_archived_product(self) -> None:
         admin = User.objects.create(
             email="product.archive.admin@example.com",
             password="hashed",
@@ -330,22 +330,17 @@ class ProductWeightApiContractTests(TestCase):
         })
         product = Product.objects.create(
             sku="PRODUCT-ADMIN-RESTORE",
-            name="Admin Restored Product",
+            name="Admin Archived Product",
             is_active=False,
         )
 
-        restored = self.client.put(
+        response = self.client.put(
             f"/api/products/{product.id}",
             data=json.dumps({"isActive": True}),
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {admin_token}",
         )
-        self.assertEqual(restored.status_code, 200, restored.content.decode())
 
-        forbidden_edit = self.client.put(
-            f"/api/products/{product.id}",
-            data=json.dumps({"name": "Admin Edited Product"}),
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {admin_token}",
-        )
-        self.assertEqual(forbidden_edit.status_code, 403, forbidden_edit.content.decode())
+        self.assertEqual(response.status_code, 403, response.content.decode())
+        product.refresh_from_db()
+        self.assertFalse(product.is_active)

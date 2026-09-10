@@ -490,7 +490,17 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
                 <tbody>
                   {filteredArchivedProducts.map((product) => (
                     <tr key={product.id} className="border-b last:border-0">
-                      <td className="p-3 font-semibold text-slate-900">{product.name || 'Product'}</td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-3 font-semibold text-slate-900">
+                          <img
+                            src={product.imageUrl || '/logo.svg'}
+                            alt={product.name || 'Archived product'}
+                            className="h-10 w-10 rounded-md border bg-white object-cover"
+                            onError={(event) => { event.currentTarget.src = '/logo.svg' }}
+                          />
+                          <span>{product.name || 'Product'}</span>
+                        </div>
+                      </td>
                       <td className="p-3 text-slate-600">{product.sku || 'N/A'}</td>
                       <td className="p-3 text-slate-600">{product.category || 'N/A'}</td>
                       <td className="p-3 text-slate-600">{Array.isArray(product.sizes) && product.sizes.length ? product.sizes.join(', ') : 'N/A'}</td>
