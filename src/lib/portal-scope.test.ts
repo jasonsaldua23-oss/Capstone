@@ -10,6 +10,10 @@ import {
 } from './portal-scope.ts'
 
 test('Driver and Customer use separate canonical app paths', () => {
+  assert.equal(homePathForPortal('admin'), '/admin')
+  assert.equal(homePathForPortal('warehouse'), '/warehouse')
+  assert.equal(portalFromAppPath('/admin'), 'admin')
+  assert.equal(portalFromAppPath('/warehouse'), 'warehouse')
   assert.equal(homePathForPortal('driver'), '/driver')
   assert.equal(homePathForPortal('customer'), '/customer')
   assert.equal(loginPathForPortal('driver'), '/driver/login')

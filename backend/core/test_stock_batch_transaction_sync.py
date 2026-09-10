@@ -74,6 +74,9 @@ class StockBatchTransactionSyncTests(TestCase):
         )
 
     def test_edit_syncs_transaction_and_zero_deletes_both_records(self):
+        self.inventory.threshold = 4
+        self.inventory.save(update_fields=["threshold", "updated_at"])
+
         reduced_response = self.update_batch(6)
         self.assertEqual(reduced_response.status_code, 200, reduced_response.content)
 
@@ -81,6 +84,8 @@ class StockBatchTransactionSyncTests(TestCase):
         self.inventory.refresh_from_db()
         self.assertEqual(self.transaction.quantity, 6)
         self.assertEqual(self.inventory.quantity, 6)
+        # A deduction changes stock, but the restock threshold remains fixed.
+        self.assertEqual(self.inventory.threshold, 4)
 
         depleted_response = self.update_batch(0)
         self.assertEqual(depleted_response.status_code, 200, depleted_response.content)
@@ -89,6 +94,7 @@ class StockBatchTransactionSyncTests(TestCase):
 
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 0)
+        self.assertEqual(self.inventory.threshold, 4)
 
     def test_fully_reserved_inventory_is_not_overstocked(self):
         self.assertTrue(_is_inventory_overstocked_flagged_by_stockin(self.inventory))
@@ -106,6 +112,7 @@ class StockBatchTransactionSyncTests(TestCase):
         self.assertEqual(at_capacity.status_code, 200, at_capacity.content)
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 100)
+        self.assertEqual(self.inventory.threshold, 15)
 
         rejected = self.update_batch(101)
         self.assertEqual(rejected.status_code, 400, rejected.content)

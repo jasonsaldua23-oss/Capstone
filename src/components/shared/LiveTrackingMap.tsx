@@ -1790,9 +1790,11 @@ export default function LiveTrackingMap({
               {(() => {
                 const rawColor = String(line.color || '').toLowerCase();
                 const isUpcoming = rawColor === '#2563eb' && !line.dashArray;
-                const isCompletedLike = Boolean(line.dashArray) || rawColor === '#93c5fd';
-                const outerColor = isUpcoming ? '#7ddfff' : '#2f3743';
-                const innerColor = isUpcoming ? '#2ecbff' : '#4b5563';
+                const isFuture = rawColor === '#93c5fd' && !line.dashArray;
+                const isCompletedLike = Boolean(line.dashArray) || (!isUpcoming && !isFuture);
+                // Future routes are light blue; only traveled routes use gray.
+                const outerColor = isUpcoming ? '#7ddfff' : isFuture ? '#bfdbfe' : '#2f3743';
+                const innerColor = isUpcoming ? '#2ecbff' : isFuture ? '#93c5fd' : '#4b5563';
                 const outerOpacity = isUpcoming ? 0.42 : 0.32;
                 const innerOpacity = typeof line.opacity === 'number' ? line.opacity : isUpcoming ? 0.99 : 0.93;
                 const zoomScale = currentZoom <= 10 ? 0.58 : currentZoom <= 11 ? 0.68 : currentZoom <= 12 ? 0.8 : currentZoom <= 13 ? 0.9 : currentZoom <= 14 ? 0.96 : 1;

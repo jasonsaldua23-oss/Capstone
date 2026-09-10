@@ -33,6 +33,8 @@ export type WarehouseInventoryViewProps = {
   getAvailableQty: (item: any) => number
   formatPeso: (value: number) => string
   openEditDialog: (item: any) => void
+  openRegisterProductDialog: () => void
+  openArchivedProductsPage: () => void
 }
 
 export type WarehousePurchaseRequestsViewProps = {

@@ -220,6 +220,8 @@ export default function Home() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [portal, setPortal] = useState<PortalType>(defaultPortal)
   const [isLoading, setIsLoading] = useState(true)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authAttempt, setAuthAttempt] = useState(0)
   const [isMounted, setIsMounted] = useState(false)
   const [sessionExpiredPortal, setSessionExpiredPortal] = useState<PortalType | null>(null)
   const sessionTimerRef = useRef<number | null>(null)
@@ -230,19 +232,32 @@ export default function Home() {
   useEffect(() => {
     setIsMounted(true)
     const uninstallFetchInterceptor = installTabAuthFetchInterceptor()
+    let cancelled = false
+    setIsLoading(true)
+    setAuthError(null)
 
     async function checkAuth() {
       try {
         const tabToken = getTabAuthToken()
+        const restorePortal = scopedPortal || getRememberedTabLoginPortal(allowedPortals) || lockedPortal
         // Fix: restore this tab from its own token instead of the browser-wide cookie,
         // which may belong to a different portal that logged in more recently.
         const response = await fetch('/api/auth/me', {
           cache: 'no-store',
           credentials: 'include',
-          headers: tabToken ? { Authorization: `Bearer ${tabToken}` } : undefined,
+          headers: {
+            ...(tabToken ? { Authorization: `Bearer ${tabToken}` } : {}),
+            ...(restorePortal ? { 'X-Portal': restorePortal } : {}),
+          },
         })
+        if (cancelled) return
+        // A server/network failure is not evidence that the session has expired.
+        if (!response.ok && response.status !== 401 && response.status !== 403) {
+          throw new Error('Unable to restore your session. Please retry.')
+        }
         if (response.ok) {
           const data = await response.json()
+          if (cancelled) return
           if (data.user) {
             const userPortal = resolvePortalForUser(data.user)
             if (!allowedPortals.includes(userPortal)) {
@@ -260,19 +275,21 @@ export default function Home() {
         }
       } catch (error) {
         console.error('Auth check failed:', error)
+        if (!cancelled) setAuthError('Unable to restore your session. Check your connection and retry.')
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
     }
     checkAuth()
     
     return () => {
+      cancelled = true
       uninstallFetchInterceptor()
     }
-  }, [allowedPortals, defaultPortal])
+  }, [allowedPortals, defaultPortal, authAttempt, scopedPortal, lockedPortal])
 
   useEffect(() => {
-    if (!isLoading && isMounted && !user) {
+    if (!isLoading && !authError && isMounted && !user) {
       const logoutPortal = logoutRedirectPortalRef.current
       if (logoutPortal) {
         // Fix: an explicit logout must return to that portal's own login page,
@@ -291,7 +308,7 @@ export default function Home() {
       // A shared deployment must not silently treat Admin as the default user.
       router.replace(useChooser ? '/login' : loginPathForPortal(lockedPortal || portal))
     }
-  }, [appVariant, isLoading, isMounted, lockedPortal, portal, router, user])
+  }, [appVariant, isLoading, authError, isMounted, lockedPortal, portal, router, user])
 
   useEffect(() => {
     if (!isMounted) return
@@ -321,8 +338,7 @@ export default function Home() {
   useEffect(() => {
     if (!isMounted || !user) return
     const portalHome = homePathForPortal(portal)
-    const isInstallablePortalOffHome =
-      (portal === 'driver' || portal === 'customer') && pathname !== portalHome
+    const isInstallablePortalOffHome = pathname !== portalHome
     const isOtherRoleInsideInstallableScope =
       scopedPortal !== null && scopedPortal !== portal
     if (isInstallablePortalOffHome || isOtherRoleInsideInstallableScope) {
@@ -440,6 +456,16 @@ export default function Home() {
         </div>
       </div>
     )
+  }
+
+  // Keep transient session failures on this page instead of redirecting away.
+  if (authError) {
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="text-center" role="alert">
+        <p className="text-gray-600">{authError}</p>
+        <button className="mt-4 text-blue-600" onClick={() => setAuthAttempt((value) => value + 1)}>Retry</button>
+      </div>
+    </div>
   }
 
   // Not authenticated - redirect to dedicated portal login

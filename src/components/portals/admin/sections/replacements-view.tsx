@@ -1237,6 +1237,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
               return lineLoss
             })
             const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
+            const reviewDecision = selectedReplacement.reviewDecision || meta?.reviewDecision || null
             const details = [
               ['Replacement #', selectedReplacement.replacementNumber || 'N/A'],
               ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
@@ -1246,6 +1247,9 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
               // Added: show the customer's submitted notes, separate from staff workflow notes.
               ['Customer Notes', selectedReplacement.customerNotes || meta?.customerNotes || 'No customer notes provided.'],
+              ['Reviewed By', reviewDecision?.adminName || 'Not yet decided'],
+              ['Decision Time', reviewDecision?.decidedAt ? new Date(reviewDecision.decidedAt).toLocaleString() : 'N/A'],
+              ['Decision Remarks', reviewDecision?.remarks || 'No remarks provided.'],
             ] as Array<[string, string]>
             return (
               <>

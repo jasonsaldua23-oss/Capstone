@@ -42,7 +42,7 @@ interface PurchaseOrdersReportProps {
 export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
-  const [datePreset, setDatePreset] = useState<'all' | '7' | '30' | '90' | '365' | 'custom'>('30')
+  const [datePreset, setDatePreset] = useState<'all' | 'today' | '7' | '30' | '90' | '365' | 'custom'>('30')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
@@ -118,9 +118,9 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
           list = list.filter((item) => new Date(item.date).getTime() <= toTime)
         }
       } else {
-        const days = Number(datePreset)
         const cutoff = new Date()
-        cutoff.setDate(cutoff.getDate() - days)
+        // Today uses local midnight; numeric presets keep their existing rolling window.
+        if (datePreset !== 'today') cutoff.setDate(cutoff.getDate() - Number(datePreset))
         cutoff.setHours(0, 0, 0, 0)
         list = list.filter((item) => withinRange(item.date, cutoff))
       }
@@ -431,6 +431,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
               className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none"
             >
               <option value="all">All Time</option>
+              <option value="today">Today</option>
               <option value="7">Past 7 Days</option>
               <option value="30">Past 30 Days</option>
               <option value="90">Past 90 Days</option>

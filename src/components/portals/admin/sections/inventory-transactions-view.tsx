@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -156,6 +156,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
   const [pageSize] = useState(20)
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  const searchRequestRef = useRef(0)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
@@ -165,6 +166,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
   const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN' || !userRole
 
   const fetchTransactions = useCallback(async () => {
+    const requestId = ++searchRequestRef.current
     setIsLoading(true)
     try {
       const params = new URLSearchParams()
@@ -180,6 +182,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
         timeoutMs: 15000,
       })
       const data = result.data
+      // Slower earlier searches must not replace results for the latest input.
+      if (requestId !== searchRequestRef.current) return
       if (!result.ok) {
         throw new Error(data?.error || 'Failed to fetch transactions')
       }
@@ -194,10 +198,10 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
       setTransactions(stockInOutOnly)
       setTotal(data?.total ?? stockInOutOnly.length)
     } catch (err: any) {
+      if (requestId !== searchRequestRef.current) return
       toast.error(err?.message || 'Failed to load transaction history')
-      setTransactions([])
     } finally {
-      setIsLoading(false)
+      if (requestId === searchRequestRef.current) setIsLoading(false)
     }
   }, [page, pageSize, search, dateFrom, dateTo, typeFilter])
 
@@ -209,6 +213,15 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
     setSearch(searchInput)
     setPage(1)
   }
+
+  // Search automatically once typing pauses, retaining the existing Search button.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearch(searchInput)
+      setPage(1)
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [searchInput])
 
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSearch()

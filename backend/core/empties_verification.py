@@ -23,9 +23,11 @@ from .models import (
     BottleReturn,
     BottleReturnLine,
     ContainerType,
+    CustomerBottleBalance,
     DepositTransaction,
     MixedCaseComponent,
     Order,
+    OrderDepositRefundClaim,
     ProductPackaging,
     TripDropPoint,
 )
@@ -105,28 +107,56 @@ def declared_empties_by_container(
         deposit_value: Decimal,
         name: str,
         *,
+        product_name: str = "",
         by_case: bool = False,
         containers_per_case: int = 1,
+        declared_cases: int | None = None,
+        declared_loose_bottles: int | None = None,
+        is_refund_claim: bool = False,
     ) -> None:
         if not container_type_id or quantity <= 0:
             return
+        per_case = max(1, containers_per_case)
+        cases = max(0, _int(declared_cases, 0)) if declared_cases is not None else (
+            quantity // per_case if by_case and per_case > 1 else 0
+        )
+        loose_bottles = max(0, _int(declared_loose_bottles, 0)) if declared_loose_bottles is not None else (
+            quantity % per_case if by_case and per_case > 1 else quantity
+        )
         entry = declared.setdefault(
             container_type_id,
             {
                 "containerTypeId": container_type_id,
                 "containerTypeName": name,
+                "productNames": [],
                 "declared": 0,
                 "depositValue": Decimal("0.00"),
                 # A driver hands back cases, not 288 loose bottles, so the count is
                 # kept in whatever unit the product was bought in.
                 "byCase": by_case,
-                "containersPerCase": max(1, containers_per_case),
+                "containersPerCase": per_case,
+                "declaredCases": 0,
+                "declaredLooseBottles": 0,
+                "isRefundClaim": is_refund_claim,
             },
         )
+        # Preserve the customer's case/bottle split even though settlement keeps
+        # using one combined bottle quantity for this container type.
+        if entry["containersPerCase"] != per_case and (entry["declaredCases"] > 0 or cases > 0):
+            entry["declaredLooseBottles"] += entry["declaredCases"] * entry["containersPerCase"]
+            loose_bottles += cases * per_case
+            entry["declaredCases"] = 0
+            cases = 0
+            entry["byCase"] = False
+        entry["declaredCases"] += cases
+        entry["declaredLooseBottles"] += loose_bottles
+        entry["isRefundClaim"] = bool(entry["isRefundClaim"] or is_refund_claim)
         entry["declared"] += quantity
         entry["depositValue"] += deposit_value
         if not entry["containerTypeName"] and name:
             entry["containerTypeName"] = name
+        if product_name and product_name not in entry["productNames"]:
+            entry["productNames"].append(product_name)
         # Mixing loose and cased items of the same container falls back to counting
         # the containers themselves, which is the only unit both share.
         if by_case and entry["byCase"] and entry["containersPerCase"] == max(1, containers_per_case):
@@ -151,6 +181,7 @@ def declared_empties_by_container(
             quantity,
             Decimal(str(getattr(item, "deposit_refunded", 0) or 0)),
             str(getattr(item, "container_type_name", "") or "").strip(),
+            product_name=str(getattr(item, "product_name", "") or "").strip(),
             by_case=_sold_by_case(item) and per_case > 1 and quantity % per_case == 0,
             containers_per_case=per_case,
         )
@@ -179,13 +210,50 @@ def declared_empties_by_container(
         quantity = max(0, _int(getattr(component, "empty_covered_quantity", 0)))
         if quantity <= 0:
             continue
+        per_case = _containers_per_case(component, packaging_cache)
         _add(
             str(getattr(component, "container_type_id", "") or "").strip(),
             quantity,
             Decimal(str(getattr(component, "deposit_total", 0) or 0)),
             str(getattr(component, "container_type_name", "") or "").strip(),
+            product_name=str(getattr(component, "product_name", "") or "").strip(),
             by_case=False,
-            containers_per_case=1,
+            containers_per_case=per_case,
+            declared_cases=0,
+            declared_loose_bottles=quantity,
+        )
+
+    # Additional order-credit claims may refer to products that are not being
+    # purchased in this order; they are still collected at the same delivery.
+    for claim in order.deposit_refund_claims.select_related("container_type", "product").all():
+        if claim.status != OrderDepositRefundClaim.ClaimStatus.PENDING:
+            continue
+        containers_per_case = max(1, _int(claim.containers_per_case, 1))
+        requested_cases = max(0, _int(claim.requested_cases, 0))
+        requested_loose_bottles = max(0, _int(claim.requested_loose_bottles, 0))
+        # Fix: preserve a case-only refund claim as cases for the driver's counter.
+        # Bottle and mixed claims stay in bottles because one counter must represent
+        # the complete physical quantity without dropping loose containers.
+        counts_by_case = (
+            requested_cases > 0
+            and requested_loose_bottles == 0
+            and containers_per_case > 1
+        )
+        _add(
+            str(claim.container_type_id),
+            max(0, _int(claim.requested_quantity, 0)),
+            Decimal(str(claim.requested_amount or 0)),
+            str(claim.container_type.name or "Container"),
+            product_name=str(claim.product_name or "").strip(),
+            by_case=counts_by_case,
+            containers_per_case=containers_per_case,
+            declared_cases=requested_cases,
+            declared_loose_bottles=(
+                requested_loose_bottles
+                if requested_cases > 0 or requested_loose_bottles > 0
+                else max(0, _int(claim.requested_quantity, 0))
+            ),
+            is_refund_claim=True,
         )
 
     missing_name_ids = [
@@ -205,7 +273,9 @@ def declared_empties_by_container(
         entry["depositPerContainer"] = _money(entry["depositValue"] / Decimal(declared_qty))
 
         per_case = max(1, _int(entry.get("containersPerCase"), 1))
-        counts_by_case = bool(entry.get("byCase")) and per_case > 1 and entry["declared"] % per_case == 0
+        declared_cases = max(0, _int(entry.get("declaredCases"), 0))
+        declared_loose_bottles = max(0, _int(entry.get("declaredLooseBottles"), 0))
+        counts_by_case = declared_cases > 0 and declared_loose_bottles == 0 and per_case > 1
         entry["countsByCase"] = counts_by_case
         entry["containersPerUnit"] = per_case if counts_by_case else 1
         entry["declaredUnits"] = entry["declared"] // entry["containersPerUnit"]
@@ -224,8 +294,13 @@ def serialize_declared_empties(
         {
             "containerTypeId": entry["containerTypeId"],
             "containerTypeName": entry["containerTypeName"],
+            "productName": ", ".join(entry["productNames"]) if entry["productNames"] else None,
             # Containers, which is what the settlement works in.
             "declaredQuantity": entry["declared"],
+            "declaredCases": entry["declaredCases"],
+            "declaredLooseBottles": entry["declaredLooseBottles"],
+            "isRefundClaim": entry["isRefundClaim"],
+            "containersPerCase": entry["containersPerCase"],
             # The same declaration in the unit the driver actually handles.
             "declaredUnits": entry["declaredUnits"],
             "containersPerUnit": entry["containersPerUnit"],
@@ -442,6 +517,56 @@ def record_collected_empties(
         bottle_return = _create_uncollected_return(order, drop_point, declared, receiver)
     else:
         return None
+
+    # Finalize the order-credit claims from the driver's verified count. The
+    # physical bottle return above updates outstanding quantities; this step moves
+    # only the refundable balance that was reserved for this order.
+    collected_remaining = {
+        str(line["containerTypeId"]): max(0, _int(line.get("collectedQuantity"), 0))
+        for line in summary_lines
+    }
+    claims = list(
+        OrderDepositRefundClaim.objects.select_for_update()
+        .filter(order=order, status=OrderDepositRefundClaim.ClaimStatus.PENDING)
+        .order_by("created_at", "id")
+    )
+    for claim in claims:
+        container_key = str(claim.container_type_id)
+        collected_quantity = min(
+            max(0, _int(claim.requested_quantity, 0)),
+            collected_remaining.get(container_key, 0),
+        )
+        collected_remaining[container_key] = max(0, collected_remaining.get(container_key, 0) - collected_quantity)
+        # Preserve the original case/bottle pricing. A complete collection earns
+        # the exact requested amount; a partial collection is prorated fairly.
+        requested_quantity = max(0, _int(claim.requested_quantity, 0))
+        collected_amount = (
+            Decimal(str(claim.requested_amount or 0))
+            if requested_quantity > 0 and collected_quantity >= requested_quantity
+            else _money(
+                Decimal(str(claim.requested_amount or 0))
+                * Decimal(collected_quantity)
+                / Decimal(max(1, requested_quantity))
+            )
+        )
+        claim.collected_quantity = collected_quantity
+        claim.collected_amount = collected_amount
+        if collected_quantity >= claim.requested_quantity:
+            claim.status = OrderDepositRefundClaim.ClaimStatus.SETTLED
+        elif collected_quantity > 0:
+            claim.status = OrderDepositRefundClaim.ClaimStatus.PARTIAL
+        else:
+            claim.status = OrderDepositRefundClaim.ClaimStatus.REJECTED
+        claim.save(update_fields=["collected_quantity", "collected_amount", "status", "updated_at"])
+
+        if collected_amount > 0:
+            balance = CustomerBottleBalance.objects.select_for_update().filter(
+                customer=customer,
+                container_type_id=claim.container_type_id,
+            ).first()
+            if balance is not None:
+                balance.deposit_balance = max(Decimal("0.00"), Decimal(str(balance.deposit_balance or 0)) - collected_amount)
+                balance.save(update_fields=["deposit_balance", "updated_at"])
 
     if drop_point is not None:
         drop_point.empties_collected = bool(return_lines)

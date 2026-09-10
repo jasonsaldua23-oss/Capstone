@@ -3,7 +3,7 @@ import { isPathAllowedForPortal, loginPathForPortal, parseNativePortalFromUserAg
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-type AppVariant = 'all' | 'admin' | 'driver' | 'customer'
+type AppVariant = 'all' | 'admin' | 'warehouse' | 'driver' | 'customer'
 type PortalType = 'admin' | 'warehouse' | 'driver' | 'customer'
 
 interface AuthPayload {
@@ -17,20 +17,23 @@ const JWT_SECRET = new TextEncoder().encode(
 
 function resolveVariant(): AppVariant {
   const raw = String(process.env.NEXT_PUBLIC_APP_VARIANT || '').trim().toLowerCase()
-  if (raw === 'admin' || raw === 'driver' || raw === 'customer' || raw === 'all') {
+  if (raw === 'admin' || raw === 'warehouse' || raw === 'driver' || raw === 'customer' || raw === 'all') {
     return raw
   }
   return 'all'
 }
 
 function allowedPortalsForVariant(variant: AppVariant): PortalType[] {
-  if (variant === 'admin') return ['admin', 'warehouse']
+  // Match the page guard's deployment variants, including the warehouse build.
+  if (variant === 'admin') return ['admin']
+  if (variant === 'warehouse') return ['warehouse']
   if (variant === 'driver') return ['driver']
   if (variant === 'customer') return ['customer']
   return ['admin', 'warehouse', 'driver', 'customer']
 }
 
 function defaultLoginPathForVariant(variant: AppVariant): string {
+  if (variant === 'warehouse') return loginPathForPortal('warehouse')
   if (variant === 'driver') return loginPathForPortal('driver')
   if (variant === 'customer') return loginPathForPortal('customer')
   return '/login/admin'
@@ -56,6 +59,7 @@ function extractPortalFromLoginPath(pathname: string): PortalType | null {
  * shared deployment that serves every portal.
  */
 function variantForShellPortal(portal: PortalType): AppVariant {
+  if (portal === 'warehouse') return 'warehouse'
   if (portal === 'driver') return 'driver'
   if (portal === 'customer') return 'customer'
   return 'admin'
@@ -65,7 +69,8 @@ function isRoleAllowedForVariant(payload: AuthPayload, variant: AppVariant): boo
   if (variant === 'all') return true
   if (variant === 'driver') return payload.type === 'staff' && payload.role === 'DRIVER'
   if (variant === 'customer') return payload.type === 'customer'
-  return payload.type === 'staff' && payload.role !== 'DRIVER'
+  if (variant === 'warehouse') return payload.type === 'staff' && payload.role === 'WAREHOUSE_STAFF'
+  return payload.type === 'staff' && ['ADMIN', 'SUPER_ADMIN'].includes(payload.role || '')
 }
 
 async function getPayload(request: NextRequest): Promise<AuthPayload | null> {
@@ -77,12 +82,15 @@ async function getPayload(request: NextRequest): Promise<AuthPayload | null> {
   // Fix: Django issues role-scoped cookies. Check the staff cookie first so an
   // authenticated Admin visiting /login returns to the portal instead of being
   // treated as signed out and redirected to the public Customer login.
-  const candidateTokens = [
-    headerToken,
-    request.cookies.get('auth_token_staff')?.value,
-    request.cookies.get('auth_token_customer')?.value,
+  // Match Django's portal cookie selection; never fall through an explicit tab token.
+  const portal = request.headers.get('x-portal')
+  const scopedCookieNames = portal === 'customer' ? ['auth_token_customer']
+    : portal && ['admin', 'warehouse', 'driver'].includes(portal) ? ['auth_token_staff']
+    : ['auth_token_staff', 'auth_token_customer']
+  const candidateTokens = (headerToken ? [headerToken] : [
+    ...scopedCookieNames.map((name) => request.cookies.get(name)?.value),
     request.cookies.get('auth_token')?.value,
-  ].filter((token): token is string => Boolean(token))
+  ]).filter((token): token is string => Boolean(token))
 
   for (const token of candidateTokens) {
     try {
@@ -118,7 +126,7 @@ function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): bo
     return pathname === '/api/auth/customer/login' || pathname === '/api/auth/register' || pathname === '/api/auth/customer/google'
   }
 
-  if (variant === 'admin') {
+  if (variant === 'admin' || variant === 'warehouse') {
     return pathname === '/api/auth/login'
   }
 

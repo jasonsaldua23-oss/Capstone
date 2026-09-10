@@ -62,6 +62,76 @@ export function getOrderTotalWithEmpties(order: any): number {
   return Number(order?.amountDue ?? total + Number(adjustment?.amount || 0))
 }
 
+export type DepositRefundClaimSummary = {
+  id?: string
+  productName?: string
+  containerTypeName?: string
+  requestedQuantity?: number
+  requestedCases?: number
+  requestedLooseBottles?: number
+  requestedAmount?: number
+}
+
+/** Empty-container credit already deducted from an order before delivery. */
+export function getDepositRefundClaims(order: any): DepositRefundClaimSummary[] {
+  return (Array.isArray(order?.depositRefundClaims) ? order.depositRefundClaims : []).filter(
+    (claim: DepositRefundClaimSummary) => Number(claim?.requestedAmount || 0) > 0,
+  )
+}
+
+type CheckoutEmptyRefundSummary = {
+  label: string
+  amount: number
+}
+
+function getCheckoutEmptyRefunds(order: any): CheckoutEmptyRefundSummary[] {
+  return (Array.isArray(order?.items) ? order.items : []).flatMap((item: any) => {
+    if (String(item?.itemType || '').toUpperCase() === 'MIXED_CASE') {
+      return (Array.isArray(item?.components) ? item.components : []).flatMap((component: any) => {
+        const bottles = Math.max(0, Number(component?.emptyCoveredQuantity || 0))
+        const amount = bottles * Math.max(0, Number(component?.depositPerUnit || 0))
+        if (bottles <= 0 || amount <= 0) return []
+        const name = component?.productName || component?.product?.name || component?.containerTypeName || 'Returnable container'
+        return [{ label: `Checkout — ${name}: ${bottles} bottle${bottles === 1 ? '' : 's'}`, amount }]
+      })
+    }
+
+    const amount = Math.max(0, Number(item?.depositRefunded ?? item?.deposit_refunded ?? 0))
+    const quantity = Math.max(0, Number(item?.emptyReturnedQuantity ?? item?.empty_returned_quantity ?? 0))
+    if (amount <= 0 || quantity <= 0) return []
+    const perCase = Math.max(1, Number(item?.containersPerCase || item?.quantityPerCase || item?.product?.quantityPerCase || 1))
+    const soldByCase = String(item?.productUnit || item?.product?.unit || '').trim().toLowerCase() === 'case'
+    const cases = soldByCase && perCase > 1 ? Math.floor(quantity / perCase) : 0
+    const bottles = soldByCase && perCase > 1 ? quantity % perCase : quantity
+    const quantityLabel = [
+      cases > 0 ? `${cases} case${cases === 1 ? '' : 's'}` : '',
+      bottles > 0 ? `${bottles} bottle${bottles === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join(' + ')
+    const name = item?.productName || item?.product?.name || item?.containerTypeName || 'Returnable container'
+    return [{ label: `Checkout — ${name}: ${quantityLabel}`, amount }]
+  })
+}
+
+export function getDepositRefundAmount(order: any): number {
+  const claimAmount = getDepositRefundClaims(order).reduce(
+    (sum, claim) => sum + Math.max(0, Number(claim.requestedAmount || 0)),
+    0,
+  )
+  const checkoutAmount = getCheckoutEmptyRefunds(order).reduce((sum, refund) => sum + refund.amount, 0)
+  return claimAmount + checkoutAmount
+}
+
+function describeDepositRefundClaim(claim: DepositRefundClaimSummary): string {
+  const cases = Math.max(0, Number(claim.requestedCases || 0))
+  const bottles = Math.max(0, Number(claim.requestedLooseBottles || 0))
+  const legacyBottles = Math.max(0, Number(claim.requestedQuantity || 0))
+  const quantity = [
+    cases > 0 ? `${cases} case${cases === 1 ? '' : 's'}` : '',
+    bottles > 0 ? `${bottles} bottle${bottles === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' + ') || `${legacyBottles} bottle${legacyBottles === 1 ? '' : 's'}`
+  return `${claim.productName || claim.containerTypeName || 'Returnable container'}: ${quantity}`
+}
+
 /** "2 case 7Up 330ml declared but not returned" */
 export function describeEmptiesShortfall(adjustment: EmptiesAdjustment | null): string {
   if (!adjustment) return ''
@@ -91,6 +161,28 @@ export function EmptiesChargeRow({ order, className = '' }: { order: any; classN
         </span>
       </span>
       <span className="shrink-0 font-semibold">+{formatAmount(Number(adjustment.amount || 0))}</span>
+    </div>
+  )
+}
+
+/** One negative totals row for empty deposits applied to this order. */
+export function DepositRefundRow({ order, className = '' }: { order: any; className?: string }) {
+  const claims = getDepositRefundClaims(order)
+  const checkoutRefunds = getCheckoutEmptyRefunds(order)
+  const amount = getDepositRefundAmount(order)
+  if ((!claims.length && !checkoutRefunds.length) || amount <= 0) return null
+  return (
+    <div className={`flex items-start justify-between gap-3 text-emerald-700 ${className}`}>
+      <span className="min-w-0">
+        Empty deposit refund
+        <span className="block text-[10px] leading-4 text-emerald-600 md:text-[11px]">
+          {[
+            ...checkoutRefunds.map((refund) => refund.label),
+            ...claims.map(describeDepositRefundClaim),
+          ].join('; ')}
+        </span>
+      </span>
+      <span className="shrink-0 font-semibold">-{formatAmount(amount)}</span>
     </div>
   )
 }

@@ -2,7 +2,7 @@
 "use client";
 
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner';
@@ -432,6 +432,7 @@ export function AdminPortal() {
   const [globalSearchLoading, setGlobalSearchLoading] = useState(false)
   const [globalSearchResults, setGlobalSearchResults] = useState<Array<{ view: string; label: string; sublabel: string }>>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const sidebarScrollTopRef = useRef(0)
   const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties'>('inventory')
   const [inventoryMenuExpanded, setInventoryMenuExpanded] = useState(true)
   const [ordersMenuExpanded, setOrdersMenuExpanded] = useState(true)
@@ -561,7 +562,7 @@ export function AdminPortal() {
         const rows = getCollection<any>(ordersRes.data, ['orders'])
         rows.forEach((row) => {
           if (!include([row?.orderNumber, row?.purchaseRequestNumber, row?.customer?.name, row?.customer?.email, row?.shippingName, row?.shippingCity, row?.status])) return
-          const isApproved = String(row?.requestStatus || '').toUpperCase() === 'APPROVED' && Boolean(row?.purchaseOrderNumber)
+          const isApproved = Boolean(row?.purchaseOrderNumber) // Cancelled POs retain their identity.
           nextResults.push({
             view: isApproved ? 'orders' : 'purchaseRequests',
             label: `${isApproved ? 'Purchase Order' : 'Purchase Request'} ${String(row?.purchaseOrderNumber || row?.purchaseRequestNumber || row?.orderNumber || row?.id || '').trim() || 'N/A'}`,
@@ -890,7 +891,10 @@ export function AdminPortal() {
         </div>
 
         {/* Navigation Menu */}
-        <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
+        {/* The nested sidebar remounts on navigation; restore its previous scroll position. */}
+        <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1"
+          ref={(node) => { if (node) node.scrollTop = sidebarScrollTopRef.current }}
+          onScroll={(event) => { sidebarScrollTopRef.current = event.currentTarget.scrollTop }}>
           {primaryNavItems.map((item) => {
             const IconComponent = item.icon
             const isActive = activeView === item.id
@@ -1150,7 +1154,7 @@ export function AdminPortal() {
               <StocksView />
             </TabsContent>
             <TabsContent value="empties" className="mt-0">
-              <WarehouseEmptyBottlesView />
+              <WarehouseEmptyBottlesView readOnly />
             </TabsContent>
           </Tabs>
         )

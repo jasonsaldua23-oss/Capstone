@@ -13,6 +13,7 @@ from html import escape
 from datetime import date, datetime, time, timedelta
 from time import monotonic
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -76,10 +77,12 @@ from .auth_throttling import (
     throttle_response,
 )
 from .models import (
+    DriverServiceArea,
     Customer,
     ContainerType,
     CustomerBottleBalance,
     CustomerDepositLedger,
+    DepositTransaction,
     Feedback,
     Inventory,
     InventoryReservation,
@@ -89,6 +92,7 @@ from .models import (
     MixedCaseComponent,
     Notification,
     Order,
+    OrderDepositRefundClaim,
     OrderItem,
     OrderItemType,
     PurchaseOrderStage,
@@ -684,6 +688,163 @@ def _generate_next_purchase_workflow_number(field_name: str, prefix: str) -> str
     return f"{full_prefix}{str(max_sequence + 1).zfill(4)}"
 
 
+def _create_deposit_refund_claims(
+    *,
+    order: Order,
+    customer: Customer,
+    raw_refund_lines: Any,
+    maximum_order_credit: Decimal,
+    client_amount: Any = None,
+) -> Decimal:
+    """Validate and reserve product-specific empties for collection on an order."""
+    if raw_refund_lines in (None, ""):
+        raw_refund_lines = []
+    if not isinstance(raw_refund_lines, list):
+        raise ValueError("depositRefundLines must be a list")
+    if not raw_refund_lines:
+        return Decimal("0.00")
+
+    from .rgb.services import get_customer_bottle_balances
+
+    locked_balances = {
+        str(balance.container_type_id): balance
+        for balance in CustomerBottleBalance.objects.select_for_update().filter(customer=customer)
+    }
+    available_rows = {
+        str(row.get("containerTypeId")): row
+        for row in get_customer_bottle_balances(customer)
+    }
+    requested_by_container: dict[str, int] = {}
+    normalized_lines: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    applied_credit = Decimal("0.00")
+
+    for raw_line in raw_refund_lines:
+        if not isinstance(raw_line, dict):
+            raise ValueError("Each deposit refund line must be an object")
+        product_id = str(raw_line.get("productId") or "").strip()
+        container_type_id = str(raw_line.get("containerTypeId") or "").strip()
+        if not product_id or not container_type_id:
+            raise ValueError("Each deposit refund requires a product and container type")
+        pair = (product_id, container_type_id)
+        if pair in seen_pairs:
+            raise ValueError("Duplicate product deposit refund line")
+        seen_pairs.add(pair)
+
+        product = Product.objects.filter(id=product_id).first()
+        packaging = (
+            ProductPackaging.objects.filter(
+                product_id=product_id,
+                container_type_id=container_type_id,
+                is_active=True,
+                is_returnable=True,
+            )
+            .select_related("container_type")
+            .order_by("-is_primary", "created_at")
+            .first()
+        )
+        if product is None or packaging is None:
+            raise ValueError("The selected product is not linked to that returnable container")
+        balance = locked_balances.get(container_type_id)
+        available_row = available_rows.get(container_type_id) or {}
+        if balance is None:
+            raise ValueError("No verified empty-container balance is available for the selected product")
+
+        containers_per_case = max(1, _int(packaging.containers_per_case, 1))
+        has_unit_breakdown = "cases" in raw_line or "bottles" in raw_line
+        requested_cases = max(0, _int(raw_line.get("cases"), 0)) if has_unit_breakdown else 0
+        requested_loose_bottles = max(0, _int(raw_line.get("bottles"), 0)) if has_unit_breakdown else 0
+        quantity = (
+            (requested_cases * containers_per_case) + requested_loose_bottles
+            if has_unit_breakdown
+            else max(0, _int(raw_line.get("quantity"), 0))
+        )
+        if quantity <= 0:
+            raise ValueError("Each deposit refund requires at least one case or bottle")
+
+        requested_for_container = requested_by_container.get(container_type_id, 0) + quantity
+        available_quantity = max(0, _int(available_row.get("bottlesAvailable"), 0))
+        deposit_per_container = Decimal(str(packaging.deposit_amount or packaging.container_type.deposit_amount or 0))
+        case_deposit_amount = Decimal(str(packaging.case_deposit_amount or (deposit_per_container * containers_per_case)))
+        remaining_balance = Decimal(str(balance.deposit_balance or 0))
+        # Cases and loose bottles can have different deposit rates. Preserve the
+        # selected units so ₱52/case is never recalculated as twelve ₱6 bottles.
+        line_amount = (
+            (case_deposit_amount * Decimal(requested_cases))
+            + (deposit_per_container * Decimal(requested_loose_bottles))
+            if has_unit_breakdown
+            else deposit_per_container * Decimal(quantity)
+        ).quantize(Decimal("0.01"))
+        requested_amount_for_container = sum(
+            line["amount"] for line in normalized_lines
+            if line["containerTypeId"] == container_type_id
+        ) + line_amount
+        if requested_for_container > available_quantity or requested_amount_for_container > remaining_balance:
+            raise ValueError("Requested deposit refund exceeds the verified available empties")
+
+        requested_by_container[container_type_id] = requested_for_container
+        normalized_lines.append({
+            "product": product,
+            "containerTypeId": container_type_id,
+            "quantity": quantity,
+            "requestedCases": requested_cases,
+            "requestedLooseBottles": requested_loose_bottles,
+            "containersPerCase": containers_per_case,
+            "depositPerContainer": deposit_per_container,
+            "caseDepositAmount": case_deposit_amount,
+            "amount": line_amount,
+        })
+        applied_credit += line_amount
+
+    if applied_credit > maximum_order_credit:
+        raise ValueError("Requested deposit refund exceeds this order's amount due")
+    if client_amount is not None:
+        expected_amount = Decimal(str(client_amount or 0)).quantize(Decimal("0.01"))
+        if expected_amount != applied_credit:
+            raise ValueError("Deposit refund amount does not match the selected empties")
+
+    for line in normalized_lines:
+        claim = OrderDepositRefundClaim.objects.filter(
+            order=order,
+            product=line["product"],
+            container_type_id=line["containerTypeId"],
+            status=OrderDepositRefundClaim.ClaimStatus.PENDING,
+        ).first()
+        if claim is None:
+            OrderDepositRefundClaim.objects.create(
+                order=order,
+                product=line["product"],
+                product_name=str(line["product"].name or "Product"),
+                container_type_id=line["containerTypeId"],
+                requested_quantity=line["quantity"],
+                requested_cases=line["requestedCases"],
+                requested_loose_bottles=line["requestedLooseBottles"],
+                containers_per_case=line["containersPerCase"],
+                deposit_per_container=line["depositPerContainer"],
+                case_deposit_amount=line["caseDepositAmount"],
+                requested_amount=line["amount"],
+            )
+        else:
+            # A later refund request for the same order extends its pending pickup.
+            claim.requested_quantity += line["quantity"]
+            claim.requested_cases += line["requestedCases"]
+            claim.requested_loose_bottles += line["requestedLooseBottles"]
+            claim.containers_per_case = line["containersPerCase"]
+            claim.case_deposit_amount = line["caseDepositAmount"]
+            claim.requested_amount += line["amount"]
+            claim.save(update_fields=[
+                "requested_quantity",
+                "requested_cases",
+                "requested_loose_bottles",
+                "containers_per_case",
+                "case_deposit_amount",
+                "requested_amount",
+                "updated_at",
+            ])
+
+    return applied_credit
+
+
 def _create_order_from_checkout_payload(
     *,
     customer: Customer,
@@ -866,8 +1027,16 @@ def _create_order_from_checkout_payload(
 
     order.subtotal = subtotal
     order.tax = tax
-    # Deposits are server-priced from product packaging records for every item type.
-    order.total_amount = total_amount + total_net_deposit
+    # A refund request identifies the product and empty count. The value reduces
+    # this order now, while the claim reserves those empties for driver collection.
+    applied_deposit_credit = _create_deposit_refund_claims(
+        order=order,
+        customer=customer,
+        raw_refund_lines=body.get("depositRefundLines"),
+        maximum_order_credit=Decimal(str(total_amount + total_net_deposit)),
+        client_amount=body.get("depositCreditAmount"),
+    )
+    order.total_amount = max(0.0, total_amount + total_net_deposit - float(applied_deposit_credit))
     order.shipping_name = body.get("shippingName") or customer.name
     order.shipping_phone = body.get("shippingPhone") or customer.phone or ""
     order.shipping_address = _strip_default_country_suffix(body.get("shippingAddress") or customer.address or "")
@@ -1884,6 +2053,20 @@ def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonRes
     return None, _err("Forbidden", 403)
 
 
+def _require_warehouse_operator(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    """Allow warehouse-operational writes only from warehouse staff.
+
+    Admin accounts retain read access to the same records, but cannot mutate
+    products, fleet records, or warehouse inventory through these endpoints.
+    """
+    staff, err = _require_staff(request)
+    if err:
+        return None, err
+    if str(staff.get("role") or "").strip().upper() != RoleType.WAREHOUSE_STAFF:
+        return None, _err("Only warehouse staff can perform warehouse operations", 403)
+    return staff, None
+
+
 def _missing_driver_profile_fields(driver: User) -> list[str]:
     missing: list[str] = []
     if not str(getattr(driver, "phone", "") or "").strip():
@@ -2133,7 +2316,7 @@ def _serialize_order(
     normalized_order_status = str(data.get("status") or "").strip().upper()
     request_status_value = str(data.get("requestStatus") or "").strip().upper()
     # For approved orders, the current delivery status is authoritative for the displayed PO stage.
-    if request_status_value == PurchaseRequestStatus.APPROVED:
+    if request_status_value == PurchaseRequestStatus.APPROVED or order.purchase_order_number:
         stage_by_status = {
             OrderStatus.CONFIRMED: PurchaseOrderStage.APPROVED,
             OrderStatus.PREPARING: PurchaseOrderStage.PROCESSING,
@@ -2185,6 +2368,29 @@ def _serialize_order(
         "totalDiscount": float(getattr(order, "discount", 0) or 0),
         "appliedByName": getattr(order, "discount_applied_by_name", None),
     }
+    # Keep the requested product empties visible on the order for customer,
+    # warehouse, admin, and driver workflows.
+    refund_claims = order.deposit_refund_claims.select_related("product", "container_type").all()
+    data["depositRefundClaims"] = [
+        {
+            "id": claim.id,
+            "productId": claim.product_id,
+            "productName": claim.product_name,
+            "containerTypeId": claim.container_type_id,
+            "containerTypeName": claim.container_type.name,
+            "requestedQuantity": claim.requested_quantity,
+            "collectedQuantity": claim.collected_quantity,
+            "requestedCases": claim.requested_cases,
+            "requestedLooseBottles": claim.requested_loose_bottles,
+            "containersPerCase": claim.containers_per_case,
+            "depositPerContainer": float(claim.deposit_per_container),
+            "caseDepositAmount": float(claim.case_deposit_amount),
+            "requestedAmount": float(claim.requested_amount),
+            "collectedAmount": float(claim.collected_amount),
+            "status": claim.status,
+        }
+        for claim in refund_claims
+    ]
 
     if timeline:
         data["deliveryDate"] = timeline.delivery_date.isoformat() if timeline.delivery_date else None
@@ -2274,7 +2480,8 @@ def _serialize_order(
         }
 
     # A workflow status alone must never promote an unapproved request into a PO.
-    is_approved_order = request_status_value == PurchaseRequestStatus.APPROVED
+    # A cancelled fulfillment retains the PO created by the original approval.
+    is_approved_order = request_status_value == PurchaseRequestStatus.APPROVED or bool(order.purchase_order_number)
     po_num = str(getattr(order, "purchase_order_number", "") or "").strip() or None
     pr_num = str(getattr(order, "purchase_request_number", "") or "").strip() or None
 
@@ -2472,10 +2679,12 @@ def _build_order_warehouse_allocations_map(order_ids: list[str]) -> dict[str, li
         return {}
 
     order_items = list(
-        OrderItem.objects.filter(order_id__in=normalized_ids).only("id", "order_id")
+        OrderItem.objects.filter(order_id__in=normalized_ids).only("id", "order_id", "item_type", "case_capacity")
     )
     if not order_items:
         return {}
+    # Mixed component reservation quantities are bottles; transportation totals are cases.
+    mixed_capacities = {str(item.id): max(1, int(item.case_capacity or 1)) for item in order_items if item.item_type == OrderItemType.MIXED_CASE}
 
     order_by_item_id = {
         str(item.id): str(item.order_id)
@@ -2516,6 +2725,9 @@ def _build_order_warehouse_allocations_map(order_ids: list[str]) -> dict[str, li
         if not order_id:
             continue
         qty = max(0, _int(row.get("quantity"), 0))
+        if ref_id in mixed_capacities:
+            # Exact fractions prevent e.g. 24 component units rounding below one case.
+            qty = Fraction(qty, mixed_capacities[ref_id])
         grouped_qty.setdefault(order_id, {})
         grouped_qty[order_id][warehouse_id] = grouped_qty[order_id].get(warehouse_id, 0) + qty
 
@@ -2529,7 +2741,7 @@ def _build_order_warehouse_allocations_map(order_ids: list[str]) -> dict[str, li
                     "warehouseId": warehouse_id,
                     "warehouseName": str(getattr(warehouse, "name", "") or "").strip() or None,
                     "warehouseCode": str(getattr(warehouse, "code", "") or "").strip() or None,
-                    "allocatedQty": qty,
+                    "allocatedQty": int(qty) if int(qty) == qty else float(qty),
                 }
             )
         out[order_id] = rows
@@ -2542,10 +2754,11 @@ def _build_order_item_warehouse_allocations_map(order_ids: list[str]) -> dict[st
         return {}
 
     order_items = list(
-        OrderItem.objects.filter(order_id__in=normalized_ids).only("id", "order_id")
+        OrderItem.objects.filter(order_id__in=normalized_ids).only("id", "order_id", "item_type", "case_capacity")
     )
     if not order_items:
         return {}
+    mixed_capacities = {str(item.id): max(1, int(item.case_capacity or 1)) for item in order_items if item.item_type == OrderItemType.MIXED_CASE}
 
     order_by_item_id = {
         str(item.id): str(item.order_id)
@@ -2587,7 +2800,8 @@ def _build_order_item_warehouse_allocations_map(order_ids: list[str]) -> dict[st
             continue
         grouped.setdefault(order_id, {})
         grouped[order_id].setdefault(item_id, {})
-        grouped[order_id][item_id][warehouse_id] = grouped[order_id][item_id].get(warehouse_id, 0) + max(0, _int(row.get("quantity"), 0))
+        quantity = Fraction(max(0, _int(row.get("quantity"), 0)), mixed_capacities.get(item_id, 1))
+        grouped[order_id][item_id][warehouse_id] = grouped[order_id][item_id].get(warehouse_id, 0) + quantity
 
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for order_id, by_item in grouped.items():
@@ -2600,7 +2814,7 @@ def _build_order_item_warehouse_allocations_map(order_ids: list[str]) -> dict[st
                     "warehouseId": warehouse_id,
                     "warehouseName": str(getattr(warehouse, "name", "") or "").strip() or None,
                     "warehouseCode": str(getattr(warehouse, "code", "") or "").strip() or None,
-                    "allocatedQty": qty,
+                    "allocatedQty": int(qty) if int(qty) == qty else float(qty),
                 })
             out[order_id][item_id] = allocs
     return out
@@ -2616,10 +2830,11 @@ def _build_order_item_trip_assignments_map(
         return {}
 
     order_items = list(
-        OrderItem.objects.filter(order_id__in=normalized_ids).only("id", "order_id")
+        OrderItem.objects.filter(order_id__in=normalized_ids).only("id", "order_id", "item_type", "case_capacity")
     )
     if not order_items:
         return {}
+    mixed_capacities = {str(item.id): max(1, int(item.case_capacity or 1)) for item in order_items if item.item_type == OrderItemType.MIXED_CASE}
 
     order_by_item_id = {
         str(item.id): str(item.order_id)
@@ -2671,7 +2886,8 @@ def _build_order_item_trip_assignments_map(
         meta_trip_number = str(meta.get("tripNumber") or "").strip()
         key = f"{warehouse_id}::{meta_trip_id}::{meta_trip_number}"
         grouped.setdefault(order_id, {}).setdefault(item_id, {})
-        grouped[order_id][item_id][key] = grouped[order_id][item_id].get(key, 0) + max(0, _int(row.get("quantity"), 0))
+        quantity = Fraction(max(0, _int(row.get("quantity"), 0)), mixed_capacities.get(item_id, 1))
+        grouped[order_id][item_id][key] = grouped[order_id][item_id].get(key, 0) + quantity
 
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for order_id, by_item in grouped.items():
@@ -2688,7 +2904,7 @@ def _build_order_item_trip_assignments_map(
                         "warehouseCode": str(getattr(warehouse, "code", "") or "").strip() or None,
                         "tripId": meta_trip_id or None,
                         "tripNumber": meta_trip_number or None,
-                        "allocatedQty": qty,
+                        "allocatedQty": int(qty) if int(qty) == qty else float(qty),
                     }
                 )
             out[order_id][item_id] = rows
@@ -2766,12 +2982,17 @@ def _assign_order_items_to_trip_for_warehouse(
             components = item.mixed_case_components.select_related("product").all()
             for comp in components:
                 if comp.product:
-                    comp_qty = comp.total_base_units if comp.total_base_units else (comp.quantity_per_case * item.quantity)
+                    comp_qty = comp.quantity_per_case * pending_qty
                     InventoryTransaction.objects.create(
                         warehouse_id=target_warehouse_id,
                         product=comp.product,
                         type="ASSIGN",
                         quantity=comp_qty,
+                        # Preserve units and snapshots so trip retries compare cases consistently.
+                        quantity_unit=InventoryQuantityUnit.BASE_UNIT,
+                        case_capacity_snapshot=item.case_capacity,
+                        case_count_snapshot=pending_qty,
+                        performed_by=performed_by,
                         reference_type="order_item_trip_assign",
                         reference_id=item_id,
                         mixed_case_component=comp,
@@ -3076,6 +3297,8 @@ def _serialize_replacement(
             "at": status_at.isoformat() if status_at else None,
         })
     data["statusTimeline"] = status_timeline
+    # Expose the immutable review audit fields to monitoring portals.
+    data["reviewDecision"] = meta.get("reviewDecision") if isinstance(meta.get("reviewDecision"), dict) else None
     return data
 
 
@@ -3255,6 +3478,9 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                 row["order"] = {
                     "id": dp.order.id,
                     "orderNumber": dp.order.order_number,
+                    # Explicit stored identities link this transportation record back to its PR.
+                    "purchaseRequestNumber": dp.order.purchase_request_number,
+                    "purchaseOrderNumber": dp.order.purchase_order_number,
                     "deliveryDate": dp.order.timeline.delivery_date.isoformat() if getattr(dp.order, "timeline", None) and dp.order.timeline.delivery_date else None,
                     "warehouseId": order_warehouse_id,
                     "warehouseName": str(getattr(order_warehouse, "name", "") or "").strip() or None,
@@ -3271,6 +3497,21 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     "totalAmount": dp.order.total_amount,
                     "emptiesAdjustment": empties_adjustment_map.get(str(dp.order.id)),
                     "amountDue": round(float(getattr(dp.order, "total_amount", 0) or 0) + float((empties_adjustment_map.get(str(dp.order.id)) or {}).get("amount") or 0), 2),
+                    # Added: transportation, driver, and warehouse trip details
+                    # need the same applied-refund breakdown as the order portals.
+                    "depositRefundClaims": [
+                        {
+                            "id": claim.id,
+                            "productName": claim.product_name,
+                            "containerTypeId": claim.container_type_id,
+                            "requestedQuantity": claim.requested_quantity,
+                            "requestedCases": claim.requested_cases,
+                            "requestedLooseBottles": claim.requested_loose_bottles,
+                            "requestedAmount": float(claim.requested_amount),
+                            "status": claim.status,
+                        }
+                        for claim in dp.order.deposit_refund_claims.all()
+                    ],
                     "scheduledReplacement": _get_scheduled_replacement_payload(dp.order),
                     "items": [
                         {
@@ -3479,9 +3720,17 @@ def _sorted_batches_for_policy(batches: list[StockBatch], policy: str) -> list[S
 
 def _persist_stock_batch_quantity(batch: StockBatch) -> None:
     """
-    Delete depleted stock batches so empty entries are removed from inventory views.
+    Remove empty batches only when no stock or protected history needs them.
     """
     if _int(getattr(batch, "quantity", 0), 0) <= 0:
+        # Fix: reservations and return receipts must retain their source batch;
+        # remaining loose units are also physical stock and cannot be deleted.
+        has_loose_stock = _int(batch.loose_units, 0) > 0
+        if has_loose_stock or batch.reservations.exists() or batch.return_receipt_lines.exists():
+            batch.quantity = 0
+            batch.status = "ACTIVE" if has_loose_stock else "DEPLETED"
+            batch.save(update_fields=["quantity", "status", "updated_at"])
+            return
         batch.delete()
         return
     batch.status = "ACTIVE"
@@ -3528,6 +3777,9 @@ def _reserve_inventory_for_order_item(
     batches = list(
         StockBatch.objects.select_for_update().select_related("inventory")
         .filter(inventory_id__in=list(inventory_by_id.keys()), quantity__gt=0)
+        # Fix: legacy reservations and deliveries must exclude expired/quarantined stock.
+        .filter(status__iexact="ACTIVE")
+        .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.now()))
     )
     available_by_inventory = {
         inv.id: max(0, _int(inv.quantity, 0) - _int(inv.reserved_quantity, 0))
@@ -3782,6 +4034,7 @@ def _select_best_warehouse_for_order_items(
     return candidate_warehouse_ids[0]
 
 
+@transaction.atomic
 def _adjust_reserved_for_order_item(
     *,
     order_item: OrderItem,
@@ -3789,6 +4042,8 @@ def _adjust_reserved_for_order_item(
     performed_by: str | None,
     consume_qty: int | None = None,
 ) -> None:
+    # Legacy reservations have no reservation row; use the parent order as their retry lock.
+    Order.objects.select_for_update().get(id=order_item.order_id)
     reserve_rows = list(
         InventoryTransaction.objects.filter(
             reference_type="order_item_reserve",
@@ -3819,7 +4074,7 @@ def _adjust_reserved_for_order_item(
             if balance <= 0:
                 continue
             qty = min(balance, remaining)
-            inv = Inventory.objects.filter(warehouse_id=warehouse_id, product_id=product_id).first()
+            inv = Inventory.objects.select_for_update().filter(warehouse_id=warehouse_id, product_id=product_id).first()
             if not inv:
                 continue
             inv.reserved_quantity = max(0, int(inv.reserved_quantity or 0) - qty)
@@ -3832,6 +4087,7 @@ def _adjust_reserved_for_order_item(
                 reference_type="order_item_reserve",
                 reference_id=order_item.id,
                 notes="Reserved quantity consumed on delivery",
+                performed_by=performed_by,
             )
             remaining -= qty
         return
@@ -3840,7 +4096,7 @@ def _adjust_reserved_for_order_item(
     for (warehouse_id, product_id), balance in balances.items():
         if balance <= 0:
             continue
-        inv = Inventory.objects.filter(warehouse_id=warehouse_id, product_id=product_id).first()
+        inv = Inventory.objects.select_for_update().filter(warehouse_id=warehouse_id, product_id=product_id).first()
         if not inv:
             continue
         inv.reserved_quantity = max(0, int(inv.reserved_quantity or 0) - balance)
@@ -3853,6 +4109,7 @@ def _adjust_reserved_for_order_item(
             reference_type="order_item_reserve",
             reference_id=order_item.id,
             notes="Reserved quantity released on cancellation",
+            performed_by=performed_by,
         )
 
 
@@ -3901,7 +4158,9 @@ def _finalize_order_inventory_on_delivery(order: Order, performed_by: str | None
 def _release_order_reservations(order: Order, performed_by: str | None) -> None:
     items = list(order.items.select_related("product").all())
     for order_item in items:
-        item_reservations = InventoryReservation.objects.filter(order_item=order_item, status=ReservationStatus.RESERVED)
+        # Released/consumed modern reservations must never fall back to the legacy
+        # ledger, whose quantities may be base units rather than cases.
+        item_reservations = InventoryReservation.objects.filter(order_item=order_item)
         if item_reservations.exists() or order_item.item_type == OrderItemType.MIXED_CASE:
             release_order_item_reservations(order_item, performed_by)
             continue
@@ -4091,14 +4350,16 @@ def _allocate_inventory_for_order_item(
             for inventory in inventories_sorted:
                 if remaining_bottles <= 0:
                     break
-                loose_available = max(0, _int(getattr(inventory, "loose_bottles", 0), 0))
+                # Fix: legacy loose allocation must not bypass batch expiry or consume tracked units twice.
+                tracked_loose = StockBatch.objects.filter(inventory=inventory).aggregate(total=Sum("loose_units"))["total"] or 0
+                loose_available = max(0, int(inventory.loose_bottles or 0) - int(tracked_loose))
                 if loose_available <= 0:
                     continue
                 consume_loose = min(loose_available, remaining_bottles)
                 if consume_loose <= 0:
                     continue
-                previous_loose_stock = loose_available
-                inventory.loose_bottles = loose_available - consume_loose
+                previous_loose_stock = int(inventory.loose_bottles or 0)
+                inventory.loose_bottles = previous_loose_stock - consume_loose
                 inventory.save(update_fields=["loose_bottles", "updated_at"])
                 InventoryTransaction.objects.create(
                     warehouse=inventory.warehouse,
@@ -4140,6 +4401,9 @@ def _allocate_inventory_for_order_item(
     batches = list(
         StockBatch.objects.select_for_update(of=("self",)).select_related("inventory")
         .filter(inventory_id__in=list(inventory_by_id.keys()), quantity__gt=0)
+        # Fix: legacy reservations and deliveries must exclude expired/quarantined stock.
+        .filter(status__iexact="ACTIVE")
+        .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.now()))
     )
     if not batches:
         raise ValueError(f"No available stock batches for product {product.sku}")
@@ -6686,13 +6950,19 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         return err
     if request.method == "GET":
         page, size, off = _pagination(request)
-        qs = User.objects.all().order_by("-created_at")
+        qs = User.objects.prefetch_related("service_areas").all().order_by("-created_at")
         s = str(request.GET.get("search", "")).strip()
         if s:
             qs = qs.filter(Q(name__icontains=s) | Q(email__icontains=s))
         total = qs.count()
         rows = list(qs[off : off + size])
-        users = [_serialize_model(u, exclude={"password"}) for u in rows]
+        users = []
+        for user in rows:
+            row = _serialize_model(user, exclude={"password"})
+            # Added: populate the driver edit form with its persisted service area.
+            row["serviceAreas"] = [area.city for area in user.service_areas.all()]
+            row["serviceArea"] = row["serviceAreas"][0] if row["serviceAreas"] else ""
+            users.append(row)
         return _ok({"success": True, "users": users, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
 
     body = _json_body(request)
@@ -6722,25 +6992,36 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         return _err("Invalid email format for staff/driver account")
     if role_id not in {x for x, _ in RoleType.choices}:
         return _err("Role not found", 404)
+    # Added: driver service area is selected during registration, not in fleet management.
+    service_area = str(body.get("serviceArea") or "").strip().casefold()
+    if role_id == RoleType.DRIVER:
+        if str(staff.get("role") or "").upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+            return _err("Only administrators can assign a driver service area", 403)
+        if service_area not in {"silay", "talisay"}:
+            return _err("Select Silay or Talisay as the driver's service area", 400)
     role = role_id
     existing_message = _staff_email_conflict_message(email, role_id)
     if existing_message:
         return _err(existing_message, 409)
     if not _is_email_verification_token_valid(email_verification_token, email, "staff"):
         return _err("Please verify this email address before creating the user", 400)
-    user = User.objects.create(
-        email=email,
-        password=hash_password(password),
-        name=name,
-        first_name=first_name,
-        middle_name=middle_name,
-        last_name=last_name,
-        suffix=suffix,
-        phone=phone,
-        avatar=body.get("avatar"),
-        role=role,
-        is_active=bool(body.get("isActive", True)),
-    )
+    # Keep account creation and its required service-area assignment atomic.
+    with transaction.atomic():
+        user = User.objects.create(
+            email=email,
+            password=hash_password(password),
+            name=name,
+            first_name=first_name,
+            middle_name=middle_name,
+            last_name=last_name,
+            suffix=suffix,
+            phone=phone,
+            avatar=body.get("avatar"),
+            role=role,
+            is_active=bool(body.get("isActive", True)),
+        )
+        if role == RoleType.DRIVER:
+            DriverServiceArea.objects.create(driver=user, city=service_area, assigned_by=staff.get("userId"))
     warnings: list[str] = []
     try:
         _email_new_staff_credentials(user, password)
@@ -6759,7 +7040,10 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     except Exception:
         logger.exception("Failed to create staff notifications for new user=%s", user.id)
         warnings.append("staff_notification_failed")
-    payload: dict[str, Any] = {"success": True, "user": _serialize_model(user, exclude={"password"})}
+    serialized_user = _serialize_model(user, exclude={"password"})
+    serialized_user["serviceAreas"] = [area.city for area in user.service_areas.all()]
+    serialized_user["serviceArea"] = serialized_user["serviceAreas"][0] if serialized_user["serviceAreas"] else ""
+    payload: dict[str, Any] = {"success": True, "user": serialized_user}
     if warnings:
         payload["warnings"] = warnings
     return _ok(payload, 201)
@@ -6772,11 +7056,14 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     if err:
         return err
     try:
-        user = User.objects.get(id=user_id)
+        user = User.objects.prefetch_related("service_areas").get(id=user_id)
     except User.DoesNotExist:
         return _err("User not found", 404)
     if request.method == "GET":
-        return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})})
+        row = _serialize_model(user, exclude={"password"})
+        row["serviceAreas"] = [area.city for area in user.service_areas.all()]
+        row["serviceArea"] = row["serviceAreas"][0] if row["serviceAreas"] else ""
+        return _ok({"success": True, "user": row})
     if request.method == "DELETE":
         actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
         deleted_name = str(user.name or "User").strip() or "User"
@@ -6802,6 +7089,16 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
 
     requested_role = str(body.get("roleId") or current_role).strip()
     role_change_requested = requested_role != current_role
+    service_area_supplied = "serviceArea" in body
+    service_area = str(body.get("serviceArea") or "").strip().casefold()
+    if requested_role == RoleType.DRIVER and service_area_supplied:
+        # Added: service-area changes remain an administrator-owned account setting.
+        if str(staff.get("role") or "").upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+            return _err("Only administrators can assign a driver service area", 403)
+        if service_area not in {"silay", "talisay"}:
+            return _err("Select Silay or Talisay as the driver's service area", 400)
+    if requested_role == RoleType.DRIVER and not service_area_supplied and not user.service_areas.exists():
+        return _err("Select Silay or Talisay as the driver's service area", 400)
     if email_change_requested or role_change_requested:
         existing_message = _staff_email_conflict_message(requested_email, requested_role, exclude_user_id=user.id)
         if existing_message:
@@ -6890,8 +7187,23 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         existing_message = _staff_email_conflict_message(user.email, user.role, exclude_user_id=user.id)
         if existing_message:
             return _err(existing_message, 409)
-    user.save()
-    return _ok({"success": True, "user": _serialize_model(user, exclude={"password"})})
+    with transaction.atomic():
+        user.save()
+        if user.role != RoleType.DRIVER:
+            # A non-driver account must not retain routing assignments.
+            user.service_areas.all().delete()
+        elif service_area_supplied:
+            # The UI intentionally assigns one operational city per driver.
+            user.service_areas.all().delete()
+            DriverServiceArea.objects.create(
+                driver=user,
+                city=service_area,
+                assigned_by=str(staff.get("userId") or ""),
+            )
+    row = _serialize_model(user, exclude={"password"})
+    row["serviceAreas"] = [area.city for area in user.service_areas.all()]
+    row["serviceArea"] = row["serviceAreas"][0] if row["serviceAreas"] else ""
+    return _ok({"success": True, "user": row})
 
 
 @csrf_exempt
@@ -6908,7 +7220,34 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
             qs = qs.filter(Q(name__icontains=s) | Q(email__icontains=s) | Q(phone__icontains=s))
         total = qs.count()
         rows = list(qs[off : off + size])
-        return _ok({"success": True, "customers": [_serialize_model(c, exclude={"password"}) for c in rows], "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+        customer_ids = [customer.id for customer in rows]
+        regular_orders = _real_orders(
+            Order.objects.filter(customer_id__in=customer_ids).exclude(sales_channel=SalesChannel.RETAIL_POS)
+        )
+        # Fix: calculate client delivery totals in the database instead of making
+        # the Clients page serialize every order before it can show these columns.
+        delivered_stats = {
+            str(entry["customer_id"]): entry
+            for entry in regular_orders.filter(status=OrderStatus.DELIVERED)
+            .values("customer_id")
+            .annotate(successful_deliveries=Count("id"), successful_delivery_spend=Sum("total_amount"))
+        }
+        last_orders: dict[str, dict[str, Any]] = {}
+        for entry in regular_orders.order_by("-created_at").values("customer_id", "order_number", "created_at"):
+            last_orders.setdefault(str(entry["customer_id"]), entry)
+
+        serialized_customers = []
+        for customer in rows:
+            customer_data = _serialize_model(customer, exclude={"password"})
+            stats = delivered_stats.get(str(customer.id), {})
+            last_order = last_orders.get(str(customer.id), {})
+            customer_data["successfulDeliveries"] = _int(stats.get("successful_deliveries"), 0)
+            customer_data["successfulDeliverySpend"] = float(stats.get("successful_delivery_spend") or 0)
+            customer_data["lastOrderNumber"] = last_order.get("order_number")
+            customer_data["lastOrderDate"] = _serialize_value(last_order.get("created_at"))
+            serialized_customers.append(customer_data)
+
+        return _ok({"success": True, "customers": serialized_customers, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     _, err = _require_staff(request)
     if err:
         return err
@@ -7051,7 +7390,11 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         if password_error:
             return _err(password_error)
         c.password = hash_password(str(body["password"]))
-    c.save()
+    with transaction.atomic():
+        c.save()
+        # Advance the existing order delta feed when live customer details change.
+        # Shipping snapshots and original order dates remain untouched.
+        Order.objects.filter(customer=c).update(updated_at=timezone.now())
     return _ok({"success": True, "customer": _serialize_model(c, exclude={"password"})})
 
 
@@ -7209,6 +7552,39 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
     return _ok({"success": True, "warehouse": warehouse_data})
 
 
+def _has_duplicate_product_identity(
+    *,
+    name: Any,
+    sizes: Any,
+    category: Any,
+    exclude_product_id: str | None = None,
+) -> bool:
+    """Match product variants by normalized name, category, and overlapping size."""
+    normalize = lambda value: " ".join(str(value or "").split()).casefold()
+    candidate_name = normalize(name)
+    candidate_category = normalize(category)
+    candidate_sizes = {
+        normalize(value) for value in (sizes if isinstance(sizes, list) else []) if normalize(value)
+    }
+    if not candidate_name:
+        return False
+
+    # Archived variants still reserve their identity so restoring them cannot create duplicates.
+    products = Product.objects.all().only("id", "name", "category", "sizes")
+    if exclude_product_id:
+        products = products.exclude(id=exclude_product_id)
+    for product in products:
+        if normalize(product.name) != candidate_name or normalize(product.category) != candidate_category:
+            continue
+        existing_sizes = {
+            normalize(value) for value in (product.sizes if isinstance(product.sizes, list) else []) if normalize(value)
+        }
+        # Products with no recorded size also conflict with the same empty-size identity.
+        if candidate_sizes.intersection(existing_sizes) or (not candidate_sizes and not existing_sizes):
+            return True
+    return False
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def products_collection(request: HttpRequest) -> JsonResponse:
@@ -7217,7 +7593,9 @@ def products_collection(request: HttpRequest) -> JsonResponse:
         return _err("Unauthorized", 401)
     if request.method == "GET":
         page, size, off = _pagination(request)
-        qs = _real_products(Product.objects.filter(is_active=True)).order_by("name")
+        show_archived = str(request.GET.get("archived") or "").strip().lower() in {"1", "true", "yes"}
+        # Archived products use the same serializer but remain separate from the active catalog.
+        qs = _real_products(Product.objects.filter(is_active=not show_archived)).order_by("name")
         s = str(request.GET.get("search", "")).strip()
         if s:
             qs = qs.filter(Q(name__icontains=s) | Q(sku__icontains=s))
@@ -7228,19 +7606,23 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             Inventory.objects.filter(product_id__in=product_ids)
             .filter(product__in=_real_products(Product.objects.all()))
             .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
-            .values(
-                "product_id", "quantity", "reserved_quantity"
+            .select_related("product").prefetch_related(
+                Prefetch("batches", to_attr="_availability_batches"),
+                Prefetch("reservations", queryset=InventoryReservation.objects.filter(status=ReservationStatus.RESERVED), to_attr="_active_reservations"),
             )
         )
         inventory_by_product: dict[str, list[dict[str, int]]] = {}
+        from .mixed_case import available_base_units, allocatable_standard_cases
         for inv in inventory_rows:
-            pid = str(inv.get("product_id") or "")
+            pid = str(inv.product_id or "")
             if not pid:
                 continue
             inventory_by_product.setdefault(pid, []).append(
                 {
-                    "quantity": _int(inv.get("quantity"), 0),
-                    "reservedQuantity": _int(inv.get("reserved_quantity"), 0),
+                    "quantity": int(inv.quantity or 0),
+                    "reservedQuantity": int(inv.reserved_quantity or 0),
+                    "sellableCases": allocatable_standard_cases(inv),
+                    "sellableBaseUnits": available_base_units(inv),
                 }
             )
 
@@ -7255,11 +7637,12 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             row = _serialize_model(product)
             inventory_entries = inventory_by_product.get(product.id, [])
             available_quantity = sum(
-                max(0, _int(item.get("quantity"), 0) - _int(item.get("reservedQuantity"), 0))
-                for item in inventory_entries
+                item["sellableCases"] for item in inventory_entries
             )
             row["inventory"] = inventory_entries
+            # Fix: catalog availability uses the same expiry rules as reservation.
             row["availableQuantity"] = available_quantity
+            row["availableBaseUnits"] = sum(item["sellableBaseUnits"] for item in inventory_entries)
 
             qty_per_unit = max(1, int(product.quantity_per_unit or 1)) if product.quantity_per_unit else 1
             if product.price and product.price > 0:
@@ -7289,7 +7672,8 @@ def products_collection(request: HttpRequest) -> JsonResponse:
             products_out.append(row)
 
         return _ok({"success": True, "products": products_out, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
-    _, err = _require_staff(request)
+    # Product registration is a warehouse operation; admins monitor the catalog.
+    _, err = _require_warehouse_operator(request)
     if err:
         return err
     body = _json_body(request)
@@ -7312,6 +7696,11 @@ def products_collection(request: HttpRequest) -> JsonResponse:
     normalized_sizes = [str(value).strip() for value in raw_sizes] if isinstance(raw_sizes, list) else []
     normalized_sizes = [value for value in normalized_sizes if value]
     category_value = str(body.get("category") or "").strip() or None
+    # Reject duplicate catalog variants before creating inventory for them.
+    if _has_duplicate_product_identity(
+        name=body.get("name"), sizes=normalized_sizes, category=category_value
+    ):
+        return _err("A product with the same name, size, and category already exists.", 409)
     quantity_per_unit = _int(body.get("quantityPerCase", body.get("quantityPerUnit")), 0)
     if quantity_per_unit <= 0:
         return _err("quantityPerUnit must be a positive integer", 400)
@@ -7410,9 +7799,21 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         return _err("Product not found", 404)
     if request.method == "GET":
         return _ok({"success": True, "product": _serialize_model(prod)})
-    _, err = _require_staff(request)
+    # Admins may restore archived products from their inventory archive page;
+    # all other product mutations remain warehouse-staff operations.
+    staff, err = _require_staff(request)
     if err:
         return err
+    staff_role = str(staff.get("role") or "").strip().upper()
+    requested_body = _json_body(request) if request.method == "PUT" else {}
+    is_admin_restore = (
+        staff_role in {RoleType.ADMIN, RoleType.SUPER_ADMIN}
+        and set(requested_body.keys()) == {"isActive"}
+        and requested_body.get("isActive") is True
+        and not prod.is_active
+    )
+    if staff_role != RoleType.WAREHOUSE_STAFF and not is_admin_restore:
+        return _err("Only warehouse staff can perform warehouse operations", 403)
     if request.method == "DELETE":
         actor_name = str(p.get("name") or "Staff").strip() or "Staff"
         product_name = str(prod.name or "Product").strip() or "Product"
@@ -7430,17 +7831,24 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
             total_cases += max(0, _int(row.get("quantity"), 0))
             total_loose += max(0, _int(row.get("loose_bottles"), 0))
             total_reserved += max(0, _int(row.get("reserved_quantity"), 0))
-        if total_cases > 0 or total_loose > 0 or total_reserved > 0:
+        active_reservation_units = max(0, _int(
+            InventoryReservation.objects.filter(
+                product_id=prod.id,
+                status=ReservationStatus.RESERVED,
+            ).aggregate(total=Sum("quantity_base_units")).get("total"),
+            0,
+        ))
+        if total_cases > 0 or total_loose > 0 or total_reserved > 0 or active_reservation_units > 0:
             return _err(
                 (
-                    "Cannot delete product while stock still exists. "
+                    "Cannot archive product while stock or an order reservation still exists. "
                     f"Remaining: {total_cases} case(s), {total_loose} loose bottle(s), "
-                    f"{total_reserved} reserved."
+                    f"{max(total_reserved, active_reservation_units)} reserved."
                 ),
                 409,
             )
-        # Preserve order history snapshots, then allow hard delete.
-        # OrderItem.product uses SET_NULL so historical order rows remain readable.
+        # Archive zero-stock products so protected transaction and packaging records
+        # remain available for audit history while active catalog queries hide them.
         try:
             with transaction.atomic():
                 linked_order_items = OrderItem.objects.filter(product_id=prod.id)
@@ -7457,26 +7865,21 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
                         updates.append("product_unit")
                     if updates:
                         item.save(update_fields=updates)
-                prod.delete()
-        except ProtectedError:
-            return _err(
-                "Cannot delete product because it is still referenced by protected records. "
-                "Clear related records first, then try again.",
-                409,
-            )
+                prod.is_active = False
+                prod.save(update_fields=["is_active", "updated_at"])
         except IntegrityError as exc:
-            logger.exception("Product delete integrity error for product %s", product_id)
-            return _err(f"Delete blocked by a system constraint: {str(exc)}", 409)
+            logger.exception("Product archive integrity error for product %s", product_id)
+            return _err(f"Archive blocked by a system constraint: {str(exc)}", 409)
         except Exception as exc:
-            logger.exception("Unexpected product delete error for product %s", product_id)
-            return _err(f"Failed to delete product: {str(exc)}", 500)
+            logger.exception("Unexpected product archive error for product %s", product_id)
+            return _err(f"Failed to archive product: {str(exc)}", 500)
         _create_staff_notifications(
-            title="Product deleted",
-            message=f"{actor_name} deleted {product_name}{f' ({product_sku})' if product_sku else ''}.",
+            title="Product archived",
+            message=f"{actor_name} archived {product_name}{f' ({product_sku})' if product_sku else ''}.",
             reference_type="product",
             reference_id=product_id,
         )
-        return _ok({"success": True})
+        return _ok({"success": True, "product": _serialize_model(prod)})
     previous_name = str(prod.name or "").strip()
     previous_sku = str(prod.sku or "").strip()
     body = _json_body(request)
@@ -7498,6 +7901,15 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         if not isinstance(raw_sizes, list):
             return _err("sizes must be an array", 400)
         prod.sizes = [str(value).strip() for value in raw_sizes if str(value).strip()]
+    # Exclude the current row so unchanged edits remain valid, while changing a
+    # product into another existing name/size/category combination is rejected.
+    if _has_duplicate_product_identity(
+        name=prod.name,
+        sizes=prod.sizes,
+        category=prod.category,
+        exclude_product_id=prod.id,
+    ):
+        return _err("A product with the same name, size, and category already exists.", 409)
     weight_inputs = {"sizes", "quantityPerCase", "quantityPerUnit", "category", "weight"}
     if weight_inputs.intersection(body):
         # Fix: editing size/category/quantity must update the stored load weight
@@ -7547,10 +7959,11 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
                 pkg_obj.save(update_fields=updated_fields)
 
     actor_name = str(p.get("name") or "Staff").strip() or "Staff"
+    restored = "isActive" in body and bool(body.get("isActive"))
     _create_staff_notifications(
-        title="Product updated",
+        title="Product restored" if restored else "Product updated",
         message=(
-            f"{actor_name} updated {previous_name or 'product'}"
+            f"{actor_name} {'restored' if restored else 'updated'} {previous_name or 'product'}"
             f"{f' ({previous_sku})' if previous_sku else ''}."
         ),
         reference_type="product",
@@ -7568,7 +7981,10 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         page, size, off = _pagination(request)
         qs = (
-            Inventory.objects.select_related("warehouse", "product")
+            Inventory.objects.select_related("warehouse", "product").prefetch_related(
+                Prefetch("batches", to_attr="_availability_batches"),
+                Prefetch("reservations", queryset=InventoryReservation.objects.filter(status=ReservationStatus.RESERVED), to_attr="_active_reservations"),
+            )
             .filter(product__in=_real_products(Product.objects.all()))
             .filter(product__is_active=True)
             .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
@@ -7621,9 +8037,17 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
             if isinstance(row.get("product"), dict):
                 row["product"]["depositAmount"] = float(pkg.deposit_amount or 0) if pkg else 0.0
                 row["product"]["caseDepositAmount"] = float(pkg.case_deposit_amount or 0) if pkg else 0.0
+            # Added: expose sellable stock separately from physical inventory, which retains expired batches.
+            from .mixed_case import available_base_units, allocatable_standard_cases
+            row["sellableBaseUnits"] = available_base_units(item)
+            row["sellableCases"] = allocatable_standard_cases(item)
             row["overstockedFlag"] = _is_inventory_overstocked_flagged_by_stockin(item)
             data.append(row)
         return _ok({"success": True, "inventory": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+    # Admin inventory access is monitoring-only; stock changes belong to warehouse staff.
+    staff, err = _require_warehouse_operator(request)
+    if err:
+        return err
     body = _json_body(request)
     warehouse_id = str(body.get("warehouseId", "")).strip()
     product_id = str(body.get("productId", "")).strip()
@@ -7680,7 +8104,7 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["PUT"])
 def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
-    staff, err = _require_staff(request)
+    staff, err = _require_warehouse_operator(request)
     if err:
         return err
     try:
@@ -7772,7 +8196,7 @@ def empty_case_inventory(request: HttpRequest) -> JsonResponse:
     rows: list[dict[str, Any]] = []
     for inventory in qs:
         balance = get_product_empty_case_balance(inventory)
-        # Empty products with no current physical balance do not belong on this warehouse view.
+        # Only available empties can be returned by warehouse staff.
         if balance["availableBottles"] <= 0:
             continue
         rows.append({
@@ -7786,6 +8210,54 @@ def empty_case_inventory(request: HttpRequest) -> JsonResponse:
             **balance,
         })
     return _ok({"success": True, "emptyCaseInventory": rows})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def record_returned_empty_containers(request: HttpRequest) -> JsonResponse:
+    """Deduct warehouse empties manually, independently of stock-in and customer returns."""
+    from .deposit_lifecycle import get_product_empty_case_balance
+
+    staff, err = _require_warehouse_operator(request)
+    if err:
+        return err
+    body = _json_body(request)
+    inventory_id = str(body.get("inventoryId") or "").strip()
+    container_unit = str(body.get("containerUnit") or "").strip().upper()
+    try:
+        quantity = Decimal(str(body.get("quantity")))
+        if not quantity.is_finite() or quantity <= 0 or quantity != quantity.to_integral_value():
+            raise ValueError()
+        quantity = int(quantity)
+    except (ValueError, ArithmeticError):
+        return _err("Quantity must be a positive whole number", 400)
+    if not inventory_id or container_unit not in {"CASE", "BOTTLE"}:
+        return _err("inventoryId and containerUnit (CASE or BOTTLE) are required", 400)
+    with transaction.atomic():
+        # Fix: lock inventory to prevent concurrent returns exceeding the available balance.
+        inventory = Inventory.objects.select_for_update().select_related("warehouse", "product").filter(id=inventory_id).first()
+        if not inventory:
+            return _err("Inventory not found", 404)
+        allowed_warehouse_ids = set(_get_allowed_warehouse_ids_for_staff(str(staff.get("userId") or "")))
+        if inventory.warehouse_id not in allowed_warehouse_ids:
+            return _err("Forbidden: inventory is outside your assigned warehouse scope", 403)
+        balance = get_product_empty_case_balance(inventory)
+        if not balance["containersPerCase"]:
+            return _err("This product does not use returnable containers", 400)
+        returned_bottles = quantity * balance["containersPerCase"] if container_unit == "CASE" else quantity
+        if returned_bottles > balance["availableBottles"]:
+            return _err("Returned quantity exceeds available empty stock", 400)
+        # Fix: record an outgoing movement without updating customer balances or deposits.
+        InventoryTransaction.objects.create(
+            warehouse=inventory.warehouse, product=inventory.product,
+            type="CONSUME_EMPTY", quantity=returned_bottles,
+            quantity_unit=InventoryQuantityUnit.BASE_UNIT, stock_unit_label="Empty bottle",
+            previous_stock=balance["availableBottles"], updated_stock=balance["availableBottles"] - returned_bottles,
+            reference_type="manual_empty_return", reference_id=inventory.id,
+            performed_by=str(staff.get("name") or "Warehouse staff"),
+            notes=f"Warehouse return: {quantity} {container_unit.lower()}(s). {str(body.get('remarks') or '').strip()}",
+        )
+    return _ok({"success": True, "returnedBottles": returned_bottles, "message": "Empty stock returned"}, 201)
 
 
 _PHYSICAL_STOCK_IN_TYPES = {"IN", "STOCK_IN", "RETURN"}
@@ -7912,6 +8384,16 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
     if tx_type and tx_type != "ALL":
         qs = qs.filter(type__iexact=tx_type)
 
+    # Filter return history before pagination, retaining the staff warehouse scope above.
+    reference_type = str(request.GET.get("referenceType") or "").strip()
+    if reference_type:
+        qs = qs.filter(reference_type=reference_type)
+    warehouse_id = str(request.GET.get("warehouseId") or "").strip()
+    if warehouse_id:
+        if allowed_warehouse_ids is not None and warehouse_id not in allowed_warehouse_ids:
+            return _err("Forbidden: warehouse is outside your assigned scope", 403)
+        qs = qs.filter(warehouse_id=warehouse_id)
+
     search = str(request.GET.get("search") or "").strip()
     if search:
         qs = qs.filter(
@@ -7949,6 +8431,69 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
+    """Record a confirmed physical supplier return or disposal without deleting batch history."""
+    staff, err = _require_warehouse_operator(request)
+    if err:
+        return err
+    body = _json_body(request)
+    batch_id = str(body.get("batchId") or "").strip()
+    action = str(body.get("action") or "").strip()
+    unit = str(body.get("unit") or "CASE").strip()
+    reason = str(body.get("reason") or "").strip()
+    request_id = str(body.get("requestId") or "").strip()
+    if action not in {"SUPPLIER_RETURN", "DISPOSAL"} or unit not in {"CASE", "BASE_UNIT"} or not reason or not request_id or len(request_id) > 100:
+        return _err("Action, unit, reason and requestId are required", 400)
+    try:
+        quantity = Decimal(str(body.get("quantity")))
+        if not quantity.is_finite() or quantity <= 0 or quantity != quantity.to_integral_value():
+            raise ValueError()
+        quantity = int(quantity)
+    except (ValueError, ArithmeticError):
+        return _err("Quantity must be a positive whole number", 400)
+    source = StockBatch.objects.filter(id=batch_id).first()
+    if not source:
+        return _err("Stock batch not found", 404)
+    if source.inventory.warehouse_id not in set(_get_allowed_warehouse_ids_for_staff(str(staff.get("userId") or ""))):
+        return _err("Forbidden", 403)
+    with transaction.atomic():
+        # Lock in the same inventory-then-batch order as allocation; serialize retries and removals.
+        inventory = Inventory.objects.select_for_update().get(id=source.inventory_id)
+        batch = StockBatch.objects.select_for_update().get(id=batch_id)
+        previous = InventoryTransaction.objects.filter(reference_type="expired_stock", reference_id=request_id).first()
+        if previous:
+            if previous.product_id != inventory.product_id or previous.warehouse_id != inventory.warehouse_id or previous.notes != f"{action}; Batch={batch.id} ({batch.batch_number}); {reason}" or previous.quantity != quantity or previous.quantity_unit != unit:
+                return _err("Request ID was already used for another action", 409)
+            return _ok({"success": True, "message": "Action already recorded"})
+        if not batch.expiry_date or batch.expiry_date > timezone.now():
+            return _err("Only expired batches can be returned or disposed through this action", 400)
+        if batch.reservations.filter(status=ReservationStatus.RESERVED).exists():
+            return _err("Release or reassign this batch's active order reservations before removing stock", 400)
+        batch_field = "quantity" if unit == "CASE" else "loose_units"
+        inventory_field = "quantity" if unit == "CASE" else "loose_bottles"
+        stock_before = int(getattr(inventory, inventory_field) or 0)
+        if quantity > int(getattr(batch, batch_field) or 0) or quantity > stock_before:
+            return _err("Quantity exceeds the remaining physical stock", 400)
+        setattr(batch, batch_field, int(getattr(batch, batch_field)) - quantity)
+        setattr(inventory, inventory_field, stock_before - quantity)
+        # Keep the source batch and receipt history even after its final units leave.
+        batch.status = "DEPLETED" if batch.quantity == 0 and batch.loose_units == 0 else batch.status
+        batch.save(update_fields=[batch_field, "status", "updated_at"])
+        inventory.save(update_fields=[inventory_field, "updated_at"])
+        InventoryTransaction.objects.create(
+            warehouse_id=inventory.warehouse_id, product_id=inventory.product_id,
+            type="OUT", quantity=quantity, quantity_unit=unit,
+            stock_unit_label="Case" if unit == "CASE" else "Base unit",
+            previous_stock=stock_before, updated_stock=stock_before - quantity,
+            reference_type="expired_stock", reference_id=request_id,
+            performed_by=str(staff.get("name") or staff.get("userId") or "Warehouse staff"),
+            notes=f"{action}; Batch={batch.id} ({batch.batch_number}); {reason}",
+        )
+    return _ok({"success": True, "message": "Expired stock action recorded"}, 201)
+
+
+@csrf_exempt
 @require_http_methods(["GET", "POST", "PUT"])
 def stock_batches_collection(request: HttpRequest) -> JsonResponse:
     staff, err = _require_staff(request)
@@ -7961,7 +8506,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             .filter(inventory__product__in=_real_products(Product.objects.all()))
             .filter(inventory__product__is_active=True)
             .filter(inventory__warehouse__in=_real_warehouses(Warehouse.objects.all()))
-            .filter(quantity__gt=0)
+            .filter(Q(quantity__gt=0) | Q(loose_units__gt=0))
             .order_by("-created_at")
         )
         staff_role = str(staff.get("role") or "").strip().upper()
@@ -7978,6 +8523,10 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
         rows = list(qs[off : off + size])
         data = [_serialize_model(x, include={"inventory": lambda o: _serialize_model(o.inventory, include={"warehouse": lambda i: _serialize_model(i.warehouse), "product": lambda i: _serialize_model(i.product)})}) for x in rows]
         return _ok({"success": True, "stockBatches": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+    # Batches are warehouse inventory operations, not admin monitoring actions.
+    staff, err = _require_warehouse_operator(request)
+    if err:
+        return err
     body = _json_body(request)
     if request.method == "PUT":
         batch_id = str(body.get("batchId") or body.get("id") or "").strip()
@@ -8051,9 +8600,8 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 if capacity_error:
                     return _err(capacity_error, 400)
             if delta != 0:
-                from .deposit_lifecycle import record_stockin_empty_consumption
-                # Fix: consume available empties while allowing any remaining stock quantity.
-                record_stockin_empty_consumption(inv, batch, next_qty)
+                # Returned containers are recorded separately by warehouse staff.
+                # Updating a stock batch must not infer or consume empty containers.
                 batch.quantity = next_qty
                 _persist_stock_batch_quantity(batch)
 
@@ -8073,7 +8621,9 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     .get("total")
                 )
                 inv.quantity = max(0, _int(recalculated_total, 0))
-                should_update_threshold = not _stockin_would_flag_overstock(inv, next_qty)
+                # Fix: reducing a batch is a stock deduction and must preserve the
+                # threshold established by the latest accepted restock.
+                should_update_threshold = delta > 0 and not _stockin_would_flag_overstock(inv, next_qty)
                 if should_update_threshold:
                     inv.threshold = max(1, int(inv.quantity * 0.15))
                 update_fields = ["quantity", "updated_at"]
@@ -8184,6 +8734,10 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                     normalized_sizes = [value for value in normalized_sizes if value]
                     quantity_per_unit = _int(body.get("quantityPerCase", body.get("quantityPerUnit")), 0)
                     category_value = str(body.get("category") or "").strip() or None
+                    if _has_duplicate_product_identity(
+                        name=name, sizes=normalized_sizes, category=category_value
+                    ):
+                        return _err("A product with the same name, size, and category already exists.", 409)
                     product_weight = resolve_product_weight(
                         sizes=normalized_sizes,
                         quantity_per_unit=quantity_per_unit,
@@ -8270,9 +8824,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 reference_id=batch.id,
                 notes="Stock batch added",
             )
-            from .deposit_lifecycle import record_stockin_empty_consumption
-            # Fix: consume available empties without requiring them for the full restock.
-            record_stockin_empty_consumption(inv, batch, qty)
+            # This stock-in does not change empty-container balances.
             actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
             _create_staff_notifications(
                 title="Stock batch added",
@@ -8292,7 +8844,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
     """Bulk add multiple stock batches in a single atomic transaction"""
-    staff, err = _require_staff(request)
+    staff, err = _require_warehouse_operator(request)
     if err:
         return err
 
@@ -8453,9 +9005,7 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                     reference_id=batch.id,
                     notes="Bulk stock batch added",
                 )
-                from .deposit_lifecycle import record_stockin_empty_consumption
-                # Fix: consume available empties without requiring them for the full restock.
-                record_stockin_empty_consumption(inv, batch, qty)
+                # This stock-in does not change empty-container balances.
 
                 created_stock_batches.append(batch)
 
@@ -8503,6 +9053,8 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
             row["drivers"] = [_serialize_driver_vehicle_link(vehicle)] if vehicle.driver_id else []
             vehicles_data.append(row)
         return _ok({"success": True, "vehicles": vehicles_data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+    if str(staff.get("role") or "").strip().upper() != RoleType.WAREHOUSE_STAFF:
+        return _err("Only warehouse staff can manage vehicles and assignments", 403)
     body = _json_body(request)
     if request.method == "POST":
         if not body.get("licensePlate") or not body.get("type"):
@@ -8598,6 +9150,8 @@ def vehicle_detail(request: HttpRequest, vehicle_id: str) -> JsonResponse:
     staff, err = _require_staff(request)
     if err:
         return err
+    if str(staff.get("role") or "").strip().upper() != RoleType.WAREHOUSE_STAFF:
+        return _err("Only warehouse staff can manage vehicles and assignments", 403)
     try:
         v = Vehicle.objects.get(id=vehicle_id)
     except Vehicle.DoesNotExist:
@@ -8625,7 +9179,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         page, size, off = _pagination(request)
         show_sample = str(request.GET.get("includeSample") or request.GET.get("showSample") or "").strip().lower() in {"1", "true", "yes", "on"}
         base_qs = _annotate_driver_delivery_counts(
-            User.objects.prefetch_related("assigned_vehicles").filter(role="DRIVER")
+            User.objects.prefetch_related("assigned_vehicles", "service_areas").filter(role="DRIVER")
         )
         qs = (base_qs if show_sample else _real_drivers(base_qs)).order_by("-created_at")
         if request.GET.get("active") == "true":
@@ -8636,6 +9190,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         for driver in rows:
             row = _serialize_model(driver, exclude={"password"})
             row["status"] = driver.driver_status
+            row["serviceAreas"] = [area.city for area in driver.service_areas.all()]
             row["phone"] = driver.phone
             row["totalDeliveries"] = int(getattr(driver, "completed_delivery_count", 0) or 0)
             row["user"] = _serialize_model(driver, exclude={"password"})
@@ -8644,6 +9199,30 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             row["vehicles"] = [_serialize_driver_vehicle_link(vehicle) for vehicle in vehicles]
             data.append(row)
         return _ok({"success": True, "drivers": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+    body = _json_body(request)
+    # Admin authority is limited to explicit area assignment, not fleet operations.
+    if request.method == "PUT" and "serviceAreas" in body:
+        actor = User.objects.filter(id=staff.get("userId"), is_active=True, role__in=[RoleType.ADMIN, RoleType.SUPER_ADMIN]).first()
+        if not actor:
+            return _err("Only authorized admins can assign driver service areas", 403)
+        if set(body) - {"id", "serviceAreas"}:
+            return _err("Save service area assignments separately from driver details", 400)
+        areas = body.get("serviceAreas")
+        if not isinstance(areas, list) or any(not isinstance(city, str) or not city.strip() or len(city.strip()) > 100 for city in areas):
+            return _err("Service areas must be a list of city names", 400)
+        normalized = sorted({" ".join(city.split()).casefold() for city in areas})
+        with transaction.atomic():
+            driver = User.objects.select_for_update().filter(id=body.get("id"), role=RoleType.DRIVER).first()
+            if not driver:
+                return _err("Driver not found", 404)
+            driver.service_areas.exclude(city__in=normalized).delete()
+            for city in normalized:
+                DriverServiceArea.objects.get_or_create(driver=driver, city=city, defaults={"assigned_by": actor.id})
+        return _ok({"success": True, "serviceAreas": normalized})
+    # Admins monitor driver records; operational profile changes are not admin actions.
+    staff, err = _require_warehouse_operator(request)
+    if err:
+        return err
     body = _json_body(request)
     if request.method == "POST":
         user_id = str(body.get("userId", "")).strip()
@@ -9445,9 +10024,23 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             "status": final_status,
             "at": timezone.now().isoformat(),
             "by": str(staff.get("userId") or ""),
+            # Preserve the decision-maker, timestamp, and remarks for audit.
+            "byName": str(staff.get("name") or "Staff").strip() or "Staff",
+            "remarks": status_notes,
         })
     # Fix: persist every status transition so customer claim timelines stay current.
-    r.notes = _upsert_replacement_meta(r.notes, {"statusTimeline": status_timeline})
+    review_decision = {}
+    if is_admin_role and final_status in {ReplacementStatus.APPROVED, ReplacementStatus.REJECTED}:
+        review_decision = {
+            "reviewDecision": {
+                "status": final_status,
+                "adminId": str(staff.get("userId") or ""),
+                "adminName": str(staff.get("name") or "Staff").strip() or "Staff",
+                "decidedAt": timezone.now().isoformat(),
+                "remarks": status_notes,
+            }
+        }
+    r.notes = _upsert_replacement_meta(r.notes, {"statusTimeline": status_timeline, **review_decision})
     r.notes = _append_replacement_note_line(
         r.notes,
         f"{final_status}{f': {status_notes}' if status_notes else ''}",
@@ -9622,6 +10215,13 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         with transaction.atomic():
             # Fix: lock and update the PR workflow together with the order status so approval creates one PO.
             o = Order.objects.select_for_update().get(id=order_id)
+            # Revalidate after waiting for another approval/cancellation/delivery.
+            current_status = _normalize_order_status(o.status)
+            is_pending_request = o.request_status == PurchaseRequestStatus.PENDING_APPROVAL
+            if current_status == next_status and not (next_status == OrderStatus.CONFIRMED and (is_pending_request or not o.purchase_order_number)):
+                return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
+            if current_status != next_status and next_status not in allowed_transitions.get(current_status, set()):
+                return _err(f"Invalid transition from {current_status} to {next_status}", 409)
             now = timezone.now()
             actor_id = str(staff.get("userId") or "").strip()
             actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
@@ -9778,6 +10378,18 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         logger.exception("Failed to email the order outcome for %s", updated.id)
 
     return _ok({"success": True, "order": _serialize_order(updated, include_items=False)})
+
+
+def _driver_service_area_error(driver: User, cities) -> str | None:
+    if not driver.is_active or driver.driver_status != DriverStatus.ACTIVE:
+        return "Selected driver is not active or is on leave"
+    allowed = set(driver.service_areas.values_list("city", flat=True))
+    # Every delivery destination must be explicitly assigned by an admin.
+    excluded = sorted({str(city or "").strip() for city in cities
+                       if " ".join(str(city or "").split()).casefold() not in allowed})
+    if excluded:
+        return "Driver is not assigned to delivery area(s): " + ", ".join(city or "Unspecified city" for city in excluded)
+    return None
 
 
 @csrf_exempt
@@ -10100,7 +10712,16 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             with transaction.atomic():
                 # Fix: lock the vehicle and repeat validation inside the write
                 # transaction so simultaneous trip requests cannot bypass capacity.
+                # Share the driver lock with admin area updates to prevent stale authorization.
+                driver = User.objects.select_for_update().get(id=driver.id)
                 locked_vehicle = Vehicle.objects.select_for_update().get(id=vehicle.id)
+                if str(locked_vehicle.driver_id or '') != str(driver.id):
+                    return _err('Selected vehicle is not assigned to the selected driver', 400)
+                if not locked_vehicle.is_active or locked_vehicle.status != 'AVAILABLE':
+                    return _err('Selected vehicle is not available for a new trip', 409)
+                area_error = _driver_service_area_error(driver, [order.shipping_city for order in orders_to_assign])
+                if area_error:
+                    return _err(area_error, 400)
                 locked_overload_message = _vehicle_overload_message(locked_vehicle, new_orders_weight)
                 if locked_overload_message:
                     transaction.set_rollback(True)
@@ -10181,13 +10802,16 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["DELETE", "PATCH"])
 def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
-    staff, err = _require_staff(request)
+    # Fleet/trip mutations belong to the warehouse; list endpoints retain monitoring access.
+    staff, err = _require_warehouse_operator(request)
     if err:
         return err
 
     trip = Trip.objects.filter(id=trip_id).first()
     if not trip:
         return _err("Trip not found", 404)
+    if str(trip.warehouse_id or '') not in {str(value) for value in _get_allowed_warehouse_ids_for_staff(str(staff.get('userId') or ''))}:
+        return _err('Trip is outside your assigned warehouse scope', 403)
 
     if request.method == "PATCH":
         if str(trip.status or "").upper() != TripStatus.PLANNED:
@@ -10235,6 +10859,12 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
 
         with transaction.atomic():
             existing_drop_points_count = TripDropPoint.objects.select_for_update().filter(trip_id=trip.id).count()
+            assignment_driver = User.objects.select_for_update().get(id=(next_driver or trip.driver).id)
+            destination_cities = list(TripDropPoint.objects.filter(trip=trip).exclude(id__in=remove_drop_point_ids).values_list('city', flat=True))
+            destination_cities.extend(Order.objects.filter(id__in=add_order_ids).values_list('shipping_city', flat=True))
+            area_error = _driver_service_area_error(assignment_driver, destination_cities)
+            if area_error:
+                return _err(area_error, 400)
             projected_drop_points_count = existing_drop_points_count - len(remove_drop_point_ids)
             if add_order_ids:
                 existing_order_ids_on_trip = set(
@@ -10735,6 +11365,65 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def customer_order_deposit_refund(request: HttpRequest, order_id: str) -> JsonResponse:
+    """Apply product-specific empty credit to an undelivered purchase order."""
+    p = _require_auth(request)
+    if not p or p.get("type") != "customer":
+        return _err("Unauthorized", 401)
+    body = requested_body
+
+    try:
+        with transaction.atomic():
+            order = (
+                Order.objects.select_for_update()
+                # Fix: PostgreSQL cannot lock the nullable side of the timeline
+                # outer join; only the required customer relation is needed here.
+                .select_related("customer")
+                .get(id=order_id, customer_id=p.get("userId"))
+            )
+            # Deposit refunds belong to an approved PO, never to its pending PR.
+            if not str(order.purchase_order_number or "").strip():
+                return _err("Deposit refunds can only be applied to a purchase order", 400)
+            if order.status in {OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+                return _err("Deposit refunds cannot be added to this order", 400)
+            if order.request_status in {PurchaseRequestStatus.REJECTED, PurchaseRequestStatus.CANCELLED}:
+                return _err("Deposit refunds cannot be added to this order", 400)
+            if order.bottle_returns.exists():
+                return _err("The empty-container collection for this order is already complete", 400)
+
+            # Delivery state controls eligibility; payment state does not.
+            maximum_credit = max(Decimal("0.00"), Decimal(str(order.total_amount or 0)))
+            applied_credit = _create_deposit_refund_claims(
+                order=order,
+                customer=order.customer,
+                raw_refund_lines=body.get("depositRefundLines"),
+                maximum_order_credit=maximum_credit,
+                client_amount=body.get("depositCreditAmount"),
+            )
+            if applied_credit <= 0:
+                return _err("Select at least one empty container to refund", 400)
+            order.total_amount = max(0.0, float(Decimal(str(order.total_amount or 0)) - applied_credit))
+            order.save(update_fields=["total_amount", "updated_at"])
+    except Order.DoesNotExist:
+        return _err("Order not found", 404)
+    except ValueError as error:
+        return _err(str(error), 400)
+
+    refreshed_order = (
+        Order.objects.select_related("customer", "timeline")
+        .prefetch_related("items__product", "deposit_refund_claims__product", "deposit_refund_claims__container_type")
+        .get(id=order.id)
+    )
+    return _ok({
+        "success": True,
+        "order": _serialize_order(refreshed_order),
+        "user": _customer_payload(refreshed_order.customer),
+        "appliedAmount": float(applied_credit),
+    })
+
+
+@csrf_exempt
 @require_http_methods(["PATCH"])
 def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
     p = _require_auth(request)
@@ -10746,18 +11435,28 @@ def customer_order_cancel(request: HttpRequest, order_id: str) -> JsonResponse:
         o = Order.objects.get(id=order_id, customer_id=p.get("userId"))
     except Order.DoesNotExist:
         return _err("Order not found", 404)
-    if o.status in {OrderStatus.PREPARING, OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+    if o.status == OrderStatus.CANCELLED:
+        return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
+    if o.status in {OrderStatus.PREPARING, OrderStatus.DELIVERED, OrderStatus.REJECTED}:
         return _err("Order cannot be cancelled", 400)
     # Required: reject valid cancellation attempts that omit the reason.
     if not cancellation_reason:
         return _err("A cancellation reason is required", 400)
 
     with transaction.atomic():
+        # Serialize customer retries with staff approval and delivery operations.
+        o = Order.objects.select_for_update().get(id=order_id, customer_id=p.get("userId"))
+        if o.status == OrderStatus.CANCELLED:
+            return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
+        if o.status in {OrderStatus.PREPARING, OrderStatus.DELIVERED, OrderStatus.REJECTED}:
+            return _err("Order cannot be cancelled", 409)
         _release_order_reservations(o, p.get("userId"))
         now = timezone.now()
         actor_name = str((o.customer.name if getattr(o, "customer", None) else None) or "Customer").strip() or "Customer"
         o.status = OrderStatus.CANCELLED
-        o.request_status = PurchaseRequestStatus.CANCELLED
+        # Cancelling fulfillment does not undo the PR approval or its PO identity.
+        if not o.purchase_order_number and o.request_status != PurchaseRequestStatus.APPROVED:
+            o.request_status = PurchaseRequestStatus.CANCELLED
         o.purchase_order_stage = PurchaseOrderStage.CANCELLED
         o.cancelled_by_user_id = str(p.get("userId") or "").strip() or None
         o.cancelled_by_name = actor_name
@@ -11837,6 +12536,10 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                 product_allocations.append(
                     {
                         "itemId": item_id or None,
+                        # Route details retain the component breakdown of a mixed case.
+                        "itemType": item.item_type,
+                        "unitLabel": "mixed case(s)" if item.item_type == OrderItemType.MIXED_CASE else _normalize_product_unit(item.product_unit),
+                        "components": [serialize_mixed_component(component) for component in item.mixed_case_components.all()] if item.item_type == OrderItemType.MIXED_CASE else [],
                         "productName": product_name,
                         "sizeLabel": size_label or None,
                         "allocatedQtyForSelectedWarehouse": allocated_for_selected_warehouse,
@@ -11848,6 +12551,8 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
 
             def _format_route_plan_qty_label(item: OrderItem) -> str:
                 raw_qty = max(_int(getattr(item, "quantity", 0), 0), 0)
+                if item.item_type == OrderItemType.MIXED_CASE:
+                    return f"{raw_qty} mixed case(s)"
                 item_unit = _normalize_product_unit(getattr(item, "product_unit", None))
                 # Fix: multi-product replacements store exact bottle counts per item;
                 # the order quantity is rounded to packs/cases for loading.
@@ -12128,19 +12833,25 @@ def trip_complete(request: HttpRequest, trip_id: str) -> JsonResponse:
 
 @csrf_exempt
 @require_http_methods(["PATCH"])
+@transaction.atomic
 def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: str) -> JsonResponse:
     p, err = _require_staff(request)
     if err:
         return err
-    dp = TripDropPoint.objects.select_related("trip").filter(id=drop_point_id, trip_id=trip_id).first()
+    dp = TripDropPoint.objects.select_for_update(of=("self",)).select_related("trip").filter(id=drop_point_id, trip_id=trip_id).first()
     if not dp:
         return _err("Drop point not found", 404)
+    # Serialize delivery confirmation and cancellation against the same order lock.
+    if dp.order_id:
+        Order.objects.select_for_update().get(id=dp.order_id)
     if p.get("role") == "DRIVER" and p.get("userId") != dp.trip.driver_id:
         return _err("Forbidden", 403)
     body = _json_body(request)
     requeued_to_route_pool = False
     requested_status = str(body.get("status") or "").strip().upper()
     next_status = requested_status
+    if next_status == "COMPLETED" and not str(body.get("deliveryPhoto") or dp.delivery_photo or "").strip():
+        return _err("A POD photo is required to confirm delivery", 400)
     cancellation_reason = str(body.get("notes") or body.get("failureReason") or "").strip()
     # Required: driver delivery cancellations must include the selected reason.
     if requested_status == "CANCELLED" and not cancellation_reason:
@@ -12211,6 +12922,8 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
                 with transaction.atomic():
                     _mark_order_delivered(delivered_order, str(p.get("userId") or "").strip() or None, now)
             except ValueError as e:
+                # Keep the stop and POD form retryable when inventory validation fails.
+                transaction.set_rollback(True)
                 return _err(str(e), 400)
     
     release_inventory = body.get("releaseInventory")
@@ -12218,10 +12931,11 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         normalized_release_inventory = release_inventory.strip().lower()
         parsed_release_inventory = normalized_release_inventory in {"1", "true", "yes", "y", "on"}
     elif release_inventory is None:
-        parsed_release_inventory = True
+        parsed_release_inventory = False
     else:
         parsed_release_inventory = bool(release_inventory)
-    should_release_inventory = next_status in {"SKIPPED", "CANCELLED"} or parsed_release_inventory
+    # A retry keeps its stock; a terminal failed delivery cancels the PO and must release it.
+    should_release_inventory = next_status in {"SKIPPED", "CANCELLED"} or (next_status == "FAILED" and not reschedule_requested) or parsed_release_inventory
 
     # If drop point is marked as FAILED/SKIPPED/CANCELLED, optionally return items back to inventory
     if next_status in {"FAILED", "SKIPPED", "CANCELLED"} and should_release_inventory and dp.order_id:
@@ -12547,7 +13261,17 @@ def _retail_sale_queryset(warehouse: Warehouse | None = None):
     # a nonexistent "warehouse" relation with select_related().
     qs = (
         Order.objects.select_related("customer", "created_by_user")
-        .prefetch_related("items__product", "items__mixed_case_components__product", "bottle_returns")
+        .prefetch_related(
+            "items__product",
+            "items__mixed_case_components__product",
+            "bottle_returns",
+            Prefetch(
+                "items__inventory_transactions",
+                queryset=InventoryTransaction.objects.filter(type="OUT", reference_type="retail_sale")
+                .order_by("created_at", "id"),
+                to_attr="_retail_out_transactions",
+            ),
+        )
         .filter(sales_channel=SalesChannel.RETAIL_POS)
     )
     if warehouse is not None:
@@ -12876,7 +13600,9 @@ def _get_or_create_product_packaging(product: Product) -> tuple[ProductPackaging
         product.packaging_type = "RETURNABLE"
         product.save(update_fields=["packaging_type"])
 
-    return pkg, container_type
+    # Use the packaging's configured container; an existing custom packaging may
+    # differ from the generic container created as a fallback above.
+    return pkg, pkg.container_type
 
 
 @require_GET
@@ -12894,22 +13620,44 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
         OrderItem.objects.filter(order__customer=customer)
         .exclude(order__status__in=["CANCELLED", "REJECTED"])
         .select_related("product", "order")
+        .prefetch_related("mixed_case_components__product")
     )
 
-    # Group purchased quantities by product
-    purchased_cases_by_product: dict[str, int] = {}
+    # Group purchased containers by product. Mixed-case components have no product
+    # on the parent order item, so include each component's actual bottle quantity.
+    purchased_bottles_by_product: dict[str, int] = {}
     for item in order_items:
+        if item.item_type == OrderItemType.MIXED_CASE:
+            for component in item.mixed_case_components.select_related("product").all():
+                product = component.product
+                if not product or not product.is_active or not _is_returnable_product(product):
+                    continue
+                purchased_bottles_by_product[product.id] = (
+                    purchased_bottles_by_product.get(product.id, 0)
+                    + max(0, _int(component.total_base_units, 0))
+                )
+            continue
         prod = item.product
         if not prod or not prod.is_active or not _is_returnable_product(prod):
             continue
         pkg, _ = _get_or_create_product_packaging(prod)
         containers_per_case = pkg.containers_per_case or (prod.quantity_per_unit or 24)
         item_unit = str(getattr(item, "product_unit", "") or getattr(item, "unit", "") or getattr(prod, "unit", "") or "").strip().lower()
-        qty_cases = item.quantity if item_unit == "case" else max(1, item.quantity // containers_per_case)
-        purchased_cases_by_product[prod.id] = purchased_cases_by_product.get(prod.id, 0) + qty_cases
+        quantity_bottles = item.quantity * containers_per_case if item_unit == "case" else item.quantity
+        purchased_bottles_by_product[prod.id] = purchased_bottles_by_product.get(prod.id, 0) + max(0, quantity_bottles)
 
+    recorded_by_product = {
+        str(row["reference_id"]): max(0, _int(row["total"], 0))
+        for row in DepositTransaction.objects.filter(
+            customer=customer,
+            type=DepositTransaction.TransactionType.ADJUSTMENT,
+            reference_type="product",
+            reference_id__in=list(purchased_bottles_by_product.keys()),
+            reason__startswith="Customer declared ",
+        ).values("reference_id").annotate(total=Sum("container_count"))
+    }
     eligible_items = []
-    for prod_id, total_cases_ordered in purchased_cases_by_product.items():
+    for prod_id, total_bottles_ordered in purchased_bottles_by_product.items():
         product = Product.objects.filter(id=prod_id).first()
         if not product or not _is_returnable_product(product):
             continue
@@ -12919,12 +13667,12 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
         case_deposit = float(pkg.case_deposit_amount or 42.0)
         unit_deposit = float(pkg.deposit_amount or 2.0)
 
-        balance = CustomerBottleBalance.objects.filter(customer=customer, container_type=container_type).first()
-        currently_held_bottles = balance.bottles_outstanding if balance else 0
-        currently_held_cases = currently_held_bottles // max(1, containers_per_case)
-
-        available_cases = max(0, total_cases_ordered - currently_held_cases)
-        if available_cases > 0:
+        # Mixed-case components can share one container balance. Cap each product
+        # by its own declaration history so recording one component does not hide another.
+        currently_held_bottles = recorded_by_product.get(str(prod_id), 0)
+        available_bottles = max(0, total_bottles_ordered - currently_held_bottles)
+        available_cases, available_loose_bottles = divmod(available_bottles, max(1, containers_per_case))
+        if available_bottles > 0:
             eligible_items.append({
                 "productId": product.id,
                 "productName": product.name,
@@ -12935,9 +13683,13 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
                 "containersPerCase": containers_per_case,
                 "unitDeposit": unit_deposit,
                 "caseDeposit": case_deposit,
-                "totalCasesOrdered": total_cases_ordered,
-                "currentlyHeldCases": currently_held_cases,
+                "totalCasesOrdered": total_bottles_ordered // max(1, containers_per_case),
+                "totalBottlesOrdered": total_bottles_ordered,
+                "currentlyHeldCases": currently_held_bottles // max(1, containers_per_case),
+                "currentlyHeldBottles": currently_held_bottles,
                 "availableCasesToReturn": available_cases,
+                "availableLooseBottlesToReturn": available_loose_bottles,
+                "availableBottlesToReturn": available_bottles,
             })
 
     return _ok({"success": True, "eligibleItems": eligible_items})
@@ -12958,11 +13710,12 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
 
     body = _json_body(request)
     product_id = str(body.get("productId") or "").strip()
-    cases = _int(body.get("cases"), 0)
+    cases = max(0, _int(body.get("cases"), 0))
+    loose_bottles = max(0, _int(body.get("bottles"), 0))
     if not product_id:
         return _err("Product is required", 400)
-    if cases <= 0:
-        return _err("Number of cases must be at least 1", 400)
+    if cases <= 0 and loose_bottles <= 0:
+        return _err("Record at least one case or loose bottle", 400)
 
     product = Product.objects.filter(id=product_id, is_active=True).first()
     if not product or not _is_returnable_product(product):
@@ -12971,16 +13724,28 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
     pkg, container_type = _get_or_create_product_packaging(product)
     containers_per_case = pkg.containers_per_case or (product.quantity_per_unit or 24)
     case_deposit = Decimal(str(pkg.case_deposit_amount or "42.00"))
+    unit_deposit = Decimal(str(pkg.deposit_amount or container_type.deposit_amount or "0.00"))
+    if loose_bottles >= containers_per_case:
+        return _err(f"Loose bottles must be fewer than {containers_per_case}; record a full case instead.", 400)
 
     order_items = (
         OrderItem.objects.filter(order__customer=customer, product=product)
         .exclude(order__status__in=["CANCELLED", "REJECTED"])
     )
-    total_cases_ordered = sum(
-        item.quantity if str(getattr(item, "product_unit", "") or getattr(item, "unit", "") or getattr(product, "unit", "") or "").strip().lower() == "case" else max(1, item.quantity // containers_per_case)
+    total_bottles_ordered = sum(
+        item.quantity * containers_per_case
+        if str(getattr(item, "product_unit", "") or getattr(item, "unit", "") or getattr(product, "unit", "") or "").strip().lower() == "case"
+        else item.quantity
         for item in order_items
     )
-    if total_cases_ordered <= 0:
+    total_bottles_ordered += sum(
+        max(0, _int(component.total_base_units, 0))
+        for component in MixedCaseComponent.objects.filter(
+            order_item__order__customer=customer,
+            product=product,
+        ).exclude(order_item__order__status__in=["CANCELLED", "REJECTED"])
+    )
+    if total_bottles_ordered <= 0:
         return _err(f"You have no purchase history for {product.name}. Empty bottles can only be recorded for products you purchased.", 400)
 
     with transaction.atomic():
@@ -12991,20 +13756,29 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
                 "bottles_outstanding": 0,
                 "deposit_balance": Decimal("0.00"),
                 "bottles_returned_total": 0,
-                "bottles_sold_total": total_cases_ordered * containers_per_case,
+                "bottles_sold_total": total_bottles_ordered,
             }
         )
 
-        currently_held_cases = balance.bottles_outstanding // max(1, containers_per_case)
-        available_cases = max(0, total_cases_ordered - currently_held_cases)
-        if cases > available_cases:
+        already_recorded = max(0, _int(
+            DepositTransaction.objects.filter(
+                customer=customer,
+                type=DepositTransaction.TransactionType.ADJUSTMENT,
+                reference_type="product",
+                reference_id=product.id,
+                reason__startswith="Customer declared ",
+            ).aggregate(total=Sum("container_count"))["total"],
+            0,
+        ))
+        available_bottles = max(0, total_bottles_ordered - already_recorded)
+        added_bottles = (cases * containers_per_case) + loose_bottles
+        if added_bottles > available_bottles:
             return _err(
-                f"You can only record up to {available_cases} case(s) based on your purchase history of {product.name}.",
+                f"You can only record up to {available_bottles} bottle(s) based on your purchase history of {product.name}.",
                 400
             )
 
-        added_bottles = cases * containers_per_case
-        added_deposit = case_deposit * Decimal(str(cases))
+        added_deposit = (case_deposit * Decimal(str(cases))) + (unit_deposit * Decimal(str(loose_bottles)))
 
         balance_before = balance.deposit_balance
         balance.bottles_outstanding += added_bottles
@@ -13020,7 +13794,7 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
             balance_after=balance.deposit_balance,
             container_type=container_type,
             container_count=added_bottles,
-            reason=f"Customer declared {cases} empty case(s) ({added_bottles} bottles) of {product.name}",
+            reason=f"Customer declared {cases} empty case(s) and {loose_bottles} loose bottle(s) of {product.name}",
             # Fix: preserve the exact product behind this container-level balance.
             reference_type="product",
             reference_id=product.id,
@@ -13030,7 +13804,7 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
     updated_customer = Customer.objects.get(id=customer.id)
     return _ok({
         "success": True,
-        "message": f"Successfully recorded {cases} case(s) ({added_bottles} bottles) of {product.name}.",
+        "message": f"Successfully recorded {cases} case(s) and {loose_bottles} loose bottle(s) of {product.name}.",
         "user": _customer_payload(updated_customer),
     })
 

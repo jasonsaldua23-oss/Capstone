@@ -8,7 +8,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
-import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 type TripDropPointItem = {
   id: string
@@ -559,7 +559,7 @@ export function WarehouseTripsSection({
 
       <Card>
         <CardHeader>
-          <CardTitle>Trips & Deliveries</CardTitle>
+          <CardTitle>Transportation Trips</CardTitle>
           <CardDescription>Delivery trip assignments and completion progress from admin dispatch.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -942,6 +942,10 @@ export function WarehouseTripsSection({
                   <span className="min-w-[108px] font-semibold text-slate-900">{refLabel}</span>
                   <span className="font-mono text-slate-800">{selectedDropPointDetail.order?.orderNumber || 'N/A'}</span>
                 </div>
+                {(selectedDropPointDetail.order as any)?.purchaseRequestNumber && <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Originating PR</span>
+                  <span className="font-mono text-slate-800">{(selectedDropPointDetail.order as any).purchaseRequestNumber}</span>
+                </div>}
                 <div className="flex items-center gap-2">
                   <span className="min-w-[108px] font-semibold text-slate-900">{refStatusLabel}</span>
                   {(() => {
@@ -969,6 +973,7 @@ export function WarehouseTripsSection({
                       : 'N/A'}
                   </span>
                 </div>
+                <DepositRefundRow order={selectedDropPointDetail.order} className="pt-1 text-xs" />
               </div>
 
               {/* Order Items */}

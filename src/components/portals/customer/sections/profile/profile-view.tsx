@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label'
 import { resolveClientImageUrl } from '@/lib/client-image'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
-import { Bell, Camera, ChevronRight, Clock, Loader2, LogOut, MapPin, Package, PencilLine, ShieldCheck, Lock, CreditCard, HelpCircle, MessageSquare, Info, Leaf, Phone, ArrowLeft, KeyRound, Minus, Plus, Recycle } from 'lucide-react'
+import { Bell, Camera, ChevronRight, Clock, Loader2, LogOut, MapPin, Package, PencilLine, ShieldCheck, Lock, CreditCard, HelpCircle, MessageSquare, Info, Leaf, Phone, ArrowLeft, KeyRound, Minus, Plus, Recycle, WalletCards } from 'lucide-react'
 import { toast } from 'sonner'
 
 export function formatFullName(
@@ -157,12 +157,53 @@ export function CustomerProfileView({
   const [isLoadingEligible, setIsLoadingEligible] = useState(false)
   const [selectedProductId, setSelectedProductId] = useState('')
   const [recordCases, setRecordCases] = useState(1)
+  const [recordLooseBottles, setRecordLooseBottles] = useState(0)
   const [isSubmittingEmpties, setIsSubmittingEmpties] = useState(false)
-  const [emptiesTab, setEmptiesTab] = useState<'available' | 'reserved'>('available')
+  const [emptiesTab, setEmptiesTab] = useState<'available' | 'reserved' | 'refund'>('available')
   const [reservedOrders, setReservedOrders] = useState<any[]>([])
+  const [refundableOrders, setRefundableOrders] = useState<any[]>([])
+  const [selectedRefundOrderId, setSelectedRefundOrderId] = useState('')
+  const [refundQuantityByProduct, setRefundQuantityByProduct] = useState<Record<string, { cases: number; bottles: number }>>({})
+  const [isSubmittingRefund, setIsSubmittingRefund] = useState(false)
   const [isLoadingReserved, setIsLoadingReserved] = useState(false)
   const lastFetchedReservedRef = useRef<number>(0)
   const isFetchingReservedRef = useRef<boolean>(false)
+  const refundEmptyOptions = useMemo(() => (
+    (Array.isArray(user?.bottleBalances) ? user.bottleBalances : []).flatMap((balance: any) => {
+      const containerTypeId = String(balance?.containerTypeId || '').trim()
+      const depositPerContainer = Math.max(0, Number(balance?.depositAmount || 0))
+      const containersPerCase = Math.max(1, Math.floor(Number(balance?.containersPerCase || 1)))
+      const caseDepositAmount = Math.max(0, Number(balance?.caseDepositAmount || (depositPerContainer * containersPerCase)))
+      const bottlesAvailable = Math.max(0, Math.floor(Number(balance?.bottlesAvailable ?? balance?.bottlesOutstanding ?? 0)))
+      const refundableBalance = Math.max(0, Number(balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0))
+      const productOptions = Array.isArray(balance?.productOptions) ? balance.productOptions : []
+      if (!containerTypeId || bottlesAvailable <= 0 || refundableBalance <= 0) return []
+      return productOptions.flatMap((product: any) => {
+        const productId = String(product?.id || '').trim()
+        if (!productId) return []
+        return [{
+          key: `${productId}::${containerTypeId}`,
+          productId,
+          productName: String(product?.label || product?.name || 'Returnable product'),
+          containerTypeId,
+          containerTypeName: String(balance?.containerTypeName || 'Returnable container'),
+          depositPerContainer,
+          containersPerCase,
+          caseDepositAmount,
+          bottlesAvailable,
+          refundableBalance,
+        }]
+      })
+    })
+  ), [user?.bottleBalances])
+  const selectedRefundOrder = refundableOrders.find((order: any) => String(order.id) === selectedRefundOrderId)
+  const requestedRefundAmount = refundEmptyOptions.reduce(
+    (total: number, option: any) => {
+      const selected = refundQuantityByProduct[option.key] || { cases: 0, bottles: 0 }
+      return total + (selected.cases * option.caseDepositAmount) + (selected.bottles * option.depositPerContainer)
+    },
+    0
+  )
 
   const fetchReservedOrders = useCallback(async (force = false) => {
     const now = Date.now()
@@ -186,9 +227,26 @@ export function CustomerProfileView({
           if (['REJECTED', 'CANCELLED'].includes(reqStatus)) return false
           const items = Array.isArray(order?.items) ? order.items : []
           const hasItemEmpties = items.some((item: any) => Number(item?.emptyReturnedQuantity || item?.empty_returned_quantity || 0) > 0)
-          return hasItemEmpties
+          const hasRefundClaim = (Array.isArray(order?.depositRefundClaims) ? order.depositRefundClaims : [])
+            .some((claim: any) => String(claim?.status || '').toUpperCase() === 'PENDING')
+          return hasItemEmpties || hasRefundClaim
+        })
+        const undeliveredPurchaseOrders = rows.filter((order: any) => {
+          const status = String(order?.status || '').toUpperCase()
+          const requestStatus = String(order?.requestStatus || order?.request_status || '').toUpperCase()
+          if (['CANCELLED', 'CANCELED', 'REJECTED', 'DELIVERED', 'COMPLETED', 'FAILED', 'FAILED_DELIVERY'].includes(status)) return false
+          if (['REJECTED', 'CANCELLED'].includes(requestStatus)) return false
+          // A refund is attached only after the request has a real PO number.
+          return Boolean(String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim())
+            && Number(order?.totalAmount || order?.total_amount || 0) > 0
         })
         setReservedOrders(activeWithEmpties)
+        setRefundableOrders(undeliveredPurchaseOrders)
+        setSelectedRefundOrderId((current) => (
+          undeliveredPurchaseOrders.some((order: any) => String(order.id) === current)
+            ? current
+            : String(undeliveredPurchaseOrders[0]?.id || '')
+        ))
         lastFetchedReservedRef.current = Date.now()
       }
     } catch (e) {
@@ -234,7 +292,8 @@ export function CustomerProfileView({
         setEligibleProducts(data.eligibleItems)
         if (data.eligibleItems.length > 0) {
           setSelectedProductId(data.eligibleItems[0].productId)
-          setRecordCases(1)
+          setRecordCases(data.eligibleItems[0].availableCasesToReturn > 0 ? 1 : 0)
+          setRecordLooseBottles(0)
         } else {
           setSelectedProductId('')
         }
@@ -252,8 +311,10 @@ export function CustomerProfileView({
       toast.error('Please select a product')
       return
     }
-    if (recordCases <= 0 || recordCases > selectedItem.availableCasesToReturn) {
-      toast.error(`Please enter a valid case quantity (1 to ${selectedItem.availableCasesToReturn})`)
+    const containersPerCase = Math.max(1, Number(selectedItem.containersPerCase || 1))
+    const totalBottles = (recordCases * containersPerCase) + recordLooseBottles
+    if (totalBottles <= 0 || totalBottles > Number(selectedItem.availableBottlesToReturn || 0)) {
+      toast.error(`Please record between 1 and ${selectedItem.availableBottlesToReturn} available bottles`)
       return
     }
 
@@ -266,11 +327,12 @@ export function CustomerProfileView({
         body: JSON.stringify({
           productId: selectedProductId,
           cases: recordCases,
+          bottles: recordLooseBottles,
         }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.success) {
-        toast.success(data.message || `Recorded ${recordCases} empty case(s) successfully!`)
+        toast.success(data.message || 'Empty containers recorded successfully!')
         if (data.user && onUserUpdate) {
           onUserUpdate(data.user)
         }
@@ -283,6 +345,74 @@ export function CustomerProfileView({
       toast.error('Network error while recording empty bottles')
     } finally {
       setIsSubmittingEmpties(false)
+    }
+  }
+
+  const handleApplyRefundToOrder = async () => {
+    if (!selectedRefundOrder) {
+      toast.error('Please select a purchase order that has not been delivered')
+      return
+    }
+    const refundLines = refundEmptyOptions.flatMap((option: any) => {
+      const selected = refundQuantityByProduct[option.key] || { cases: 0, bottles: 0 }
+      const cases = Math.max(0, Math.floor(selected.cases || 0))
+      const bottles = Math.max(0, Math.floor(selected.bottles || 0))
+      const quantity = (cases * option.containersPerCase) + bottles
+      return quantity > 0 ? [{
+        productId: option.productId,
+        containerTypeId: option.containerTypeId,
+        quantity,
+        cases,
+        bottles,
+      }] : []
+    })
+    if (refundLines.length === 0) {
+      toast.error('Select the empty containers you want to refund')
+      return
+    }
+    const requestedByContainer = new Map<string, number>()
+    for (const line of refundLines) {
+      requestedByContainer.set(line.containerTypeId, (requestedByContainer.get(line.containerTypeId) || 0) + line.quantity)
+    }
+    const exceedsContainerBalance = Array.from(requestedByContainer.entries()).some(([containerTypeId, quantity]) => {
+      const option = refundEmptyOptions.find((entry: any) => entry.containerTypeId === containerTypeId)
+      return quantity > Number(option?.bottlesAvailable || 0)
+    })
+    if (exceedsContainerBalance) {
+      toast.error('The selected quantities exceed your available empties')
+      return
+    }
+    const orderBalance = Math.max(0, Number(selectedRefundOrder.totalAmount || selectedRefundOrder.total_amount || 0))
+    if (requestedRefundAmount > orderBalance + 0.001) {
+      toast.error('The refund cannot exceed the remaining order amount')
+      return
+    }
+
+    setIsSubmittingRefund(true)
+    try {
+      const response = await fetch(`/api/customer/orders/${selectedRefundOrder.id}/deposit-refund`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          depositCreditAmount: Math.round(requestedRefundAmount * 100) / 100,
+          depositRefundLines: refundLines,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) {
+        toast.error(payload?.error || 'Unable to apply the deposit refund')
+        return
+      }
+      if (payload?.user) onUserUpdate?.(payload.user)
+      setRefundQuantityByProduct({})
+      lastFetchedReservedRef.current = 0
+      await fetchReservedOrders(true)
+      toast.success(`${new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(payload?.appliedAmount || requestedRefundAmount))} was applied to the selected order.`)
+    } catch {
+      toast.error('Network error while applying the deposit refund')
+    } finally {
+      setIsSubmittingRefund(false)
     }
   }
 
@@ -1338,7 +1468,7 @@ export function CustomerProfileView({
           </Button>
         </div>
 
-        {/* Navigation Tabs for Available vs Used/Reserved Deposits */}
+        {/* Available balances, active reservations, and post-checkout refunds share one view. */}
         <div className="mx-4 mb-3 flex rounded-2xl bg-slate-100/80 p-1">
           <button
             type="button"
@@ -1350,7 +1480,7 @@ export function CustomerProfileView({
             }`}
           >
             <Recycle className="h-3.5 w-3.5 text-emerald-600" />
-            <span>Available Empties</span>
+            <span>Available</span>
           </button>
           <button
             type="button"
@@ -1362,12 +1492,24 @@ export function CustomerProfileView({
             }`}
           >
             <Package className="h-3.5 w-3.5 text-blue-600" />
-            <span>Used / Reserved Deposits</span>
+            <span>Reserved</span>
             {reservedOrders.length > 0 && (
               <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
                 {reservedOrders.length}
               </span>
             )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEmptiesTab('refund')}
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition-all ${
+              emptiesTab === 'refund'
+                ? 'bg-white text-amber-800 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <WalletCards className="h-3.5 w-3.5 text-amber-600" />
+            <span>Refund Empties</span>
           </button>
         </div>
 
@@ -1469,7 +1611,7 @@ export function CustomerProfileView({
               </div>
             )}
           </div>
-        ) : (
+        ) : emptiesTab === 'reserved' ? (
           <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
             <div className="border-b border-slate-100 px-4 py-3.5 flex items-center justify-between">
               <div>
@@ -1489,10 +1631,18 @@ export function CustomerProfileView({
                   const itemsWithEmpties = (Array.isArray(order?.items) ? order.items : []).filter(
                     (i: any) => Number(i?.emptyReturnedQuantity || i?.empty_returned_quantity || 0) > 0
                   )
-                  const totalDepositCovered = itemsWithEmpties.reduce((sum: number, item: any) => {
+                  const refundClaims = (Array.isArray(order?.depositRefundClaims) ? order.depositRefundClaims : []).filter(
+                    (claim: any) => String(claim?.status || '').toUpperCase() === 'PENDING'
+                  )
+                  const automaticDepositCovered = itemsWithEmpties.reduce((sum: number, item: any) => {
                     const refund = Number(item?.depositRefunded || item?.deposit_refunded || 0)
                     return sum + refund
                   }, 0) || Number(order?.depositRefundTotal || order?.deposit_refund_total || 0)
+                  const requestedRefundCovered = refundClaims.reduce(
+                    (sum: number, claim: any) => sum + Number(claim?.requestedAmount || 0),
+                    0
+                  )
+                  const totalDepositCovered = automaticDepositCovered + requestedRefundCovered
 
                   return (
                     <div key={order.id} className="p-4 space-y-2.5">
@@ -1514,7 +1664,7 @@ export function CustomerProfileView({
                           const perCase = Math.max(1, Number(item?.containersPerCase || item?.quantityPerCase || item?.product?.quantityPerCase || 1))
                           const cases = Math.floor(empties / perCase)
                           const loose = empties % perCase
-                          const depositRefund = Number(item?.depositRefunded || item?.deposit_refunded || 0) || (totalDepositCovered > 0 && itemsWithEmpties.length === 1 ? totalDepositCovered : 0)
+                          const depositRefund = Number(item?.depositRefunded || item?.deposit_refunded || 0) || (automaticDepositCovered > 0 && itemsWithEmpties.length === 1 ? automaticDepositCovered : 0)
 
                           return (
                             <div key={idx} className="flex items-center justify-between">
@@ -1526,6 +1676,32 @@ export function CustomerProfileView({
                                 {cases > 0 && loose > 0 ? ' + ' : ''}
                                 {loose > 0 ? `${loose} loose` : ''}
                                 {depositRefund > 0 ? ` (${formatDeposit(depositRefund)})` : ''}
+                              </span>
+                            </div>
+                          )
+                        })}
+                        {refundClaims.map((claim: any) => {
+                          const matchingBalance = bottleBalances.find(
+                            (balance: any) => String(balance?.containerTypeId || '') === String(claim?.containerTypeId || '')
+                          )
+                          const perCase = Math.max(1, Number(matchingBalance?.containersPerCase || 1))
+                          const quantity = Math.max(0, Number(claim.requestedQuantity || 0))
+                          const hasStoredBreakdown = Number(claim.requestedCases || 0) > 0 || Number(claim.requestedLooseBottles || 0) > 0
+                          const cases = hasStoredBreakdown
+                            ? Math.max(0, Number(claim.requestedCases || 0))
+                            : (perCase > 1 ? Math.floor(quantity / perCase) : 0)
+                          const bottles = hasStoredBreakdown
+                            ? Math.max(0, Number(claim.requestedLooseBottles || 0))
+                            : (perCase > 1 ? quantity % perCase : quantity)
+
+                          return (
+                            <div key={claim.id} className="flex items-center justify-between gap-2">
+                              <span className="truncate font-medium text-slate-800">{claim.productName || claim.containerTypeName || 'Returnable Product'}</span>
+                              <span className="shrink-0 font-semibold text-slate-700">
+                                {cases > 0 ? `${cases} case${cases === 1 ? '' : 's'}` : ''}
+                                {cases > 0 && bottles > 0 ? ' + ' : ''}
+                                {bottles > 0 ? `${bottles} bottle${bottles === 1 ? '' : 's'}` : ''}
+                                {' '}({formatDeposit(claim.requestedAmount)})
                               </span>
                             </div>
                           )
@@ -1552,6 +1728,170 @@ export function CustomerProfileView({
               </div>
             )}
           </div>
+        ) : (
+          <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5">
+              <div>
+                <h3 className="text-[15px] font-bold text-slate-900">Refund Empties to a Purchase Order</h3>
+                <p className="mt-0.5 text-xs text-slate-500">Reduce a PO that has not been delivered and have the driver collect the selected empties.</p>
+              </div>
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-amber-50 text-amber-600">
+                <WalletCards className="h-4 w-4" />
+              </span>
+            </div>
+
+            {isLoadingReserved && refundableOrders.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400">Loading undelivered purchase orders...</div>
+            ) : refundableOrders.length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <p className="text-sm font-semibold text-slate-700">No Undelivered Purchase Orders</p>
+                <p className="mx-auto mt-1 max-w-xs text-xs text-slate-500">A deposit refund can only be applied to a PO before it is delivered.</p>
+              </div>
+            ) : refundEmptyOptions.length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <p className="text-sm font-semibold text-slate-700">No Available Empties</p>
+                <p className="mx-auto mt-1 max-w-xs text-xs text-slate-500">Your recorded empties are already reserved or have no refundable balance.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 p-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="refund-order" className="text-xs font-semibold text-slate-700">Apply refund to purchase order</Label>
+                  <select
+                    id="refund-order"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-amber-500 focus:outline-none"
+                    value={selectedRefundOrderId}
+                    onChange={(event) => {
+                      setSelectedRefundOrderId(event.target.value)
+                      setRefundQuantityByProduct({})
+                    }}
+                  >
+                    {refundableOrders.map((order: any) => (
+                      <option key={order.id} value={order.id}>
+                        {order.purchaseOrderNumber || order.purchase_order_number} — {formatDeposit(Math.max(0, Number(order.totalAmount || 0)))} total
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2.5">
+                  {refundEmptyOptions.map((option: any) => {
+                    const containersPerCase = Math.max(1, Number(option.containersPerCase || 1))
+                    const supportsCases = containersPerCase > 1
+                    const selected = refundQuantityByProduct[option.key] || { cases: 0, bottles: 0 }
+                    const selectedCases = supportsCases ? Math.max(0, selected.cases) : 0
+                    const selectedBottles = Math.max(0, selected.bottles)
+                    const selectedQuantity = (selectedCases * containersPerCase) + selectedBottles
+                    const availableCases = supportsCases ? Math.floor(option.bottlesAvailable / containersPerCase) : 0
+                    const availableBottles = supportsCases ? option.bottlesAvailable % containersPerCase : option.bottlesAvailable
+                    const maximumCases = supportsCases && option.caseDepositAmount > 0
+                      ? Math.max(0, Math.min(
+                        Math.floor((option.bottlesAvailable - selectedBottles) / containersPerCase),
+                        Math.floor((option.refundableBalance - (selectedBottles * option.depositPerContainer) + 0.000001) / option.caseDepositAmount)
+                      ))
+                      : 0
+                    const maximumBottles = option.depositPerContainer > 0
+                      ? Math.max(0, Math.min(
+                        option.bottlesAvailable - (selectedCases * containersPerCase),
+                        Math.floor((option.refundableBalance - (selectedCases * option.caseDepositAmount) + 0.000001) / option.depositPerContainer)
+                      ))
+                      : 0
+
+                    // Added: preserve full cases and loose bottles as separate
+                    // quantities because their deposit prices can differ.
+                    const updateCaseAndBottleQuantity = (cases: number, bottles: number) => {
+                      setRefundQuantityByProduct((current) => ({
+                        ...current,
+                        [option.key]: {
+                          cases: supportsCases ? Math.max(0, Math.floor(cases || 0)) : 0,
+                          bottles: Math.max(0, Math.floor(bottles || 0)),
+                        },
+                      }))
+                    }
+
+                    return (
+                      <div key={option.key} className="rounded-2xl border border-slate-200 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900">{option.productName}</p>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              {option.containerTypeName} · {supportsCases ? `${formatDeposit(option.caseDepositAmount)}/case · ` : ''}{formatDeposit(option.depositPerContainer)}/bottle
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-emerald-700">
+                              {availableCases > 0 ? `${availableCases} case${availableCases === 1 ? '' : 's'}` : ''}
+                              {availableCases > 0 && availableBottles > 0 ? ' + ' : ''}
+                              {availableBottles > 0 ? `${availableBottles} bottle${availableBottles === 1 ? '' : 's'}` : ''}
+                              {' available'}
+                            </p>
+                          </div>
+                          <div className={`grid shrink-0 gap-2 ${supportsCases ? 'w-36 grid-cols-2' : 'w-20 grid-cols-1'}`}>
+                            {supportsCases ? <div className="space-y-1">
+                              <Label htmlFor={`profile-refund-cases-${option.key}`} className="text-[10px] font-semibold text-slate-500">Cases</Label>
+                              <Input
+                                id={`profile-refund-cases-${option.key}`}
+                                type="number"
+                                min="0"
+                                max={maximumCases}
+                                step="1"
+                                value={selectedCases || ''}
+                                onChange={(event) => updateCaseAndBottleQuantity(
+                                  Math.min(Number(event.target.value || 0), maximumCases),
+                                  selectedBottles
+                                )}
+                                placeholder="0"
+                                aria-label={`Cases of ${option.productName}`}
+                              />
+                            </div> : null}
+                            <div className="space-y-1">
+                              <Label htmlFor={`profile-refund-bottles-${option.key}`} className="text-[10px] font-semibold text-slate-500">Bottles</Label>
+                              <Input
+                                id={`profile-refund-bottles-${option.key}`}
+                                type="number"
+                                min="0"
+                                max={maximumBottles}
+                                step="1"
+                                value={selectedBottles || ''}
+                                onChange={(event) => updateCaseAndBottleQuantity(
+                                  selectedCases,
+                                  Math.min(Number(event.target.value || 0), maximumBottles)
+                                )}
+                                placeholder="0"
+                                aria-label={`Loose bottles of ${option.productName}`}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        {selectedQuantity > 0 ? (
+                          <p className="mt-2 text-[11px] font-semibold text-amber-700">
+                            Selected: {selectedCases > 0 ? `${selectedCases} case${selectedCases === 1 ? '' : 's'}` : ''}
+                            {selectedCases > 0 && selectedBottles > 0 ? ' + ' : ''}
+                            {selectedBottles > 0 ? `${selectedBottles} bottle${selectedBottles === 1 ? '' : 's'}` : ''}
+                          </p>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="rounded-2xl bg-amber-50 p-3 text-xs text-amber-900">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">Refund applied to order</span>
+                    <span className="text-sm font-bold">-{formatDeposit(requestedRefundAmount)}</span>
+                  </div>
+                  <p className="mt-1 text-amber-800">The driver will confirm and collect these empties during delivery.</p>
+                </div>
+
+                <Button
+                  type="button"
+                  className="h-11 w-full rounded-xl bg-amber-600 font-bold text-white hover:bg-amber-500"
+                  disabled={isSubmittingRefund || requestedRefundAmount <= 0}
+                  onClick={handleApplyRefundToOrder}
+                >
+                  {isSubmittingRefund ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WalletCards className="mr-2 h-4 w-4" />}
+                  Apply Refund to PO
+                </Button>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Record Empty Bottles Dialog */}
@@ -1560,10 +1900,10 @@ export function CustomerProfileView({
             <DialogHeader>
               <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Recycle className="h-5 w-5 text-emerald-600" />
-                Record Empty Bottle Cases
+                Record Empty Cases and Bottles
               </DialogTitle>
               <DialogDescription className="text-xs text-slate-500">
-                Declare empty returnable cases from your past orders to automatically waive container deposits at checkout.
+                Declare full cases and loose bottles from your past orders to automatically waive container deposits at checkout.
               </DialogDescription>
             </DialogHeader>
 
@@ -1601,12 +1941,14 @@ export function CustomerProfileView({
                     value={selectedProductId}
                     onChange={(e) => {
                       setSelectedProductId(e.target.value)
-                      setRecordCases(1)
+                      const nextItem = eligibleProducts.find((item) => item.productId === e.target.value)
+                      setRecordCases(Number(nextItem?.availableCasesToReturn || 0) > 0 ? 1 : 0)
+                      setRecordLooseBottles(0)
                     }}
                   >
                     {eligibleProducts.map((prod) => (
                       <option key={prod.productId} value={prod.productId}>
-                        {prod.productName} ({prod.availableCasesToReturn} case{prod.availableCasesToReturn > 1 ? 's' : ''} available)
+                        {prod.productName} ({prod.availableCasesToReturn} case{prod.availableCasesToReturn === 1 ? '' : 's'} + {prod.availableLooseBottlesToReturn} loose bottle{prod.availableLooseBottlesToReturn === 1 ? '' : 's'} available)
                       </option>
                     ))}
                   </select>
@@ -1625,7 +1967,7 @@ export function CustomerProfileView({
 
                       <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-2">
                         <span className="text-xs font-medium text-slate-600 pl-2">
-                          {recordCases} case{recordCases > 1 ? 's' : ''} ({recordCases * selectedItem.containersPerCase} bottles)
+                          {recordCases} case{recordCases === 1 ? '' : 's'} ({recordCases * selectedItem.containersPerCase} bottles)
                         </span>
 
                         <div className="flex items-center gap-1.5">
@@ -1634,8 +1976,8 @@ export function CustomerProfileView({
                             size="icon"
                             variant="outline"
                             className="h-8 w-8 rounded-xl bg-white border-slate-200"
-                            disabled={recordCases <= 1}
-                            onClick={() => setRecordCases((prev) => Math.max(1, prev - 1))}
+                            disabled={recordCases <= 0}
+                            onClick={() => setRecordCases((prev) => Math.max(0, prev - 1))}
                           >
                             <Minus className="h-3.5 w-3.5" />
                           </Button>
@@ -1648,7 +1990,67 @@ export function CustomerProfileView({
                             variant="outline"
                             className="h-8 w-8 rounded-xl bg-white border-slate-200"
                             disabled={recordCases >= selectedItem.availableCasesToReturn}
-                            onClick={() => setRecordCases((prev) => Math.min(selectedItem.availableCasesToReturn, prev + 1))}
+                            onClick={() => setRecordCases((prev) => {
+                              const nextCases = Math.min(selectedItem.availableCasesToReturn, prev + 1)
+                              const nextLooseMax = Math.max(0, Math.min(
+                                selectedItem.containersPerCase - 1,
+                                selectedItem.availableBottlesToReturn - (nextCases * selectedItem.containersPerCase),
+                              ))
+                              setRecordLooseBottles((loose) => Math.min(loose, nextLooseMax))
+                              return nextCases
+                            })}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Loose bottles are recorded separately from complete cases. */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-slate-700">Loose Bottles to Return</Label>
+                        <span className="text-[11px] font-medium text-emerald-700">
+                          Max with selected cases: {Math.max(0, Math.min(
+                            selectedItem.containersPerCase - 1,
+                            selectedItem.availableBottlesToReturn - (recordCases * selectedItem.containersPerCase),
+                          ))}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                        <span className="pl-2 text-xs font-medium text-slate-600">
+                          {recordLooseBottles} loose bottle{recordLooseBottles === 1 ? '' : 's'}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 rounded-xl border-slate-200 bg-white"
+                            disabled={recordLooseBottles <= 0}
+                            onClick={() => setRecordLooseBottles((prev) => Math.max(0, prev - 1))}
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </Button>
+                          <span className="min-w-[2rem] text-center text-sm font-bold text-slate-900">
+                            {recordLooseBottles}
+                          </span>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 rounded-xl border-slate-200 bg-white"
+                            disabled={recordLooseBottles >= Math.max(0, Math.min(
+                              selectedItem.containersPerCase - 1,
+                              selectedItem.availableBottlesToReturn - (recordCases * selectedItem.containersPerCase),
+                            ))}
+                            onClick={() => setRecordLooseBottles((prev) => Math.min(
+                              Math.max(0, Math.min(
+                                selectedItem.containersPerCase - 1,
+                                selectedItem.availableBottlesToReturn - (recordCases * selectedItem.containersPerCase),
+                              )),
+                              prev + 1,
+                            ))}
                           >
                             <Plus className="h-3.5 w-3.5" />
                           </Button>
@@ -1661,11 +2063,11 @@ export function CustomerProfileView({
                       <div className="flex items-center justify-between font-semibold text-emerald-900">
                         <span>Deposit Credit to Apply:</span>
                         <span className="text-sm font-bold text-emerald-700">
-                          {formatDeposit(recordCases * selectedItem.caseDeposit)}
+                          {formatDeposit((recordCases * selectedItem.caseDeposit) + (recordLooseBottles * selectedItem.unitDeposit))}
                         </span>
                       </div>
                       <p className="text-[11px] text-emerald-800 leading-snug">
-                        ✓ At checkout, the system will automatically detect these {recordCases} empty case(s) to waive the container deposit fee.
+                        ✓ Recorded balance: {recordCases} case{recordCases === 1 ? '' : 's'} and {recordLooseBottles} loose bottle{recordLooseBottles === 1 ? '' : 's'}.
                       </p>
                     </div>
 
@@ -1682,7 +2084,7 @@ export function CustomerProfileView({
                       <Button
                         type="button"
                         className="flex-1 rounded-xl bg-emerald-600 text-xs font-bold text-white shadow-xs hover:bg-emerald-500"
-                        disabled={isSubmittingEmpties}
+                        disabled={isSubmittingEmpties || ((recordCases * selectedItem.containersPerCase) + recordLooseBottles) <= 0}
                         onClick={handleRecordEmpties}
                       >
                         {isSubmittingEmpties ? (
@@ -1691,7 +2093,7 @@ export function CustomerProfileView({
                             Recording...
                           </>
                         ) : (
-                          `Record ${recordCases} Case${recordCases > 1 ? 's' : ''}`
+                          `Record ${recordCases} case${recordCases === 1 ? '' : 's'} + ${recordLooseBottles} bottle${recordLooseBottles === 1 ? '' : 's'}`
                         )}
                       </Button>
                     </div>

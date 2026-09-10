@@ -658,6 +658,8 @@ export default function MapLibreNavigationMap({
         map.setPaintProperty(mainLayerId, 'line-offset', 0);
         map.setPaintProperty(mainLayerId, 'line-width', ['interpolate', ['linear'], ['zoom'], 10, 2.6, 14, 5, 18, 8.5]);
         map.setPaintProperty(mainLayerId, 'line-opacity', isUpcoming ? 0.98 : isAlternative ? 0.86 : 0.84);
+        // Reused layers must change color when a future leg becomes the active leg.
+        map.setPaintProperty(mainLayerId, 'line-color', isUpcoming ? '#0d61ad' : isAlternative ? '#93c5fd' : '#64748b');
         map.setPaintProperty(detailLayerId, 'line-offset', 0);
       });
 

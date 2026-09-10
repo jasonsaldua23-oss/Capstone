@@ -96,8 +96,14 @@ export function WarehousePurchaseRequestsView({
       if (!query) return true
 
       return [
+        // Search the displayed PR identity even after orderNumber becomes a PO.
+        order?.purchaseRequestNumber,
+        order?.purchase_request_number,
         order?.orderNumber,
         order?.customer?.name,
+        order?.shippingName,
+        dateRequested,
+        formatRequestStatus(requestStatus),
         warehouseLabel,
         requestStatus,
         productText,
@@ -106,7 +112,7 @@ export function WarehousePurchaseRequestsView({
   }, [purchaseRequests, search, statusFilter, dateFilter, minAmount, maxAmount])
 
   const handleAction = async () => {
-    if (!actionState) return
+    if (!actionState || busyId) return
     const { order, action } = actionState
     const reason = buildOrderActionReason(selectedReasons, otherReason)
     // Required: both cancellation and rejection use a selected staff reason.
@@ -121,10 +127,7 @@ export function WarehousePurchaseRequestsView({
         setSelectedReasons([])
         setOtherReason('')
       }
-      await updateWarehouseOrderStatus(order.id, nextStatus, nextReason)
-      setActionState(null)
-      setSelectedReasons([])
-      setOtherReason('')
+      // Submit once; retain the dialog when the existing handler reports failure.
     } finally {
       setBusyId(null)
     }

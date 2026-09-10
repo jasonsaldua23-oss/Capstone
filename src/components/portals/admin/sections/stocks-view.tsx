@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { subscribeDataSync } from '@/lib/data-sync'
 import {
@@ -28,6 +28,7 @@ function getCollection<T>(payload: unknown, keys: string[]): T[] {
 }
 
 export function StocksView() {
+  const [expiryFilter, setExpiryFilter] = useState('all')
   const [stockBatches, setStockBatches] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
@@ -114,8 +115,12 @@ export function StocksView() {
   }, [])
 
   const filteredStockBatches = useMemo(() => {
-    return stockBatches
-  }, [stockBatches])
+    // Added: monitor expired stock awaiting warehouse action without changing physical quantities.
+    return stockBatches.filter((batch) => {
+      const expired = !!batch.expiryDate && new Date(batch.expiryDate).getTime() <= Date.now()
+      return expiryFilter === 'all' || (expiryFilter === 'expired' ? expired : !expired)
+    })
+  }, [stockBatches, expiryFilter])
 
   const getDaysLeft = (expiryDate: string | null) => {
     if (!expiryDate) return null
@@ -155,6 +160,10 @@ export function StocksView() {
             </div>
           </div>
         </div>
+        <select aria-label="Filter batches by expiry" className="h-10 w-fit rounded-md border border-input bg-background px-3 text-sm" value={expiryFilter} onChange={(event) => setExpiryFilter(event.target.value)}>
+          <option value="all">All batches</option><option value="current">Not expired</option><option value="expired">Expired - awaiting action</option>
+        </select>
+        <p className="text-xs text-gray-500">Expired stock stays in physical inventory until its supplier return or disposal is confirmed.</p>
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
@@ -163,7 +172,7 @@ export function StocksView() {
           <div className="h-40 flex items-center justify-center text-gray-500">No stock-in batches found</div>
         ) : (
           <div className="max-w-full overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[920px]">
+            <table className="w-full min-w-[1080px]">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="text-left p-4 font-medium text-gray-600">Batch #</th>
@@ -171,6 +180,7 @@ export function StocksView() {
                   <th className="text-left p-4 font-medium text-gray-600">Product</th>
                   <th className="text-left p-4 font-medium text-gray-600">Size</th>
                   <th className="text-left p-4 font-medium text-gray-600">Qty</th>
+                  <th className="text-left p-4 font-medium text-gray-600">Loose Bottles</th>
                   <th className="text-left p-4 font-medium text-gray-600">Manufactured Date</th>
                   <th className="text-left p-4 font-medium text-gray-600">Expiry Date</th>
                   <th className="text-left p-4 font-medium text-gray-600">Days Left</th>
@@ -181,7 +191,7 @@ export function StocksView() {
                 {filteredStockBatches.map((batch) => {
                   const daysLeft = getDaysLeft(batch.expiryDate)
                   const expiringSoon = typeof daysLeft === 'number' && daysLeft >= 0 && daysLeft <= 14
-                  const expired = typeof daysLeft === 'number' && daysLeft < 0
+                  const expired = !!batch.expiryDate && new Date(batch.expiryDate).getTime() <= Date.now()
                   return (
                     <tr key={batch.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="p-4 font-medium text-gray-900">{batch.batchNumber}</td>
@@ -189,10 +199,12 @@ export function StocksView() {
                       <td className="p-4">{batch.inventory?.product?.name || 'N/A'}</td>
                       <td className="p-4">{getBatchSizeLabel(batch)}</td>
                       <td className="p-4 font-semibold">{batch.quantity}</td>
+                      {/* Match the warehouse batch view while keeping this admin table read-only. */}
+                      <td className="p-4 font-semibold text-gray-700">{Number(batch.looseUnits || 0)}</td>
                       <td className="p-4">{new Date(batch.receiptDate).toLocaleDateString()}</td>
                       <td className="p-4">{batch.expiryDate ? new Date(batch.expiryDate).toLocaleDateString() : 'N/A'}</td>
                       <td className={`p-4 font-semibold ${expired ? 'text-red-600' : expiringSoon ? 'text-orange-600' : 'text-green-600'}`}>
-                        {typeof daysLeft === 'number' ? `${Math.max(daysLeft, 0)} days` : 'N/A'}
+                        {expired ? 'Expired' : typeof daysLeft === 'number' ? `${Math.max(daysLeft, 0)} days` : 'N/A'}
                       </td>
                       <td className="p-4">
                         {expired && <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Expired</Badge>}

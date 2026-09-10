@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
@@ -76,11 +76,14 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
     setSearch(String(globalSearchQuery || ''))
   }, [globalSearchQuery])
 
-  const fetchCustomers = async () => {
-    setIsLoading(true)
+  const customerRefreshRef = useRef(false)
+  const fetchCustomers = async (showLoading = true) => {
+    if (customerRefreshRef.current) return
+    customerRefreshRef.current = true
+    if (showLoading) setIsLoading(true)
     try {
       const [customersResponse, ordersResult, feedbackResponse] = await Promise.all([
-        fetch('/api/customers?page=1&pageSize=500'),
+        fetch('/api/customers?page=1&pageSize=500', { cache: 'no-store' }),
         fetchAllPaginatedCollection<any>(
           '/api/orders?includeItems=none',
           'orders',
@@ -93,18 +96,27 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
       const customersData = customersResponse.ok ? await customersResponse.json().catch(() => ({})) : {}
       const feedbackData = feedbackResponse.ok ? await feedbackResponse.json().catch(() => ({})) : {}
 
-      setCustomers(toArray<any>(customersData?.data ?? customersData?.customers ?? customersData))
-      setOrders(ordersResult.ok ? getCollection<any>(ordersResult.data, ['orders']) : [])
-      setFeedback(getCollection<any>(feedbackData, ['feedbacks']))
+      // Preserve last-known records on transient failures instead of displaying empty tables.
+      if (customersResponse.ok) setCustomers(toArray<any>(customersData?.data ?? customersData?.customers ?? customersData))
+      if (ordersResult.ok) setOrders(getCollection<any>(ordersResult.data, ['orders']))
+      if (feedbackResponse.ok) setFeedback(getCollection<any>(feedbackData, ['feedbacks']))
     } catch (error) {
       console.error('Failed to fetch customers:', error)
     } finally {
+      customerRefreshRef.current = false
       setIsLoading(false)
     }
   }
 
   useEffect(() => {
     fetchCustomers()
+    const refresh = () => { if (document.visibilityState === 'visible') void fetchCustomers(false) }
+    // Reuse local data-sync events plus a visible-page poll for other devices.
+    const unsubscribe = subscribeDataSync(({ scopes }) => {
+      if (scopes.includes('customers') || scopes.includes('orders')) refresh()
+    })
+    const timer = window.setInterval(refresh, 15000)
+    return () => { unsubscribe(); window.clearInterval(timer) }
   }, [])
 
   const customerRows = useMemo(() => {
@@ -163,12 +175,16 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
       const lastOrderStats = lastOrderByCustomer.get(customer.id) || { lastOrderNumber: null, lastOrderDate: null }
       const feedbackStats = ratingByCustomer.get(customer.id) || { sum: 0, count: 0 }
       const rating = feedbackStats.count > 0 ? Number((feedbackStats.sum / feedbackStats.count).toFixed(1)) : null
+      // The customer endpoint supplies fast database aggregates even when the
+      // full orders request is still loading or times out.
+      const successfulDeliveries = Number(customer?.successfulDeliveries)
+      const successfulDeliverySpend = Number(customer?.successfulDeliverySpend)
       return {
         ...customer,
-        orderCount: orderStats.orderCount,
-        totalSpend: orderStats.totalSpend,
-        lastOrderNumber: lastOrderStats.lastOrderNumber,
-        lastOrderDate: lastOrderStats.lastOrderDate,
+        orderCount: Number.isFinite(successfulDeliveries) ? successfulDeliveries : orderStats.orderCount,
+        totalSpend: Number.isFinite(successfulDeliverySpend) ? successfulDeliverySpend : orderStats.totalSpend,
+        lastOrderNumber: customer?.lastOrderNumber || lastOrderStats.lastOrderNumber,
+        lastOrderDate: customer?.lastOrderDate || lastOrderStats.lastOrderDate,
         rating,
         ratingCount: feedbackStats.count,
       }

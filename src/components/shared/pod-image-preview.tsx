@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -19,6 +19,15 @@ export function PodImagePreview({
   caption = 'Click to view full-size photo',
 }: PodImagePreviewProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => { setFailed(false); setAttempt(0) }, [src])
+
+  // Missing files and transient failures stay actionable without substituting fake proof.
+  if (failed) return <div className={className} role="alert">
+    <p className="text-sm text-slate-600">POD photo could not be loaded. If retry fails, contact staff to check the stored photo.</p>
+    <button type="button" className="mt-2 text-sm text-sky-700" onClick={() => { setAttempt((value) => value + 1); setFailed(false) }}>Retry photo</button>
+  </div>
 
   return (
     <>
@@ -30,7 +39,9 @@ export function PodImagePreview({
       >
         {/* Added: clicking a compact thumbnail opens an in-page enlarged preview. */}
         <img
+          key={`${src}-${attempt}`}
           src={src}
+          onError={() => setFailed(true)}
           alt={alt}
           className={className || 'h-64 w-full rounded-xl border border-slate-200 bg-slate-50 object-contain'}
         />

@@ -190,6 +190,17 @@ class User(models.Model):
         db_table = "User"
 
 
+class DriverServiceArea(models.Model):
+    # Explicit assignments replace assumptions based on driver names or addresses.
+    driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name='service_areas')
+    city = models.CharField(max_length=100)
+    assigned_by = models.CharField(max_length=25)
+    assigned_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['driver', 'city'], name='unique_driver_service_city')]
+
+
 class Customer(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     email = models.EmailField(unique=True)
@@ -924,6 +935,43 @@ class CustomerBottleBalance(models.Model):
         verbose_name_plural = "Customer Bottle Balances"
         constraints = [
             models.UniqueConstraint(fields=["customer", "container_type"], name="unique_customer_container_balance")
+        ]
+
+
+class OrderDepositRefundClaim(models.Model):
+    """Empty containers promised for collection in exchange for an order credit."""
+
+    class ClaimStatus(models.TextChoices):
+        PENDING = "PENDING", "Pending collection"
+        SETTLED = "SETTLED", "Collected"
+        PARTIAL = "PARTIAL", "Partially collected"
+        REJECTED = "REJECTED", "Not collected"
+
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="deposit_refund_claims")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, related_name="deposit_refund_claims", blank=True, null=True)
+    product_name = models.CharField(max_length=255)
+    container_type = models.ForeignKey(ContainerType, on_delete=models.PROTECT, related_name="order_refund_claims")
+    requested_quantity = models.PositiveIntegerField()
+    collected_quantity = models.PositiveIntegerField(default=0)
+    requested_cases = models.PositiveIntegerField(default=0)
+    requested_loose_bottles = models.PositiveIntegerField(default=0)
+    containers_per_case = models.PositiveIntegerField(default=1)
+    deposit_per_container = models.DecimalField(max_digits=10, decimal_places=2)
+    case_deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    requested_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    collected_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    status = models.CharField(max_length=20, choices=ClaimStatus.choices, default=ClaimStatus.PENDING)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "OrderDepositRefundClaim"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order", "product", "container_type"],
+                name="unique_order_product_refund_claim",
+            )
         ]
 
 

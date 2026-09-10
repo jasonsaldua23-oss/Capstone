@@ -23,6 +23,7 @@ from ..models import (
     InventoryTransaction,
     MixedCaseComponent,
     Order,
+    OrderDepositRefundClaim,
     OrderItem,
     Product,
     ProductPackaging,
@@ -106,6 +107,20 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             ct_key = str(ct_id)
             reserved_by_container[ct_key] = reserved_by_container.get(ct_key, 0) + max(0, int(mc.empty_covered_quantity or 0))
 
+    # Pending order refund claims reserve the promised empties until the driver
+    # records the actual collection or the order leaves the active workflow.
+    active_refund_claims = (
+        OrderDepositRefundClaim.objects.filter(
+            order__customer=customer,
+            status=OrderDepositRefundClaim.ClaimStatus.PENDING,
+        )
+        .exclude(order__status__in=["CANCELLED", "CANCELED", "REJECTED", "DELIVERED", "COMPLETED", "FAILED", "FAILED_DELIVERY"])
+        .exclude(order__request_status__in=["REJECTED", "CANCELLED"])
+    )
+    for claim in active_refund_claims:
+        container_key = str(claim.container_type_id)
+        reserved_by_container[container_key] = reserved_by_container.get(container_key, 0) + max(0, int(claim.requested_quantity or 0))
+
     balances = list(CustomerBottleBalance.objects.filter(customer=customer).select_related("container_type"))
     balance_container_ids = [str(balance.container_type_id) for balance in balances]
 
@@ -128,6 +143,10 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
         reason = str(transaction.reason or "")
         if " of " in reason:
             legacy_product_names_by_container.setdefault(container_key, []).append(reason.rsplit(" of ", 1)[-1].strip())
+
+    # Refund claims preserve the exact product selected by the customer.
+    for claim in OrderDepositRefundClaim.objects.filter(order__customer=customer).exclude(product_id=None):
+        declared_product_ids_by_container.setdefault(str(claim.container_type_id), []).append(str(claim.product_id))
 
     declared_product_ids = {
         product_id
@@ -177,6 +196,7 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             product.name for product in exact_products if product.name
         ))
         product_labels: list[str] = []
+        product_options: list[dict[str, str]] = []
         for product in exact_products:
             if not product or not str(product.name or "").strip():
                 continue
@@ -190,6 +210,7 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             exact_label = f"{product.name} - {size_label}" if size_label else str(product.name)
             if exact_label not in product_labels:
                 product_labels.append(exact_label)
+            product_options.append({"id": str(product.id), "name": str(product.name), "label": exact_label})
         primary_packaging = associated_packagings[0] if associated_packagings else None
         containers_per_case = max(1, int(primary_packaging.containers_per_case or 1)) if primary_packaging else 1
         
@@ -212,6 +233,8 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             "containerTypeCode": balance.container_type.code,
             "productName": ", ".join(prod_names) if prod_names else None,
             "productNames": prod_names,
+            "productIds": [str(product.id) for product in exact_products],
+            "productOptions": product_options,
             # Exact stored product names and sizes for the customer portal.
             "productLabel": " · ".join(product_labels) if product_labels else None,
             "productLabels": product_labels,

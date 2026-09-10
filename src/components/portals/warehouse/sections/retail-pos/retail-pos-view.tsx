@@ -46,7 +46,7 @@ import { toast } from 'sonner'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { getTabAuthToken } from '@/lib/client-auth'
-import { emitDataSync } from '@/lib/data-sync'
+import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { invalidateInventoryStockCaches } from '@/lib/portal-data-cache'
 
 type RetailProduct = {
@@ -61,6 +61,7 @@ type RetailProduct = {
   retailUnitPrice?: string | null
   casePrice: string
   caseQuantity: number
+  unit?: string
   depositPerUnit: string
   caseDeposit: string
   depositEligible: boolean
@@ -88,6 +89,12 @@ const peso = (value: unknown) =>
 
 const getProductSizeLabel = (p?: RetailProduct | null) =>
   Array.isArray(p?.sizes) && p.sizes.length > 0 ? ` (${p.sizes.join(', ')})` : ''
+
+// CASE is the transaction mode; the displayed packaging comes from the registered product.
+const getProductSellingUnit = (product?: RetailProduct | null, quantity = 1) => {
+  const unit = product?.unit?.trim().toLowerCase() || 'unit'
+  return quantity === 1 ? unit : `${unit}s`
+}
 
 const getProductPrimarySize = (p?: RetailProduct | null) => {
   if (!p || !Array.isArray(p.sizes) || p.sizes.length === 0) return ''
@@ -138,7 +145,8 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     },
     retry: true,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-    staleTime: 5 * 60 * 1000,
+    // Recheck stock when returning to POS instead of reusing a five-minute availability snapshot.
+    staleTime: 0,
   })
 
   const { data: sales = [], isLoading: loadingSales, refetch: refetchSales } = useQuery({
@@ -154,6 +162,11 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   })
 
   const loading = loadingProducts || loadingSales
+  useEffect(() => subscribeDataSync((message) => {
+    if (message.scopes.some((scope) => ['inventory', 'stock-batches', 'products', 'orders'].includes(scope))) {
+      void refetchProducts()
+    }
+  }), [refetchProducts])
   const [cart, setCart] = useState<RetailCartLine[]>([])
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('ALL')
@@ -263,11 +276,71 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         { key: crypto.randomUUID(), mode, productId: product.id, quantity: 1, emptyBottlesProvided: 0 },
       ]
     })
-    toast.success(`Added ${product.name} (${mode === 'CASE' ? 'Case' : 'Loose'}) to sale`)
+    toast.success(`Added ${product.name} (${mode === 'CASE' ? getProductSellingUnit(product) : 'Loose'}) to sale`)
   }
 
   const updateLine = (key: string, changes: Partial<RetailCartLine>) => {
     setCart((current) => current.map((line) => (line.key === key ? { ...line, ...changes } : line)))
+  }
+
+  const updateReturnedEmpties = (line: RetailCartLine, nextValue: number) => {
+    // HTML max does not constrain typed values, so clamp the return credit to
+    // the number of cases or loose units actually included in this sale line.
+    const parsed = Number.isFinite(nextValue) ? Math.floor(nextValue) : 0
+    updateLine(line.key, {
+      emptyBottlesProvided: Math.max(0, Math.min(line.quantity, parsed)),
+    })
+  }
+
+  const getMixedCaseStockLimit = (line: RetailCartLine) => {
+    if (line.mode !== 'MIXED_CASE' || !line.components?.length) return null
+
+    const componentLimits = line.components.map((component) => {
+      const product = products.find((item) => item.id === component.productId)
+      const usedByOtherLines = cart.reduce((total, cartLine) => {
+        if (cartLine.key === line.key) return total
+        if (cartLine.mode === 'MIXED_CASE') {
+          const matchingComponent = cartLine.components?.find((item) => item.productId === component.productId)
+          return total + (matchingComponent ? matchingComponent.quantityBaseUnits * cartLine.quantity : 0)
+        }
+        if (cartLine.productId !== component.productId) return total
+        return total + (cartLine.mode === 'CASE' ? cartLine.quantity * Math.max(1, Number(product?.caseQuantity || 1)) : cartLine.quantity)
+      }, 0)
+      const availableBottles = Math.max(0, Number(product?.availableBaseUnits || 0) - usedByOtherLines)
+      const bottlesPerMixedCase = Math.max(1, component.quantityBaseUnits)
+      return {
+        productName: product?.name || 'component product',
+        availableBottles,
+        bottlesPerMixedCase,
+        maxCases: Math.floor(availableBottles / bottlesPerMixedCase),
+      }
+    })
+
+    return componentLimits.reduce((lowest, current) => current.maxCases < lowest.maxCases ? current : lowest)
+  }
+
+  const updateSaleLineQuantity = (line: RetailCartLine, nextValue: number) => {
+    const quantity = Math.max(1, Math.floor(Number(nextValue) || 1))
+    const mixedCaseLimit = getMixedCaseStockLimit(line)
+    if (mixedCaseLimit && quantity > mixedCaseLimit.maxCases) {
+      toast.error(
+        `Only ${mixedCaseLimit.availableBottles} bottle${mixedCaseLimit.availableBottles === 1 ? '' : 's'} of ${mixedCaseLimit.productName} remain available. ` +
+        `Each mixed case needs ${mixedCaseLimit.bottlesPerMixedCase}, so the maximum quantity is ${mixedCaseLimit.maxCases}.`
+      )
+      return
+    }
+    updateLine(line.key, {
+      quantity,
+      // Reducing the sale quantity must also reduce an existing return count.
+      emptyBottlesProvided: Math.min(quantity, Math.max(0, Number(line.emptyBottlesProvided || 0))),
+      // Mixed-case returns cover the whole sale, so reducing cases also reduces their limits.
+      ...(line.mode === 'MIXED_CASE' ? {
+        components: line.components?.map((component) => ({
+          ...component,
+          emptyBottlesProvided: Math.min(component.quantityBaseUnits * quantity, component.emptyBottlesProvided),
+        })),
+      } : {}),
+    })
   }
 
   const removeLine = (key: string) => {
@@ -290,9 +363,16 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const mixedAdded = mixedSelectedRows.reduce((sum, row) => sum + row.quantity, 0)
   const mixedRemaining = Math.max(0, mixedCapacity - mixedAdded)
   const mixedExceeds = mixedAdded > mixedCapacity
-  const mixedComplete = mixedCapacity > 0 && mixedAdded === mixedCapacity && mixedSelectedRows.length >= 2
+  const mixedComplete = mixedCapacity > 0 && mixedAdded === mixedCapacity && mixedSelectedRows.length === 2
 
   const updateMixedQuantity = (productId: string, nextValue: number) => {
+    const currentQuantity = Math.max(0, Number(mixedQuantities[productId] || 0))
+    const requestedQuantity = Math.max(0, Math.floor(Number(nextValue || 0)))
+    // Limit counter-sale mixed cases to two distinct products.
+    if (currentQuantity === 0 && requestedQuantity > 0 && mixedSelectedRows.length >= 2) {
+      toast.error('A Mixed Case can contain only two products.')
+      return
+    }
     setMixedQuantities((current) => {
       const addedByOthers = mixedProducts.reduce(
         (sum, p) => (p.id === productId ? sum : sum + Math.max(0, Number(current[p.id] || 0))),
@@ -308,23 +388,27 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
 
   const addMixedCase = () => {
     if (!mixedComplete || mixedExceeds) {
-      toast.error('Fill the full case capacity with at least two different products')
+      toast.error('Fill the full case capacity with exactly two different products')
       return
     }
-    setCart((current) => [
-      ...current,
-      {
-        key: crypto.randomUUID(),
-        mode: 'MIXED_CASE',
-        quantity: 1,
-        caseCapacity: mixedCapacity,
-        components: mixedSelectedRows.map((row) => ({
-          productId: row.product.id,
-          quantityBaseUnits: row.quantity,
-          emptyBottlesProvided: 0,
-        })),
-      },
-    ])
+    const nextLine: RetailCartLine = {
+      key: crypto.randomUUID(),
+      mode: 'MIXED_CASE',
+      quantity: 1,
+      caseCapacity: mixedCapacity,
+      components: mixedSelectedRows.map((row) => ({
+        productId: row.product.id,
+        quantityBaseUnits: row.quantity,
+        emptyBottlesProvided: 0,
+      })),
+    }
+    const stockLimit = getMixedCaseStockLimit(nextLine)
+    if (stockLimit && stockLimit.maxCases < 1) {
+      toast.error(`Not enough ${stockLimit.productName} bottles remain to add this mixed case.`)
+      return
+    }
+    // Validate the full cart because another line may already use the same bottles.
+    setCart((current) => [...current, nextLine])
     setMixedQuantities({})
     toast.success(`Added Mixed Case (${mixedCapacity} bottles) to sale`)
   }
@@ -373,6 +457,13 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       fulfillmentType,
       amountPaid: Number(amountTendered || 0),
       items: cart.map(({ key: _key, ...line }) => {
+        // Cart recipes are per case; the API expects total bottles across all ordered cases.
+        if (line.mode === 'MIXED_CASE') {
+          return { ...line, components: line.components?.map((component) => ({
+            ...component,
+            quantityBaseUnits: component.quantityBaseUnits * line.quantity,
+          })) }
+        }
         // Backend always expects emptyBottlesProvided in individual bottles.
         // For CASE mode the UI collects cases, so convert cases to bottles here.
         if (line.mode === 'CASE' && line.emptyBottlesProvided) {
@@ -467,13 +558,15 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
 
   const cartDepositTotal = useMemo(() => cart.reduce((sum, line) => {
     if (line.mode === 'MIXED_CASE') {
-      const depositPerCase = (line.components || []).reduce((componentSum, component) => {
+      const deposit = (line.components || []).reduce((componentSum, component) => {
         const product = products.find((item) => item.id === component.productId)
         if (!product?.depositEligible) return componentSum
-        const returned = Math.min(component.quantityBaseUnits, Number(component.emptyBottlesProvided || 0))
-        return componentSum + Math.max(0, component.quantityBaseUnits - returned) * Number(product.depositPerUnit || 0)
+        // Match checkout by crediting actual returned bottles against the whole sale quantity.
+        const totalBottles = component.quantityBaseUnits * line.quantity
+        const returned = Math.min(totalBottles, Number(component.emptyBottlesProvided || 0))
+        return componentSum + Math.max(0, totalBottles - returned) * Number(product.depositPerUnit || 0)
       }, 0)
-      return sum + depositPerCase * line.quantity
+      return sum + deposit
     }
     const product = products.find((item) => item.id === line.productId)
     if (!product?.depositEligible) return sum
@@ -652,17 +745,17 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                                 {product.availableCases > 0 ? (
                                   <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                                    {product.availableCases} case{product.availableCases === 1 ? '' : 's'} left
+                                    {product.availableCases} {getProductSellingUnit(product, product.availableCases)} left
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700">
-                                    0 cases left
+                                    0 {getProductSellingUnit(product, 0)} left
                                   </span>
                                 )}
 
                                 {product.caseQuantity > 0 ? (
                                   <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                                    {product.caseQuantity} {product.looseUnit}s / case
+                                    {product.caseQuantity} {product.looseUnit}{product.caseQuantity === 1 ? '' : 's'} / {getProductSellingUnit(product)}
                                   </span>
                                 ) : null}
                               </div>
@@ -670,7 +763,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                           </div>
                         </div>
 
-                        {/* Action Button: Sold by Case Only */}
+                        {/* Sell one registered package using the existing full-package transaction mode. */}
                         <div className="mt-3.5 pt-2 border-t border-slate-100">
                           <Button
                             type="button"
@@ -681,7 +774,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                             className="w-full h-9 text-xs font-semibold rounded-xl border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 disabled:opacity-40"
                           >
                             <Plus className="mr-1.5 h-3.5 w-3.5" />
-                            {product.availableCases < 1 ? 'Out of Stock' : `+ ${peso(product.casePrice)} / case`}
+                            {product.availableCases < 1 ? 'Out of Stock' : `+ ${peso(product.casePrice)} / ${getProductSellingUnit(product)}`}
                           </Button>
                         </div>
                       </div>
@@ -702,7 +795,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 <div>
                   <CardTitle className="text-base font-bold text-slate-900">Mixed Case Builder</CardTitle>
                   <CardDescription className="text-xs text-slate-500">
-                    Combine two or more compatible glass bottle products into one full case for a counter sale
+                    Combine exactly two compatible glass bottle products into one full case for a counter sale
                   </CardDescription>
                 </div>
               </div>
@@ -811,6 +904,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                             max={maxAllowed}
                             value={quantity}
                             onChange={(e) => updateMixedQuantity(product.id, Number(e.target.value))}
+                            disabled={quantity === 0 && mixedSelectedRows.length >= 2}
                             className="h-8 w-14 rounded-lg text-center text-xs font-bold"
                           />
                           <Button
@@ -819,7 +913,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                             size="icon"
                             className="h-8 w-8 rounded-lg shrink-0"
                             onClick={() => updateMixedQuantity(product.id, quantity + 1)}
-                            disabled={quantity >= maxAllowed}
+                            disabled={quantity >= maxAllowed || (quantity === 0 && mixedSelectedRows.length >= 2)}
                           >
                             <Plus className="h-3.5 w-3.5" />
                           </Button>
@@ -837,7 +931,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                     ? `${mixedSelectedRows.length} products · ${mixedCapacity} bottles`
                     : mixedAdded > 0
                       ? `${mixedRemaining} more bottle${mixedRemaining === 1 ? '' : 's'} needed`
-                      : 'Select at least two products to build a mixed case'}
+                      : 'Select exactly two products to build a mixed case'}
                 </span>
                 <Button
                   type="button"
@@ -1071,6 +1165,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                   ) : (
                     cart.map((line) => {
                       const product = products.find((item) => item.id === line.productId)
+                      const mixedCaseStockLimit = getMixedCaseStockLimit(line)
 
                       return (
                         <div
@@ -1088,7 +1183,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                 variant="outline"
                                 className="mt-1 text-[10px] font-semibold text-slate-600"
                               >
-                                {line.mode.replace(/_/g, ' ')}
+                                {line.mode === 'CASE' ? getProductSellingUnit(product).toUpperCase() : line.mode.replace(/_/g, ' ')}
                               </Badge>
                               <p className="mt-1 text-[11px] text-slate-500">
                                 {peso(getCartLineUnitPrice(line))} each ·{' '}
@@ -1119,17 +1214,16 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                 size="icon"
                                 variant="outline"
                                 className="h-7 w-7 rounded-lg"
-                                onClick={() => updateLine(line.key, { quantity: Math.max(1, line.quantity - 1) })}
+                                onClick={() => updateSaleLineQuantity(line, line.quantity - 1)}
                               >
                                 <Minus className="h-3 w-3" />
                               </Button>
                               <Input
                                 type="number"
                                 min={1}
+                                max={mixedCaseStockLimit?.maxCases}
                                 value={line.quantity}
-                                onChange={(e) =>
-                                  updateLine(line.key, { quantity: Math.max(1, Number(e.target.value) || 1) })
-                                }
+                                onChange={(e) => updateSaleLineQuantity(line, Number(e.target.value))}
                                 className="h-7 w-14 rounded-lg text-center text-xs font-bold"
                               />
                               <Button
@@ -1137,7 +1231,8 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                 size="icon"
                                 variant="outline"
                                 className="h-7 w-7 rounded-lg"
-                                onClick={() => updateLine(line.key, { quantity: line.quantity + 1 })}
+                                onClick={() => updateSaleLineQuantity(line, line.quantity + 1)}
+                                disabled={Boolean(mixedCaseStockLimit && line.quantity >= mixedCaseStockLimit.maxCases)}
                               >
                                 <Plus className="h-3 w-3" />
                               </Button>
@@ -1150,18 +1245,14 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                               <div className="flex items-center justify-between gap-2">
                                 <Label htmlFor={`empties-${line.key}`} className="text-[11px] font-semibold text-emerald-900 flex items-center gap-1">
                                   <Recycle className="h-3.5 w-3.5 text-emerald-600" />
-                                  {line.mode === 'CASE' ? 'Empty Cases returned:' : `Empty ${product.looseUnit}s returned:`}
+                                  {line.mode === 'CASE' ? `Empty ${getProductSellingUnit(product, 0)} returned:` : `Empty ${product.looseUnit}s returned:`}
                                 </Label>
                                 <Input
                                   type="number"
                                   min={0}
                                   max={line.quantity}
                                   value={line.emptyBottlesProvided || ''}
-                                  onChange={(e) =>
-                                    updateLine(line.key, {
-                                      emptyBottlesProvided: Math.max(0, Number(e.target.value) || 0),
-                                    })
-                                  }
+                                  onChange={(e) => updateReturnedEmpties(line, Number(e.target.value))}
                                   className="h-7 w-16 rounded-lg text-center text-xs font-bold border-emerald-300 bg-white"
                                 />
                               </div>
@@ -1174,6 +1265,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                               <p className="text-[11px] font-semibold text-slate-700">Empty Bottles Returned per Product:</p>
                               {line.components.map((component, componentIndex) => {
                                 const componentProduct = products.find((p) => p.id === component.productId)
+                                const totalBottles = component.quantityBaseUnits * line.quantity
                                 return (
                                   <div
                                     key={component.productId}
@@ -1186,24 +1278,29 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                         className="h-8 w-8 shrink-0 rounded-md border border-slate-200 bg-white object-cover"
                                       />
                                       <span className="text-[11px] text-slate-600">
-                                        {componentProduct?.name} {getProductPrimarySize(componentProduct)}: {component.quantityBaseUnits} bottles
+                                        {componentProduct?.name} {getProductPrimarySize(componentProduct)}: {totalBottles} bottles total
                                       </span>
                                     </div>
                                     {componentProduct?.depositEligible ? (
                                       <Input
                                         type="number"
                                         min={0}
-                                        max={component.quantityBaseUnits}
+                                        step={1}
+                                        inputMode="numeric"
+                                        aria-label={`Empty bottles returned for ${componentProduct?.name || 'product'}`}
+                                        max={totalBottles}
                                         value={component.emptyBottlesProvided || ''}
                                         onChange={(e) => {
+                                          // HTML max does not constrain typed or pasted quantities.
+                                          const requested = Number(e.target.value)
                                           const components = [...(line.components || [])]
                                           components[componentIndex] = {
                                             ...component,
-                                            emptyBottlesProvided: Math.max(0, Number(e.target.value) || 0),
+                                            emptyBottlesProvided: Math.max(0, Math.min(totalBottles, Number.isFinite(requested) ? Math.floor(requested) : 0)),
                                           }
                                           updateLine(line.key, { components })
                                         }}
-                                        className="h-6.5 w-14 rounded-lg text-center text-xs font-bold bg-white"
+                                        className="h-9 w-20 shrink-0 rounded-lg text-center text-sm font-semibold bg-white"
                                       />
                                     ) : null}
                                   </div>
@@ -1340,6 +1437,19 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                           <p className="text-[11px] text-slate-500">
                             {item.packagingType} · {item.mode.replace(/_/g, ' ')} · Qty: {item.quantity}
                           </p>
+                          {/* A mixed case can consume several products, so show every linked stock transaction. */}
+                          {Array.isArray(item.inventoryTransactionIds) && item.inventoryTransactionIds.length > 0 ? (
+                            <div className="mt-1 text-[10px] text-slate-500">
+                              <span className="font-semibold">
+                                Transaction ID{item.inventoryTransactionIds.length === 1 ? '' : 's'}:
+                              </span>{' '}
+                              {item.inventoryTransactionIds.map((transactionId: unknown, index: number) => (
+                                <span key={String(transactionId)} title={String(transactionId)} className="font-mono text-slate-700">
+                                  {index > 0 ? ', ' : ''}{String(transactionId)}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                         <p className="font-bold text-slate-900">{peso(item.productSubtotal)}</p>
                       </div>

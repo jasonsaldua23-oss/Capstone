@@ -308,10 +308,15 @@ export function CustomerOrderDetailPage(props: any) {
     const tax = Number(o?.tax || 0)
     const shipping = Number(o?.shippingCost || 0)
     const total = Number(o?.totalAmount || 0)
+    const depositRefund = (Array.isArray(o?.depositRefundClaims) ? o.depositRefundClaims : []).reduce(
+      (sum: number, claim: any) => sum + Math.max(0, Number(claim?.requestedAmount || 0)),
+      0,
+    )
     // Anything the named lines do not account for is still shown, so the column
     // always adds up to the total the customer is charged.
     let appliedDeposit = deposit
-    let other = Math.round((total - (subtotal - discount + deposit + tax + shipping)) * 100) / 100
+    // Fix: an applied empty refund is its own deduction, not an unnamed negative charge.
+    let other = Math.round((total - (subtotal - discount + deposit + tax + shipping - depositRefund)) * 100) / 100
     if (other < 0 && appliedDeposit > 0) {
       // Some older orders record a per-item deposit that was never added to the
       // total. Charge the line only for the part the customer actually paid rather
@@ -320,7 +325,7 @@ export function CustomerOrderDetailPage(props: any) {
       other = Math.round((other + (appliedDeposit - chargedDeposit)) * 100) / 100
       appliedDeposit = chargedDeposit
     }
-    return { subtotal, discount, deposit: appliedDeposit, tax, shipping, total, other }
+    return { subtotal, discount, deposit: appliedDeposit, tax, shipping, depositRefund, total, other }
   }
 
   const getOrderDisplayDateTime = (o: any) => {
@@ -568,6 +573,12 @@ export function CustomerOrderDetailPage(props: any) {
                   <div className="flex items-center justify-between text-slate-600">
                     <span>Delivery fee</span>
                     <span>{formatPeso(breakdown.shipping)}</span>
+                  </div>
+                )}
+                {breakdown.depositRefund > 0 && (
+                  <div className="flex items-center justify-between font-medium text-emerald-700">
+                    <span>Empty deposit refund</span>
+                    <span>-{formatPeso(breakdown.depositRefund)}</span>
                   </div>
                 )}
                 {Math.abs(breakdown.other) >= 0.01 && (

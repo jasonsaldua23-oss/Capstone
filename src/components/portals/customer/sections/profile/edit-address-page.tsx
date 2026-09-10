@@ -26,8 +26,14 @@ export function CustomerEditAddressPage(props: any) {
     setShippingLongitude,
     setAddressSearch,
     setAddressSearchResults,
-    shippingName,
-    setShippingName,
+    profileFirstName,
+    setProfileFirstName,
+    profileMiddleName,
+    setProfileMiddleName,
+    profileLastName,
+    setProfileLastName,
+    profileSuffix,
+    setProfileSuffix,
     shippingPhone,
     setShippingPhone,
     handlePinnedLocation,
@@ -93,14 +99,45 @@ export function CustomerEditAddressPage(props: any) {
         {/* Contact Info */}
         <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4 shadow-sm">
           <p className="text-sm font-bold text-slate-900">Contact Information</p>
+          {/* Use the same structured name fields as the customer profile. */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label className="text-xs text-slate-700">Full Name</Label>
+              <Label className="text-xs text-slate-700">First Name</Label>
               <Input
-                placeholder="Full name"
+                placeholder="First name"
                 className="h-10 rounded-lg border-slate-200"
-                value={shippingName}
-                onChange={(e) => setShippingName(e.target.value)}
+                value={profileFirstName}
+                onChange={(e) => setProfileFirstName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-700">Middle Name</Label>
+              <Input
+                placeholder="Middle name"
+                className="h-10 rounded-lg border-slate-200"
+                value={profileMiddleName}
+                onChange={(e) => setProfileMiddleName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-700">Last Name</Label>
+              <Input
+                placeholder="Last name"
+                className="h-10 rounded-lg border-slate-200"
+                value={profileLastName}
+                onChange={(e) => setProfileLastName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-700">Suffix <span className="text-slate-400">(Optional)</span></Label>
+              <Input
+                placeholder="e.g. Jr., Sr., III"
+                className="h-10 rounded-lg border-slate-200"
+                value={profileSuffix}
+                onChange={(e) => setProfileSuffix(e.target.value)}
               />
             </div>
 

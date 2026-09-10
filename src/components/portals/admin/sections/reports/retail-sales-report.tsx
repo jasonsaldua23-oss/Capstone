@@ -65,7 +65,7 @@ interface RetailSalesReportProps {
   retailSales?: any[]
 }
 
-type PeriodMode = 'all' | '7' | '30' | '90' | '365' | 'custom'
+type PeriodMode = 'all' | 'today' | '7' | '30' | '90' | '365' | 'custom'
 
 export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesReportProps) {
   const [periodMode, setPeriodMode] = useState<PeriodMode>('30')
@@ -150,15 +150,15 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
         prevLabel = 'prior matching period'
       }
     } else if (periodMode !== 'all') {
-      const days = Number(periodMode)
+      const days = periodMode === 'today' ? 1 : Number(periodMode)
       const currentStart = new Date(now)
-      currentStart.setDate(now.getDate() - days)
+      if (periodMode !== 'today') currentStart.setDate(now.getDate() - days)
       currentStart.setHours(0, 0, 0, 0)
       currentStartTime = currentStart.getTime()
       prevEndTime = currentStartTime
       prevStartTime = currentStartTime - days * 24 * 60 * 60 * 1000
-      label = periodMode === '365' ? 'Past 1 Year' : `Past ${days} Days`
-      prevLabel = periodMode === '365' ? 'Prior 1 Year' : `Prior ${days} Days`
+      label = periodMode === 'today' ? 'Today' : periodMode === '365' ? 'Past 1 Year' : `Past ${days} Days`
+      prevLabel = periodMode === 'today' ? 'Yesterday' : periodMode === '365' ? 'Prior 1 Year' : `Prior ${days} Days`
     }
 
     const currentPeriodItems = retailTransactions.filter((item) => {
@@ -357,6 +357,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
             className="h-11 min-w-[190px] rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
           >
             <option value="all">All Time</option>
+            <option value="today">Today</option>
             <option value="7">Past 7 Days</option>
             <option value="30">Past 30 Days</option>
             <option value="90">Past 90 Days</option>

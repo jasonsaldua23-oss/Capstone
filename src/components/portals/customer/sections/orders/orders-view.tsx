@@ -942,21 +942,6 @@ export function CustomerOrdersView(props: any) {
                         </div>
                       </div>
                     ) : null}
-                    {isDelivered && (
-                      <div className="mt-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] rounded-md border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                          onClick={() => {
-                            if (typeof setSelectedOrder === 'function') setSelectedOrder(o)
-                            setIsReceiptDialogOpen?.(true)
-                          }}
-                        >
-                          View Receipt
-                        </Button>
-                      </div>
-                    )}
                   </div>
 
                   <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
@@ -995,12 +980,25 @@ export function CustomerOrdersView(props: any) {
 
                     {isDelivered && ordersTab !== 'TO_REVIEW' && (
                       <Button
-                        variant="outline"
-                        className="h-8 w-full rounded-md border-emerald-300 text-[11px] text-emerald-700 hover:bg-emerald-50"
+                        className="h-8 w-full rounded-md border border-emerald-600 bg-emerald-600 text-[11px] text-white shadow-none hover:bg-emerald-700"
                         onClick={() => buyAgainFromOrder?.(o)}
                       >
                         <Truck className="mr-1 h-3.5 w-3.5" />
                         Buy Again
+                      </Button>
+                    )}
+
+                    {/* Keep the delivered-order actions together in their task order. */}
+                    {isDelivered && ordersTab !== 'TO_REVIEW' && (
+                      <Button
+                        variant="outline"
+                        className="h-8 w-full rounded-md border-slate-200 bg-slate-100 text-[11px] text-slate-700 shadow-none hover:bg-slate-200 hover:text-slate-800"
+                        onClick={() => {
+                          if (typeof setSelectedOrder === 'function') setSelectedOrder(o)
+                          setIsReceiptDialogOpen?.(true)
+                        }}
+                      >
+                        View Receipt
                       </Button>
                     )}
 
@@ -1018,7 +1016,7 @@ export function CustomerOrdersView(props: any) {
                       <>
                         <Button
                           variant="outline"
-                          className="h-8 w-full rounded-md border-emerald-200 text-[11px] text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="h-8 w-full rounded-md border-slate-300 bg-slate-200 text-[11px] text-slate-800 shadow-none hover:bg-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
                           disabled={hasCompletedReplacement || hasActiveReplacement}
                           onClick={() => {
                             handleOpenOrderDetail({ ...o, __openReplacementRequest: true })

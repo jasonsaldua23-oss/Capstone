@@ -248,6 +248,7 @@ export function useDriverPortalState() {
   const latestTripsRef = useRef<Trip[]>([])
   const latestGpsRef = useRef<DriverGpsLocation | null>(null)
   const lastLocationUploadAtRef = useRef<number>(0)
+  const lastUploadedLocationRef = useRef<DriverGpsLocation | null>(null)
   const lastAcceptedFixAtRef = useRef<number>(0)
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoTrackingTripIdRef = useRef<string | null>(null)
@@ -611,8 +612,14 @@ export function useDriverPortalState() {
     setCurrentLocation(next)
     setLocationPermission('granted')
     setIsTracking(true)
-    if (upload) void sendLocationUpdate(next, tripId)
-    lastLocationUploadAtRef.current = now
+    // Keep every accepted local fix for smooth animation, but limit network writes.
+    const elapsed = now - lastLocationUploadAtRef.current
+    const moved = lastUploadedLocationRef.current ? distanceMeters(lastUploadedLocationRef.current, next) : Infinity
+    if (upload && (elapsed >= 5000 || (elapsed >= 1000 && moved >= 20))) {
+      void sendLocationUpdate(next, tripId)
+      lastLocationUploadAtRef.current = now
+      lastUploadedLocationRef.current = next
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event(DRIVER_ACTIVITY_EVENT))
     }

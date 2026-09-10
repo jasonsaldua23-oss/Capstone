@@ -171,7 +171,15 @@ def available_base_units(inventory: Inventory, product: Product | None = None) -
         0,
         _int(inventory.reserved_base_units, 0) - normalized_reserved_total,
     )
-    return max(0, allocatable - legacy_reserved)
+    # Legacy movements can leave stale batch units after physical stock was consumed.
+    # Never advertise or reserve more than the physical balance after active reservations.
+    physical_available = max(
+        0,
+        inventory_base_units(inventory, resolved_product)
+        - normalized_reserved_total
+        - legacy_reserved,
+    )
+    return min(physical_available, max(0, allocatable - legacy_reserved))
 
 
 def allocatable_standard_cases(inventory: Inventory, product: Product | None = None) -> int:
@@ -263,6 +271,8 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
         raw_components = item.get("components")
         if not isinstance(raw_components, list) or len(raw_components) < 2:
             raise ValueError("A Mixed Case must contain at least two different products")
+        if len(raw_components) > 2:
+            raise ValueError("A Mixed Case can contain only two different products")
         if any(not isinstance(row, dict) for row in raw_components):
             raise ValueError("Every Mixed Case component must be an object")
 
@@ -812,6 +822,7 @@ def release_order_item_reservations(order_item: OrderItem, performed_by: str | N
             case_capacity_snapshot=reservation.order_item.case_capacity,
             case_count_snapshot=reservation.order_item.quantity,
             notes="Reserved quantity released on cancellation",
+            performed_by=performed_by,
         )
 
 
@@ -852,6 +863,7 @@ def release_order_reservations(order: Order, performed_by: str | None) -> None:
             case_capacity_snapshot=reservation.order_item.case_capacity,
             case_count_snapshot=reservation.order_item.quantity,
             notes="Reserved quantity released on cancellation",
+            performed_by=performed_by,
         )
 
 

@@ -66,8 +66,8 @@ function isApprovedPurchaseOrder(order: any): boolean {
   const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
   const purchaseOrderStage = String(order?.purchaseOrderStage || order?.purchase_order_stage || '').trim()
   const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
-  // Approval must create all PO workflow metadata before this record can enter the PO view.
-  return requestStatus === 'APPROVED' && Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
+  // A persisted PO number keeps historical cancellations visible for audit.
+  return Boolean(purchaseOrderNumber) && Boolean(purchaseOrderStage)
 }
 
 function isMixedCaseItem(item: any) {
@@ -304,7 +304,10 @@ export function WarehouseOrdersView({
                               : []
                           return (
                             <tr key={`${order.id}-item-${item?.id || index}`} className={`${index === 0 ? 'border-t border-slate-200' : ''} align-top text-sm`}>
-                              {index === 0 ? <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber}</td> : null}
+                              {index === 0 ? <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber}
+                                {/* The stored PR reference survives approval and cancellation. */}
+                                {order.purchaseRequestNumber && <p className="text-xs font-normal text-slate-500">Originating PR: {order.purchaseRequestNumber}</p>}
+                              </td> : null}
                               <td className="px-4 py-3 text-slate-600">
                                 {/* IDs come from this exact order item, including multiple stock-batch deductions. */}
                                 {itemTransactionIds.length > 0

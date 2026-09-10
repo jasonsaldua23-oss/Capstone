@@ -280,7 +280,12 @@ def get_product_empty_case_balance(inventory: Inventory) -> dict[str, int]:
         or 0
     )
     consumed_cases = max(0, int(consumed_cases))
-    available_bottles = max(0, returned_bottles - (consumed_cases * containers_per_case))
+    # Fix: outgoing warehouse returns do not change customer return records.
+    manual_returned = InventoryTransaction.objects.filter(
+        warehouse_id=inventory.warehouse_id, product_id=product.id,
+        type="CONSUME_EMPTY", reference_type="manual_empty_return",
+    ).aggregate(total=Sum("quantity")).get("total") or 0
+    available_bottles = max(0, returned_bottles - (consumed_cases * containers_per_case) - int(manual_returned))
     return {
         "containersPerCase": containers_per_case,
         "returnedBottles": returned_bottles,

@@ -39,7 +39,7 @@ interface TopClientsReportProps {
   customers?: any[]
 }
 
-type PeriodFilter = 'all' | '7' | '30' | '90' | '365' | 'custom'
+type PeriodFilter = 'all' | 'today' | '7' | '30' | '90' | '365' | 'custom'
 
 function getClientBarangay(address: unknown, city: unknown) {
   const addressParts = String(address || '')
@@ -102,9 +102,9 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
           list = list.filter((o) => new Date(o.createdAt || o.date).getTime() <= toTime)
         }
       } else {
-        const days = Number(periodFilter)
         const cutoff = new Date()
-        cutoff.setDate(cutoff.getDate() - days)
+        // Today includes records from local midnight onward.
+        if (periodFilter !== 'today') cutoff.setDate(cutoff.getDate() - Number(periodFilter))
         cutoff.setHours(0, 0, 0, 0)
         list = list.filter((o) => withinRange(o.createdAt || o.date, cutoff))
       }
@@ -292,6 +292,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
             className="h-11 min-w-[190px] rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
           >
             <option value="all">All Time</option>
+            <option value="today">Today</option>
             <option value="7">Past 7 Days</option>
             <option value="30">Past 30 Days</option>
             <option value="90">Past 90 Days</option>

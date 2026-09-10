@@ -164,7 +164,7 @@ export function MixedCaseBuilderDialog({
   const added = selectedRows.reduce((sum, row) => sum + row.quantity, 0)
   const remaining = Math.max(0, capacity - added)
   const exceeds = added > capacity
-  const complete = capacity > 0 && added === capacity && selectedRows.length >= 2
+  const complete = capacity > 0 && added === capacity && selectedRows.length === 2
   const estimatedPerCase = selectedRows.reduce(
     (sum, row) => sum + getProductBaseUnitPrice(row.product) * row.quantity,
     0
@@ -206,6 +206,11 @@ export function MixedCaseBuilderDialog({
     const availableForEachCase = Math.floor(getAvailableBaseUnits(product) / Math.max(1, caseCount))
     const currentQuantity = Math.max(0, Number(quantities[product.id] || 0))
     const requestedQuantity = Math.max(0, Math.floor(Number(nextValue || 0)))
+    // Limit the mix to two distinct products while still allowing either selected product to change.
+    if (currentQuantity === 0 && requestedQuantity > 0 && selectedRows.length >= 2) {
+      toast.error('A Mixed Case can contain only two products.')
+      return
+    }
     if (requestedQuantity > currentQuantity + remaining) {
       toast.error(`Cannot add ${requestedQuantity - currentQuantity} units. Only ${remaining} units remain available in this case.`)
     }
@@ -227,7 +232,7 @@ export function MixedCaseBuilderDialog({
 
   const save = async () => {
     if (!complete || exceeds) {
-      toast.error('Complete the Mixed Case with at least two products before adding it.')
+      toast.error('Complete the Mixed Case with exactly two products before adding it.')
       return
     }
     setIsQuoting(true)
@@ -395,6 +400,7 @@ export function MixedCaseBuilderDialog({
                         max={maxAllowedForRow}
                         value={quantity || ''}
                         onChange={(event) => updateQuantity(product, Number(event.target.value))}
+                        disabled={quantity === 0 && selectedRows.length >= 2}
                         aria-label={`${product.name} quantity per Mixed Case`}
                       />
                       <Button
@@ -403,7 +409,7 @@ export function MixedCaseBuilderDialog({
                         size="icon"
                         className="h-9 w-9"
                         onClick={() => updateQuantity(product, quantity + 1)}
-                        disabled={quantity >= maxAllowedForRow}
+                        disabled={quantity >= maxAllowedForRow || (quantity === 0 && selectedRows.length >= 2)}
                         aria-label={`Increase ${product.name} quantity`}
                       >
                         <Plus aria-hidden="true" className="h-4 w-4" />

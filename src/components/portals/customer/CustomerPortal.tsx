@@ -13,7 +13,7 @@ import { CustomerHomeView } from './sections/home/home-view'
 import { CustomerCartView } from './sections/cart/cart-view'
 import { MixedCaseBuilderDialog } from './sections/cart/mixed-case-builder-dialog'
 import { getMixedCaseComponentDepositProfile, getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
-import { CustomerCheckoutView } from './sections/checkout/checkout-view'
+import { CustomerCheckoutView, type DepositRefundLine, type DepositRefundOption } from './sections/checkout/checkout-view'
 import { CustomerOrdersView } from './sections/orders/orders-view'
 import { CustomerOrderDetailPage } from './sections/orders/order-detail-page'
 import { CustomerPurchaseRequestView } from './sections/purchase-requests/purchase-request-view'
@@ -162,6 +162,8 @@ export function CustomerPortal() {
   const [customerDiscountStatus, setCustomerDiscountStatus] = useState('REMOVED')
   const [customerDiscountPercent, setCustomerDiscountPercent] = useState(0)
   const [customerDiscountAmountPerCase, setCustomerDiscountAmountPerCase] = useState(0)
+  // Added: keep the exact product empties promised for collection with this order.
+  const [depositRefundLines, setDepositRefundLines] = useState<DepositRefundLine[]>([])
   const [productCategoryFilter, setProductCategoryFilter] = useState('ALL')
   const [reviewDetailsOrder, setReviewDetailsOrder] = useState<Order | null>(null)
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false)
@@ -709,7 +711,8 @@ export function CustomerPortal() {
       ) {
         void refreshOrders(true)
       }
-      if (scopes.some((scope) => ['inventory', 'products', 'stock-batches'].includes(scope))) {
+      // Reservations and order cancellations can change sellable stock without a product edit.
+      if (scopes.some((scope) => ['inventory', 'products', 'stock-batches', 'orders'].includes(scope))) {
         void fetchProducts()
       }
       if (scopes.some((scope) => ['customers', 'auth', 'user', 'orders'].includes(scope))) {
@@ -726,6 +729,8 @@ export function CustomerPortal() {
     })
 
     const onFocus = () => {
+      // Recheck catalog and mixed-case availability when returning from another portal/tab.
+      void fetchProducts()
       if (
         ['orders', 'purchase-requests', 'purchase-request-detail', 'order-detail'].includes(activeView) ||
         (activeView === 'track' && !isSelectedTrackingOrderDelivered)
@@ -735,6 +740,7 @@ export function CustomerPortal() {
     }
 
     const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void fetchProducts()
       if (
         document.visibilityState === 'visible' &&
         (['orders', 'purchase-requests', 'purchase-request-detail', 'order-detail'].includes(activeView) ||
@@ -1360,6 +1366,59 @@ export function CustomerPortal() {
     }, 0),
     [selectedCartItems]
   )
+  const depositRefundOptions = useMemo<DepositRefundOption[]>(() => {
+    const usedByContainer = new Map<string, number>()
+    selectedCartItems.forEach((item) => {
+      if (item.itemType === 'MIXED_CASE') {
+        ;(item.components || []).forEach((component: any) => {
+          const containerTypeId = String(component.containerTypeId || '').trim()
+          if (containerTypeId) {
+            usedByContainer.set(containerTypeId, (usedByContainer.get(containerTypeId) || 0) + Math.max(0, Number(component.emptyReturnedQuantity || 0)))
+          }
+        })
+        return
+      }
+      const containerTypeId = String(item.containerTypeId || '').trim()
+      if (containerTypeId) {
+        usedByContainer.set(containerTypeId, (usedByContainer.get(containerTypeId) || 0) + Math.max(0, Number(item.emptyReturnedQuantity || 0)))
+      }
+    })
+
+    return (Array.isArray(user?.bottleBalances) ? user.bottleBalances : []).flatMap((balance: any) => {
+      const containerTypeId = String(balance?.containerTypeId || '').trim()
+      const productOptions = Array.isArray(balance?.productOptions) && balance.productOptions.length > 0
+        ? balance.productOptions
+        : [{
+          id: balance?.productIds?.[0],
+          label: balance?.productLabel || balance?.productName,
+        }]
+      const depositPerContainer = Math.max(0, Number(balance?.depositAmount || 0))
+      if (!containerTypeId || depositPerContainer <= 0) return []
+      const availableBottles = Math.max(0, Math.floor(Number(balance?.bottlesAvailable ?? balance?.bottlesOutstanding ?? 0)))
+      const remainingAfterOrderDeposit = Math.max(0, availableBottles - (usedByContainer.get(containerTypeId) || 0))
+      const refundableBalance = Math.max(0, Number(balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0))
+      const maxQuantity = Math.min(remainingAfterOrderDeposit, Math.floor((refundableBalance + 0.000001) / depositPerContainer))
+      if (maxQuantity <= 0) return []
+      // Every product option shares this container balance; checkout enforces the
+      // combined limit while letting the customer identify the exact product.
+      return productOptions.flatMap((productOption: any) => {
+        const productId = String(productOption?.id || '').trim()
+        if (!productId) return []
+        return [{
+          productId,
+          productName: String(productOption?.label || productOption?.name || balance?.containerTypeName || 'Returnable product'),
+          containerTypeId,
+          containerTypeName: String(balance?.containerTypeName || 'Returnable container'),
+          depositPerContainer,
+          maxQuantity,
+        }]
+      })
+    })
+  }, [selectedCartItems, user?.bottleBalances])
+  const depositCreditAmount = useMemo(
+    () => Math.round(depositRefundLines.reduce((total, line) => total + (line.quantity * line.depositPerContainer), 0) * 100) / 100,
+    [depositRefundLines]
+  )
   const discountCasesAffected = useMemo(
     () => selectedCartItems.reduce((sum, item) => {
       const isMixedCase = item.itemType === 'MIXED_CASE'
@@ -1429,7 +1488,7 @@ export function CustomerPortal() {
       casesAffected: isDiscountEligible ? discountCasesAffected : 0,
       totalDiscount,
       // Fix: the payable total includes the new deposit after any existing-empty credit.
-      finalTotal: Math.max(0, selectedSubtotal - totalDiscount + selectedDepositCharged - selectedDepositRefunded),
+      finalTotal: Math.max(0, selectedSubtotal - totalDiscount + selectedDepositCharged - selectedDepositRefunded - depositCreditAmount),
     }
   }, [
     customerDiscountOption,
@@ -1441,6 +1500,7 @@ export function CustomerPortal() {
     selectedSubtotal,
     selectedDepositCharged,
     selectedDepositRefunded,
+    depositCreditAmount,
   ])
   const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])
   // Stock is checked in the browser so an order that the server would reject is
@@ -1540,7 +1600,8 @@ export function CustomerPortal() {
   const isApprovedPurchaseOrder = (order: any): boolean => {
     if (isReplacementOrder(order)) return true
     const reqStatus = String(order?.requestStatus || order?.approvalStatus || '').trim().toUpperCase()
-    return reqStatus === 'APPROVED'
+    // Existing cancelled POs can retain a cancelled request status; their PO identity survives.
+    return Boolean(order?.purchaseOrderNumber) || reqStatus === 'APPROVED'
   }
 
   const filteredOrders = useMemo(() => {
@@ -1763,6 +1824,12 @@ export function CustomerPortal() {
           casesAffected: checkoutDiscountBreakdown.casesAffected,
           totalDiscount: checkoutDiscountBreakdown.totalDiscount,
         },
+        depositCreditAmount,
+        depositRefundLines: depositRefundLines.map((line) => ({
+          productId: line.productId,
+          containerTypeId: line.containerTypeId,
+          quantity: line.quantity,
+        })),
         items: selectedCartItems.map((item) =>
           item.itemType === 'MIXED_CASE'
             ? {
@@ -1813,6 +1880,8 @@ export function CustomerPortal() {
         selectedIds.forEach((id) => next.delete(id))
         return next
       })
+      // The credit belongs to the completed request and must not carry into the next order.
+      setDepositRefundLines([])
       // Refresh once in background via shared sync channel.
       emitDataSync(['orders', 'customers', 'auth', 'user'])
       void fetchProducts()
@@ -2127,6 +2196,10 @@ export function CustomerPortal() {
       toast.error('Unable to save address right now')
       return false
     }
+    if (!profileFirstName.trim() || !profileLastName.trim()) {
+      toast.error('First name and last name are required')
+      return false
+    }
     if (
       !shippingStreetName ||
       !shippingCity ||
@@ -2153,6 +2226,11 @@ export function CustomerPortal() {
     setIsSavingAddress(true)
     try {
       const { response, payload: data } = await updateCustomerProfile(customerId, {
+        // Keep Contact Information and Profile backed by the same structured name fields.
+        firstName: profileFirstName.trim(),
+        middleName: profileMiddleName.trim(),
+        lastName: profileLastName.trim(),
+        suffix: profileSuffix.trim(),
         address: composedShippingAddress,
         barangay: shippingBarangay,
         subdivision: shippingSubdivision,
@@ -3034,6 +3112,10 @@ export function CustomerPortal() {
                     selectedSubtotal={selectedSubtotal}
                     selectedDepositCharged={selectedDepositCharged}
                     selectedDepositRefunded={selectedDepositRefunded}
+                    depositCreditAmount={depositCreditAmount}
+                    depositRefundLines={depositRefundLines}
+                    setDepositRefundLines={setDepositRefundLines}
+                    depositRefundOptions={depositRefundOptions}
                     discountName={checkoutDiscountBreakdown.name}
                     discountType={checkoutDiscountBreakdown.discountType}
                     discountPercent={checkoutDiscountBreakdown.discountPercent}
@@ -3128,8 +3210,14 @@ export function CustomerPortal() {
                     setShippingLongitude={setShippingLongitude}
                     setAddressSearch={setAddressSearch}
                     setAddressSearchResults={setAddressSearchResults}
-                    shippingName={shippingName}
-                    setShippingName={setShippingName}
+                    profileFirstName={profileFirstName}
+                    setProfileFirstName={setProfileFirstName}
+                    profileMiddleName={profileMiddleName}
+                    setProfileMiddleName={setProfileMiddleName}
+                    profileLastName={profileLastName}
+                    setProfileLastName={setProfileLastName}
+                    profileSuffix={profileSuffix}
+                    setProfileSuffix={setProfileSuffix}
                     shippingPhone={shippingPhone}
                     setShippingPhone={setShippingPhone}
                     handlePinnedLocation={handlePinnedLocation}
@@ -3375,8 +3463,14 @@ export function CustomerPortal() {
               setShippingLongitude={setShippingLongitude}
               setAddressSearch={setAddressSearch}
               setAddressSearchResults={setAddressSearchResults}
-              shippingName={shippingName}
-              setShippingName={setShippingName}
+              profileFirstName={profileFirstName}
+              setProfileFirstName={setProfileFirstName}
+              profileMiddleName={profileMiddleName}
+              setProfileMiddleName={setProfileMiddleName}
+              profileLastName={profileLastName}
+              setProfileLastName={setProfileLastName}
+              profileSuffix={profileSuffix}
+              setProfileSuffix={setProfileSuffix}
               shippingPhone={shippingPhone}
               setShippingPhone={setShippingPhone}
               addressSearch={addressSearch}

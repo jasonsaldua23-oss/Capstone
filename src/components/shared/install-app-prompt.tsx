@@ -113,6 +113,7 @@ export function InstallAppPrompt({ portal, enabled = true }: InstallAppPromptPro
         <p className="mt-3 border-t border-[#DDE3EA] pt-3 text-[12px] leading-4 text-[#5A6472]">
           This downloads the native Capacitor app for background tracking and device notifications.
         </p>
+
       </div>
     </div>
   )

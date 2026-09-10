@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
-import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -50,7 +49,7 @@ import { getRequiredLicenseCodeForVehicle } from '@/lib/driver-license-restricti
 import { formatFullName, splitFullName } from '@/lib/person-name'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
-import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import {
   toArray,
   getCollection,
@@ -65,6 +64,7 @@ import {
   getWarehouseIdFromRow,
   formatRoleLabel,
   safeFetchJson,
+  fetchAllPaginatedCollection,
   deriveOrderFulfillmentSummary,
 } from './shared'
 
@@ -89,7 +89,7 @@ const formatDriverStatus = (value: unknown, isActive = true) => {
   return status === 'ON_LEAVE' ? 'On Leave' : status === 'INACTIVE' ? 'Inactive' : 'Active'
 }
 
-export function TransportationView({ notificationReferenceType = '', notificationReferenceId = '', notificationFocusKey }: { notificationReferenceType?: string; notificationReferenceId?: string; notificationFocusKey?: number } = {}) {
+export function TransportationView({ notificationReferenceType = '', notificationReferenceId = '', notificationFocusKey, readOnly = true, canManageDrivers = false, tripsContent }: { notificationReferenceType?: string; notificationReferenceId?: string; notificationFocusKey?: number; readOnly?: boolean; canManageDrivers?: boolean; tripsContent?: React.ReactNode } = {}) {
   const [activeTab, setActiveTab] = useState<'vehicles' | 'trips' | 'drivers'>('vehicles')
   const [vehicles, setVehicles] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
@@ -144,13 +144,16 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     try {
       const [vehiclesRes, driversRes, tripsRes] = await Promise.all([
         safeFetchJson('/api/vehicles?page=1&pageSize=100', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
-        safeFetchJson('/api/drivers?page=1&pageSize=100&includeSample=true', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
+        fetchAllPaginatedCollection('/api/drivers?includeSample=true', 'drivers', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
         safeFetchJson('/api/trips?page=1&pageSize=100', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 }),
       ])
 
-      setVehicles(vehiclesRes.ok ? getCollection<any>(vehiclesRes.data, ['vehicles']) : [])
-      setDrivers(driversRes.ok ? getCollection<any>(driversRes.data, ['drivers']) : [])
-      setTrips(tripsRes.ok ? getCollection<any>(tripsRes.data, ['trips']) : [])
+      // Failed refreshes preserve the last records and report the failed request.
+      if (vehiclesRes.ok) setVehicles(getCollection<any>(vehiclesRes.data, ['vehicles']))
+      if (driversRes.ok) setDrivers(getCollection<any>(driversRes.data, ['drivers']))
+      if (tripsRes.ok) setTrips(getCollection<any>(tripsRes.data, ['trips']))
+      const failed = [vehiclesRes, driversRes, tripsRes].find((result) => !result.ok)
+      if (failed) toast.error(failed.data?.error || 'Some transportation records could not be refreshed. Please retry.')
     } catch (error) {
       console.error('Failed to fetch transportation data:', error)
     } finally {
@@ -706,14 +709,14 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Transportation Management</h1>
-          <p className="text-gray-600">Fleet, trips, and driver management system</p>
+          <h1 className="text-2xl font-bold text-gray-900">Transportation</h1>
+          <p className="text-gray-600">{readOnly ? 'Monitor fleet, trips, drivers, and assignments.' : 'Manage fleet vehicles and driver assignments.'}</p>
         </div>
-        <div className="flex gap-2">
+        {!readOnly && <div className="flex gap-2">
           <Button onClick={() => { resetVehicleForm(); setAddVehicleOpen(true) }} className="bg-blue-600 hover:bg-blue-700">
             + Add Vehicle
           </Button>
-        </div>
+        </div>}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1073,7 +1076,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                          {!readOnly ? <div className="flex items-center justify-end gap-2">
                             <Button size="sm" variant="outline" onClick={() => openEditVehicle(vehicle)}>
                               <Pencil className="h-3.5 w-3.5 mr-1" />
                               Edit
@@ -1082,7 +1085,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                               <Trash2 className="h-3.5 w-3.5 mr-1" />
                               Delete
                             </Button>
-                          </div>
+                          </div> : <span className="text-xs text-slate-500">View only</span>}
                         </td>
                       </tr>
                     )
@@ -1120,7 +1123,8 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         </TabsContent>
 
         <TabsContent value="trips" className="space-y-4 mt-4">
-          {isRefreshingTrips && trips.length === 0 ? (
+          {/* Added: reuse the same navigation while preserving warehouse-specific trip actions. */}
+          {tripsContent ?? (isRefreshingTrips && trips.length === 0 ? (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, index) => (
                 <Card key={`trips-skeleton-${index}`} className="animate-pulse">
@@ -1237,7 +1241,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                 </div>
               </div>
             </div>
-          )}
+          ))}
         </TabsContent>
 
         <TabsContent value="drivers" className="space-y-4 mt-4">
@@ -1418,7 +1422,9 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                         <span className="text-gray-500">Deliveries:</span>
                         <span className="ml-1 font-medium">{driver.totalDeliveries || 0}</span>
                       </div>
-                      <div className="mt-4 flex gap-2">
+                      {/* Updated: service areas assigned during account creation remain visible to staff. */}
+                      <p className="mt-2 text-sm text-gray-500">Service areas: {(driver.serviceAreas || []).join(', ') || 'Unassigned'}</p>
+                      {!readOnly && canManageDrivers && <div className="mt-4 flex gap-2">
                         <Button size="sm" variant="outline" className="flex-1" onClick={() => openEditDriver(driver)}>Edit</Button>
                         <Button
                           size="sm"
@@ -1427,7 +1433,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                         >
                           {driver.isActive !== false ? 'Deactivate' : 'Activate'}
                         </Button>
-                      </div>
+                      </div>}
                     </CardContent>
                   </Card>
                 )
@@ -1608,6 +1614,10 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                   <span className="min-w-[108px] font-semibold text-slate-900">{refLabel}</span>
                   <span className="font-mono text-slate-800">{selectedDropPointDetail.order?.orderNumber || 'N/A'}</span>
                 </div>
+                {selectedDropPointDetail.order?.purchaseRequestNumber && <div className="flex gap-2">
+                  <span className="min-w-[108px] font-semibold text-slate-900">Originating PR</span>
+                  <span className="font-mono text-slate-800">{selectedDropPointDetail.order.purchaseRequestNumber}</span>
+                </div>}
                 <div className="flex items-center gap-2">
                   <span className="min-w-[108px] font-semibold text-slate-900">{refStatusLabel}</span>
                   {(() => {
@@ -1635,6 +1645,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                       : 'N/A'}
                   </span>
                 </div>
+                <DepositRefundRow order={selectedDropPointDetail.order} className="pt-1 text-xs" />
               </div>
 
               {/* Order Items */}

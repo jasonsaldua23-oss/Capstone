@@ -257,6 +257,8 @@ def _quote_mixed_line(raw: dict[str, Any], products: dict[str, Product]) -> dict
     raw_components = raw.get("components")
     if not isinstance(raw_components, list) or len(raw_components) < 2:
         raise ValueError("A Mixed Case must contain at least two different products")
+    if len(raw_components) > 2:
+        raise ValueError("A Mixed Case can contain only two different products")
 
     seen: set[str] = set()
     compatibility_keys: set[str] = set()
@@ -555,6 +557,8 @@ def serialize_retail_product(product: Product, inventory: Inventory | None) -> d
         "retailUnitPrice": _money_text(effective_unit_price) if effective_unit_price is not None else None,
         "casePrice": _money_text(product.case_price if product.case_price is not None else product.price),
         "caseQuantity": capacity,
+        # The CASE sale mode also handles packs; expose the product's actual selling unit for labels.
+        "unit": product.unit,
         "depositPerUnit": _money_text(unit_deposit),
         "caseDeposit": _money_text(case_deposit),
         "depositEligible": deposit_eligible,
@@ -882,7 +886,18 @@ def create_retail_sale(
 
 def serialize_retail_sale(order: Order) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
-    for item in order.items.all().order_by("created_at", "id"):
+    # Sort the prefetched rows in memory so receipt lists do not discard their
+    # prefetched products, components, and transaction IDs with another query.
+    order_items = sorted(order.items.all(), key=lambda row: (row.created_at, row.id))
+    for item in order_items:
+        # Each purchased line exposes the exact physical stock-out records it created.
+        retail_transactions = getattr(item, "_retail_out_transactions", None)
+        if retail_transactions is None:
+            retail_transactions = list(
+                item.inventory_transactions.filter(type="OUT", reference_type="retail_sale")
+                .order_by("created_at", "id")
+            )
+        inventory_transaction_ids = [str(row.id) for row in retail_transactions]
         item_sizes = []
         if item.product and isinstance(item.product.sizes, list) and item.product.sizes:
             item_sizes = [str(s).strip() for s in item.product.sizes if str(s).strip()]
@@ -890,7 +905,10 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
             item_sizes = [str(item.product.packaging_profile.container_size).strip()]
 
         components = []
-        for component in item.mixed_case_components.all().order_by("created_at", "id"):
+        components_for_item = sorted(
+            item.mixed_case_components.all(), key=lambda row: (row.created_at, row.id)
+        )
+        for component in components_for_item:
             comp_sizes = []
             if component.product and isinstance(component.product.sizes, list) and component.product.sizes:
                 comp_sizes = [str(s).strip() for s in component.product.sizes if str(s).strip()]
@@ -916,6 +934,11 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
                     "deposit": _money_text(component.deposit_total),
                     "imageUrl": component.product.image_url if component.product else None,
                     "sizes": comp_sizes,
+                    "inventoryTransactionIds": [
+                        str(row.id)
+                        for row in retail_transactions
+                        if row.mixed_case_component_id == component.id
+                    ],
                 }
             )
         items.append(
@@ -938,6 +961,7 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
                 "imageUrl": item.product.image_url if item.product else None,
                 "sizes": item_sizes,
                 "components": components,
+                "inventoryTransactionIds": inventory_transaction_ids,
             }
         )
     bottle_returns = [

@@ -91,10 +91,10 @@ const buildReportStamp = () => new Date().toISOString().replace(/[:T]/g, '-').sl
 
 export function ReportsView() {
   const { user } = useAuth()
-  type WarehouseDatePreset = 'all' | '7' | '30' | '90' | '365' | 'custom'
-  type FeedbackDatePreset = 'all' | '7' | '30' | '90' | '365' | 'custom'
+  type WarehouseDatePreset = 'all' | 'today' | '7' | '30' | '90' | '365' | 'custom'
+  type FeedbackDatePreset = 'all' | 'today' | '7' | '30' | '90' | '365' | 'custom'
   const [activeReportTab, setActiveReportTab] = useState('purchase_requests')
-  const [rangeDays, setRangeDays] = useState<'7' | '30' | '90'>('30')
+  const [rangeDays, setRangeDays] = useState<'today' | '7' | '30' | '90'>('30')
   const [selectedWarehouse, setSelectedWarehouse] = useState('all')
   const [selectedDriver, setSelectedDriver] = useState('all')
   const [selectedOrderStatus, setSelectedOrderStatus] = useState('all')
@@ -209,9 +209,10 @@ export function ReportsView() {
   }, [])
 
   const rangeStart = useMemo(() => {
-    const days = Number(rangeDays)
     const start = new Date()
-    start.setDate(start.getDate() - days)
+    // Today starts at local midnight so earlier records from this calendar day remain visible.
+    if (rangeDays !== 'today') start.setDate(start.getDate() - Number(rangeDays))
+    start.setHours(0, 0, 0, 0)
     return start
   }, [rangeDays])
   const standardDateRangeLabel = useMemo(() => {
@@ -239,12 +240,12 @@ export function ReportsView() {
     const end = new Date()
     end.setHours(23, 59, 59, 999)
     const start = new Date()
-    start.setDate(start.getDate() - Number(feedbackDatePreset))
+    if (feedbackDatePreset !== 'today') start.setDate(start.getDate() - Number(feedbackDatePreset))
     start.setHours(0, 0, 0, 0)
     return {
       start,
       end,
-      label: feedbackDatePreset === '365' ? 'Past 1 Year' : `Past ${feedbackDatePreset} Days`,
+      label: feedbackDatePreset === 'today' ? 'Today' : feedbackDatePreset === '365' ? 'Past 1 Year' : `Past ${feedbackDatePreset} Days`,
     }
   }, [feedbackDatePreset, feedbackDateFrom, feedbackDateTo])
 
@@ -276,11 +277,11 @@ export function ReportsView() {
         label: formatReportDateRangeLabel(customStart, customEnd),
       }
     }
-    const presetStart = startFromPreset(Math.max(0, Number(warehouseDatePreset) - 1))
+    const presetStart = startFromPreset(warehouseDatePreset === 'today' ? 0 : Math.max(0, Number(warehouseDatePreset) - 1))
     return {
       start: presetStart,
       end,
-      label: warehouseDatePreset === '365' ? 'Past 1 Year' : `Past ${warehouseDatePreset} Days`,
+      label: warehouseDatePreset === 'today' ? 'Today' : warehouseDatePreset === '365' ? 'Past 1 Year' : `Past ${warehouseDatePreset} Days`,
     }
   }, [warehouseDatePreset, warehouseDateFrom, warehouseDateTo])
 
@@ -2376,9 +2377,10 @@ export function ReportsView() {
           <select
             className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
             value={rangeDays}
-            onChange={(event) => setRangeDays(event.target.value as '7' | '30' | '90')}
+            onChange={(event) => setRangeDays(event.target.value as 'today' | '7' | '30' | '90')}
             title="Select report date range"
           >
+            <option value="today">Today</option>
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
             <option value="90">Last 90 days</option>
@@ -2394,6 +2396,7 @@ export function ReportsView() {
               aria-label="Filter feedback by date range"
             >
               <option value="all">All Time</option>
+              <option value="today">Today</option>
               <option value="7">Past 7 Days</option>
               <option value="30">Past 30 Days</option>
               <option value="90">Past 90 Days</option>
@@ -2417,6 +2420,7 @@ export function ReportsView() {
               title="Select warehouse report date range"
             >
               <option value="all">All Time</option>
+              <option value="today">Today</option>
               <option value="7">Past 7 Days</option>
               <option value="30">Past 30 Days</option>
               <option value="90">Past 90 Days</option>

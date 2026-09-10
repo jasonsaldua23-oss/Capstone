@@ -51,7 +51,7 @@ interface WarehouseInventoryReportProps {
   stockBatches?: any[]
 }
 
-type PeriodPreset = '7' | '30' | '90' | '365' | 'all' | 'custom'
+type PeriodPreset = 'today' | '7' | '30' | '90' | '365' | 'all' | 'custom'
 
 function getItemSize(item: any): string {
   if (Array.isArray(item?.sizes) && item.sizes.length > 0) {
@@ -147,6 +147,7 @@ export function WarehouseInventoryReport({
 
   // Number of days in the active period for daily velocity calculation
   const periodDays = useMemo(() => {
+    if (periodPreset === 'today') return 1
     if (periodPreset === '7') return 7
     if (periodPreset === '30') return 30
     if (periodPreset === '90') return 90
@@ -171,9 +172,9 @@ export function WarehouseInventoryReport({
         if (dateTo && itemTime > new Date(`${dateTo}T23:59:59.999`).getTime()) return false
         return true
       }
-      const days = Number(periodPreset)
       const cutoff = new Date()
-      cutoff.setDate(cutoff.getDate() - days)
+      // Today includes only movements from local midnight onward.
+      if (periodPreset !== 'today') cutoff.setDate(cutoff.getDate() - Number(periodPreset))
       cutoff.setHours(0, 0, 0, 0)
       return itemTime >= cutoff.getTime()
     }
@@ -642,6 +643,7 @@ export function WarehouseInventoryReport({
   ]
 
   const periodLabel = useMemo(() => {
+    if (periodPreset === 'today') return 'Today'
     if (periodPreset === '7') return 'Past 7 Days'
     if (periodPreset === '30') return 'Past 30 Days'
     if (periodPreset === '90') return 'Past 90 Days'
@@ -883,6 +885,7 @@ export function WarehouseInventoryReport({
               className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none"
             >
               <option value="all">All Time</option>
+              <option value="today">Today</option>
               <option value="7">Past 7 Days</option>
               <option value="30">Past 30 Days</option>
               <option value="90">Past 90 Days</option>

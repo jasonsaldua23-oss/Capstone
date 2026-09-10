@@ -45,13 +45,15 @@ export function loginPathForPortal(portal: ScopedPortal): string {
 
 /** Canonical page shown after authentication for each portal. */
 export function homePathForPortal(portal: ScopedPortal): string {
-  if (portal === 'driver' || portal === 'customer') return `/${portal}`
-  return '/'
+  // Every portal has a refreshable URL; the root remains a legacy entry point.
+  return `/${portal}`
 }
 
 /** Customer/Driver portal encoded in a canonical scoped URL, if present. */
 export function portalFromAppPath(pathname: string): ScopedPortal | null {
   const path = normalisePath(pathname)
+  if (path === '/admin' || path.startsWith('/admin/')) return 'admin'
+  if (path === '/warehouse' || path.startsWith('/warehouse/')) return 'warehouse'
   if (path === '/driver' || path.startsWith('/driver/')) return 'driver'
   if (path === '/customer' || path.startsWith('/customer/')) return 'customer'
   return null

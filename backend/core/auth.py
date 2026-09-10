@@ -50,7 +50,14 @@ def extract_token(request: HttpRequest) -> str | None:
 
     # Role-scoped cookie fallback allows concurrent customer + staff sessions.
     path = str(getattr(request, "path", "") or "")
-    if path.startswith("/api/customer/"):
+    # The remembered portal selects a cookie, never a role or permission. JWT
+    # verification and endpoint authorization still validate the selected session.
+    portal = str(request.headers.get("X-Portal", "")).lower()
+    if portal in {"admin", "warehouse", "driver"}:
+        candidate_cookie_names = [STAFF_TOKEN_NAME, TOKEN_NAME]
+    elif portal == "customer":
+        candidate_cookie_names = [CUSTOMER_TOKEN_NAME, TOKEN_NAME]
+    elif path.startswith("/api/customer/"):
         candidate_cookie_names = [CUSTOMER_TOKEN_NAME, STAFF_TOKEN_NAME, TOKEN_NAME]
     elif path.startswith(("/api/staff/", "/api/warehouse/", "/api/driver/", "/api/admin/")):
         candidate_cookie_names = [STAFF_TOKEN_NAME, CUSTOMER_TOKEN_NAME, TOKEN_NAME]

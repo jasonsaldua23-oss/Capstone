@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
-import { describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -178,7 +178,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
     const purchaseOrderStage = order?.purchaseOrderStage || order?.purchase_order_stage
     const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
-    return requestStatus === 'APPROVED' && Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
+    // Persisted PO identity survives cancellation of its fulfillment.
+    return Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
   }
 
   const isPurchaseRequestOrder = (order: any): boolean => {
@@ -192,7 +193,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     const loadCachedOrders = () => {
       try {
         const raw = localStorage.getItem(ORDERS_CACHE_KEY)
-        if (!raw) return
+        if (!raw) return false
         const parsed = JSON.parse(raw)
         const cached = Array.isArray(parsed) ? parsed : []
         if (cached.length > 0 && isMounted) {
@@ -202,10 +203,12 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
           )
           setOrders(uniqueCached)
           latestOrderUpdatedAtRef.current = getMaxUpdatedAt(cached)
+          return true
         }
       } catch {
         // ignore corrupted cache
       }
+      return false
     }
 
     const saveCachedOrders = (rows: any[]) => {
@@ -369,6 +372,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
             setOrders((prev) => {
               const merged = mergeOrders(prev, incoming)
               latestOrderUpdatedAtRef.current = getMaxUpdatedAt(merged)
+              // Fix: persist status deltas so reopening the PO table does not show an old status.
+              saveCachedOrders(merged)
               return merged
             })
           }
@@ -386,22 +391,28 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
       }
     }
 
-    loadCachedOrders()
+    const hasCachedOrders = loadCachedOrders()
     void fetchWarehouses()
-    void fetchOrdersFull()
+    // Fix: cached rows only need the changed-order delta; a full item-heavy reload
+    // blocks status polling and makes driver delivery updates appear delayed.
+    if (hasCachedOrders) {
+      void fetchOrdersDeltaIfChanged(false)
+    } else {
+      void fetchOrdersFull()
+    }
 
     const unsubscribe = subscribeDataSync((message) => {
       if (message.scopes.includes('orders') || message.scopes.includes('trips')) {
-        void fetchOrdersFull(true)
+        void fetchOrdersDeltaIfChanged(true)
       }
     })
 
     const onFocus = () => {
-      void fetchOrdersFull(true)
+      void fetchOrdersDeltaIfChanged(true)
     }
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void fetchOrdersFull(true)
+        void fetchOrdersDeltaIfChanged(true)
       }
     }
 
@@ -875,11 +886,16 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
         if (!query) return true
 
         return [
+          // Search the PR number displayed in this history, including approved requests.
+          order?.purchaseRequestNumber,
+          order?.purchase_request_number,
           order?.orderNumber,
           order?.customer?.name,
           order?.shippingName,
           warehouseLabel,
           requestStatus,
+          requestStatus.replace(/_/g, ' '),
+          dateRequested,
           productText,
         ].some((value) => String(value || '').toLowerCase().includes(query))
       })
@@ -1563,6 +1579,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                       }
                       return null
                     })()}
+                    <DepositRefundRow order={selectedOrder} className="text-xs" />
                     {getEmptiesAdjustment(selectedOrder) ? (
                       <div className="text-right text-[12px] leading-4 text-[#8a7135]">
                         <p className="font-semibold text-[#7a5c15]">

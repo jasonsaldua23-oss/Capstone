@@ -1,6 +1,6 @@
 'use client'
 
-import { Pencil, Plus } from 'lucide-react'
+import { Archive, Pencil, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -19,12 +19,29 @@ export function WarehouseInventoryView({
   getAvailableQty,
   formatPeso,
   openEditDialog,
+  openRegisterProductDialog,
+  openArchivedProductsPage,
 }: WarehouseInventoryViewProps) {
   const [inventorySearch, setInventorySearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [sizeFilter, setSizeFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
 
-  // Added: search within the staff member's existing warehouse scope.
+  // Added: filter choices use only products within the staff member's warehouse scope.
+  const sizesFor = (item: any): string[] => Array.isArray(item.product?.sizes)
+    ? item.product.sizes.map((size: any) => String(size).trim()).filter(Boolean) : []
+  const categoryFor = (item: any) => String(item.product?.category?.name || item.product?.category || '').trim()
+  const sizeOptions = Array.from(new Set(scopedInventory.flatMap(sizesFor)))
+  const categoryOptions = Array.from(new Set(scopedInventory.map(categoryFor).filter(Boolean)))
+
   const query = inventorySearch.trim().toLowerCase()
-  const filteredInventory = scopedInventory.filter((item) => [item.id, item.product?.name, item.product?.sku, item.product?.sizes?.join(' ')].some((value) => String(value || '').toLowerCase().includes(query)))
+  // Added: search and all filters apply together without sorting or altering stock data.
+  const filteredInventory = scopedInventory.filter((item) =>
+    [item.id, item.product?.name, item.product?.sku, sizesFor(item).join(' ')].some((value) => String(value || '').toLowerCase().includes(query))
+    && (!statusFilter || getStockStatus(item) === statusFilter)
+    && (!sizeFilter || sizesFor(item).includes(sizeFilter))
+    && (!categoryFilter || categoryFor(item) === categoryFilter)
+  )
 
   const getThresholdValue = (item: any) =>
     Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0) || 0)
@@ -39,14 +56,38 @@ export function WarehouseInventoryView({
               <CardTitle>Inventory</CardTitle>
               <CardDescription>Warehouse staff can edit product details and add stock by batch.</CardDescription>
             </div>
-            <Button onClick={openAddStockDialog} className="bg-blue-600 text-white hover:bg-blue-700">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Stock
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={openRegisterProductDialog}>
+                <Plus className="mr-2 h-4 w-4" />
+                Register Product
+              </Button>
+              <Button type="button" variant="outline" onClick={openArchivedProductsPage}>
+                <Archive className="mr-2 h-4 w-4" />
+                Archived Products
+              </Button>
+              <Button onClick={openAddStockDialog} className="bg-blue-600 text-white hover:bg-blue-700">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Stock
+              </Button>
+            </div>
           </div>
         </CardHeader>
-        {/* Added: reserve a responsive row so search never compresses stock controls. */}
-        <div className="px-6 pb-4"><Input aria-label="Search inventory" placeholder="Search inventory…" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} className="h-12 w-full md:max-w-xl text-base" /></div>
+        {/* Toolbar: Search and Filters */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-6 pb-4">
+          <Input aria-label="Search inventory" placeholder="Search inventory…" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} className="h-10 w-full sm:max-w-[280px] text-sm" />
+          <div className="flex flex-wrap items-center gap-2">
+            <select aria-label="Filter by stock status" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="">All statuses</option><option value="healthy">Healthy</option><option value="overstocked">Overstocked</option><option value="restock">Needs Restocking</option><option value="out_of_stock">Out of Stock</option>
+            </select>
+            <select aria-label="Filter by size" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={sizeFilter} onChange={(event) => setSizeFilter(event.target.value)}>
+              <option value="">All sizes</option>{sizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+            <select aria-label="Filter by category" className="h-10 max-w-full rounded-md border border-input bg-background px-3 text-sm" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+              <option value="">All categories</option>{categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+            {(statusFilter || sizeFilter || categoryFilter) && <Button type="button" variant="ghost" onClick={() => { setStatusFilter(''); setSizeFilter(''); setCategoryFilter('') }}>Clear filters</Button>}
+          </div>
+        </div>
         <CardContent className="p-0">
         {loadingInventory ? (
           <PortalTableSkeleton rows={6} columns={6} className="border-0 shadow-none" />

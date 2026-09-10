@@ -2,6 +2,22 @@
 
 const TAB_AUTH_TOKEN_KEY = 'tab-auth-token'
 const PERSISTENT_TAB_AUTH_TOKEN_KEY = 'persistent-tab-auth-token'
+// Persistent credentials are scoped too: another portal must not replace this role on restart.
+function tokenPortal(token: string | null): string | null {
+  if (!token) return null
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (payload.type === 'customer') return 'customer'
+    if (payload.type !== 'staff') return null
+    const role = String(payload.role || '').toUpperCase()
+    return role === 'DRIVER' ? 'driver' : role === 'WAREHOUSE_STAFF' ? 'warehouse' : ['ADMIN', 'SUPER_ADMIN'].includes(role) ? 'admin' : null
+  } catch { return null }
+}
+
+function requestedPortal(): string | null {
+  const match = window.location.pathname.match(/^\/(?:login\/)?(admin|warehouse|driver|customer)(?:\/|$)/)
+  return match?.[1] || sessionStorage.getItem('tab-login-portal')
+}
 const FETCH_PATCH_FLAG = '__tabAuthFetchPatched__'
 const DEFAULT_API_CACHE_TTL_MS = 15_000
 const REFERENCE_API_CACHE_TTL_MS = 5 * 60_000
@@ -83,26 +99,41 @@ export function setTabAuthToken(token: string, options?: { persistent?: boolean 
 
   if (persistent) {
     localStorage.setItem(PERSISTENT_TAB_AUTH_TOKEN_KEY, token)
+    const portal = tokenPortal(token)
+    if (portal) localStorage.setItem(`${PERSISTENT_TAB_AUTH_TOKEN_KEY}:${portal}`, token)
     return
   }
 
+  const portal = tokenPortal(token)
+  if (portal) localStorage.removeItem(`${PERSISTENT_TAB_AUTH_TOKEN_KEY}:${portal}`)
   localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
 
 export function getTabAuthToken(): string | null {
   const sessionToken = sessionStorage.getItem(TAB_AUTH_TOKEN_KEY)
   if (sessionToken) return sessionToken
-  return localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
+  const portal = requestedPortal()
+  const scoped = portal ? localStorage.getItem(`${PERSISTENT_TAB_AUTH_TOKEN_KEY}:${portal}`) : null
+  if (scoped) return scoped
+  const legacy = localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
+  // Decode only to choose the credential; the server still verifies its signature.
+  return !portal || tokenPortal(legacy) === portal ? legacy : null
 }
 
 export function hasPersistentTabAuthToken(): boolean {
-  return Boolean(localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY))
+  const token = getTabAuthToken()
+  const portal = tokenPortal(token)
+  return Boolean(token && (localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY) === token ||
+    (portal && localStorage.getItem(`${PERSISTENT_TAB_AUTH_TOKEN_KEY}:${portal}`) === token)))
 }
 
 export function clearTabAuthToken() {
   clearApiResponseCache()
+  const token = getTabAuthToken()
+  const portal = tokenPortal(token) || requestedPortal()
+  if (portal) localStorage.removeItem(`${PERSISTENT_TAB_AUTH_TOKEN_KEY}:${portal}`)
   sessionStorage.removeItem(TAB_AUTH_TOKEN_KEY)
-  localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
+  if (localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY) === token) localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
 
 export function installTabAuthFetchInterceptor() {
@@ -135,6 +166,11 @@ export function installTabAuthFetchInterceptor() {
     if (token && !hasAuthHeader) {
       headers.set('Authorization', `Bearer ${token}`)
     }
+    // Cookie-only sessions must keep the same portal on shared API endpoints.
+    if (!headers.has('X-Portal')) {
+      const portal = sessionStorage.getItem('tab-login-portal')
+      if (portal && ['admin', 'warehouse', 'driver', 'customer'].includes(portal)) headers.set('X-Portal', portal)
+    }
 
     const requestInit: RequestInit = {
       ...init,
@@ -145,12 +181,15 @@ export function installTabAuthFetchInterceptor() {
     // Any write can affect multiple portal views, so invalidate before sending it.
     if (method !== 'GET') {
       clearApiResponseCache()
-      return originalFetch(input, requestInit)
+      // Reads made while the write is pending may contain the old server state.
+      return originalFetch(input, requestInit).finally(clearApiResponseCache)
     }
 
     const apiUrl = getApiUrl(input)
     const cacheTtl = apiUrl ? getApiCacheTtl(apiUrl.pathname) : 0
-    if (!apiUrl || cacheTtl <= 0 || init?.signal) {
+    const requestCache = init?.cache ?? (input instanceof Request ? input.cache : undefined)
+    // Explicit revalidation must bypass the in-memory cache as well as HTTP caching.
+    if (!apiUrl || cacheTtl <= 0 || init?.signal || ['no-store', 'reload', 'no-cache'].includes(requestCache || '')) {
       return originalFetch(input, requestInit)
     }
 

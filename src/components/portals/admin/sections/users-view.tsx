@@ -33,6 +33,7 @@ import {
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
+import { safeFetchJson } from './shared'
 
 function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
@@ -60,6 +61,7 @@ interface FormState {
   email: string
   phone: string
   roleId: string
+  serviceArea: string
   password: string
   confirmPassword: string
   isActive: boolean
@@ -73,6 +75,7 @@ const initialFormState: FormState = {
   email: '',
   phone: '',
   roleId: '',
+  serviceArea: '',
   password: '',
   confirmPassword: '',
   isActive: true,
@@ -86,6 +89,7 @@ function isFormEmpty(form: FormState): boolean {
 export function UsersView() {
   const [users, setUsers] = useState<any[]>([])
   const [roles, setRoles] = useState<any[]>([])
+  const [rolesError, setRolesError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isVerificationSending, setIsVerificationSending] = useState(false)
@@ -155,6 +159,7 @@ export function UsersView() {
       emailVerified &&
       isValidPhone(form.phone) &&
       form.roleId !== '' &&
+      (form.roleId !== 'DRIVER' || ['silay', 'talisay'].includes(form.serviceArea)) &&
       passwordPolicySatisfied &&
       passwordsMatch
     )
@@ -163,7 +168,7 @@ export function UsersView() {
   const fetchUsers = async () => {
     setIsLoading(true)
     try {
-      const [usersResponse, rolesResponse] = await Promise.all([fetch('/api/users?pageSize=200'), fetch('/api/roles')])
+      const usersResponse = await fetch('/api/users?pageSize=200')
       if (usersResponse.ok) {
         const data = await usersResponse.json()
         const rows = toArray<any>(data?.data ?? data?.users ?? data)
@@ -177,8 +182,21 @@ export function UsersView() {
           })
         setUsers(rows)
       }
-      if (rolesResponse.ok) {
-        const rolesData = await rolesResponse.json()
+    } catch (error) {
+      console.error('Failed to fetch users:', error)
+      toast.error('Unable to load users. Please retry.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // A failed user request must not discard a successful role response.
+  const fetchRoles = async () => {
+    setRolesError(null)
+    try {
+        const result = await safeFetchJson('/api/roles', undefined, { retries: 2 })
+        if (!result.ok) throw new Error(result.data?.error || 'Unable to load roles')
+        const rolesData = result.data
         const rawRoles = toArray<any>(rolesData?.data ?? rolesData?.roles ?? rolesData)
         const seen = new Set<string>()
         const filtered = rawRoles.filter((role) => {
@@ -190,16 +208,15 @@ export function UsersView() {
           return true
         })
         setRoles(filtered)
-      }
+        if (!filtered.length) setRolesError('No assignable roles were returned. Please retry.')
     } catch (error) {
-      console.error('Failed to fetch users:', error)
-    } finally {
-      setIsLoading(false)
+      setRolesError(error instanceof Error ? error.message : 'Unable to load roles')
     }
   }
 
   useEffect(() => {
     fetchUsers()
+    fetchRoles()
   }, [])
 
   const resetForm = () => {
@@ -223,6 +240,8 @@ export function UsersView() {
       email: user.email || '',
       phone: user.phone || '',
       roleId: resolvedRoleId,
+      // Fix: preserve the driver's current assignment when opening the edit form.
+      serviceArea: String(user.serviceArea || user.serviceAreas?.[0] || '').trim().toLowerCase(),
       password: '',
       confirmPassword: '',
       isActive: !!user.isActive,
@@ -293,6 +312,11 @@ export function UsersView() {
       toast.error('Please enter a valid Philippine mobile number')
       return
     }
+    if (form.roleId === 'DRIVER' && !form.serviceArea) {
+      // Driver accounts require one of the supported delivery areas.
+      toast.error('Please select a service area for the driver.')
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -315,6 +339,8 @@ export function UsersView() {
           email: form.email.trim(),
           phone: form.phone.trim() || null,
           roleId: form.roleId,
+          // Save the routing assignment during both driver creation and editing.
+          serviceArea: form.roleId === 'DRIVER' ? form.serviceArea : undefined,
           emailVerificationToken: mode === 'create' ? emailVerificationToken : undefined,
           password: form.password || undefined,
           isActive: form.isActive,
@@ -774,7 +800,7 @@ export function UsersView() {
                   }}
                   onBlur={() => handleBlur('roleId')}
                 >
-                  <option value="">Select role</option>
+                  <option value="">{roles.length ? 'Select role' : rolesError ? 'Roles unavailable' : 'Loading roles...'}</option>
                   {roles.map((role) => (
                     <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>
                   ))}
@@ -783,10 +809,23 @@ export function UsersView() {
                   <ChevronDown className="h-3 w-3 text-gray-400" />
                 </div>
               </div>
+              {rolesError && <p role="alert" className="text-xs text-red-500">{rolesError} <button type="button" onClick={() => void fetchRoles()}>Retry</button></p>}
               {touched.roleId && formErrors.roleId && (
                 <p className="text-[10px] text-red-500">{formErrors.roleId}</p>
               )}
             </div>
+
+            {/* Added: driver accounts require one of the supported service cities. */}
+            {form.roleId === 'DRIVER' && (
+              <div className="space-y-1">
+                <label htmlFor="driver-service-area" className="text-xs font-medium text-gray-700">Service Area <span className="text-red-500">*</span></label>
+                <select id="driver-service-area" className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm" value={form.serviceArea} onChange={(event) => updateField('serviceArea', event.target.value)} required>
+                  <option value="">Select service area</option>
+                  <option value="silay">Silay</option>
+                  <option value="talisay">Talisay</option>
+                </select>
+              </div>
+            )}
 
             {/* Password */}
             <div className="sm:col-span-2 space-y-1">
@@ -1025,104 +1064,120 @@ export function UsersView() {
 
       {/* Edit User Modal */}
       <Dialog open={editOpen} onOpenChange={(open) => !open && setEditOpen(false)}>
-        <DialogContent className="max-w-[90vw] sm:max-w-2xl w-full">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-semibold text-gray-900">Edit User</DialogTitle>
-            <DialogDescription className="text-gray-500">Update account profile, role and status.</DialogDescription>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl p-0 gap-0">
+          <DialogHeader className="border-b border-gray-100 px-6 py-5 pr-12 text-left">
+            <DialogTitle className="text-xl font-semibold text-gray-900">
+              {form.roleId === 'DRIVER' ? 'Edit Driver' : 'Edit User'}
+            </DialogTitle>
+            <DialogDescription className="text-gray-500">
+              Update the account details and work assignment.
+            </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Last Name</label>
-              <Input
-                value={form.lastName}
-                onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
-                className="h-10"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">First Name</label>
-              <Input
-                value={form.firstName}
-                onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
-                className="h-10"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Middle Name</label>
-              <Input
-                value={form.middleName}
-                onChange={(e) => setForm((f) => ({ ...f, middleName: e.target.value }))}
-                className="h-10"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Suffix</label>
-              <Input
-                placeholder="Jr., Sr., III"
-                value={form.suffix}
-                onChange={(e) => setForm((f) => ({ ...f, suffix: e.target.value }))}
-                className="h-10"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Email</label>
-              <Input
-                type="email"
-                autoComplete="off"
-                value={form.email}
-                onChange={(e) => updateField('email', e.target.value)}
-                onBlur={() => handleBlur('email')}
-                className={`h-10 ${touched.email && formErrors.email ? 'border-red-400 ring-red-200' : ''}`}
-              />
-              {touched.email && formErrors.email ? (
-                <p className="text-xs text-red-600">{formErrors.email}</p>
-              ) : null}
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Phone</label>
-              <Input
-                autoComplete="off"
-                placeholder="09XX XXX XXXX"
-                maxLength={12}
-                inputMode="numeric"
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
-                className="h-10"
-              />
-              {form.phone && !isValidPhilippinePhone(form.phone) ? (
-                <p className="text-xs text-red-600">Please enter a valid Philippine mobile number</p>
-              ) : null}
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Role</label>
-              <select
-                className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm appearance-none cursor-pointer border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
-                title="User Role"
-                value={form.roleId}
-                onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
-              >
-                <option value="">Select role</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="sm:col-span-2 space-y-1.5">
-              <label className="text-sm font-medium text-gray-700">Status</label>
-              <select
-                className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm appearance-none cursor-pointer border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
-                title="User Status"
-                value={form.isActive ? 'ACTIVE' : 'INACTIVE'}
-                onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.value === 'ACTIVE' }))}
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="INACTIVE">Inactive</option>
-              </select>
-            </div>
+          <div className="space-y-6 px-6 py-5">
+            {/* Group related fields so the driver form remains easy to scan. */}
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900">Personal information</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">First Name</label>
+                  <Input value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} className="h-11" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Last Name</label>
+                  <Input value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} className="h-11" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Middle Name</label>
+                  <Input value={form.middleName} onChange={(e) => setForm((f) => ({ ...f, middleName: e.target.value }))} className="h-11" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Suffix</label>
+                  <Input placeholder="Jr., Sr., III" value={form.suffix} onChange={(e) => setForm((f) => ({ ...f, suffix: e.target.value }))} className="h-11" />
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-3 border-t border-gray-100 pt-5">
+              <h3 className="text-sm font-semibold text-gray-900">Contact information</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Email</label>
+                  <Input
+                    type="email"
+                    autoComplete="off"
+                    value={form.email}
+                    onChange={(e) => updateField('email', e.target.value)}
+                    onBlur={() => handleBlur('email')}
+                    className={`h-11 ${touched.email && formErrors.email ? 'border-red-400 ring-red-200' : ''}`}
+                  />
+                  {touched.email && formErrors.email ? <p className="text-xs text-red-600">{formErrors.email}</p> : null}
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Phone</label>
+                  <Input
+                    autoComplete="off"
+                    placeholder="09XX XXX XXXX"
+                    maxLength={12}
+                    inputMode="numeric"
+                    value={form.phone}
+                    onChange={(e) => setForm((f) => ({ ...f, phone: formatPhilippinePhoneInput(e.target.value) }))}
+                    className="h-11"
+                  />
+                  {form.phone && !isValidPhilippinePhone(form.phone) ? (
+                    <p className="text-xs text-red-600">Please enter a valid Philippine mobile number</p>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-3 border-t border-gray-100 pt-5">
+              <h3 className="text-sm font-semibold text-gray-900">Account assignment</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Role</label>
+                  <select
+                    className="h-11 w-full cursor-pointer appearance-none rounded-lg border border-gray-200 bg-background px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    title="User Role"
+                    value={form.roleId}
+                    onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, serviceArea: e.target.value === 'DRIVER' ? f.serviceArea : '' }))}
+                  >
+                    <option value="">Select role</option>
+                    {roles.map((role) => <option key={role.id} value={role.id}>{formatRoleLabel(role.name)}</option>)}
+                  </select>
+                </div>
+                {form.roleId === 'DRIVER' ? (
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-gray-700">Service Area</label>
+                    <select
+                      className="h-11 w-full cursor-pointer appearance-none rounded-lg border border-gray-200 bg-background px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      title="Driver Service Area"
+                      value={form.serviceArea}
+                      onChange={(e) => setForm((f) => ({ ...f, serviceArea: e.target.value }))}
+                    >
+                      <option value="">Select service area</option>
+                      <option value="silay">Silay</option>
+                      <option value="talisay">Talisay</option>
+                    </select>
+                  </div>
+                ) : null}
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="text-sm font-medium text-gray-700">Status</label>
+                  <select
+                    className="h-11 w-full cursor-pointer appearance-none rounded-lg border border-gray-200 bg-background px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    title="User Status"
+                    value={form.isActive ? 'ACTIVE' : 'INACTIVE'}
+                    onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.value === 'ACTIVE' }))}
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="INACTIVE">Inactive</option>
+                  </select>
+                </div>
+              </div>
+            </section>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-gray-100">
-            <Button variant="outline" className="flex-1 h-11" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button className="flex-1 h-11 bg-blue-600 text-white hover:bg-blue-700" onClick={() => saveUser('edit')} disabled={isSubmitting}>
+          <div className="flex flex-col-reverse gap-2 border-t border-gray-100 bg-gray-50/70 px-6 py-4 sm:flex-row sm:justify-end">
+            <Button variant="outline" className="h-11 sm:min-w-32" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button className="h-11 bg-blue-600 text-white hover:bg-blue-700 sm:min-w-40" onClick={() => saveUser('edit')} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Save Changes
             </Button>

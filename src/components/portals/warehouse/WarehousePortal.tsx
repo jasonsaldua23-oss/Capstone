@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +34,8 @@ import {
 } from '@/lib/driver-eligibility'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { WarehouseTripsSection } from './WarehouseTripsSection'
+import { WarehouseProductForms } from './sections/inventory/product-forms'
+import { TransportationView } from '../admin/sections/transportation-view'
 import { WarehouseHeader } from './sections/layout/warehouse-header'
 import { searchWarehouseRecords, type WarehouseSearchResult } from '@/lib/warehouse-search'
 import { useWarehousePortalLayoutState, type PortalNotification, type WarehouseView } from './sections/layout/portal-state'
@@ -53,6 +55,7 @@ import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS 
 import { portalFont } from '../portal-font'
 import { WarehouseSidebar } from './sections/layout/warehouse-sidebar'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { BEVERAGE_CATEGORIES } from '@/lib/beverage-category-specs'
 import { getTabAuthToken } from '@/lib/client-auth'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
@@ -222,6 +225,7 @@ interface StockBatchItem {
   id: string
   batchNumber: string
   quantity: number
+  looseUnits?: number
   receiptDate: string
   expiryDate: string | null
   status: string
@@ -445,6 +449,9 @@ interface WarehouseReplacementItem {
 
 interface DriverOption {
   id: string
+  serviceAreas?: string[]
+  status?: string
+  driverStatus?: string
   isActive?: boolean
   name?: string
   email?: string
@@ -627,7 +634,7 @@ const navItems: { id: WarehouseView; label: string; icon: React.ComponentType<{ 
   { id: 'retailPos', label: 'Retail', icon: Store },
   { id: 'purchaseRequests', label: 'Purchase Requests', icon: ShoppingCart },
   { id: 'orders', label: 'Purchase Orders', icon: PackageCheck },
-  { id: 'trips', label: 'Trips & Deliveries', icon: Truck },
+  { id: 'trips', label: 'Transportation', icon: Truck },
   { id: 'replacements', label: 'Replacements', icon: AlertTriangle },
   { id: 'liveTracking', label: 'Live Tracking', icon: MapPin },
   { id: 'inventory', label: 'Inventory', icon: Package },
@@ -719,24 +726,18 @@ export function WarehousePortal() {
   const [selectedReplacement, setSelectedReplacement] = useState<WarehouseReplacementItem | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<WarehouseOrderItem | null>(null)
   const [loadingOrderDetail, setLoadingOrderDetail] = useState(false)
+  const orderDetailRequestRef = useRef(0)
   const [selectedTrip, setSelectedTrip] = useState<WarehouseTripItem | null>(null)
   const [tripToDelete, setTripToDelete] = useState<WarehouseTripItem | null>(null)
   const [rejectOrder, setRejectOrder] = useState<WarehouseOrderItem | null>(null)
   const [selectedRejectReasons, setSelectedRejectReasons] = useState<string[]>([])
   const [otherRejectReason, setOtherRejectReason] = useState('')
   const [orderStatusErrorModal, setOrderStatusErrorModal] = useState<string | null>(null)
-  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editImageUrl, setEditImageUrl] = useState('')
-  const [editImageFile, setEditImageFile] = useState<File | null>(null)
   const [editingBatch, setEditingBatch] = useState<StockBatchItem | null>(null)
   const [editBatchQuantity, setEditBatchQuantity] = useState('')
   const [editBatchManufacturedDate, setEditBatchManufacturedDate] = useState('')
   const [editBatchExpiryDate, setEditBatchExpiryDate] = useState('')
   const [isSavingBatchQty, setIsSavingBatchQty] = useState(false)
-  const [isSavingEdit, setIsSavingEdit] = useState(false)
-  const [isDeletingEdit, setIsDeletingEdit] = useState(false)
-  const [deleteEditOpen, setDeleteEditOpen] = useState(false)
   const [addStockOpen, setAddStockOpen] = useState(false)
   const [isSubmittingStockIn, setIsSubmittingStockIn] = useState(false)
   const [stockInWarehouseId, setStockInWarehouseId] = useState('')
@@ -1189,8 +1190,22 @@ export function WarehousePortal() {
       setIsSavingSecuritySettings(false)
     }
   }
+  const getDriverAreaIssue = (driver: DriverOption | undefined): string => {
+    const status = String(driver?.status || driver?.driverStatus || 'ACTIVE').replace(/_/g, '').toUpperCase()
+    if (status !== 'ACTIVE') return 'Driver is on leave or inactive'
+    const areas = new Set((driver?.serviceAreas || []).map((city) => city.trim().replace(/\s+/g, ' ').toLowerCase()))
+    if (!areas.size) return 'No service areas assigned'
+    // Match every selected destination; the backend repeats this check on save.
+    const selectedCities = routePlans.flatMap((group) => group.orders).filter((order) => selectedRouteOrderIds.includes(order.id)).map((order) => order.city)
+    const cities = createTripOpen && selectedSavedRoute
+      ? selectedSavedRoute.orders.map((order) => order.city)
+      : selectedCities.length ? selectedCities : [selectedRouteCity]
+    return cities.filter(Boolean).every((city) => areas.has(city.trim().replace(/\s+/g, ' ').toLowerCase()))
+      ? '' : 'Outside assigned service areas'
+  }
   const isDriverSelectableForTrip = (driver: DriverOption | undefined, options?: { allowDriverId?: string | null; allowVehicleId?: string | null }) => {
     if (!driver || driver?.isActive === false) return false
+    if (getDriverAreaIssue(driver)) return false
     if (getDriverProfileCompletenessIssue(driver)) return false
     const eligibleVehicle = options?.allowDriverId && String(driver.id || '').trim() === String(options.allowDriverId).trim()
       ? getDriverAssignedVehicle(driver, { allowVehicleId: options.allowVehicleId })
@@ -1202,6 +1217,8 @@ export function WarehousePortal() {
   }
   const getDriverTripEligibilityLabel = (driver: DriverOption | undefined, options?: { allowDriverId?: string | null; allowVehicleId?: string | null }) => {
     if (driver?.isActive === false) return 'Inactive'
+    const areaIssue = getDriverAreaIssue(driver)
+    if (areaIssue) return areaIssue
     const profileIssue = getDriverProfileCompletenessIssue(driver)
     if (profileIssue) return profileIssue
     const assignedVehicle = (driver?.vehicles || []).find((item) => item?.vehicle?.id)?.vehicle
@@ -1226,7 +1243,7 @@ export function WarehousePortal() {
     return getDriverAssignedVehicle(driver, {
       allowVehicleId: editingTripState?.originalVehicleId,
     })
-  }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState])
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState, selectedRouteCity, selectedRouteOrderIds, selectedSavedRouteId, createTripOpen, routePlans])
   const selectedVehicleCapacity = Math.max(0, Number(selectedDriverAssignedVehicle?.capacity || 0))
   const isSelectedVehicleCapacityMissing = Boolean(selectedDriverAssignedVehicle?.id) && selectedVehicleCapacity <= 0
   const isSelectedRouteOverloaded = selectedVehicleCapacity > 0 && selectedRouteLoad.totalWeight > selectedVehicleCapacity
@@ -1237,7 +1254,7 @@ export function WarehousePortal() {
       allowDriverId: editingTripState?.originalDriverId,
       allowVehicleId: editingTripState?.originalVehicleId,
     })
-  }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState])
+  }, [drivers, selectedRouteDriverId, availableVehicleIdSet, editingTripState, selectedRouteCity, selectedRouteOrderIds, selectedSavedRouteId, createTripOpen, routePlans])
 
   const deleteSavedRouteDraft = async (routeId: string) => {
     const response = await fetch('/api/trips/saved-routes', {
@@ -2629,9 +2646,9 @@ export function WarehousePortal() {
     const silent = options?.silent ?? false
     if (showLoading) setLoadingOrders(true)
     try {
-      if (onlyIfNew && latestOrderMarkerRef.current) {
+      if (onlyIfNew) {
         const incomingMarker = await fetchOrderMarker()
-        if (incomingMarker === latestOrderMarkerRef.current) {
+        if (latestOrderMarkerRef.current && incomingMarker === latestOrderMarkerRef.current) {
           return
         }
         if (latestOrderUpdatedAtRef.current) {
@@ -2768,7 +2785,7 @@ export function WarehousePortal() {
   const fetchDriversData = async () => {
     setDriversLoading(true)
     try {
-      const result = await safeFetchJson('/api/drivers?includeSample=true')
+      const result = await safeFetchJson('/api/drivers?includeSample=true&pageSize=200')
       if (!result.ok) {
         // A failed load used to leave the dropdown silently empty, which reads
         // identically to "no drivers exist".
@@ -2776,12 +2793,22 @@ export function WarehousePortal() {
         return
       }
       const list = getCollection<DriverOption>(result.data, ['drivers'])
+      // The endpoint is paginated; eligible older drivers may be on later pages.
+      for (let page = 2; page <= Number(result.data?.totalPages || 1); page += 1) {
+        const next = await safeFetchJson(`/api/drivers?includeSample=true&pageSize=200&page=${page}`)
+        if (!next.ok) {
+          setDriversLoadFailed(true)
+          return
+        }
+        list.push(...getCollection<DriverOption>(next.data, ['drivers']))
+      }
       setDriversLoadFailed(false)
       setDrivers(list)
       const preferredDriver = list.find((driver) => isDriverSelectableForTrip(driver))
 
-      if (preferredDriver?.id && !selectedRouteDriverId) {
-        setSelectedRouteDriverId(preferredDriver.id)
+      if (preferredDriver?.id) {
+        // A background refresh must not overwrite a driver selected after polling began.
+        setSelectedRouteDriverId((current) => current || preferredDriver.id)
       }
     } catch (error) {
       console.warn('Failed to load drivers:', error)
@@ -3425,6 +3452,9 @@ export function WarehousePortal() {
           // changed. The marker is deliberately left unset: it is established by a
           // real response, so a cached start still forces one authoritative fetch.
           latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(cachedOrders)
+          orderDetailsLoadedRef.current = cachedOrders.some(
+            (order) => Array.isArray(order.items) && order.items.length > 0
+          )
         }
       }
 
@@ -3456,7 +3486,7 @@ export function WarehousePortal() {
           initial
             // The snapshot is already on screen, so revalidate behind it instead
             // of replacing the tables with a loading state.
-            ? fetchOrdersData({ showLoading: !cacheState.ordersCached, lightweightDetails: true, silent: cacheState.ordersCached })
+            ? fetchOrdersData({ showLoading: !cacheState.ordersCached, onlyIfNew: cacheState.ordersCached, lightweightDetails: true, silent: cacheState.ordersCached })
             : fetchOrdersData({ showLoading: false, silent: true }),
           cacheState.tripsFresh ? Promise.resolve() : fetchTripsData({ showLoading: !cacheState.tripsCached }),
           fetchReplacementsData(),
@@ -3496,7 +3526,8 @@ export function WarehousePortal() {
         })
       }
       if (scopes.includes('orders')) {
-        void fetchOrdersData({ showLoading: false, silent: true })
+        // Fix: local order events use the same delta path as cross-device polling.
+        void fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true })
       }
       if (scopes.includes('trips')) {
         removePortalCache(tripsCacheKey)
@@ -3573,12 +3604,22 @@ export function WarehousePortal() {
   }, [activeView, trackingDate])
 
   useEffect(() => {
-    if (activeView !== 'orders' && activeView !== 'purchaseRequests') return
+    if (!['orders', 'purchaseRequests', 'trips', 'inventory'].includes(activeView)) return
 
     const refreshChangedOrderStatuses = async () => {
       if (document.visibilityState !== 'visible' || isPollingOrderStatusesRef.current) return
       isPollingOrderStatusesRef.current = true
       try {
+        // Extend the existing polling loop for changes made on other devices.
+        // BroadcastChannel still provides immediate updates between local tabs.
+        if (activeView === 'trips') {
+          await Promise.all([fetchDriversData(), fetchVehiclesData(), fetchTripsData({ showLoading: false })])
+          return
+        }
+        if (activeView === 'inventory') {
+          await Promise.all([fetchProductsData(), refreshInventoryAndStockData(assignedWarehouseIdRef.current, { showLoading: false })])
+          return
+        }
         // Use the order marker/delta path so PO statuses synchronize without reloading the screen.
         await fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true, lightweightDetails: true })
       } finally {
@@ -3589,7 +3630,7 @@ export function WarehousePortal() {
     void refreshChangedOrderStatuses()
     const orderStatusPollInterval = window.setInterval(() => {
       void refreshChangedOrderStatuses()
-    }, 4000)
+    }, activeView === 'trips' || activeView === 'inventory' ? 15000 : 4000)
 
     return () => {
       window.clearInterval(orderStatusPollInterval)
@@ -3632,6 +3673,8 @@ export function WarehousePortal() {
   }, [activeView, trackingDate])
 
   const openOrderDetail = async (order: WarehouseOrderItem) => {
+    // A slower previous request must not replace the most recently opened PR.
+    const requestId = ++orderDetailRequestRef.current
     const normalizedStatus = String(order?.status || '').trim().toUpperCase()
     setSelectedOrder(
       normalizedStatus === 'RESCHEDULED'
@@ -3660,12 +3703,16 @@ export function WarehousePortal() {
     try {
       const response = await fetch(`/api/orders/${order.id}`, { cache: 'no-store', credentials: 'include' })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload?.success === false || !payload?.order) return
+      if (requestId !== orderDetailRequestRef.current) return
+      if (!response.ok || payload?.success === false || !payload?.order) {
+        throw new Error(payload?.error || 'Unable to load request details. Please try again.')
+      }
       setSelectedOrder(payload.order as WarehouseOrderItem)
     } catch (error) {
       console.error('Failed to load order details:', error)
+      toast.error(error instanceof Error ? error.message : 'Unable to load request details. Please try again.')
     } finally {
-      setLoadingOrderDetail(false)
+      if (requestId === orderDetailRequestRef.current) setLoadingOrderDetail(false)
     }
   }
 
@@ -3713,16 +3760,10 @@ export function WarehousePortal() {
 
   const getStockStatus = (item: InventoryItem) => {
     const level = getInventoryAlertLevel(item)
+    // Fix: preserve the zero-stock state instead of grouping it with positive low stock.
+    if (level === 'out_of_stock') return 'out_of_stock'
     if (level === 'overstocked') return 'overstocked'
     return level === 'healthy' ? 'healthy' : 'restock'
-  }
-
-  const openEditDialog = (item: InventoryItem) => {
-    setEditingItem(item)
-    setDeleteEditOpen(false)
-    setEditName(item.product?.name || '')
-    setEditImageUrl(item.product?.imageUrl || '')
-    setEditImageFile(null)
   }
 
   const openBatchQuantityDialog = (batch: StockBatchItem) => {
@@ -3731,60 +3772,6 @@ export function WarehousePortal() {
     // Added: populate the batch dates so warehouse staff can update them with the quantity.
     setEditBatchManufacturedDate(batch.receiptDate ? new Date(batch.receiptDate).toISOString().slice(0, 10) : '')
     setEditBatchExpiryDate(batch.expiryDate ? new Date(batch.expiryDate).toISOString().slice(0, 10) : '')
-  }
-
-  const uploadProductImage = async (file: File) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await fetch('/api/uploads/product-image', {
-      method: 'POST',
-      body: formData,
-    })
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok || payload?.success === false || !payload?.imageUrl) {
-      throw new Error(payload?.error || 'Failed to upload image')
-    }
-    return String(payload.imageUrl)
-  }
-
-  const saveInventoryEdit = async () => {
-    if (!editingItem) return
-    if (!editingItem.product?.id) {
-      toast.error('Missing product reference')
-      return
-    }
-
-    if (!editName.trim()) {
-      toast.error('Product name is required')
-      return
-    }
-
-    setIsSavingEdit(true)
-    try {
-      const uploadedImageUrl = editImageFile ? await uploadProductImage(editImageFile) : editImageUrl || null
-
-      const productResponse = await fetch(`/api/products/${editingItem.product.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editName.trim(),
-          imageUrl: uploadedImageUrl,
-        }),
-      })
-      const productPayload = await productResponse.json().catch(() => ({}))
-      if (!productResponse.ok || productPayload?.success === false) {
-        throw new Error(productPayload?.error || 'Failed to update product')
-      }
-
-      toast.success('Inventory item updated')
-      setEditingItem(null)
-      // One sync event refreshes the shared stock snapshot and dependent collections.
-      emitDataSync(['inventory', 'products', 'stock-batches', 'inventory-transactions'])
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to save changes')
-    } finally {
-      setIsSavingEdit(false)
-    }
   }
 
   const saveStockBatchChanges = async () => {
@@ -3828,33 +3815,6 @@ export function WarehousePortal() {
       toast.error(error?.message || 'Failed to update stock batch')
     } finally {
       setIsSavingBatchQty(false)
-    }
-  }
-
-  const deleteInventoryProduct = async () => {
-    if (!editingItem?.product?.id) {
-      toast.error('Missing product reference')
-      return
-    }
-
-    setIsDeletingEdit(true)
-    try {
-      const response = await fetch(`/api/products/${editingItem.product.id}`, {
-        method: 'DELETE',
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to delete product')
-      }
-
-      setEditingItem(null)
-      setDeleteEditOpen(false)
-      toast.success('Product deleted')
-      emitDataSync(['inventory', 'products', 'stock-batches', 'inventory-transactions'])
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to delete product')
-    } finally {
-      setIsDeletingEdit(false)
     }
   }
 
@@ -4484,7 +4444,7 @@ export function WarehousePortal() {
 
   const updateWarehouseOrderStatus = async (
     orderId: string,
-    status: 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
+    status: 'CONFIRMED' | 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
     reason?: string
   ) => {
     setUpdatingOrderId(orderId)
@@ -5114,39 +5074,28 @@ export function WarehousePortal() {
           )}
 
           {activeView === 'trips' && (
-            <WarehouseTripsSection
-              loadingTrips={loadingTrips}
-              scopedTrips={scopedTrips}
-              assignedWarehouseId={assignedWarehouse?.id}
-              assignedWarehouseName={assignedWarehouse?.name}
-              tripStatusColors={tripStatusColors}
-              selectedTrip={selectedTrip}
-              setSelectedTrip={setSelectedTrip}
-              onOpenCreateTripFlow={() => setCreateRouteOpen(true)}
-              onEditTrip={(trip) => {
-                void openTripEditorInCreateDialog(trip as WarehouseTripItem)
-              }}
-              onDeleteTrip={(trip) => {
-                void deleteTrip(trip)
-              }}
-              onUnassignOrderItems={(tripId, orderId, warehouseId, itemIds) => {
-                void unassignOrderItemsFromTrip(tripId, orderId, warehouseId, itemIds)
-              }}
-              availableOrders={scopedOrders
-                .filter((order) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(String(order.status || '').toUpperCase()))
-                .map((order) => ({
-                  id: order.id,
-                  orderNumber: order.orderNumber,
-                  shippingName: order.shippingName || order.customer?.name || '',
-                  shippingCity: order.shippingCity || '',
-                  status: order.status,
-                  allocatedQtyForSelectedWarehouse: Number((order as any)?.allocatedQtyForSelectedWarehouse || 0),
-                  totalOrderQty: Number((order as any)?.totalOrderQty || 0),
-                }))}
-              onEditTripDropPoints={(trip, changes) => {
-                void editTripDropPoints(trip as WarehouseTripItem, changes)
-              }}
-              editingTripId={editingTripId}
+            // Fix: share the admin Fleet Management / Trips / Drivers navigation without nested tabs.
+            <TransportationView
+              readOnly={false}
+              canManageDrivers={false}
+              tripsContent={
+                <WarehouseTripsSection
+                  loadingTrips={loadingTrips}
+                  scopedTrips={scopedTrips}
+                  assignedWarehouseId={assignedWarehouse?.id}
+                  assignedWarehouseName={assignedWarehouse?.name}
+                  tripStatusColors={tripStatusColors}
+                  selectedTrip={selectedTrip}
+                  setSelectedTrip={setSelectedTrip}
+                  onOpenCreateTripFlow={() => setCreateRouteOpen(true)}
+                  onEditTrip={(trip) => { void openTripEditorInCreateDialog(trip as WarehouseTripItem) }}
+                  onDeleteTrip={(trip) => { void deleteTrip(trip) }}
+                  onUnassignOrderItems={(tripId, orderId, warehouseId, itemIds) => { void unassignOrderItemsFromTrip(tripId, orderId, warehouseId, itemIds) }}
+                  availableOrders={scopedOrders.filter((order) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(String(order.status || '').toUpperCase())).map((order) => ({ id: order.id, orderNumber: order.orderNumber, shippingName: order.shippingName || order.customer?.name || '', shippingCity: order.shippingCity || '', status: order.status, allocatedQtyForSelectedWarehouse: Number((order as any)?.allocatedQtyForSelectedWarehouse || 0), totalOrderQty: Number((order as any)?.totalOrderQty || 0) }))}
+                  onEditTripDropPoints={(trip, changes) => { void editTripDropPoints(trip as WarehouseTripItem, changes) }}
+                  editingTripId={editingTripId}
+                />
+              }
             />
           )}
 
@@ -5217,6 +5166,8 @@ export function WarehousePortal() {
                     <Button variant="outline" size="sm" onClick={() => setSearchInventoryId('')}>Show all inventory</Button>
                   </div>
                 )}
+                <WarehouseProductForms warehouse={assignedWarehouse} products={products}>
+                  {({ openEditDialog, openRegisterProductDialog, openArchivedProductsPage }) => (
                 <WarehouseInventoryView
                   openAddStockDialog={openAddStockDialog}
                   loadingInventory={loadingInventory}
@@ -5225,7 +5176,11 @@ export function WarehousePortal() {
                   getAvailableQty={getAvailableQty}
                   formatPeso={formatPeso}
                   openEditDialog={openEditDialog}
+                  openRegisterProductDialog={openRegisterProductDialog}
+                  openArchivedProductsPage={openArchivedProductsPage}
                 />
+                  )}
+                </WarehouseProductForms>
               </TabsContent>
 
               <TabsContent value="stocks" className="mt-0">
@@ -5984,7 +5939,7 @@ export function WarehousePortal() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
+      <Dialog open={!!selectedOrder} onOpenChange={(open) => { if (!open) { orderDetailRequestRef.current += 1; setSelectedOrder(null) } }}>
         <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-[980px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
           {selectedOrder && (
             <>
@@ -6200,6 +6155,7 @@ export function WarehousePortal() {
                           )
                         })}
                         <div className="h-px bg-slate-200" />
+                        <DepositRefundRow order={selectedOrder} className="text-xs" />
                         {isMultiWarehouse ? (
                           <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">
                             Warehouse scoped total: <span className="text-emerald-700">{formatPeso(warehouseScopedTotal || 0)}</span>
@@ -6351,7 +6307,8 @@ export function WarehousePortal() {
                       ) : isPendingApproval || selectedOrderStatus === 'PENDING' ? (
                         <Button
                           className="bg-emerald-600 text-white hover:bg-emerald-700"
-                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
+                          // PR approval must generate its PO before preparation starts.
+                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'CONFIRMED')}
                           disabled={updatingOrderId === selectedOrder.id}
                         >
                           Approve Order
@@ -6369,7 +6326,7 @@ export function WarehousePortal() {
                           No Action
                         </Button>
                       )}
-                      <Button variant="outline" onClick={() => setSelectedOrder(null)}>
+                      <Button variant="outline" onClick={() => { orderDetailRequestRef.current += 1; setSelectedOrder(null) }}>
                         Close
                       </Button>
                     </div>
@@ -6652,32 +6609,6 @@ export function WarehousePortal() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Inventory Item</DialogTitle>
-            <DialogDescription>Update product name and photo.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="edit-name">Product Name</Label>
-              <Input id="edit-name" value={editName} onChange={(e) => setEditName(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-image-file">Photo</Label>
-              <Input id="edit-image-file" type="file" accept="image/*" onChange={(e) => setEditImageFile(e.target.files?.[0] || null)} />
-              {editImageUrl && <p className="text-xs text-gray-500">Current photo is set.</p>}
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" onClick={saveInventoryEdit} disabled={isSavingEdit || isDeletingEdit}>
-                {isSavingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Save Changes
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={!!editingBatch} onOpenChange={(open) => !open && setEditingBatch(null)}>
         <DialogContent>
           <DialogHeader>
@@ -6729,29 +6660,7 @@ export function WarehousePortal() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteEditOpen && !isWarehouseScopedUser} onOpenChange={setDeleteEditOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-red-600">Delete Product Permanently?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action will permanently delete{' '}
-              <span className="font-semibold text-foreground">{editingItem?.product?.name || 'this product'}</span>{' '}
-              from the system. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingEdit}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={deleteInventoryProduct}
-              disabled={isDeletingEdit}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              {isDeletingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Delete Product
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+
 
       <AlertDialog open={!!tripToDelete} onOpenChange={(open) => !open && setTripToDelete(null)}>
         <AlertDialogContent>

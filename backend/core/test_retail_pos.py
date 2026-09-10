@@ -20,7 +20,7 @@ from .models import (
     User,
     Warehouse,
 )
-from .retail_pos import calculate_deposit_amount, calculate_payment_summary
+from .retail_pos import _quote_mixed_line, calculate_deposit_amount, calculate_payment_summary
 
 
 class RetailPosMoneyTests(SimpleTestCase):
@@ -101,6 +101,21 @@ class RetailPosMoneyTests(SimpleTestCase):
         self.assertEqual(payment["paymentStatus"], "PAID")
         self.assertEqual(payment["remainingBalance"], Decimal("0.00"))
         self.assertEqual(payment["change"], Decimal("20.00"))
+
+    def test_mixed_case_rejects_more_than_two_products(self):
+        with self.assertRaisesMessage(ValueError, "only two different products"):
+            _quote_mixed_line(
+                {
+                    "quantity": 1,
+                    "caseCapacity": 12,
+                    "components": [
+                        {"productId": "product-1", "quantityBaseUnits": 4},
+                        {"productId": "product-2", "quantityBaseUnits": 4},
+                        {"productId": "product-3", "quantityBaseUnits": 4},
+                    ],
+                },
+                {},
+            )
 
 
 class RetailPosApiTests(TestCase):
@@ -184,6 +199,19 @@ class RetailPosApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["products"][0]["availableBaseUnits"], 24)
 
+    def test_catalog_exposes_registered_selling_unit(self):
+        # Packs and bottles use their registered label even when sold through the CASE mode.
+        for unit in ["case", "pack", "bottle"]:
+            with self.subTest(unit=unit):
+                self.product.unit = unit
+                self.product.save(update_fields=["unit"])
+                response = self.client.get("/api/retail/products", **self.auth)
+                self.assertEqual(response.status_code, 200)
+                product = response.json()["products"][0]
+                self.assertEqual(product["unit"], unit)
+                self.assertEqual(product["caseQuantity"], 12)
+                self.assertEqual(product["casePrice"], "300.00")
+
     def test_immediate_sale_is_idempotent_and_hidden_from_regular_orders(self):
         payload = {
             "warehouseId": self.warehouse.id,
@@ -216,10 +244,9 @@ class RetailPosApiTests(TestCase):
         self.assertEqual(stock_response.status_code, 200, stock_response.content)
         stock_row = next(row for row in stock_response.json()["inventory"] if row["id"] == inventory.id)
         self.assertEqual((stock_row["quantity"], stock_row["looseBottles"]), (1, 10))
-        self.assertEqual(
-            InventoryTransaction.objects.filter(reference_type="retail_sale", type="OUT").count(),
-            1,
-        )
+        stock_out = InventoryTransaction.objects.get(reference_type="retail_sale", type="OUT")
+        # The receipt links each purchased line to its real inventory transaction.
+        self.assertEqual(created.json()["sale"]["items"][0]["inventoryTransactionIds"], [stock_out.id])
         regular_orders = self.client.get("/api/orders", **self.auth)
         self.assertEqual(regular_orders.status_code, 200)
         self.assertEqual(regular_orders.json()["orders"], [])

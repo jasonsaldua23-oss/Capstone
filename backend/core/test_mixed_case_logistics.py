@@ -115,7 +115,7 @@ class MixedCaseLogisticsTests(MixedCaseFixtureMixin, TestCase):
             content_type="application/json",
         )
         staff = ({"userId": "admin-logistics", "name": "Admin", "role": RoleType.ADMIN}, None)
-        with patch("core.views_api._require_staff", return_value=staff):
+        with patch("core.views_api._require_staff", return_value=staff), patch("core.views_api._email_delivery_failed_to_customer"):
             return trip_drop_point_update(request, trip.id, drop_point.id)
 
     def test_trip_assignment_uses_component_rows_and_item_case_counts(self):
@@ -183,7 +183,6 @@ class MixedCaseLogisticsTests(MixedCaseFixtureMixin, TestCase):
         staff = ({"userId": "admin-logistics", "name": "Admin", "role": RoleType.ADMIN}, None)
         with (
             patch("core.views_api._require_staff", return_value=staff),
-            patch("core.views_api._resolve_single_warehouse", return_value=(self.warehouse, None)),
             patch("core.views_api._real_orders", side_effect=lambda qs: qs),
         ):
             response = trips_route_plan(request)

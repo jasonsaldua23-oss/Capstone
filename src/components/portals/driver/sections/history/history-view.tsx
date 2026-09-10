@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { resolveClientImageUrl } from '@/lib/client-image'
-import { getOrderTotalWithEmpties, EmptiesChargeRow } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, getOrderTotalWithEmpties, EmptiesChargeRow } from '@/components/shared/empties-charge-note'
 import {
   ArrowLeft,
   ChevronRight,
@@ -367,6 +367,7 @@ export function HistoryView({
                 }
                 return null
               })()}
+              <DepositRefundRow order={order} className="text-xs" />
               <EmptiesChargeRow order={order} className="text-xs" />
               <div className="flex items-center justify-between text-xs font-semibold text-slate-900">
                 <span className="text-slate-600">Total Order Value</span>

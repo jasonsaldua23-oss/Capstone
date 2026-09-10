@@ -91,6 +91,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(Boolean((user as any)?.loginAlertsEnabled ?? (user as any)?.login_alerts_enabled ?? true))
   const [isSavingSecurity, setIsSavingSecurity] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isEditingLicense, setIsEditingLicense] = useState(false)
   const [isEditingSecurity, setIsEditingSecurity] = useState(false)
   const [rememberDeviceEnabled, setRememberDeviceEnabled] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -359,6 +360,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       licenseType: form.licenseType,
       licenseExpiry: form.licenseExpiry,
     })
+    // Open license details in read-only mode until the driver chooses to edit them.
+    setIsEditingLicense(false)
     setSubView('license')
   }
 
@@ -481,6 +484,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
       if (mode === 'profile') {
         // Added: reopen the profile in read-only mode after a successful save.
         setIsEditingProfile(false)
+      } else {
+        setIsEditingLicense(false)
       }
       toast.success(mode === 'profile' ? 'Profile updated' : 'License details updated')
     } catch (error: any) {
@@ -1007,6 +1012,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               placeholder="e.g. D09-22-000984"
               maxLength={13}
               onChange={(e) => onChange('licenseNumber', formatPhilippineDriverLicenseInput(e.target.value))}
+              disabled={!isEditingLicense}
               className={`h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200 ${
                 draft.licenseNumber && !isValidPhilippineDriverLicense(draft.licenseNumber)
                   ? 'border-amber-300 focus-visible:border-amber-500 focus-visible:ring-amber-200'
@@ -1024,6 +1030,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               id="driver-license-type"
               value={draft.licenseType}
               onChange={(e) => onChange('licenseType', e.target.value)}
+              disabled={!isEditingLicense}
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-slate-800 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
             >
               <option value="">Select restriction</option>
@@ -1041,6 +1048,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               min={new Date().toISOString().slice(0, 10)}
               value={draft.licenseExpiry}
               onChange={(e) => onChange('licenseExpiry', e.target.value)}
+              disabled={!isEditingLicense}
               className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-sky-500 focus-visible:ring-sky-200"
             />
           </div>
@@ -1050,7 +1058,13 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         <div className="px-4 pt-2">
           <Button
             type="button"
-            onClick={() => void onSave('license')}
+            onClick={() => {
+              if (isEditingLicense) {
+                void onSave('license')
+              } else {
+                setIsEditingLicense(true)
+              }
+            }}
             disabled={isSaving}
             className="w-full h-12 bg-[#0d61ad] text-white rounded-xl font-semibold hover:bg-[#0b579c] transition-colors shadow-[0_4px_12px_rgba(13,97,173,0.12)]"
           >
@@ -1059,8 +1073,10 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Saving License...
               </>
-            ) : (
+            ) : isEditingLicense ? (
               'Save License'
+            ) : (
+              'Edit License'
             )}
           </Button>
         </div>

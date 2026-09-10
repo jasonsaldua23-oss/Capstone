@@ -19,7 +19,7 @@ import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { prepareImageForUpload } from '@/lib/client-image'
 import { burnPodOverlay, formatPodOverlayLines, type PodOverlaySnapshot } from '@/lib/pod-camera-overlay'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
-import { EmptiesChargeNote } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, EmptiesChargeNote } from '@/components/shared/empties-charge-note'
 import type { AuthUser } from '@/types'
 import {
   calculateNavigationViewportInsets,
@@ -59,6 +59,8 @@ type DriverRouteOption = {
   id: string
   points: [number, number][]
   originPoints: [number, number][]
+  activeLegPoints: [number, number][]
+  futureLegPoints: [number, number][]
   steps: OsrmStep[]
 }
 
@@ -98,12 +100,19 @@ export function TripDetailView({
   // Delivery and proof-of-delivery state.
   const [activeDropPoint, setActiveDropPoint] = useState<DropPoint | null>(null)
   const [deliveryNote, setDeliveryNote] = useState('')
+  const [deliveryError, setDeliveryError] = useState<string | null>(null)
   // The ref, not the state flag, is what stops a second tap: state updates land after
   // the next render, and the button can be pressed again before that happens.
   const [isCompletingTrip, setIsCompletingTrip] = useState(false)
   const isCompletingTripRef = useRef(false)
   const [podDraftByDropPoint, setPodDraftByDropPoint] = useState<Record<string, { file: File | null; preview: string | null }>>({})
-  const [returnedEmptiesByDropPoint, setReturnedEmptiesByDropPoint] = useState<Record<string, Array<{containerTypeId: string; containerTypeName: string; returnedQuantity: number}>>>({})
+  const [returnedEmptiesByDropPoint, setReturnedEmptiesByDropPoint] = useState<Record<string, Array<{
+    containerTypeId: string
+    containerTypeName: string
+    returnedQuantity: number
+    returnedCases?: number
+    returnedLooseBottles?: number
+  }>>>({})
   const [podCaptureDropPointId, setPodCaptureDropPointId] = useState<string | null>(null)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
   const [capturedCameraPhoto, setCapturedCameraPhoto] = useState<string | null>(null)
@@ -837,11 +846,13 @@ export function TripDetailView({
   }
 
   const submitDeliveredForDropPoint = async (dropPoint: DropPoint): Promise<boolean> => {
+    setDeliveryError(null)
     const dropPointId = String(dropPoint?.id || '').trim()
     const podDraft = podDraftByDropPoint[dropPointId]
     const podImageFile = podDraft?.file || null
     const existingPodPhotoUrl = String(dropPoint?.deliveryPhoto || '').trim()
     if (!podImageFile && !existingPodPhotoUrl) {
+      setDeliveryError('Capture a POD photo before confirming delivery.')
       toast.error('Capture POD photo first')
       openPodCameraCapture(String(dropPoint.id || ''))
       return false
@@ -873,6 +884,7 @@ export function TripDetailView({
       }
       return completed
     } catch (error: any) {
+      setDeliveryError(error?.message || 'POD upload failed. Please retry.')
       toast.error(error?.message || 'Failed to upload POD image')
       return false
     }
@@ -976,12 +988,13 @@ export function TripDetailView({
         return true
       } else {
         toast.error(payload?.error || 'Failed to update drop point')
-        refreshTripsInBackground()
+        // Preserve the form and captured POD when validation fails.
+        if (status === 'COMPLETED') setDeliveryError(payload?.error || 'Delivery confirmation failed. Please retry.')
         return false
       }
     } catch (error) {
-      toast.error('An error occurred')
-      refreshTripsInBackground()
+      toast.error('Unable to save the delivery update. Check your connection and retry.')
+      if (status === 'COMPLETED') setDeliveryError('Delivery confirmation failed. Check your connection and retry.')
       return false
     } finally {
       setIsUpdating(false)
@@ -1586,9 +1599,14 @@ export function TripDetailView({
     const declaredEmpties = ((dropPoint as any)?.declaredEmpties || []) as Array<{
       containerTypeId: string
       containerTypeName?: string
+      productName?: string
       declaredQuantity?: number
       declaredUnits?: number
       containersPerUnit?: number
+      containersPerCase?: number
+      declaredCases?: number
+      declaredLooseBottles?: number
+      isRefundClaim?: boolean
       countsByCase?: boolean
       unitLabel?: string
       depositValue?: number
@@ -1601,17 +1619,25 @@ export function TripDetailView({
       typeName: string
       declared: number
       perUnit: number
-      unitLabel: string
+      containersPerCase: number
+      declaredCases: number
+      declaredLooseBottles: number
+      isRefundClaim: boolean
       depositValue: number
     }>()
     for (const entry of declaredEmpties) {
       if (!entry?.containerTypeId) continue
       const perUnit = Math.max(1, Number(entry.containersPerUnit || 1))
+      const containersPerCase = Math.max(1, Number(entry.containersPerCase || perUnit))
       containerTypesMap.set(entry.containerTypeId, {
-        typeName: entry.containerTypeName || 'Returnable Container',
+        // Show the exact product selected for the refund when it is available.
+        typeName: entry.productName || entry.containerTypeName || 'Returnable Container',
         declared: Math.max(0, Number(entry.declaredQuantity || 0)),
         perUnit,
-        unitLabel: entry.unitLabel || entry.containerTypeName || 'Container',
+        containersPerCase,
+        declaredCases: Math.max(0, Number(entry.declaredCases ?? (perUnit > 1 ? entry.declaredUnits : 0) ?? 0)),
+        declaredLooseBottles: Math.max(0, Number(entry.declaredLooseBottles ?? (perUnit > 1 ? 0 : entry.declaredQuantity) ?? 0)),
+        isRefundClaim: Boolean(entry.isRefundClaim),
         depositValue: Math.max(0, Number(entry.depositValue || 0)),
       })
     }
@@ -1626,7 +1652,10 @@ export function TripDetailView({
             typeName: item.product?.containerTypeName || 'Returnable Container',
             declared: 0,
             perUnit: 1,
-            unitLabel: item.product?.containerTypeName || 'Container',
+            containersPerCase: Math.max(1, Number(item.product?.containersPerCase || 1)),
+            declaredCases: 0,
+            declaredLooseBottles: 0,
+            isRefundClaim: false,
             depositValue: 0,
           })
         }
@@ -1638,18 +1667,28 @@ export function TripDetailView({
     const dropPointId = dropPoint.id!
     const currentEmpties = returnedEmptiesByDropPoint[dropPointId] || []
 
-    const handleUpdateQuantity = (cTypeId: string, cTypeName: string, newQty: number, maxQty: number) => {
-      // The count can only ever run between nothing and what the customer declared:
-      // this order settles that declaration and nothing else.
-      const qty = Math.min(Math.max(0, newQty), Math.max(0, maxQty))
+    const handleUpdateQuantity = (
+      cTypeId: string,
+      cTypeName: string,
+      returnedCases: number,
+      returnedLooseBottles: number,
+      maxCases: number,
+      maxLooseBottles: number,
+      containersPerCase: number,
+    ) => {
+      // Keep the UI breakdown while submitting the combined bottle quantity used
+      // by the existing deposit settlement and bottle inventory records.
+      const cases = Math.min(Math.max(0, returnedCases), Math.max(0, maxCases))
+      const looseBottles = Math.min(Math.max(0, returnedLooseBottles), Math.max(0, maxLooseBottles))
+      const qty = (cases * containersPerCase) + looseBottles
       setReturnedEmptiesByDropPoint(prev => {
         const current = prev[dropPointId] || []
         const existingIdx = current.findIndex(e => e.containerTypeId === cTypeId)
         let next = [...current]
         if (existingIdx >= 0) {
-          next[existingIdx] = { ...next[existingIdx], returnedQuantity: qty }
+          next[existingIdx] = { ...next[existingIdx], returnedQuantity: qty, returnedCases: cases, returnedLooseBottles: looseBottles }
         } else {
-          next.push({ containerTypeId: cTypeId, containerTypeName: cTypeName, returnedQuantity: qty })
+          next.push({ containerTypeId: cTypeId, containerTypeName: cTypeName, returnedQuantity: qty, returnedCases: cases, returnedLooseBottles: looseBottles })
         }
         return { ...prev, [dropPointId]: next }
       })
@@ -1661,41 +1700,77 @@ export function TripDetailView({
           <p className="text-sm font-semibold text-slate-800">Empties collected</p>
           <p className="text-xs text-slate-500">Count what the customer actually hands over. Anything short of the declared amount is charged back on this order.</p>
         </div>
-        {Array.from(containerTypesMap.entries()).map(([cTypeId, { typeName, declared, perUnit, unitLabel, depositValue: declaredDepositValue }]) => {
-          const stored = currentEmpties.find(e => e.containerTypeId === cTypeId)?.returnedQuantity
-          // Clamp on the way out too, so a stale stored value can never display as
-          // more than the customer ever declared.
-          const currentVal = Math.min(Math.max(0, stored ?? declared), declared)
+        {Array.from(containerTypesMap.entries()).map(([cTypeId, {
+          typeName,
+          declared,
+          containersPerCase,
+          declaredCases,
+          declaredLooseBottles,
+          isRefundClaim,
+          depositValue: declaredDepositValue,
+        }]) => {
+          const stored = currentEmpties.find(e => e.containerTypeId === cTypeId)
+          const storedQuantity = Math.min(Math.max(0, Number(stored?.returnedQuantity ?? declared)), declared)
+          const currentCases = Math.min(
+            declaredCases,
+            Math.max(0, Number(stored?.returnedCases ?? (stored ? Math.floor(storedQuantity / containersPerCase) : declaredCases))),
+          )
+          const currentLooseBottles = Math.min(
+            declaredLooseBottles,
+            Math.max(0, Number(stored?.returnedLooseBottles ?? (stored ? storedQuantity - (currentCases * containersPerCase) : declaredLooseBottles))),
+          )
+          const currentVal = (currentCases * containersPerCase) + currentLooseBottles
           const short = Math.max(0, declared - currentVal)
-          const byCase = perUnit > 1
-          const unitName = (count: number) => `${unitLabel}${count === 1 ? '' : 's'}`
-          const declaredUnits = Math.floor(declared / perUnit)
-          const currentUnits = Math.floor(currentVal / perUnit)
-          const shortUnits = Math.max(0, declaredUnits - currentUnits)
+          const shortCases = Math.max(0, declaredCases - currentCases)
+          const shortLooseBottles = Math.max(0, declaredLooseBottles - currentLooseBottles)
+          const formatBreakdown = (cases: number, bottles: number) => [
+            cases > 0 ? `${cases} case${cases === 1 ? '' : 's'}` : '',
+            bottles > 0 ? `${bottles} loose bottle${bottles === 1 ? '' : 's'}` : '',
+          ].filter(Boolean).join(' + ') || '0 bottles'
           return (
-            <div key={cTypeId} className="flex justify-between items-center gap-3">
+            <div key={cTypeId} className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-700">{typeName}</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-sm font-medium text-slate-700">{typeName}</p>
+                  {isRefundClaim ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
+                      Refunded empty
+                    </span>
+                  ) : null}
+                </div>
                 <p className="text-xs text-slate-500">
-                  Customer declared: {byCase ? `${declaredUnits} ${unitName(declaredUnits)} (${declared} bottles)` : declared}
+                  Customer declared: {formatBreakdown(declaredCases, declaredLooseBottles)}
                 </p>
                 {short > 0 ? (
                   <p className="text-xs font-semibold text-[#b42318]">
-                    {byCase ? `${shortUnits} ${unitName(shortUnits)}` : short} short -{' '}
+                    {formatBreakdown(shortCases, shortLooseBottles)} short -{' '}
                     {formatCurrency((declaredDepositValue * short) / Math.max(1, declared))} added to this order
                   </p>
                 ) : null}
               </div>
-              <div className="flex shrink-0 items-center space-x-2 bg-white rounded-lg border px-1 py-1">
-                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentVal - perUnit, declared) }} disabled={currentVal <= 0}>
-                  <Minus className="h-3.5 w-3.5" />
-                </Button>
-                <span className="min-w-[3.5rem] text-center text-sm font-medium">
-                  {byCase ? `${currentUnits} ${unitName(currentUnits)}` : currentVal}
-                </span>
-                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentVal + perUnit, declared) }} disabled={currentVal >= declared}>
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                {declaredCases > 0 ? (
+                  <div className="flex shrink-0 items-center space-x-2 rounded-lg border bg-white px-1 py-1">
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentCases - 1, currentLooseBottles, declaredCases, declaredLooseBottles, containersPerCase) }} disabled={currentCases <= 0}>
+                      <Minus className="h-3.5 w-3.5" />
+                    </Button>
+                    <span className="min-w-[4.5rem] text-center text-sm font-medium">{currentCases} case{currentCases === 1 ? '' : 's'}</span>
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentCases + 1, currentLooseBottles, declaredCases, declaredLooseBottles, containersPerCase) }} disabled={currentCases >= declaredCases}>
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ) : null}
+                {declaredLooseBottles > 0 ? (
+                  <div className="flex shrink-0 items-center space-x-2 rounded-lg border bg-white px-1 py-1">
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentCases, currentLooseBottles - 1, declaredCases, declaredLooseBottles, containersPerCase) }} disabled={currentLooseBottles <= 0}>
+                      <Minus className="h-3.5 w-3.5" />
+                    </Button>
+                    <span className="min-w-[5rem] text-center text-sm font-medium">{currentLooseBottles} bottle{currentLooseBottles === 1 ? '' : 's'}</span>
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(cTypeId, typeName, currentCases, currentLooseBottles + 1, declaredCases, declaredLooseBottles, containersPerCase) }} disabled={currentLooseBottles >= declaredLooseBottles}>
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </div>
           )
@@ -2182,6 +2257,9 @@ export function TripDetailView({
                 (index === 0 || point[0] !== points[index - 1][0] || point[1] !== points[index - 1][1]))
             const points = legPoints(legs.slice(navigationLegIndex))
             const originPoints = legPoints(legs.slice(0, navigationLegIndex))
+            // Color the next drop independently from the later delivery legs.
+            const activeLegPoints = legPoints(legs.slice(navigationLegIndex, navigationLegIndex + 1))
+            const futureLegPoints = legPoints(legs.slice(navigationLegIndex + 1))
             const steps: OsrmStep[] = legs.slice(navigationLegIndex)
               .flatMap((leg: any) => (Array.isArray(leg?.steps) ? leg.steps : []))
               .map((step: any) => ({
@@ -2204,7 +2282,7 @@ export function TripDetailView({
                   Number.isFinite(step.maneuver.location[0]) &&
                   Number.isFinite(step.maneuver.location[1])
               )
-            return { id: String(routeIndex), points, originPoints, steps }
+            return { id: String(routeIndex), points, originPoints, activeLegPoints, futureLegPoints, steps }
           })
           .filter((route: DriverRouteOption) => route.points.length > 1)
 
@@ -2352,12 +2430,17 @@ export function TripDetailView({
         selectable: true,
         preserveExactEndpoints: false,
       })),
+    ...(activeRouteOption && activeRouteOption.futureLegPoints.length > 1 ? [{
+      id: `trip-${trip.id}-route-future`, points: activeRouteOption.futureLegPoints,
+      color: '#93c5fd', label: `${trip.tripNumber} future deliveries`, opacity: 0.82, weight: 6,
+      snapToRoad: false, selectable: false,
+    }] : []),
     ...((activeRouteOption?.points.length || upcomingRoutePoints.length) > 1
       ? [
         {
           id: `trip-${trip.id}-route-upcoming`,
           // Fix: use the same verified geometry for the truck, route line, and instructions.
-          points: activeRouteOption?.points || upcomingRoutePoints,
+          points: activeRouteOption?.activeLegPoints || upcomingRoutePoints,
           color: '#2563eb',
           label: `${trip.tripNumber} upcoming path`,
           opacity: 1,
@@ -2591,6 +2674,7 @@ export function TripDetailView({
                 <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
                   <p className="font-medium text-slate-900">{deliveredTargetDropPointName || 'Drop Point'}</p>
                 </div>
+                {deliveryError && <p role="alert" className="text-sm text-red-600">{deliveryError}</p>}
                 <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
                   <Button
                     type="button"
@@ -3761,6 +3845,7 @@ export function TripDetailView({
                     return formatCurrency(getDisplayOrderTotal(selectedDropPointForDetails?.order))
                   })()}
                 </p>
+                <DepositRefundRow order={selectedDropPointForDetails?.order} className="pt-1 text-xs" />
               </div>
 
               <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2.5">

@@ -5,7 +5,8 @@ export async function fetchJsonWithRetry(input: RequestInfo | URL, init?: Reques
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
       const response = await fetch(input, init)
-      const data = await response.json().catch(() => ({}))
+      // A truncated or HTML response is a failed read, never a successful empty catalog.
+      const data = await response.json()
       lastResponse = response
       lastData = data
       if (response.ok && data?.success !== false) {
@@ -24,6 +25,7 @@ export async function fetchJsonWithRetry(input: RequestInfo | URL, init?: Reques
         return { response, data }
       }
     } catch (error) {
+      lastResponse = null
       lastData = { error: error instanceof Error ? error.message : 'Request failed' }
     }
 

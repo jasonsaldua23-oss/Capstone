@@ -191,6 +191,8 @@ export function getInventoryReservedBaseUnits(item: any) {
 }
 
 export function getInventoryAvailableBaseUnits(item: any) {
+  // Added: server availability excludes expired and quarantined batches.
+  if (item?.sellableBaseUnits != null) return Math.max(0, asNumber(item.sellableBaseUnits))
   const unitsPerCase = getInventoryUnitsPerCase(item)
   if (unitsPerCase <= 0) return getInventoryAvailableQty(item)
   const looseBaseUnits = Math.max(0, asNumber(
@@ -201,6 +203,8 @@ export function getInventoryAvailableBaseUnits(item: any) {
 }
 
 export function getInventoryAvailableQty(item: any) {
+  // Added: keep physical totals intact while displaying only sellable cases.
+  if (item?.sellableCases != null) return Math.max(0, asNumber(item.sellableCases))
   const unitsPerCase = getInventoryUnitsPerCase(item)
   // Fix: include complete loose sets in the displayed case total without
   // modifying stored quantities or counting those bottles twice.

@@ -5,17 +5,60 @@ from unittest.mock import patch
 from django.test import TestCase, RequestFactory
 from django.utils import timezone
 
-from .models import Inventory, InventoryTransaction, Order, OrderItem, Product, StockBatch, Warehouse
+from .models import Customer, Inventory, InventoryTransaction, Order, OrderItem, Product, StockBatch, Warehouse
 from .views_api import (
     _allocate_inventory_for_order_item,
     _serialize_inventory_transactions_with_stock_changes,
     _mark_order_delivered,
     inventory_transactions_list,
+    customer_order_cancel,
+    _release_order_reservations,
+    _serialize_order,
 )
 from .mixed_case import reserve_order_item, repack_batch_loose_stock, allocatable_standard_cases
 
 
 class InventoryTransactionStockChangeTests(TestCase):
+    def test_customer_po_cancellation_releases_stock_once_and_keeps_identity(self):
+        inventory, order = self.make_delivery()
+        customer = Customer.objects.create(email='cancellation@example.test', name='Cancellation Customer')
+        order.customer = customer
+        order.status = 'CONFIRMED'
+        order.request_status = 'APPROVED'
+        order.purchase_request_number = 'PR-CANCEL-TEST'
+        order.purchase_order_number = 'PO-CANCEL-TEST'
+        order.save()
+        reserve_order_item(order.items.get(), 'FEFO', 'staff')
+        request = RequestFactory().patch('/api/customer/orders/cancel',
+            data=json.dumps({'reason': 'Customer cancellation'}), content_type='application/json')
+        # Exercise the endpoint twice, as a retry after a lost network response would.
+        with patch('core.views_api._require_auth', return_value={'type': 'customer', 'userId': customer.id}), patch('core.views_api._email_order_cancelled_to_customer'):
+            self.assertEqual(customer_order_cancel(request, order.id).status_code, 200)
+            self.assertEqual(customer_order_cancel(request, order.id).status_code, 200)
+        inventory.refresh_from_db()
+        order.refresh_from_db()
+        self.assertEqual((inventory.quantity, inventory.reserved_quantity, inventory.reserved_base_units), (20, 0, 0))
+        self.assertEqual((order.status, order.request_status), ('CANCELLED', 'APPROVED'))
+        self.assertEqual(order.purchase_order_number, 'PO-CANCEL-TEST')
+        self.assertEqual(order.purchase_request_number, 'PR-CANCEL-TEST')
+        self.assertEqual(InventoryTransaction.objects.filter(type='UNRESERVE').count(), 1)
+        # Previously cancelled records also keep their persisted PO identity.
+        order.request_status = 'CANCELLED'
+        self.assertEqual(_serialize_order(order, include_items=False)['purchaseOrderNumber'], 'PO-CANCEL-TEST')
+
+    def test_released_reservation_does_not_release_other_orders_stock(self):
+        inventory, order = self.make_delivery()
+        reserve_order_item(order.items.get(), 'FEFO', 'staff')
+        _release_order_reservations(order, 'staff')
+        inventory.refresh_from_db()
+        # Another order's reservation must survive repeated release of this order.
+        inventory.reserved_quantity = 3
+        inventory.reserved_base_units = 72
+        inventory.save(update_fields=['reserved_quantity', 'reserved_base_units'])
+        _release_order_reservations(order, 'staff')
+        inventory.refresh_from_db()
+        self.assertEqual((inventory.reserved_quantity, inventory.reserved_base_units), (3, 72))
+
     def test_loose_conversion_uses_product_capacity_and_preserves_remainder(self):
         inventory, _ = self.make_delivery()
         batch = StockBatch.objects.get(inventory=inventory)
@@ -68,6 +111,41 @@ class InventoryTransactionStockChangeTests(TestCase):
         self.assertEqual(inventory.quantity, 8)
         self.assertEqual(StockBatch.objects.get(inventory=inventory).quantity, 8)
         self.assertEqual(InventoryTransaction.objects.filter(type="OUT").count(), 1)
+
+    def test_delivery_preserves_depleted_batch_with_reservation_history(self):
+        from .models import InventoryReservation
+
+        inventory, order = self.make_delivery()
+        batch = StockBatch.objects.get(inventory=inventory)
+        item = order.items.get()
+        item.quantity = 20
+        item.save(update_fields=["quantity"])
+        # Released reservations still protect the batch when legacy delivery consumes it.
+        reservation = InventoryReservation.objects.create(
+            inventory=inventory, order_item=item, product=self.product,
+            stock_batch=batch, quantity_base_units=1, status="RELEASED",
+        )
+        with patch("core.views_api._email_order_delivered_to_customer"):
+            _mark_order_delivered(order, "staff")
+        batch.refresh_from_db()
+        inventory.refresh_from_db()
+        reservation.refresh_from_db()
+        self.assertEqual((batch.quantity, batch.status), (0, "DEPLETED"))
+        self.assertEqual(inventory.quantity, 0)
+        self.assertEqual(reservation.stock_batch_id, batch.id)
+        self.assertEqual(InventoryTransaction.objects.get(type="OUT").quantity, 20)
+
+    def test_zero_case_batch_keeps_remaining_loose_stock(self):
+        from .views_api import _persist_stock_batch_quantity
+
+        inventory, _ = self.make_delivery()
+        batch = StockBatch.objects.get(inventory=inventory)
+        batch.quantity = 0
+        batch.loose_units = 3
+        batch.save(update_fields=["quantity", "loose_units"])
+        _persist_stock_batch_quantity(batch)
+        batch.refresh_from_db()
+        self.assertEqual((batch.quantity, batch.loose_units, batch.status), (0, 3, "ACTIVE"))
 
     def test_failed_delivery_rolls_back_before_retry(self):
         inventory, order = self.make_delivery()

@@ -84,7 +84,8 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
     const purchaseOrderStage = String(order?.purchaseOrderStage || order?.purchase_order_stage || '').trim()
     const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
-    return requestStatus === 'APPROVED' && Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
+    // Include historical cancelled POs in monitoring totals.
+    return Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
   }
 
   const dashboardOrderStats = useMemo(() => {

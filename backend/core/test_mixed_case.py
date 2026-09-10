@@ -10,6 +10,7 @@ from django.test import RequestFactory, TestCase, TransactionTestCase, skipUnles
 from django.utils import timezone
 
 from .mixed_case import (
+    available_base_units,
     consume_order_reservations,
     normalize_checkout_items,
     receive_component_return,
@@ -161,20 +162,20 @@ class MixedCaseValidationTests(MixedCaseFixtureMixin, TestCase):
         self.assertEqual(items[0]["components"][0]["totalBaseUnits"], 12)
         self.assertEqual(subtotal, Decimal("187.50"))
 
-    def test_unequal_three_product_mix_is_valid(self):
-        items, _ = normalize_checkout_items(
-            [{
-                "itemType": "MIXED_CASE",
-                "caseCapacity": 24,
-                "quantity": 1,
-                "components": [
-                    {"productId": self.products[0].id, "quantity": 5},
-                    {"productId": self.products[1].id, "quantity": 7},
-                    {"productId": self.products[2].id, "quantity": 12},
-                ],
-            }]
-        )
-        self.assertEqual(len(items[0]["components"]), 3)
+    def test_three_product_mix_is_rejected(self):
+        with self.assertRaisesMessage(ValueError, "only two different products"):
+            normalize_checkout_items(
+                [{
+                    "itemType": "MIXED_CASE",
+                    "caseCapacity": 24,
+                    "quantity": 1,
+                    "components": [
+                        {"productId": self.products[0].id, "quantity": 5},
+                        {"productId": self.products[1].id, "quantity": 7},
+                        {"productId": self.products[2].id, "quantity": 12},
+                    ],
+                }]
+            )
 
     def test_incomplete_duplicate_and_incompatible_mixes_are_rejected(self):
         with self.assertRaisesMessage(ValueError, "must total exactly 24"):
@@ -424,6 +425,24 @@ class MixedCaseInventoryTests(MixedCaseFixtureMixin, TestCase):
             )
             release_order_reservations(order, "tester")
 
+    def test_stale_batch_loose_units_cannot_exceed_physical_stock(self):
+        product = self.products[0]
+        inventory = Inventory.objects.get(product=product, warehouse=self.warehouse)
+        inventory.quantity = 0
+        inventory.loose_bottles = 0
+        inventory.save(update_fields=["quantity", "loose_bottles"])
+        inventory.batches.update(quantity=0, loose_units=4)
+        self.assertEqual(available_base_units(inventory, product), 0)
+        _, item = self.create_mixed_item(number="ORD-STALE-LOOSE")
+        with self.assertRaisesMessage(ValueError, "Insufficient allocatable stock"):
+            reserve_order_item(item, "FEFO", "tester")
+        self.assertFalse(InventoryReservation.objects.filter(order_item=item).exists())
+
+        # Real loose bottles remain available even when there is no complete case.
+        inventory.loose_bottles = 3
+        inventory.save(update_fields=["loose_bottles"])
+        self.assertEqual(available_base_units(inventory, product), 3)
+
     def test_ineligible_batch_loose_units_are_not_treated_as_unbatched_stock(self):
         product = self.products[0]
         inventory = Inventory.objects.get(product=product, warehouse=self.warehouse)
@@ -558,6 +577,30 @@ class MixedCaseApiTests(MixedCaseFixtureMixin, TestCase):
     def setUp(self):
         self.build_fixture(case_stock=2)
         self.factory = RequestFactory()
+
+    def test_customer_catalog_excludes_stale_batch_stock_but_keeps_real_loose_stock(self):
+        from .views_api import products_collection
+        from .retail_pos import serialize_retail_product
+
+        product = self.products[0]
+        inventory = Inventory.objects.get(product=product, warehouse=self.warehouse)
+        inventory.quantity = 0
+        inventory.loose_bottles = 0
+        inventory.save(update_fields=["quantity", "loose_bottles"])
+        inventory.batches.update(quantity=0, loose_units=4)
+        auth = {"type": "customer", "userId": self.customer.id}
+        # Both catalogs must agree, including products with bottles but no full cases.
+        for physical_bottles in [0, 3]:
+            inventory.loose_bottles = physical_bottles
+            inventory.save(update_fields=["loose_bottles"])
+            with patch("core.views_api._require_auth", return_value=auth):
+                response = products_collection(self.factory.get("/api/products"))
+            self.assertEqual(response.status_code, 200)
+            row = next(row for row in json.loads(response.content)["products"] if row["id"] == product.id)
+            retail = serialize_retail_product(product, inventory)
+            self.assertEqual(row["availableQuantity"], 0)
+            self.assertEqual(row["availableBaseUnits"], physical_bottles)
+            self.assertEqual(row["availableBaseUnits"], retail["availableBaseUnits"])
 
     def test_checkout_is_server_priced_and_idempotent(self):
         payload = {
