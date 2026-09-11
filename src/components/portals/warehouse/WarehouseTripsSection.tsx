@@ -1,4 +1,5 @@
 'use client'
+import { replacementOrderQuantity } from '@/lib/replacement-order-quantity'
 
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -1025,7 +1026,9 @@ export function WarehouseTripsSection({
                             {(() => {
                               const size = item?.itemType === 'MIXED_CASE' ? '' : getOrderItemSize(item)
                               const sizeSuffix = size && size !== 'N/A' ? ` ${size}` : ''
-                              return `${getOrderItemName(item)}${sizeSuffix} x${itemQty}`
+                              // Match Admin: replacement request counts can differ from rounded scheduling quantities.
+                              const quantity = isReplacementDropPoint ? replacementOrderQuantity(item) : `x${itemQty}`
+                              return `${getOrderItemName(item)}${sizeSuffix} ${quantity}`
                             })()}
                           </p>
                           {isMultiWarehouseOrder && (

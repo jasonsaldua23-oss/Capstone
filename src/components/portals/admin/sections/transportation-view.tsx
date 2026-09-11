@@ -1,4 +1,5 @@
 'use client'
+import { replacementOrderQuantity } from '@/lib/replacement-order-quantity'
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
@@ -1664,7 +1665,9 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                               ? product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(', ')
                               : ''
                             const size = isMixedCase ? '' : (fromSizes || String(product?.size || product?.sizeLabel || item?.size || '').trim())
-                            return `${name}${size ? ` ${size}` : ''} x${Number(item?.quantity || 0)}`
+                            // Show actual replacement quantities and packaging instead of rounded scheduling units.
+                            const quantity = isReplacementDropPoint ? replacementOrderQuantity(item) : `x${Number(item?.quantity || 0)}`
+                            return `${name}${size ? ` ${size}` : ''} ${quantity}`
                           })()}
                         </p>
                         {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
