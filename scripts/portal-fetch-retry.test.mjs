@@ -238,3 +238,115 @@ test('switching portals cannot reuse another account API cache', async () => {
   assert.equal(calls, 2)
   uninstall()
 })
+// Run the actual restore functions so regressions in portal routing are caught, not just token storage.
+function restoreFunction(path, name, globals) {
+  const source = readFileSync(new URL(path, import.meta.url), 'utf8')
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  let declaration
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) declaration = node.getText(tree)
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  assert.ok(declaration, `Missing production ${name}`)
+  return vm.runInNewContext(ts.transpile(`${declaration}; ${name}`, { target: ts.ScriptTarget.ES2020 }), globals)
+}
+
+test('Admin refresh rejects a Warehouse cookie instead of switching portals or logging out another tab', async () => {
+  const routes = [], users = []
+  const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    getTabAuthToken: () => null, scopedPortal: 'admin', lockedPortal: null,
+    getRememberedTabLoginPortal: () => 'admin', allowedPortals: ['admin', 'warehouse'],
+    fetch: async (url) => { assert.equal(url, '/api/auth/me'); return Response.json({ user: { role: 'WAREHOUSE_STAFF' } }) },
+    cancelled: false, resolvePortalForUser: () => 'warehouse', defaultPortal: 'admin',
+    setUser: user => users.push(user), setPortal: portal => assert.equal(portal, 'admin'),
+    router: { replace: path => routes.push(path) }, loginPathForPortal: portal => `/${portal}/login`,
+    setIsLoading: () => {}, setAuthError: message => assert.fail(message), console,
+  })
+  await check()
+  assert.deepEqual(routes, ['/admin/login'])
+  assert.deepEqual(users, [null])
+})
+
+test('Admin refresh restores its own token even after another tab logs into Warehouse', async () => {
+  let user
+  const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    getTabAuthToken: () => portalToken('admin'), scopedPortal: 'admin', lockedPortal: null,
+    getRememberedTabLoginPortal: () => 'admin', allowedPortals: ['admin', 'warehouse'],
+    fetch: async (_, init) => {
+      assert.equal(init.headers.Authorization, `Bearer ${portalToken('admin')}`)
+      assert.equal(init.cache, 'no-store')
+      return Response.json({ user: { role: 'ADMIN' } })
+    },
+    cancelled: false, resolvePortalForUser: () => 'admin', defaultPortal: 'admin',
+    setUser: value => { user = value }, setPortal: portal => assert.equal(portal, 'admin'),
+    rememberTabLoginPortal: portal => assert.equal(portal, 'admin'),
+    router: { replace: path => assert.fail(path) }, setIsLoading: () => {},
+    setAuthError: message => assert.fail(message), console,
+  })
+  await check()
+  assert.equal(user.role, 'ADMIN')
+})
+
+for (const portal of ['Admin', 'Warehouse', 'Driver', 'Customer']) {
+  test(`${portal} login ignores another portal cookie without logging that account out`, async () => {
+    const calls = []
+    const check = restoreFunction(`../src/components/auth/${portal}LoginPage.tsx`, 'checkSession', {
+      retryingApiRead: send => send(new AbortController().signal), controller: new AbortController(),
+      getTabAuthToken: () => null,
+      fetch: async (url, init) => {
+        calls.push(url)
+        assert.equal(init.headers['X-Portal'], portal.toLowerCase())
+        return Response.json({ user: { role: portal === 'Admin' ? 'WAREHOUSE_STAFF' : 'ADMIN' } })
+      },
+      cancelled: false, resolvePortalFromUser: () => portal === 'Admin' ? 'warehouse' : 'admin',
+      router: { replace: path => assert.fail(`Unexpected redirect ${path}`) },
+      setIsCheckingSession: () => {}, console,
+    })
+    await check()
+    assert.deepEqual(calls, ['/api/auth/me'])
+  })
+}
+// A cookie-only Admin session is pinned locally before Warehouse changes the browser cookie.
+test('Admin cookie restoration pins the verified token to its tab', async () => {
+  let pinned
+  const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    getTabAuthToken: () => null, setTabAuthToken: (token, options) => { pinned = { token, persistent: options.persistent } },
+    scopedPortal: 'admin', lockedPortal: null, getRememberedTabLoginPortal: () => 'admin',
+    allowedPortals: ['admin', 'warehouse'],
+    fetch: async () => Response.json({ user: { role: 'ADMIN', rememberMe: false }, token: portalToken('admin') }),
+    cancelled: false, resolvePortalForUser: () => 'admin', defaultPortal: 'admin',
+    setUser: () => {}, setPortal: () => {}, rememberTabLoginPortal: () => {},
+    router: { replace: path => assert.fail(path) }, setIsLoading: () => {}, setAuthError: message => assert.fail(message), console,
+  })
+  await check()
+  assert.deepEqual(pinned, { token: portalToken('admin'), persistent: false })
+})
+// Every login page must restore only its own portal and retain that session for refresh.
+for (const target of ['Admin', 'Warehouse', 'Driver', 'Customer']) {
+  for (const source of ['admin', 'warehouse', 'driver', 'customer']) {
+    test(`${target} login with ${source} session restores only a matching account`, async () => {
+      const portal = target.toLowerCase(), redirects = [], saved = [], warnings = []
+      const check = restoreFunction(`../src/components/auth/${target}LoginPage.tsx`, 'checkSession', {
+        retryingApiRead: send => send(new AbortController().signal), controller: new AbortController(),
+        getTabAuthToken: () => portalToken(portal),
+        setTabAuthToken: (token, options) => saved.push([token, options.persistent]),
+        fetch: async (url, init) => {
+          assert.equal(url, '/api/auth/me')
+          assert.equal(init.headers.Authorization, `Bearer ${portalToken(portal)}`)
+          assert.equal(init.headers['X-Portal'], portal)
+          assert.equal(init.cache, 'no-store')
+          return Response.json({ user: { rememberMe: false }, token: portalToken(source) })
+        },
+        cancelled: false, resolvePortalFromUser: () => source,
+        DRIVER_HOME_PATH: '/driver', CUSTOMER_HOME_PATH: '/customer',
+        router: { replace: path => redirects.push(path) }, setIsCheckingSession: () => {},
+        console: { warn: (...args) => warnings.push(args) },
+      })
+      await check()
+      assert.deepEqual(warnings, [])
+      assert.deepEqual(redirects, portal === source ? [`/${portal}`] : [])
+      assert.deepEqual(saved, portal === source ? [[portalToken(portal), false]] : [])
+    })
+  }
+}

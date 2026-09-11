@@ -5842,3 +5842,34 @@ class ApiErrorResponseTests(SimpleTestCase):
     def test_non_api_exceptions_keep_existing_handling(self):
         middleware = ApiErrorResponseMiddleware(lambda request: HttpResponse())
         self.assertIsNone(middleware.process_exception(RequestFactory().get('/admin'), RuntimeError('test')))
+
+class AuthMeTabSessionTests(SimpleTestCase):
+    def test_staff_restore_returns_existing_verified_token_without_cache(self):
+        from .views_api import auth_me
+        token = create_token({'userId': 'admin-test', 'type': 'staff', 'role': 'ADMIN'})
+        request = RequestFactory().get('/api/auth/me', HTTP_AUTHORIZATION=f'Bearer {token}')
+        with patch('core.views_api.User.objects') as users, patch('core.views_api._user_payload', return_value={'role': 'ADMIN'}):
+            users.filter.return_value.first.return_value = SimpleNamespace(id='admin-test')
+            response = auth_me(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['token'], token)
+        self.assertIn('no-store', response['Cache-Control'])
+
+    def test_unauthenticated_restore_never_returns_a_token(self):
+        from .views_api import auth_me
+        response = auth_me(RequestFactory().get('/api/auth/me'))
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn('token', json.loads(response.content))
+        self.assertIn('no-store', response['Cache-Control'])
+
+    def test_customer_restore_returns_existing_verified_token_without_cache(self):
+        # Customer tabs must also retain their verified session independently of shared cookies.
+        from .views_api import auth_me
+        token = create_token({'userId': 'customer-test', 'type': 'customer'})
+        request = RequestFactory().get('/api/auth/me', HTTP_AUTHORIZATION=f'Bearer {token}')
+        with patch('core.views_api.Customer.objects') as customers, patch('core.views_api._customer_payload', return_value={'type': 'customer'}):
+            customers.filter.return_value.first.return_value = SimpleNamespace(id='customer-test')
+            response = auth_me(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['token'], token)
+        self.assertIn('no-store', response['Cache-Control'])

@@ -4,7 +4,7 @@ import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
+import { clearTabAuthToken, getTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -54,7 +54,11 @@ export function WarehouseLoginPage() {
     async function checkSession() {
       try {
         const response = await retryingApiRead(
-          (signal) => fetch('/api/auth/me', { signal }),
+          // Fix: selecting Warehouse must not restore or log out an Admin session in another tab.
+          (signal) => fetch('/api/auth/me', { signal, cache: 'no-store', credentials: 'include', headers: {
+            'X-Portal': 'warehouse',
+            ...(getTabAuthToken() ? { Authorization: `Bearer ${getTabAuthToken()}` } : {}),
+          } }),
           controller.signal,
         )
         if (cancelled) return
@@ -63,11 +67,11 @@ export function WarehouseLoginPage() {
         if (!data?.user) return
         const sessionPortal = resolvePortalFromUser(data.user)
         if (sessionPortal === 'warehouse') {
-          router.replace('/')
+          // Pin a matching cookie-restored session before another tab can change the shared cookie.
+          if (data.token) setTabAuthToken(data.token, { persistent: Boolean(data.user.rememberMe) })
+          router.replace('/warehouse')
           return
         }
-        clearTabAuthToken()
-        await fetch('/api/auth/logout', { method: 'POST' })
       } catch (error) {
         console.warn('Warehouse session check timed out or failed:', error)
       } finally {

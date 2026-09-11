@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Script from 'next/script'
-import { setTabAuthToken } from '@/lib/client-auth'
+import { getTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { isNativeApp } from '@/lib/native/platform'
 import { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } from '@/lib/password-policy'
 import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
@@ -230,14 +230,22 @@ export function CustomerLoginPage() {
     async function checkSession() {
       try {
         const response = await retryingApiRead(
-          (signal) => fetch('/api/auth/me', { signal }),
+          // Fix: restore this Customer tab independently of other signed-in portals.
+          (signal) => fetch('/api/auth/me', { signal, cache: 'no-store', credentials: 'include', headers: {
+            'X-Portal': 'customer',
+            ...(getTabAuthToken() ? { Authorization: `Bearer ${getTabAuthToken()}` } : {}),
+          } }),
           controller.signal,
         )
         if (cancelled) return
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
-        if (resolvePortalFromUser(data.user) === 'customer') router.replace(CUSTOMER_HOME_PATH)
+        if (resolvePortalFromUser(data.user) === 'customer') {
+          // Pin a matching cookie session before another tab changes the shared cookie.
+          if (data.token) setTabAuthToken(data.token, { persistent: Boolean(data.user.rememberMe) })
+          router.replace(CUSTOMER_HOME_PATH)
+        }
       } catch (error) {
         console.warn('Customer session check timed out or failed:', error)
       } finally {

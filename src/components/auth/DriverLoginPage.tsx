@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Eye, EyeOff, Loader2, LockKeyhole, Mail, MapPin } from 'lucide-react'
-import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
+import { clearTabAuthToken, getTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { homePathForPortal } from '@/lib/portal-scope'
 import { Toaster } from '@/components/ui/sonner'
@@ -113,14 +113,22 @@ export function DriverLoginPage() {
     async function checkSession() {
       try {
         const response = await retryingApiRead(
-          (signal) => fetch('/api/auth/me', { signal }),
+          // Fix: restore this Driver tab independently of other signed-in portals.
+          (signal) => fetch('/api/auth/me', { signal, cache: 'no-store', credentials: 'include', headers: {
+            'X-Portal': 'driver',
+            ...(getTabAuthToken() ? { Authorization: `Bearer ${getTabAuthToken()}` } : {}),
+          } }),
           controller.signal,
         )
         if (cancelled) return
         if (!response.ok) return
         const data = await response.json()
         if (!data?.user) return
-        if (resolvePortalFromUser(data.user) === 'driver') router.replace(DRIVER_HOME_PATH)
+        if (resolvePortalFromUser(data.user) === 'driver') {
+          // Pin a matching cookie session before another tab changes the shared cookie.
+          if (data.token) setTabAuthToken(data.token, { persistent: Boolean(data.user.rememberMe) })
+          router.replace(DRIVER_HOME_PATH)
+        }
       } catch (error) {
         console.warn('Driver session check timed out or failed:', error)
       } finally {

@@ -4,7 +4,7 @@ import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { clearTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
+import { clearTabAuthToken, getTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -58,14 +58,20 @@ export function AdminLoginPage() {
     async function checkSession() {
       try {
         const response = await retryingApiRead(
-          (signal) => fetch('/api/auth/me', { signal, cache: 'no-store', credentials: 'include' }),
+          // Fix: restore Admin from this tab's token, not another staff tab's shared cookie.
+          (signal) => fetch('/api/auth/me', { signal, cache: 'no-store', credentials: 'include', headers: {
+            'X-Portal': 'admin',
+            ...(getTabAuthToken() ? { Authorization: `Bearer ${getTabAuthToken()}` } : {}),
+          } }),
           controller.signal,
         )
         if (cancelled) return
         if (!response.ok) return
         const data = await response.json()
-        if (!data?.user) return
-        router.replace('/')
+        if (!data?.user || resolvePortalFromUser(data.user) !== 'admin') return
+        // Pin a matching cookie-restored session before leaving the login page.
+        if (data.token) setTabAuthToken(data.token, { persistent: Boolean(data.user.rememberMe) })
+        router.replace('/admin')
       } catch (error) {
         console.warn('Admin session check timed out or failed:', error)
       } finally {

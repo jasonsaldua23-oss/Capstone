@@ -32,6 +32,7 @@ from django.forms.models import model_to_dict
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .beverage_categories import category_spec
@@ -6762,8 +6763,10 @@ def auth_register(request: HttpRequest) -> JsonResponse:
     return resp
 
 
+@never_cache
 @require_GET
 def auth_me(request: HttpRequest) -> JsonResponse:
+    # Fix: proxies must never reuse one tab's session identity for another account.
     p = _require_auth(request)
     if not p:
         return _err("Unauthorized", 401)
@@ -6775,14 +6778,16 @@ def auth_me(request: HttpRequest) -> JsonResponse:
         # Return the signed session choice so every staff portal applies the
         # same inactivity policy after a page reload.
         user_payload["rememberMe"] = bool(p.get("rememberMe", False))
-        return _ok({"success": True, "user": user_payload})
+        # Pin a restored cookie session in the caller's tab before another staff login replaces it.
+        return _ok({"success": True, "user": user_payload, "token": extract_token(request)})
     if p.get("type") == "customer":
         customer = Customer.objects.filter(id=p.get("userId"), is_active=True).first()
         if not customer:
             return _err("Unauthorized", 401)
         customer_payload = _customer_payload(customer)
         customer_payload["rememberMe"] = bool(p.get("rememberMe", False))
-        return _ok({"success": True, "user": customer_payload})
+        # Fix: customer cookie restores need the same tab-local session pinning as staff.
+        return _ok({"success": True, "user": customer_payload, "token": extract_token(request)})
     return _ok({"success": True, "user": p})
 
 

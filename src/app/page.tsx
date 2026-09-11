@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 import { AdminPortal, CustomerPortal, DriverPortal, WarehousePortal } from '@/components/portals'
-import { clearTabAuthToken, getTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
+import { clearTabAuthToken, getTabAuthToken, setTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
 import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
@@ -261,13 +261,15 @@ export default function Home() {
           if (cancelled) return
           if (data.user) {
             const userPortal = resolvePortalForUser(data.user)
-            if (!allowedPortals.includes(userPortal)) {
-              await fetch('/api/auth/logout', { method: 'POST' })
-              clearTabAuthToken()
+            // Fix: a shared cookie changed by another tab must never switch this tab's portal.
+            if (!allowedPortals.includes(userPortal) || (restorePortal && userPortal !== restorePortal)) {
               setUser(null)
-              setPortal(defaultPortal)
+              setPortal(restorePortal || defaultPortal)
+              router.replace(loginPathForPortal(restorePortal || defaultPortal))
               return
             }
+            // Fix: pin legacy cookie-only sessions so a later login in another tab cannot replace them.
+            if (!tabToken && data.token) setTabAuthToken(data.token, { persistent: Boolean(data.user.rememberMe) })
             setUser(data.user)
             setPortal(userPortal)
             // Keep this tab associated with its portal even after logout or expiry.
