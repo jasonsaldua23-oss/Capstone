@@ -1,5 +1,6 @@
 'use client'
 
+import { LoginSuccess } from '@/components/shared/login-success'
 import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -19,6 +20,7 @@ const poppins = { className: '' }
 export function WarehouseLoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [loginSucceeded, setLoginSucceeded] = useState(false)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -134,15 +136,19 @@ export function WarehouseLoginPage() {
 
       persistWarehouseWelcomeState(data.user)
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
-      // Added: show the success toast after navigation mounts the portal's toaster.
+      // Show confirmed login feedback here and retain it across portal navigation.
+      setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'warehouse')
-      router.replace('/')
+      router.replace('/warehouse')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
     } finally {
       setIsLoading(false)
     }
   }
+
+  // Show confirmation only after the API has authenticated this account.
+  if (loginSucceeded) return <LoginSuccess />
 
   if (isCheckingSession) {
     return (

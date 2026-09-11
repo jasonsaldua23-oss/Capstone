@@ -5873,3 +5873,37 @@ class AuthMeTabSessionTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content)['token'], token)
         self.assertIn('no-store', response['Cache-Control'])
+
+class ConcurrentPortalCookieTests(SimpleTestCase):
+    def test_four_cookie_sessions_restore_and_logout_independently(self):
+        from .auth import PORTAL_TOKEN_NAMES, extract_token
+        from .views_api import _set_auth_cookie, auth_logout
+        from django.http import JsonResponse
+        roles = {'admin': 'ADMIN', 'warehouse': 'WAREHOUSE_STAFF', 'driver': 'DRIVER', 'customer': 'CUSTOMER'}
+        cookies, tokens = {}, {}
+        for portal, role in roles.items():
+            tokens[portal] = create_token({'userId': portal, 'type': 'customer' if portal == 'customer' else 'staff', 'role': role})
+            response = JsonResponse({})
+            _set_auth_cookie(response, tokens[portal])
+            cookies.update({name: cookie.value for name, cookie in response.cookies.items() if cookie.value})
+        # All logins have finished; refreshing any portal still resolves its own signed account.
+        for portal in roles:
+            request = RequestFactory().get('/api/auth/me', HTTP_X_PORTAL=portal)
+            request.COOKIES = cookies.copy()
+            self.assertEqual(extract_token(request), tokens[portal])
+            logout_request = RequestFactory().post('/api/auth/logout', HTTP_X_PORTAL=portal)
+            logout_request.COOKIES = cookies.copy()
+            logout = auth_logout(logout_request)
+            self.assertEqual(logout.cookies[PORTAL_TOKEN_NAMES[portal]]['max-age'], 0)
+            for other in roles.keys() - {portal}:
+                self.assertNotIn(PORTAL_TOKEN_NAMES[other], logout.cookies)
+
+    def test_warehouse_legacy_cookie_cannot_restore_or_authorize_admin(self):
+        from .auth import STAFF_TOKEN_NAME, extract_token
+        from .views_api import _require_staff
+        request = RequestFactory().get('/api/auth/me', HTTP_X_PORTAL='admin')
+        request.COOKIES[STAFF_TOKEN_NAME] = create_token({'userId': 'warehouse', 'type': 'staff', 'role': 'WAREHOUSE_STAFF'})
+        self.assertIsNone(extract_token(request))
+        staff, error = _require_staff(request)
+        self.assertIsNone(staff)
+        self.assertEqual(error.status_code, 401)

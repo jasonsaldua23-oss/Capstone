@@ -59,6 +59,8 @@ from .auth import (
     TOKEN_NAME,
     STAFF_TOKEN_NAME,
     CUSTOMER_TOKEN_NAME,
+    PORTAL_TOKEN_NAMES,
+    token_portal,
     create_token,
     decode_token,
     extract_token,
@@ -2045,7 +2047,10 @@ def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonRes
     # HttpOnly cookie held by this browser session.
     staff_cookie = request.COOKIES.get(STAFF_TOKEN_NAME)
     staff_payload = decode_token(staff_cookie) if staff_cookie else None
-    if staff_payload and staff_payload.get("type") == "staff":
+    requested_portal = str(request.headers.get("X-Portal", "")).lower()
+    if staff_payload and staff_payload.get("type") == "staff" and (
+        requested_portal not in PORTAL_TOKEN_NAMES or token_portal(staff_payload) == requested_portal
+    ):
         request._staff_cookie_auth_fallback = True
         return staff_payload, None
 
@@ -2210,6 +2215,10 @@ def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = Fal
     account_type = str(payload.get("type") or "").strip().lower()
     cookie_name = CUSTOMER_TOKEN_NAME if account_type == "customer" else STAFF_TOKEN_NAME
     response.set_cookie(cookie_name, token, **cookie_kwargs)
+    # Fix: Admin, Warehouse and Driver must not overwrite each other's cookie-based restores.
+    portal = token_portal(payload)
+    if portal and PORTAL_TOKEN_NAMES[portal] != cookie_name:
+        response.set_cookie(PORTAL_TOKEN_NAMES[portal], token, **cookie_kwargs)
     # Clear legacy shared cookie so role sessions no longer overwrite each other.
     response.delete_cookie(TOKEN_NAME, path="/")
 
@@ -6797,6 +6806,10 @@ def auth_logout(request: HttpRequest) -> JsonResponse:
     resp = _ok({"success": True, "message": "Logout successful"})
     payload = _require_auth(request)
     account_type = str((payload or {}).get("type") or "").strip().lower()
+    # Clear only the signed-out portal's dedicated cookie; other portal sessions remain usable.
+    portal = token_portal(payload or {})
+    if portal:
+        resp.delete_cookie(PORTAL_TOKEN_NAMES[portal], path="/")
     if account_type == "customer":
         resp.delete_cookie(CUSTOMER_TOKEN_NAME, path="/")
     elif account_type == "staff":

@@ -350,3 +350,32 @@ for (const target of ['Admin', 'Warehouse', 'Driver', 'Customer']) {
     })
   }
 }
+// Reproduce the missed path: a new Admin tab inherits Warehouse's remembered portal.
+test('successful Admin login replaces inherited Warehouse routing and navigates directly to Admin', async () => {
+  const { window, client, uninstall } = loadPortal('warehouse', false, async () => Response.json({}))
+  window.location.pathname = '/admin/login'
+  const source = readFileSync(new URL('../src/components/auth/AdminLoginPage.tsx', import.meta.url), 'utf8')
+  const tree = ts.createSourceFile('admin.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  let handler
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(tree) === 'handleLogin') handler = node.initializer.getText(tree)
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  const routes = [], errors = []
+  const login = vm.runInNewContext(ts.transpile(`(${handler})`, { target: ts.ScriptTarget.ES2020 }), {
+    email: 'admin@example.test', password: 'test-only', rememberMe: false,
+    fetch: async () => Response.json({ success: true, user: { role: 'ADMIN' }, token: portalToken('admin') }),
+    setLoginError: message => { if (message) errors.push(message) }, setIsLoading: () => {},
+    resolvePortalFromUser: () => 'admin', persistAdminWelcomeState: () => {},
+    setTabAuthToken: client.setTabAuthToken, setLoginSucceeded: () => {},
+    sessionStorage: { setItem: () => {} }, router: { replace: path => routes.push(path) },
+    toast: { error: message => errors.push(message) },
+  })
+  await login({ preventDefault() {} })
+  assert.deepEqual(errors, [])
+  assert.deepEqual(routes, ['/admin'])
+  window.location.pathname = '/'
+  assert.equal(client.getTabAuthToken(), portalToken('admin'), 'bare-domain restore must remember the newly logged-in portal')
+  uninstall()
+})

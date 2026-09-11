@@ -1,5 +1,6 @@
 'use client'
 
+import { LoginSuccess } from '@/components/shared/login-success'
 import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -20,6 +21,7 @@ const poppins = { className: '' }
 export function AdminLoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [loginSucceeded, setLoginSucceeded] = useState(false)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -144,9 +146,10 @@ export function AdminLoginPage() {
       persistAdminWelcomeState(data.user)
       // Keep the client token in persistent storage only when the user opted in.
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
-      // Added: show the success toast after navigation mounts the portal's toaster.
+      // Show confirmed login feedback here and retain it across portal navigation.
+      setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'admin')
-      router.replace('/')
+      router.replace('/admin')
     } catch {
       toast.error('Unable to reach login service. Please check your connection and try again.')
     } finally {
@@ -183,15 +186,19 @@ export function AdminLoginPage() {
       persistAdminWelcomeState(data.user)
       // The 2FA challenge preserves the same remember-me choice on the server and client.
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
-      // Added: show the success toast after navigation mounts the portal's toaster.
+      // Show confirmed login feedback here and retain it across portal navigation.
+      setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'admin')
-      router.replace('/')
+      router.replace('/admin')
     } catch {
       toast.error('Unable to verify code. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }
+
+  // Show confirmation only after the API has authenticated this account.
+  if (loginSucceeded) return <LoginSuccess />
 
   if (isCheckingSession) {
     return (
@@ -224,9 +231,10 @@ export function AdminLoginPage() {
       persistAdminWelcomeState(data.user)
       // The 2FA challenge preserves the same remember-me choice on the server and client.
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
-      // Added: show the success toast after navigation mounts the portal's toaster.
+      // Show confirmed login feedback here and retain it across portal navigation.
+      setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'admin')
-      router.replace('/')
+      router.replace('/admin')
       return true
     }
 

@@ -106,7 +106,11 @@ export function setTabAuthToken(token: string, options?: { persistent?: boolean 
   sessionStorage.setItem(TAB_AUTH_TOKEN_KEY, token)
   // Fix: switching staff portals in one tab must not replace the other portal's session.
   const sessionPortal = tokenPortal(token)
-  if (sessionPortal) sessionStorage.setItem(`${TAB_AUTH_TOKEN_KEY}:${sessionPortal}`, token)
+  if (sessionPortal) {
+    sessionStorage.setItem(`${TAB_AUTH_TOKEN_KEY}:${sessionPortal}`, token)
+    // Fix: a copied/new tab may remember Warehouse even after a successful Admin login.
+    sessionStorage.setItem('tab-login-portal', sessionPortal)
+  }
 
   if (persistent) {
     localStorage.setItem(PERSISTENT_TAB_AUTH_TOKEN_KEY, token)

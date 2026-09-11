@@ -1,5 +1,6 @@
 'use client'
 
+import { LoginSuccess } from '@/components/shared/login-success'
 import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -83,6 +84,7 @@ function DriverSpeedLines({ className = '' }: { className?: string }) {
 export function DriverLoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [loginSucceeded, setLoginSucceeded] = useState(false)
   const [isLoginOtpOpen, setIsLoginOtpOpen] = useState(false)
   const [loginChallengeToken, setLoginChallengeToken] = useState('')
   const [isCheckingSession, setIsCheckingSession] = useState(true)
@@ -199,7 +201,8 @@ export function DriverLoginPage() {
 
       persistDriverWelcomeState(data.user)
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
-      // Added: show the success toast after navigation mounts the portal's toaster.
+      // Show confirmed login feedback here and retain it across portal navigation.
+      setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'driver')
       router.replace(DRIVER_HOME_PATH)
     } catch {
@@ -208,6 +211,9 @@ export function DriverLoginPage() {
       setIsLoading(false)
     }
   }
+
+  // Show confirmation only after the API has authenticated this account.
+  if (loginSucceeded) return <LoginSuccess />
 
   if (isCheckingSession) {
     return (
@@ -233,7 +239,8 @@ export function DriverLoginPage() {
     persistDriverWelcomeState(data.user)
     if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
     setIsLoginOtpOpen(false)
-    // Added: show the success toast after navigation mounts the portal's toaster.
+    // Show confirmed login feedback here and retain it across portal navigation.
+    setLoginSucceeded(true)
     sessionStorage.setItem('login-success-pending', 'driver')
     router.replace(DRIVER_HOME_PATH)
     return true

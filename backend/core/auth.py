@@ -9,6 +9,24 @@ from django.http import HttpRequest
 TOKEN_NAME = "auth_token"
 STAFF_TOKEN_NAME = "auth_token_staff"
 CUSTOMER_TOKEN_NAME = "auth_token_customer"
+# Each portal retains its own HttpOnly session when all four accounts share a browser.
+PORTAL_TOKEN_NAMES = {
+    "admin": "auth_token_admin",
+    "warehouse": "auth_token_warehouse",
+    "driver": "auth_token_driver",
+    "customer": CUSTOMER_TOKEN_NAME,
+}
+
+
+def token_portal(payload: dict[str, Any]) -> str | None:
+    if payload.get("type") == "customer":
+        return "customer"
+    if payload.get("type") != "staff":
+        return None
+    return {"ADMIN": "admin", "SUPER_ADMIN": "admin", "WAREHOUSE_STAFF": "warehouse", "DRIVER": "driver"}.get(
+        str(payload.get("role") or "").strip().upper()
+    )
+
 TOKEN_EXP_HOURS = 24
 # Keep-me-logged-in tokens expire after exactly 30 * 24 hours.
 REMEMBER_ME_EXP_HOURS = 24 * 30
@@ -53,6 +71,14 @@ def extract_token(request: HttpRequest) -> str | None:
     # The remembered portal selects a cookie, never a role or permission. JWT
     # verification and endpoint authorization still validate the selected session.
     portal = str(request.headers.get("X-Portal", "")).lower()
+    if portal in PORTAL_TOKEN_NAMES:
+        # Legacy cookies may restore only the requested role, never another signed-in portal.
+        for name in [PORTAL_TOKEN_NAMES[portal], STAFF_TOKEN_NAME, CUSTOMER_TOKEN_NAME, TOKEN_NAME]:
+            raw = request.COOKIES.get(name)
+            payload = decode_token(raw) if raw else None
+            if payload and token_portal(payload) == portal:
+                return raw
+        return None
     if portal in {"admin", "warehouse", "driver"}:
         candidate_cookie_names = [STAFF_TOKEN_NAME, TOKEN_NAME]
     elif portal == "customer":

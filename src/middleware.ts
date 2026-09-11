@@ -85,7 +85,8 @@ async function getPayload(request: NextRequest): Promise<AuthPayload | null> {
   // Match Django's portal cookie selection; never fall through an explicit tab token.
   const portal = request.headers.get('x-portal')
   const scopedCookieNames = portal === 'customer' ? ['auth_token_customer']
-    : portal && ['admin', 'warehouse', 'driver'].includes(portal) ? ['auth_token_staff']
+    // Match Django's separate staff-portal cookies, retaining legacy cookie compatibility.
+    : portal && ['admin', 'warehouse', 'driver'].includes(portal) ? [`auth_token_${portal}`, 'auth_token_staff']
     : ['auth_token_staff', 'auth_token_customer']
   const candidateTokens = (headerToken ? [headerToken] : [
     ...scopedCookieNames.map((name) => request.cookies.get(name)?.value),
@@ -155,10 +156,8 @@ export async function middleware(request: NextRequest) {
     // Valid sessions return to their role-resolved portal. Signed-out users may
     // continue to the page-level redirect for the public Customer login.
     if (variant === 'all') {
-      const payload = await getPayload(request)
-      return payload
-        ? NextResponse.redirect(new URL('/', request.url))
-        : NextResponse.next()
+      // A server-side cookie cannot identify the intended tab. Let the login page choose its portal.
+      return NextResponse.next()
     }
     return NextResponse.redirect(new URL(defaultLoginPath, request.url))
   }

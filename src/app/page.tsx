@@ -4,7 +4,7 @@ import { useState, useEffect, createContext, useContext, Component, ErrorInfo, R
 import { usePathname, useRouter } from 'next/navigation'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
-import { toast } from 'sonner'
+import { LoginSuccess } from '@/components/shared/login-success'
 import { AdminPortal, CustomerPortal, DriverPortal, WarehousePortal } from '@/components/portals'
 import { clearTabAuthToken, getTabAuthToken, setTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
@@ -224,6 +224,7 @@ export default function Home() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [authAttempt, setAuthAttempt] = useState(0)
   const [isMounted, setIsMounted] = useState(false)
+  const [showLoginSuccess, setShowLoginSuccess] = useState(false)
   const [sessionExpiredPortal, setSessionExpiredPortal] = useState<PortalType | null>(null)
   const sessionTimerRef = useRef<number | null>(null)
   const logoutRedirectPortalRef = useRef<PortalType | null>(null)
@@ -232,6 +233,9 @@ export default function Home() {
   // Check for existing session on mount
   useEffect(() => {
     setIsMounted(true)
+    // Continue the login page's confirmation across navigation, without showing it on ordinary refreshes.
+    const pendingLoginPortal = sessionStorage.getItem('login-success-pending')
+    setShowLoginSuccess(Boolean(pendingLoginPortal && allowedPortals.includes(pendingLoginPortal as PortalType)))
     const uninstallFetchInterceptor = installTabAuthFetchInterceptor()
     let cancelled = false
     setIsLoading(true)
@@ -422,13 +426,15 @@ export default function Home() {
     }
   }, [isMounted, user, portal, sessionExpiredPortal])
 
-  // Added: consume explicit login success once, after the destination toaster mounts.
+  // Keep confirmation readable before mounting the portal, even when authentication restores quickly.
   useEffect(() => {
-    if (!isMounted || isLoading || authError || !user) return
-    if (sessionStorage.getItem('login-success-pending') !== portal) return
-    sessionStorage.removeItem('login-success-pending')
-    toast.success('Logged in successfully!')
-  }, [isMounted, isLoading, authError, user, portal])
+    if (!showLoginSuccess || !isMounted || isLoading || authError || !user) return
+    const timer = window.setTimeout(() => {
+      sessionStorage.removeItem('login-success-pending')
+      setShowLoginSuccess(false)
+    }, 1000)
+    return () => window.clearTimeout(timer)
+  }, [showLoginSuccess, isMounted, isLoading, authError, user, portal])
 
   const logoutToPortal = (targetPortal: PortalType) => {
     const nextPortal = allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal
@@ -457,8 +463,11 @@ export default function Home() {
     logoutToPortal(portal)
   }
 
-  // Loading state
-  if (isLoading && isMounted) {
+  // A successful login has explicit feedback while its portal session is restored.
+  if (showLoginSuccess && !authError && (isLoading || user)) return <LoginSuccess />
+
+  // Render loading feedback before hydration too, avoiding an empty navigation frame.
+  if (isLoading || !isMounted) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">

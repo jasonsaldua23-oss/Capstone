@@ -1,5 +1,6 @@
 'use client'
 
+import { LoginSuccess } from '@/components/shared/login-success'
 import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
@@ -40,6 +41,7 @@ declare global {
 export function CustomerLoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [loginSucceeded, setLoginSucceeded] = useState(false)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -132,7 +134,8 @@ export function CustomerLoginPage() {
 
       persistCustomerWelcomeState(data?.created ? 'new' : 'existing', String(data?.user?.name || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: true })
-      // Added: show the success toast after navigation mounts the portal's toaster.
+      // Show confirmed login feedback here and retain it across portal navigation.
+      setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'customer')
       router.replace(CUSTOMER_HOME_PATH)
     } catch {
@@ -155,7 +158,8 @@ export function CustomerLoginPage() {
     persistCustomerWelcomeState('existing', String(data.user.name || '').trim())
     if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
     setIsLoginOtpOpen(false)
-    // Added: show the success toast after navigation mounts the portal's toaster.
+    // Show confirmed login feedback here and retain it across portal navigation.
+    setLoginSucceeded(true)
     sessionStorage.setItem('login-success-pending', 'customer')
     router.replace(CUSTOMER_HOME_PATH)
     return true
@@ -340,7 +344,8 @@ export function CustomerLoginPage() {
 
       persistCustomerWelcomeState('existing', String(data?.user?.name || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
-      // Added: show the success toast after navigation mounts the portal's toaster.
+      // Show confirmed login feedback here and retain it across portal navigation.
+      setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'customer')
       router.replace(CUSTOMER_HOME_PATH)
     } catch {
@@ -489,6 +494,9 @@ export function CustomerLoginPage() {
       return false
     }
   }
+
+  // Show confirmation only after the API has authenticated this account.
+  if (loginSucceeded) return <LoginSuccess />
 
   if (isCheckingSession) {
     return (
