@@ -1,6 +1,7 @@
 'use client'
 
 import { retryingApiRead } from './retrying-api-read'
+import { apiWrite } from './api-write'
 
 const TAB_AUTH_TOKEN_KEY = 'tab-auth-token'
 const PERSISTENT_TAB_AUTH_TOKEN_KEY = 'persistent-tab-auth-token'
@@ -103,6 +104,9 @@ export function setTabAuthToken(token: string, options?: { persistent?: boolean 
   // Fix: keep the active credential tab-scoped even when "Remember me" is enabled.
   // Otherwise another portal login can overwrite localStorage and change this tab's role.
   sessionStorage.setItem(TAB_AUTH_TOKEN_KEY, token)
+  // Fix: switching staff portals in one tab must not replace the other portal's session.
+  const sessionPortal = tokenPortal(token)
+  if (sessionPortal) sessionStorage.setItem(`${TAB_AUTH_TOKEN_KEY}:${sessionPortal}`, token)
 
   if (persistent) {
     localStorage.setItem(PERSISTENT_TAB_AUTH_TOKEN_KEY, token)
@@ -117,11 +121,14 @@ export function setTabAuthToken(token: string, options?: { persistent?: boolean 
 }
 
 export function getTabAuthToken(): string | null {
-  const sessionToken = sessionStorage.getItem(TAB_AUTH_TOKEN_KEY)
-  if (sessionToken) return sessionToken
   const portal = requestedPortal()
+  const scopedSession = portal ? sessionStorage.getItem(`${TAB_AUTH_TOKEN_KEY}:${portal}`) : null
+  if (scopedSession && tokenPortal(scopedSession) === portal) return scopedSession
+  const sessionToken = sessionStorage.getItem(TAB_AUTH_TOKEN_KEY)
+  // Legacy tab tokens are usable only in their own portal; never send a warehouse token from Admin.
+  if (sessionToken && (!portal || tokenPortal(sessionToken) === portal)) return sessionToken
   const scoped = portal ? localStorage.getItem(`${PERSISTENT_TAB_AUTH_TOKEN_KEY}:${portal}`) : null
-  if (scoped) return scoped
+  if (scoped && tokenPortal(scoped) === portal) return scoped
   const legacy = localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
   // Decode only to choose the credential; the server still verifies its signature.
   return !portal || tokenPortal(legacy) === portal ? legacy : null
@@ -139,6 +146,7 @@ export function clearTabAuthToken() {
   resetApiReadSession()
   const token = getTabAuthToken()
   const portal = tokenPortal(token) || requestedPortal()
+  if (portal) sessionStorage.removeItem(`${TAB_AUTH_TOKEN_KEY}:${portal}`)
   if (portal) localStorage.removeItem(`${PERSISTENT_TAB_AUTH_TOKEN_KEY}:${portal}`)
   sessionStorage.removeItem(TAB_AUTH_TOKEN_KEY)
   if (localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY) === token) localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
@@ -188,7 +196,8 @@ export function installTabAuthFetchInterceptor() {
     }
     // Cookie-only sessions must keep the same portal on shared API endpoints.
     if (!headers.has('X-Portal')) {
-      const portal = sessionStorage.getItem('tab-login-portal')
+      // Use the visible portal, since the last login may have happened in another staff portal.
+      const portal = requestedPortal()
       if (portal && ['admin', 'warehouse', 'driver', 'customer'].includes(portal)) headers.set('X-Portal', portal)
     }
 
@@ -202,7 +211,8 @@ export function installTabAuthFetchInterceptor() {
     if (method !== 'GET') {
       clearApiResponseCache()
       // Reads made while the write is pending may contain the old server state.
-      return originalFetch(input, requestInit).finally(clearApiResponseCache)
+      // Fix: all portals reject unconfirmed saves instead of accepting an empty response.
+      return apiWrite(() => originalFetch(input, requestInit)).finally(clearApiResponseCache)
     }
 
     const apiUrl = getApiUrl(input)
@@ -225,7 +235,8 @@ export function installTabAuthFetchInterceptor() {
       return read()
     }
 
-    const cacheKey = `${apiUrl.pathname}${apiUrl.search}`
+    // Fix: switching back to another portal must not reuse the previous account's cached data.
+    const cacheKey = `${headers.get('Authorization') || ''}:${headers.get('X-Portal') || ''}:${apiUrl.pathname}${apiUrl.search}`
     const cached = apiResponseCache.get(cacheKey)
     if (cached && cached.expiresAt > Date.now()) {
       return cached.response.clone()

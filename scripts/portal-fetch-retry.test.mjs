@@ -6,8 +6,11 @@ import vm from 'node:vm'
 import ts from 'typescript'
 
 // Load the real web interceptor in browser/Capacitor-like globals, without production traffic.
+const portalToken = portal => `header.${Buffer.from(JSON.stringify(portal === 'customer'
+  ? { type: 'customer' }
+  : { type: 'staff', role: { admin: 'ADMIN', warehouse: 'WAREHOUSE_STAFF', driver: 'DRIVER' }[portal] })).toString('base64url')}.signature`
 function loadPortal(portal, native, fetch) {
-  const session = new Map([['tab-login-portal', portal], ['tab-auth-token', 'test-token']])
+  const session = new Map([['tab-login-portal', portal], ['tab-auth-token', portalToken(portal)]])
   const storage = (values) => ({
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
@@ -57,7 +60,7 @@ for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
       const { window, uninstall } = loadPortal(portal, native, async (_, init) => {
         calls++
         assert.equal(init.headers.get('X-Portal'), portal)
-        assert.equal(init.headers.get('Authorization'), 'Bearer test-token')
+        assert.equal(init.headers.get('Authorization'), `Bearer ${portalToken(portal)}`)
         if (calls <= 2) throw new TypeError('Failed to fetch')
         if (calls === 3) return new Response('Unavailable', { status: 503 })
         return Response.json({ replacements: [{ id: 'real-record' }] })
@@ -87,7 +90,7 @@ test('web interceptor preserves one-shot writes and cancels outstanding reads on
     calls++
     throw new TypeError('Failed to fetch')
   })
-  await assert.rejects(window.fetch('/api/customer/replacements', { method: 'POST' }), TypeError)
+  await assert.rejects(window.fetch('/api/customer/replacements', { method: 'POST' }), /Check the latest record/)
   assert.equal(calls, 1)
   const pending = window.fetch('https://annannsbeveragestrading.com/api/customer/orders')
   const rejected = assert.rejects(pending, { name: 'AbortError' })
@@ -166,5 +169,72 @@ test('API read URLs throughout src use recovery, including cached and uncached s
     }
   }
   t.diagnostic(`Verified recovery for ${urls.size} distinct source API read URLs in both cache modes.`)
+  uninstall()
+})
+// All portals must fail closed on unconfirmed writes, without replaying business actions.
+for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
+  test(`${portal}: malformed and rejected saves never become success`, async () => {
+    for (const makeResponse of [
+      () => new Response(''),
+      () => new Response('<html>Gateway failure</html>', { status: 502 }),
+      () => new Response('{'),
+      () => Response.json({ success: false, error: 'Insufficient stock', available: 2 }),
+      () => new Response('', { status: 401 }),
+    ]) {
+      let calls = 0
+      const { window, uninstall } = loadPortal(portal, false, async () => {
+        calls++
+        return makeResponse()
+      })
+      const response = await window.fetch('/api/orders', { method: 'PATCH' })
+      assert.equal(response.ok, false)
+      const payload = await response.json()
+      assert.equal(payload.success, false)
+      assert.ok(payload.error.length > 0)
+      if (payload.available === 2) assert.equal(payload.error, 'Insufficient stock')
+      assert.equal(calls, 1)
+      uninstall()
+    }
+  })
+  test(`${portal}: valid save responses retain their status, body and headers`, async () => {
+    for (const response of [Response.json({ success: true, id: 'saved' }, { status: 201 }), new Response(null, { status: 204 })]) {
+      const { window, uninstall } = loadPortal(portal, false, async () => response)
+      assert.equal(await window.fetch('/api/orders', { method: 'POST' }), response)
+      uninstall()
+    }
+  })
+}
+// Regression: same-tab staff logins must not change the actor used by the Admin edit form.
+test('switching Admin and Warehouse keeps each portal credential and clears only the logged-out portal', async () => {
+  const { window, client, uninstall } = loadPortal('admin', false, async (_, init) => Response.json({ authorization: init.headers.get('Authorization') }))
+  const token = role => `header.${Buffer.from(JSON.stringify({ type: 'staff', role })).toString('base64url')}.signature`
+  const admin = token('ADMIN'), warehouse = token('WAREHOUSE_STAFF')
+  client.setTabAuthToken(admin)
+  window.location.pathname = '/warehouse'
+  client.setTabAuthToken(warehouse)
+  assert.equal(client.getTabAuthToken(), warehouse)
+  window.location.pathname = '/admin'
+  assert.equal(client.getTabAuthToken(), admin)
+  assert.equal((await (await window.fetch('/api/users/user-1', { method: 'PUT' })).json()).authorization, `Bearer ${admin}`)
+  client.clearTabAuthToken()
+  assert.equal(client.getTabAuthToken(), null, 'Admin must not fall back to a warehouse token')
+  window.location.pathname = '/warehouse'
+  assert.equal(client.getTabAuthToken(), warehouse, 'Admin logout retains Warehouse session')
+  uninstall()
+})
+test('switching portals cannot reuse another account API cache', async () => {
+  let calls = 0
+  const { window, client, uninstall } = loadPortal('admin', false, async (_, init) => {
+    calls++
+    return Response.json({ authorization: init.headers.get('Authorization') })
+  })
+  client.setTabAuthToken(portalToken('admin'))
+  window.location.pathname = '/warehouse'
+  client.setTabAuthToken(portalToken('warehouse'))
+  await window.fetch('/api/users')
+  window.location.pathname = '/admin'
+  const response = await window.fetch('/api/users')
+  assert.equal((await response.json()).authorization, `Bearer ${portalToken('admin')}`)
+  assert.equal(calls, 2)
   uninstall()
 })

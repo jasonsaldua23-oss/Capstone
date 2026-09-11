@@ -103,12 +103,20 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
         if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500)) {
           throw new TypeError("Temporary read failure");
         }
-        payload = await response.json().catch((error) => {
+        // Fix: an empty/truncated save response cannot confirm that the action succeeded.
+        payload = response.status === 204 || response.status === 205 ? {} : await response.json().catch((error) => {
           if (method === "GET" && response.ok) throw error;
+          if (method !== "GET" && response.ok) {
+            throw new ApiError("The server did not confirm this action. Check the latest record before submitting again.", response.status, null);
+          }
           return {};
         });
         if (!response.ok) {
           throw new ApiError(payload?.error || payload?.message || `Request failed: ${response.status}`, response.status, payload);
+        }
+        // Fix: application-level failures must not clear forms or report a successful save.
+        if (method !== "GET" && (!payload || typeof payload !== "object" || payload.success === false || payload.dbUnavailable)) {
+          throw new ApiError(payload?.error || payload?.message || "The server did not confirm this action. Check the latest record before submitting again.", response.status, payload);
         }
         if (method === "GET" && (payload?.success === false || payload?.dbUnavailable)) {
           throw new TypeError("Data is temporarily unavailable");
@@ -120,7 +128,7 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
         if (signal?.aborted) throw signal.reason || error;
         if (error instanceof ApiError) throw error;
         if (method !== "GET") {
-          if (controller.signal.aborted) throw new ApiError("The request timed out. Check your connection and try again.", 0, null);
+          if (controller.signal.aborted) throw new ApiError("The server took too long to confirm this action. Check the latest record before submitting again.", 0, null);
           throw error;
         }
         if (!(error instanceof TypeError) && !(error instanceof SyntaxError) && !controller.signal.aborted) throw error;

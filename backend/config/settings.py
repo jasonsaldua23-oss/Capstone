@@ -161,6 +161,8 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.auth_response_middleware.StaffAuthFallbackNoStoreMiddleware",
+    # Fix: all API views return a traceable JSON failure for unexpected exceptions.
+    "core.auth_response_middleware.ApiErrorResponseMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

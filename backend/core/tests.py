@@ -3,10 +3,13 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase, override_settings
+from django.test import Client, TestCase, SimpleTestCase, RequestFactory, override_settings
+from django.http import HttpResponse
+from django.db import OperationalError
 from django.utils import timezone
 
 from .auth import create_token
+from .auth_response_middleware import ApiErrorResponseMiddleware
 from .models import (
     ContainerType,
     Customer,
@@ -5817,3 +5820,25 @@ class CustomerCreationPermissionContractTests(TestCase):
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Forbidden")
 
+
+# API failures must remain diagnosable without leaking database or application details.
+
+
+class ApiErrorResponseTests(SimpleTestCase):
+    @patch('core.auth_response_middleware.logging.getLogger')
+    def test_api_exceptions_have_safe_json_and_matching_log_reference(self, logger):
+        middleware = ApiErrorResponseMiddleware(lambda request: HttpResponse())
+        for exception, expected_status in [(RuntimeError('private internals'), 500), (OperationalError('private database address'), 503)]:
+            with self.subTest(status=expected_status):
+                response = middleware.process_exception(RequestFactory().patch('/api/orders'), exception)
+                payload = json.loads(response.content)
+                self.assertEqual(response.status_code, expected_status)
+                self.assertFalse(payload['success'])
+                self.assertNotIn('private', payload['error'])
+                self.assertEqual(response['X-Request-ID'], payload['requestId'])
+                self.assertEqual(response['Cache-Control'], 'no-store')
+                self.assertEqual(logger.return_value.error.call_args.args[1], payload['requestId'])
+
+    def test_non_api_exceptions_keep_existing_handling(self):
+        middleware = ApiErrorResponseMiddleware(lambda request: HttpResponse())
+        self.assertIsNone(middleware.process_exception(RequestFactory().get('/admin'), RuntimeError('test')))
