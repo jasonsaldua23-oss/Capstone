@@ -12730,6 +12730,8 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
 RESOLVED_DROP_POINT_STATUSES = [
     DropPointStatus.COMPLETED,
     DropPointStatus.FAILED,
+    # Fix: a cancelled delivery has no remaining work and must not block trip closure.
+    "CANCELLED",
 ]
 
 

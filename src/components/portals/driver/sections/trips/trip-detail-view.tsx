@@ -236,10 +236,10 @@ export function TripDetailView({
   const allDropPointsCompleted =
     sortedDropPoints.length > 0 &&
     sortedDropPoints.every((point) => String(point.status || '').toUpperCase() === 'COMPLETED')
-  // A stop with a recorded outcome is finished, whether it was delivered or failed.
+  // Fix: cancelled deliveries are resolved too, matching the trip-completion API.
   // Anything pending, in transit, arrived or skipped still needs the driver.
   const unresolvedDropPointCount = sortedDropPoints.filter(
-    (point) => !['COMPLETED', 'FAILED'].includes(String(point.status || '').toUpperCase())
+    (point) => !['COMPLETED', 'FAILED', 'CANCELLED'].includes(String(point.status || '').toUpperCase())
   ).length
   const canCompleteTrip = sortedDropPoints.length > 0 && unresolvedDropPointCount === 0
   const highlightedDropPoint = activeDropPoint || sortedDropPoints[0] || null

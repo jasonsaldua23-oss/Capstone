@@ -80,12 +80,11 @@ export const mergeDropPointIntoTrip = (
     dropPoints: nextDropPoints,
     completedDropPoints: completedCount,
     totalDropPoints: totalCount,
+    // Fix: keep Complete Trip available until the API saves the driver's confirmation.
     status:
-      totalCount > 0 && completedCount >= totalCount
-        ? 'COMPLETED'
-        : currentTrip.status === 'PLANNED' && currentTrip.actualStartAt
-          ? 'IN_PROGRESS'
-          : currentTrip.status,
+      currentTrip.status === 'PLANNED' && currentTrip.actualStartAt
+        ? 'IN_PROGRESS'
+        : currentTrip.status,
   }
 }
 

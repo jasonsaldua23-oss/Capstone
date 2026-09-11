@@ -2499,6 +2499,45 @@ class TripExecutionApiContractTests(TestCase):
         )
         self.assertEqual(notified_order_ids, delivered_order_ids)
 
+    @patch("core.views_api._create_staff_notifications")
+    def test_trip_complete_with_cancelled_delivery(self, notify_staff) -> None:
+        # Fix regression: a cancelled stop must not strand an otherwise finished trip.
+        self.trip.status = TripStatus.IN_PROGRESS
+        self.trip.save(update_fields=["status"])
+        self.trip.drop_points.filter(id=self.dp_1.id).update(status="COMPLETED")
+        self.trip.drop_points.filter(id=self.dp_2.id).update(status="CANCELLED")
+        cancelled = self.dp_2
+        response = self.client.post(
+            f"/api/trips/{self.trip.id}/complete",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.trip.refresh_from_db()
+        cancelled.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.COMPLETED)
+        self.assertEqual(self.trip.completed_drop_points, 2)
+        self.assertIsNotNone(self.trip.actual_end_at)
+        self.assertEqual(cancelled.status, "CANCELLED")
+        notify_staff.assert_called_once()
+
+    @patch("core.views_api._create_staff_notifications")
+    def test_trip_complete_still_blocks_unfinished_delivery(self, notify_staff) -> None:
+        # Pending and deferred deliveries still require the driver to finish the work.
+        self.trip.status = TripStatus.IN_PROGRESS
+        self.trip.save(update_fields=["status"])
+        self.trip.drop_points.filter(id=self.dp_1.id).update(status="CANCELLED")
+        self.trip.drop_points.filter(id=self.dp_2.id).update(status="PENDING")
+        response = self.client.post(
+            f"/api/trips/{self.trip.id}/complete",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
+        self.assertIsNone(self.trip.actual_end_at)
+        notify_staff.assert_not_called()
+
+
     def test_trip_completes_when_remaining_drop_point_is_skipped(self) -> None:
         response_first = self.client.patch(
             f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
