@@ -492,7 +492,17 @@ export default function Home() {
 
   // Not authenticated - redirect to dedicated portal login
   if (!user) {
-    return null
+    // Fix: keep visible transition feedback while the login route replaces the portal.
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="text-center" role="status" aria-live="polite">
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
+          <p className="text-gray-600">
+            {logoutRedirectPortalRef.current ? 'Signing out...' : 'Opening login...'}
+          </p>
+        </div>
+      </div>
+    )
   }
 
   // Authenticated - show appropriate portal

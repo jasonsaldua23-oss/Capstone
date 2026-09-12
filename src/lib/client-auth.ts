@@ -214,6 +214,11 @@ export function installTabAuthFetchInterceptor() {
     // Any write can affect multiple portal views, so invalidate before sending it.
     if (method !== 'GET') {
       clearApiResponseCache()
+      if (getApiUrl(input)?.pathname === '/api/auth/logout') {
+        // Fix: logout is best-effort cleanup after local credentials are cleared;
+        // it must not leave a retrying background request behind.
+        return originalFetch(input, requestInit).finally(clearApiResponseCache)
+      }
       // Reads made while the write is pending may contain the old server state.
       // Fix: all portals reject unconfirmed saves instead of accepting an empty response.
       return apiWrite(() => originalFetch(input, requestInit)).finally(clearApiResponseCache)
