@@ -1,53 +1,76 @@
-// A lost response does not prove a save failed; never replay a mutation automatically.
-const unconfirmedSave = 'The server did not confirm this action. Check the latest record before submitting again.'
+const rejectedRequest = 'The server rejected this request. Check the entered information and try again.'
+
+type ApiWriteOptions = {
+  retryDelayMs?: number
+}
+
+const waitForRetry = (delayMs: number) => new Promise<void>((resolve) => {
+  setTimeout(resolve, delayMs)
+})
 
 export async function apiWrite(
   send: () => Promise<Response>,
+  options: ApiWriteOptions = {},
 ): Promise<Response> {
-  let response: Response
-  try {
-    response = await send()
-  } catch (error) {
-    // Preserve deliberate cancellation and programming errors for their existing handlers.
-    if (!(error instanceof TypeError)) throw error
-    throw new Error(`Connection interrupted. ${unconfirmedSave}`)
-  }
+  const retryDelayMs = Math.max(0, options.retryDelayMs ?? 3000)
 
-  // No-content responses are valid for endpoints that intentionally return no body.
-  if (response.status === 204 || response.status === 205) return response
-  let payload: any
-  try {
-    payload = await response.clone().json()
-  } catch {
-    // Proxy HTML, truncated JSON and empty bodies must never trigger success UI.
-    payload = null
-  }
-  if (response.ok && payload !== null && typeof payload === 'object' &&
-    payload.success !== false && !payload.dbUnavailable) return response
+  while (true) {
+    let response: Response
+    try {
+      response = await send()
+    } catch (error) {
+      // Abort and programming errors must still reach their existing handlers.
+      if (!(error instanceof TypeError)) throw error
+      // Fix: keep the caller's loading state pending through temporary connection loss.
+      await waitForRetry(retryDelayMs)
+      continue
+    }
 
-  const fallback = response.status === 401
-    ? 'Your session could not be verified. Sign in again before continuing.'
-    : response.status === 403
-      ? 'This action was denied. Check your account permissions.'
-      : response.status === 429
-        ? 'Too many requests. Wait a moment before trying again.'
-        : unconfirmedSave
-  const detail = payload?.error || payload?.message || payload?.detail
-  const message = typeof detail === 'string' && detail.trim() ? detail : fallback
-  const headers = new Headers(response.headers)
-  // Preserve retry/authentication/support headers while replacing the response body.
-  headers.delete('Content-Length')
-  headers.delete('Content-Encoding')
-  headers.set('Content-Type', 'application/json')
-  headers.set('Cache-Control', 'no-store')
-  // Return JSON errors for the existing portal handlers, retaining validation fields.
-  // A malformed 2xx response is a gateway failure, not a confirmed save.
-  return new Response(JSON.stringify({
-    ...(payload && typeof payload === 'object' ? payload : {}),
-    success: false,
-    error: message,
-  }), {
-    status: response.ok ? 502 : response.status,
-    headers,
-  })
+    // No-content responses are valid for endpoints that intentionally return no body.
+    if (response.status === 204 || response.status === 205) return response
+    let payload: any
+    try {
+      payload = await response.clone().json()
+    } catch {
+      payload = null
+    }
+    if (response.ok && payload !== null && typeof payload === 'object' &&
+      payload.success !== false && !payload.dbUnavailable) return response
+
+    const temporarilyUnconfirmed =
+      response.ok ||
+      response.status === 408 ||
+      response.status === 425 ||
+      response.status === 429 ||
+      response.status >= 500 ||
+      Boolean(payload?.dbUnavailable)
+    if (temporarilyUnconfirmed) {
+      // A temporary/malformed response leaves the original fetch promise pending,
+      // so buttons and forms keep showing their existing loading state until success.
+      await waitForRetry(retryDelayMs)
+      continue
+    }
+
+    const fallback = response.status === 401
+      ? 'Your session could not be verified. Sign in again before continuing.'
+      : response.status === 403
+        ? 'This action was denied. Check your account permissions.'
+        : rejectedRequest
+    const detail = payload?.error || payload?.message || payload?.detail
+    const message = typeof detail === 'string' && detail.trim() ? detail : fallback
+    const headers = new Headers(response.headers)
+    // Preserve authentication and validation details for the existing portal handlers.
+    headers.delete('Content-Length')
+    headers.delete('Content-Encoding')
+    headers.set('Content-Type', 'application/json')
+    headers.set('Cache-Control', 'no-store')
+    return new Response(JSON.stringify({
+      ...(payload && typeof payload === 'object' ? payload : {}),
+      success: false,
+      error: message,
+    }), {
+      status: response.status,
+      headers,
+    })
+  }
 }

@@ -406,9 +406,20 @@ function isWarehouseDashboardOrder(order: any) {
 }
 
 export function summarizeWarehouseDashboardOrders(orders: any[]): WarehouseOrderStats {
-  const scopedOrders = orders.filter(isWarehouseDashboardOrder)
+  // Fix: the total is a historical order count, so cancelled orders still belong in it.
+  // Operational delivery counts continue to use active/non-cancelled orders below.
+  const historicalOrders = orders.filter((order) => {
+    const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
+    const purchaseOrderStage = String(order?.purchaseOrderStage || order?.purchase_order_stage || '').trim()
+    const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
+    return !Boolean(order?.isScheduledReplacement) &&
+      !orderNumber.startsWith('RPL-') &&
+      Boolean(purchaseOrderStage) &&
+      Boolean(purchaseOrderNumber)
+  })
+  const scopedOrders = historicalOrders.filter(isWarehouseDashboardOrder)
   return {
-    totalOrders: scopedOrders.length,
+    totalOrders: historicalOrders.length,
     outForDelivery: scopedOrders.filter((order) => {
       const status = String(order?.status || '').toUpperCase()
       return status === 'OUT_FOR_DELIVERY' || status === 'IN_TRANSIT'

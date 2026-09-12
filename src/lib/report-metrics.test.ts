@@ -126,19 +126,20 @@ test('inventory movement selectors keep only in and out and chart totals match r
   assert.equal(trend.totalOut, 5)
 })
 
-test('warehouse dashboard order stats and weekly trends exclude replacements and cancelled orders', () => {
+test('warehouse dashboard total retains cancelled orders while activity metrics exclude them', () => {
   const now = new Date('2026-05-23T12:00:00Z')
   const orders = [
-    { orderNumber: 'ORD-1', status: 'DELIVERED', createdAt: '2026-05-23T09:00:00Z' },
-    { orderNumber: 'ORD-2', status: 'IN_TRANSIT', createdAt: '2026-05-22T09:00:00Z' },
-    { orderNumber: 'ORD-3', status: 'DELIVERED', createdAt: '2026-05-16T09:00:00Z' },
-    { orderNumber: 'RPL-1', status: 'DELIVERED', createdAt: '2026-05-23T09:00:00Z' },
-    { orderNumber: 'ORD-4', status: 'CANCELLED', createdAt: '2026-05-23T09:00:00Z' },
-    { orderNumber: 'ORD-5', status: 'DELIVERED', createdAt: '2026-05-21T09:00:00Z', isScheduledReplacement: true },
+    { orderNumber: 'ORD-1', purchaseOrderNumber: 'PO-1', purchaseOrderStage: 'DELIVERED', status: 'DELIVERED', createdAt: '2026-05-23T09:00:00Z' },
+    { orderNumber: 'ORD-2', purchaseOrderNumber: 'PO-2', purchaseOrderStage: 'OUT_FOR_DELIVERY', status: 'IN_TRANSIT', createdAt: '2026-05-22T09:00:00Z' },
+    { orderNumber: 'ORD-3', purchaseOrderNumber: 'PO-3', purchaseOrderStage: 'DELIVERED', status: 'DELIVERED', createdAt: '2026-05-16T09:00:00Z' },
+    { orderNumber: 'RPL-1', purchaseOrderNumber: 'PO-RPL', purchaseOrderStage: 'DELIVERED', status: 'DELIVERED', createdAt: '2026-05-23T09:00:00Z' },
+    { orderNumber: 'ORD-4', purchaseOrderNumber: 'PO-4', purchaseOrderStage: 'CANCELLED', status: 'CANCELLED', createdAt: '2026-05-23T09:00:00Z' },
+    { orderNumber: 'ORD-5', purchaseOrderNumber: 'PO-5', purchaseOrderStage: 'DELIVERED', status: 'DELIVERED', createdAt: '2026-05-21T09:00:00Z', isScheduledReplacement: true },
+    { orderNumber: 'ORD-6', requestStatus: 'PENDING', status: 'PENDING', createdAt: '2026-05-01T09:00:00Z' },
   ]
 
   assert.deepEqual(summarizeWarehouseDashboardOrders(orders), {
-    totalOrders: 3,
+    totalOrders: 4,
     outForDelivery: 1,
     delivered: 2,
   })

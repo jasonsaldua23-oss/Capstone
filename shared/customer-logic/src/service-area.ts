@@ -8,7 +8,8 @@
 // Coarse box around Silay/Talisay, used to frame the map and as the fallback check.
 export const SERVICE_AREA_BOUNDS: [[number, number], [number, number]] = [
   [10.62, 122.86],
-  [10.94, 123.08],
+  // Fix: Silay and Talisay extend east past 123.08 in the bundled polygons.
+  [10.94, 123.26],
 ]
 
 export const SERVICE_AREA_MESSAGE =

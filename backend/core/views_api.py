@@ -1598,11 +1598,12 @@ def _create_scheduled_replacement_order(
 
 
 NEGROS_OCCIDENTAL_BOUNDS = {
-    # Strict Silay + Talisay service area (no map buffer).
+    # Fix: include the eastern portions of Silay and Talisay represented by the
+    # municipal polygons used by the customer map.
     "min_lat": 10.64,
     "max_lat": 10.92,
     "min_lng": 122.88,
-    "max_lng": 123.06,
+    "max_lng": 123.26,
 }
 
 DEFAULT_COUNTRY = "Philippines"
@@ -13050,9 +13051,17 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
             Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=delivered_order.id),
             include_items=False,
         )
+    drop_point_payload = _serialize_model(dp)
+    stored_delivery_photo = str(getattr(dp, "delivery_photo", "") or "")
+    if stored_delivery_photo.startswith("data:"):
+        # Fix: an inline POD can be hundreds of kilobytes. It is already stored,
+        # so do not echo it twice and risk losing the success response on mobile.
+        drop_point_payload.pop("deliveryPhoto", None)
+        if isinstance(order_payload, dict) and isinstance(order_payload.get("pod"), dict):
+            order_payload["pod"].pop("deliveryPhoto", None)
     return _ok({
         "success": True,
-        "dropPoint": _serialize_model(dp),
+        "dropPoint": drop_point_payload,
         "order": order_payload,
         "requeuedToRoutePool": requeued_to_route_pool,
         "empties": empties_result,
