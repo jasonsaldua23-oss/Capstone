@@ -122,6 +122,8 @@ export function TripDetailView({
   const [cameraPermissionHint, setCameraPermissionHint] = useState<string>('')
   const [cameraNow, setCameraNow] = useState(() => new Date())
   const [cameraGps, setCameraGps] = useState<{ latitude: number; longitude: number } | null>(null)
+  // Fix: keep the address lookup location stable while live GPS coordinates jitter.
+  const [cameraAddressGps, setCameraAddressGps] = useState<{ latitude: number; longitude: number } | null>(null)
   const [cameraAddress, setCameraAddress] = useState('Resolving current address...')
   const [isCameraAddressLoading, setIsCameraAddressLoading] = useState(true)
   const [cameraLocationError, setCameraLocationError] = useState<string | null>(null)
@@ -200,7 +202,6 @@ export function TripDetailView({
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const cameraGpsRef = useRef<{ latitude: number; longitude: number } | null>(null)
-  const lastReverseGeocodeKeyRef = useRef('')
   const spokenNavigationPromptsRef = useRef<Set<string>>(new Set())
   const mobileMapViewportRef = useRef<HTMLDivElement | null>(null)
   const mobileTopOverlayRef = useRef<HTMLDivElement | null>(null)
@@ -1225,11 +1226,11 @@ export function TripDetailView({
     setIsCameraLoading(false)
     setCapturedCameraPhoto(null)
     setCameraGps(null)
+    setCameraAddressGps(null)
     cameraGpsRef.current = null
     setCameraLocationError(null)
     setCameraAddress('Resolving current address...')
     setIsCameraAddressLoading(true)
-    lastReverseGeocodeKeyRef.current = ''
   }
 
   // Tries to deep-link users into OS/app settings to unblock camera permission.
@@ -1460,6 +1461,15 @@ export function TripDetailView({
         const next = { latitude: position.coords.latitude, longitude: position.coords.longitude }
         cameraGpsRef.current = next
         setCameraGps(next)
+        // Fix: compare with the lookup origin so small movements accumulate, but
+        // stationary GPS drift cannot cancel an in-flight lookup or block capture.
+        setCameraAddressGps((previous) => {
+          if (previous && haversineKm(
+            { lat: previous.latitude, lng: previous.longitude },
+            { lat: next.latitude, lng: next.longitude },
+          ) * 1000 < 25) return previous
+          return next
+        })
       },
       (error) => setCameraLocationError(error.message || 'Current GPS location is required.'),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
@@ -1468,15 +1478,12 @@ export function TripDetailView({
   }, [isCameraOpen])
 
   useEffect(() => {
-    if (!isCameraOpen || !cameraGps) return
-    const key = `${cameraGps.latitude.toFixed(4)},${cameraGps.longitude.toFixed(4)}`
-    if (lastReverseGeocodeKeyRef.current === key) return
-    lastReverseGeocodeKeyRef.current = key
+    if (!isCameraOpen || !cameraAddressGps) return
     setIsCameraAddressLoading(true)
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       try {
-        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(cameraGps.latitude)}&lon=${encodeURIComponent(cameraGps.longitude)}&addressdetails=1&countrycodes=ph&zoom=18`
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(cameraAddressGps.latitude)}&lon=${encodeURIComponent(cameraAddressGps.longitude)}&addressdetails=1&countrycodes=ph&zoom=18`
         const response = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } })
         if (!response.ok) throw new Error('Address lookup failed')
         const result = await response.json()
@@ -1491,7 +1498,7 @@ export function TripDetailView({
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [isCameraOpen, cameraGps])
+  }, [isCameraOpen, cameraAddressGps])
 
   useEffect(() => {
     if (!isCameraOpen || capturedCameraPhoto) return
