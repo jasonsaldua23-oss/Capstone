@@ -1,5 +1,7 @@
 'use client'
 
+import { useNativeBack } from '@/hooks/use-native-back'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
@@ -87,6 +89,15 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const [isSaving, setIsSaving] = useState(false)
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
   const [subView, setSubView] = useState<'menu' | 'edit' | 'security' | 'account-security' | 'change-password' | 'change-password-otp' | 'security-settings' | 'notifications' | 'license' | 'real-notifications'>(initialSubView ?? 'menu')
+  // Fix: the phone Back button follows the profile screen's existing parent views.
+  useNativeBack(() => {
+    if (subView === 'menu') return false
+    if (subView === 'change-password-otp') setSubView('change-password')
+    else if (subView === 'change-password' || subView === 'security' || subView === 'security-settings') setSubView('account-security')
+    else setSubView('menu')
+    return true
+  }, 10)
+
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(Boolean((user as any)?.twoFactorEnabled ?? (user as any)?.two_factor_enabled))
   const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(Boolean((user as any)?.loginAlertsEnabled ?? (user as any)?.login_alerts_enabled ?? true))
   const [isSavingSecurity, setIsSavingSecurity] = useState(false)

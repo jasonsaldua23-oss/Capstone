@@ -14,7 +14,7 @@ export function CustomerBottomNav(props: any) {
   return (
     <>
       {/* ── Desktop sidebar ── */}
-      <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-slate-200 bg-white p-3 md:flex">
+      <aside className="hidden min-h-0 overflow-y-auto h-full w-60 shrink-0 flex-col border-r border-slate-200 bg-white p-3 md:flex">
         <div className="space-y-1.5">
           <Button
             variant="ghost"

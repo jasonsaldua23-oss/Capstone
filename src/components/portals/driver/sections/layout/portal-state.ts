@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { useNativeOffline } from '@/hooks/use-native-offline'
 import { getTabAuthToken } from '@/lib/client-auth'
 import { isNativeApp, openAppSettings } from '@/lib/native/platform'
 import { ensureCameraPermission, ensureLocationPermission } from '@/lib/native/permissions'
@@ -233,6 +234,7 @@ const openNativeAppSettings = openAppSettings
 
 // Main driver portal state hook: data fetching, sync, permissions, and GPS tracking.
 export function useDriverPortalState() {
+  const offline = useNativeOffline()
   // View and trip state.
   const [activeView, setActiveView] = useState('home')
   const [trips, setTrips] = useState<Trip[]>([])
@@ -407,6 +409,8 @@ export function useDriverPortalState() {
 
   // Camera gate check used for native app startup/focus.
   const enforceNativeCameraPermission = useCallback(async () => {
+    // Fix: defer automatic permission prompts during an outage; never claim access was granted.
+    if (offline) return false
     if (!isNativeCapacitorApp()) {
       setIsNativeCameraGateOpen(false)
       return true
@@ -422,7 +426,7 @@ export function useDriverPortalState() {
     setIsNativeCameraGateOpen(true)
     setIsCheckingNativeCameraPermission(false)
     return false
-  }, [])
+  }, [offline])
 
   // Re-check camera permission when app regains focus/visibility.
   useEffect(() => {

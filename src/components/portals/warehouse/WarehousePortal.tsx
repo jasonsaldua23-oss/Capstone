@@ -4934,7 +4934,7 @@ export function WarehousePortal() {
   }
 
   return (
-    <div className={`${portalFont.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]`}>
+    <div className={`${portalFont.className} responsive-workspace relative flex h-dvh min-h-0 overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,232,249,0.28),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_32%),linear-gradient(145deg,_#eef9ff_0%,_#eefcf6_46%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-14 top-10 h-64 w-64 rounded-full bg-cyan-200/20 blur-3xl" />
         <div className="absolute right-[-4rem] top-28 h-72 w-72 rounded-full bg-sky-300/15 blur-3xl" />
@@ -4966,7 +4966,8 @@ export function WarehousePortal() {
         </SheetContent>
       </Sheet>
 
-      <div className="relative z-[1] flex min-h-screen flex-1 flex-col lg:pl-64">
+      {/* Fix: bound the workspace to the viewport and let the page scroll below the header. */}
+      <div className="relative z-[1] flex min-h-0 min-w-0 flex-1 flex-col lg:pl-64">
         <WarehouseHeader
           searchQuery={globalSearchQuery}
           searchResults={globalSearchResults}
@@ -4989,7 +4990,7 @@ export function WarehousePortal() {
         />
 
         {/* Keep wide operational content reachable on small screens instead of clipping it. */}
-        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
+        <main className="portal-content min-h-0 min-w-0 flex-1 overflow-auto">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeView}

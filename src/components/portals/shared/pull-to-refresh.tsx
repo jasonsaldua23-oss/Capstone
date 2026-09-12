@@ -260,7 +260,8 @@ export function PullToRefresh({
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain ${className}`}
+      // Fix: retain access to any content wider than the available portal space.
+      className={`relative flex flex-col min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto overscroll-y-contain ${className}`}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -397,7 +398,8 @@ export function PullToRefresh({
 
       {/* Content shifts down slightly as you pull */}
       <div
-        className={`flex min-h-0 flex-1 flex-col ${contentClassName}`}
+        // Fix: wide child views should scroll within the portal instead of widening it.
+        className={`flex min-h-0 min-w-0 flex-1 flex-col ${contentClassName}`}
         style={{
           transform: `translate3d(0, ${pullDistance > 0 && !isRefreshing ? pullDistance * 0.3 : 0}px, 0)`,
           transition: isDraggingRef.current ? 'none' : 'transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1)',

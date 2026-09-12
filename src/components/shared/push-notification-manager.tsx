@@ -6,6 +6,7 @@ import { Bell, Loader2, X } from 'lucide-react'
 import type { AuthUser, PortalType } from '@/types'
 import { enableNotifications, resumeNotificationsIfAllowed } from '@/lib/native/notifications'
 import { isNativeApp } from '@/lib/native/platform'
+import { useNativeOffline } from '@/hooks/use-native-offline'
 
 
 type PushConfig = {
@@ -40,6 +41,7 @@ const portalPromptCopy: Record<PortalType, { title: string; description: string 
 }
 
 export function PushNotificationManager({ user, portal }: { user: AuthUser; portal: PortalType }) {
+  const offline = useNativeOffline()
   const promptCopy = portalPromptCopy[portal]
   const [publicKey, setPublicKey] = useState('')
   const [showPrompt, setShowPrompt] = useState(false)
@@ -68,6 +70,12 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
   }, [])
 
   useEffect(() => {
+    // Fix: connection recovery should retry registration without prompting for permission.
+    if (offline) {
+      setShowPrompt(false)
+      setError('')
+      return
+    }
     let cancelled = false
     let preparing = false
     let retries = 0
@@ -107,7 +115,7 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
           if (resumed.registered) {
             setShowPrompt(false)
           } else {
-            if (sessionStorage.getItem('push-prompt-dismissed') !== '1') setShowPrompt(true)
+            setShowPrompt(Boolean(resumed.needsPermission) && sessionStorage.getItem('push-prompt-dismissed') !== '1')
             scheduleRetry(prepareNative)
           }
         } finally {
@@ -152,9 +160,10 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
 
     void preparePush()
     return watchRecovery(preparePush)
-  }, [registerSubscription, user.id, user.type])
+  }, [registerSubscription, user.id, user.type, offline])
 
   const enablePush = async () => {
+    if (offline) return
     setIsEnabling(true)
     setError('')
     try {
@@ -189,7 +198,7 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
     setShowPrompt(false)
   }
 
-  if (!showPrompt) return null
+  if (offline || !showPrompt) return null
 
   return (
     <div

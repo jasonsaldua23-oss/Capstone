@@ -91,7 +91,9 @@ function applyBrowserBranding(title: string, iconPath: string, manifestPath?: st
   if (manifestPath === null) {
     // Driver and Shop browser installs must download the native Capacitor APK,
     // never register a browser PWA shortcut for the same portal.
-    document.head.querySelectorAll('link[rel="manifest"]').forEach((link) => link.remove())
+    // Fix: Next.js owns this link and removes it during navigation. Keep the node
+    // attached so React cleanup has a parent; no href means no installable manifest.
+    document.head.querySelectorAll('link[rel="manifest"]').forEach((link) => link.removeAttribute('href'))
   } else if (manifestPath) {
     let manifestLink = document.head.querySelector('link[rel="manifest"]') as HTMLLinkElement | null
     if (!manifestLink) {

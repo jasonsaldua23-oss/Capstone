@@ -4,6 +4,44 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Fix: use available CSS viewport space rather than browser zoom or device pixels.
+   Content can scroll vertically; wide tables retain their own readable scroll areas. */
+@layer components {
+  .portal-content {
+    padding: clamp(1rem, 1.5vw, 1.5rem);
+    scrollbar-gutter: stable;
+  }
+
+  .responsive-workspace .grid > *,
+  .portal-content > *,
+  .portal-content [data-slot='tabs-content'],
+  .portal-content [data-slot='card-content'] {
+    min-width: 0;
+  }
+
+  /* Keep fixed-height navigation chrome from squeezing the scrollable menu. */
+  .portal-sidebar > :first-child,
+  .portal-sidebar > :last-child,
+  .responsive-workspace header {
+    flex-shrink: 0;
+  }
+
+  /* Short laptops need less decorative spacing, not smaller text or controls. */
+  @media (min-width: 64rem) and (max-height: 50rem) {
+    .portal-sidebar > :first-child {
+      padding: 0.75rem;
+    }
+
+    .portal-sidebar > :last-child {
+      padding: 0.5rem 0.75rem;
+    }
+
+    .portal-sidebar > nav {
+      padding-block: 0.5rem;
+    }
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

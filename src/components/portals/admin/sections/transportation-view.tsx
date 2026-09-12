@@ -708,7 +708,8 @@ export function TransportationView({ notificationReferenceType = '', notificatio
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      {/* Fix: keep the page action reachable when the heading needs another line. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Transportation</h1>
           <p className="text-gray-600">{readOnly ? 'Monitor fleet, trips, drivers, and assignments.' : 'Manage fleet vehicles and driver assignments.'}</p>
@@ -1578,9 +1579,10 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       </Dialog>
 
       <Dialog open={!!selectedDropPointDetail} onOpenChange={(open) => !open && setSelectedDropPointDetail(null)}>
-        <DialogContent className="max-w-xl w-full overflow-hidden rounded-2xl border border-white/40 bg-white/90 p-0 shadow-[0_24px_50px_rgba(15,23,42,0.16)] backdrop-blur-2xl">
+        {/* Fix: bound the dialog to the viewport and scroll its details, keeping both close controls visible. */}
+        <DialogContent className="flex flex-col max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] sm:max-w-lg w-full overflow-hidden rounded-2xl border border-white/40 bg-white/90 p-0 shadow-[0_24px_50px_rgba(15,23,42,0.16)] backdrop-blur-2xl">
           {selectedDropPointDetail ? (
-            <div className="space-y-4 p-6">
+            <div className="flex min-h-0 w-full flex-col gap-4 p-6">
               {(() => {
                 const orderNumber = String(selectedDropPointDetail.order?.orderNumber || '').trim().toUpperCase()
                 const isReplacementDropPoint = Boolean(selectedDropPointDetail.order?.isScheduledReplacement) || orderNumber.startsWith('RPL-')
@@ -1590,7 +1592,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                 return (
                   <>
               {/* Header */}
-              <div className="flex items-center gap-3 border-b border-slate-200/70 pb-4">
+              <div className="flex shrink-0 items-center gap-3 border-b border-slate-200/70 pb-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-[0_8px_18px_rgba(37,99,235,0.28)]">
                   <MapPin className="h-5 w-5 text-white" />
                 </div>
@@ -1598,6 +1600,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
               </div>
 
               {/* Info card */}
+              <div className="min-h-0 space-y-4 overflow-y-auto">
               <div className="rounded-2xl border border-white/50 bg-white/65 p-4 backdrop-blur-xl shadow-[0_8px_20px_rgba(15,23,42,0.07)] space-y-2.5 text-sm">
                 <div className="flex gap-2">
                   <span className="min-w-[108px] font-semibold text-slate-900">Customer</span>
@@ -1679,8 +1682,10 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                 )}
               </div>
 
+              </div>
+
               {/* Footer */}
-              <div className="flex justify-end pt-1">
+              <div className="flex shrink-0 justify-end pt-1">
                 <Button
                   variant="outline"
                   className="h-10 min-w-24 rounded-xl border-white/50 bg-white/65 text-slate-700 backdrop-blur-md hover:bg-white/85 hover:text-slate-950"

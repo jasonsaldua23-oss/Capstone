@@ -876,8 +876,9 @@ export function AdminPortal() {
     )
     const settingsItem = warehouseReady === false ? undefined : navItems.find((item) => item.id === 'settings')
 
+    // Fix: let navigation shrink and scroll independently on short laptop screens.
     return (
-      <div className="flex flex-col h-full">
+      <div className="portal-sidebar flex min-h-0 flex-col h-full">
         <div className="border-b border-white/20 bg-white/10 p-4 backdrop-blur-xl">
           <div className="flex items-center gap-3">
             <img
@@ -894,7 +895,7 @@ export function AdminPortal() {
 
         {/* Navigation Menu */}
         {/* The nested sidebar remounts on navigation; restore its previous scroll position. */}
-        <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1"
+        <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-4 space-y-1"
           ref={(node) => { if (node) node.scrollTop = sidebarScrollTopRef.current }}
           onScroll={(event) => { sidebarScrollTopRef.current = event.currentTarget.scrollTop }}>
           {primaryNavItems.map((item) => {
@@ -1193,7 +1194,7 @@ export function AdminPortal() {
   }
 
   return (
-    <div className={`${portalFont.className} relative flex min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.34),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(129,140,248,0.22),_transparent_32%),linear-gradient(145deg,_#e8f4ff_0%,_#eefbf4_52%,_#f6fbff_100%)]`}>
+    <div className={`${portalFont.className} responsive-workspace relative flex h-dvh min-h-0 overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.34),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(129,140,248,0.22),_transparent_32%),linear-gradient(145deg,_#e8f4ff_0%,_#eefbf4_52%,_#f6fbff_100%)]`}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-16 top-8 h-64 w-64 rounded-full bg-sky-300/20 blur-3xl" />
         <div className="absolute right-[-4rem] top-24 h-72 w-72 rounded-full bg-cyan-200/20 blur-3xl" />
@@ -1212,10 +1213,10 @@ export function AdminPortal() {
       </Sheet>
 
       {/* Main Content */}
-      {/* Fix: match the Warehouse Portal's display scale while containing wide admin tables. */}
-      <div className="relative z-[1] flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
+      {/* Fix: bound the workspace to the viewport and let the page scroll below the header. */}
+      <div className="relative z-[1] flex min-h-0 min-w-0 flex-1 flex-col lg:pl-64">
         {/* Top Header */}
-        <header className="sticky top-0 z-10 border-b border-white/25 bg-white/42 backdrop-blur-2xl">
+        <header className="shrink-0 sticky top-0 z-10 border-b border-white/25 bg-white/42 backdrop-blur-2xl">
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-4">
               <Button
@@ -1319,7 +1320,7 @@ export function AdminPortal() {
 
         {/* Page Content */}
         {/* Fix: preserve horizontal access to wide admin content on small screens. */}
-        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-auto p-4 md:p-6">
+        <main className="portal-content min-h-0 min-w-0 flex-1 overflow-auto">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeView}

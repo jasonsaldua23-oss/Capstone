@@ -1,10 +1,14 @@
 import { registerPlugin } from '@capacitor/core'
 import { getPlatform, isPluginAvailable, waitForNativeBridge } from './platform'
 
-const DriverSpeech = registerPlugin<{
+type DriverSpeechPlugin = {
   speak(options: { text: string }): Promise<void>
   stop(): Promise<void>
-}>('DriverSpeech')
+}
+// Fix: Capacitor captures plugin headers at registration time. Wait until the
+// remote WebView has its native bridge before creating the speech proxy.
+let driverSpeech: DriverSpeechPlugin | undefined
+const getDriverSpeech = () => driverSpeech ??= registerPlugin<DriverSpeechPlugin>('DriverSpeech')
 
 let promptGeneration = 0
 
@@ -14,10 +18,11 @@ export async function speakDriverNavigation(message: string): Promise<void> {
   const generation = ++promptGeneration
   if (getPlatform() === 'android') {
     // Fix: use native speech in Android; WebView's speechSynthesis can be absent or silent.
-    await waitForNativeBridge()
+    const ready = await waitForNativeBridge()
     if (generation !== promptGeneration) return
+    if (!ready) throw new Error('Voice guidance is still connecting to the device. Please try again.')
     if (!isPluginAvailable('DriverSpeech')) throw new Error('Update the Driver app to enable native voice guidance.')
-    await DriverSpeech.speak({ text })
+    await getDriverSpeech().speak({ text })
     return
   }
 
@@ -42,7 +47,7 @@ export function stopDriverNavigationSpeech(): void {
   promptGeneration++
   if (typeof window === 'undefined') return
   if (getPlatform() === 'android' && isPluginAvailable('DriverSpeech')) {
-    void DriverSpeech.stop().catch(error => console.warn('Could not stop native voice guidance:', error))
+    void driverSpeech?.stop().catch(error => console.warn('Could not stop native voice guidance:', error))
   } else if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel()
   }

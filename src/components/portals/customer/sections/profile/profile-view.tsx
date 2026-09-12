@@ -1,5 +1,7 @@
 'use client'
 
+import { useNativeBack } from '@/hooks/use-native-back'
+
 import { getPasswordRequirementState } from '@shared/customer-logic/password'
 import {
   OTP_EXPIRY_SECONDS,
@@ -148,6 +150,15 @@ export function CustomerProfileView({
 }: CustomerProfileViewProps) {
   const resolvedAvatarPreviewUrl = resolveClientImageUrl(avatarPreviewUrl)
   const [subView, setSubView] = useState<'menu' | 'edit' | 'empties-deposits' | 'security' | 'account-security' | 'change-password' | 'change-password-otp' | 'security-settings' | 'notifications' | 'real-notifications'>(initialSubView ?? 'menu')
+  // Fix: the phone Back button follows the profile screen's existing parent views.
+  useNativeBack(() => {
+    if (subView === 'menu') return false
+    if (subView === 'change-password-otp') setSubView('change-password')
+    else if (subView === 'change-password' || subView === 'security' || subView === 'security-settings') setSubView('account-security')
+    else setSubView('menu')
+    return true
+  }, 10)
+
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [isEditingSecurity, setIsEditingSecurity] = useState(false)
 

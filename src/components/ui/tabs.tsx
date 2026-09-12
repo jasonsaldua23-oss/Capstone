@@ -12,7 +12,7 @@ function Tabs({
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("min-w-0 flex flex-col gap-2", className)}
       {...props}
     />
   )
@@ -25,8 +25,9 @@ function TabsList({
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
+      // Fix: long tab groups can wrap without clipping their controls.
       className={cn(
-        "bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-[3px]",
+        "bg-muted text-muted-foreground inline-flex min-h-9 h-auto max-w-full flex-wrap w-fit items-center justify-center rounded-lg p-[3px]",
         className
       )}
       {...props}
@@ -57,7 +58,7 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn("flex-1 outline-none", className)}
+      className={cn("min-w-0 flex-1 outline-none", className)}
       {...props}
     />
   )

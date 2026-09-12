@@ -12,6 +12,7 @@ import { ensureNotificationPermission, type PermissionOutcome } from './permissi
 
 export type PushRegistration = {
   registered: boolean
+  needsPermission?: boolean
   transport: 'web-push' | 'fcm' | 'none'
   message?: string
 }
@@ -234,7 +235,8 @@ export async function resumeNotificationsIfAllowed(): Promise<PushRegistration> 
     try {
       const { PushNotifications } = await import('@capacitor/push-notifications')
       const status = await PushNotifications.checkPermissions()
-      if (status.receive !== 'granted') return { registered: false, transport: 'none' }
+      // Fix: a failed token upload is not evidence that OS permission is missing.
+      if (status.receive !== 'granted') return { registered: false, transport: 'none', needsPermission: true }
       return await registerNativePush()
     } catch {
       return { registered: false, transport: 'none' }

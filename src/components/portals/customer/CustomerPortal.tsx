@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useNativeBack } from '@/hooks/use-native-back'
+import { NativeOfflineNotice } from '@/components/shared/native-offline-notice'
 import { Home, Package, User } from 'lucide-react'
 import { useAuth } from '@/app/page'
 import { clearTabAuthToken } from '@/lib/client-auth'
@@ -3020,9 +3022,21 @@ export function CustomerPortal() {
     setIsDraggingCrop(false)
   }
 
+  // Fix: mirror in-app Back destinations without losing the cart or selected order.
+  useNativeBack(() => {
+    if (activeView === 'checkout') { setActiveView('cart'); return true }
+    if (activeView === 'order-detail') { setSelectedOrder(null); setActiveView(backView); return true }
+    if (activeView === 'edit-address') { setActiveView(backAddressView); return true }
+    if (activeView === 'purchase-request-detail') { setSelectedOrder(null); setActiveView('purchase-requests'); return true }
+    if (activeView === 'track') { setActiveView('orders'); return true }
+    if (activeView !== 'home') { setActiveView('home'); return true }
+    return false
+  })
+
   return (
-    <div className={`${poppins.className} h-[100dvh] overflow-hidden bg-[#eef2f7]`}>
-      <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:h-screen md:max-w-none md:rounded-none md:border-0 md:shadow-none">
+    // Fix: use the live viewport height and allow the content beside navigation to shrink.
+    <div className={`${poppins.className} responsive-workspace h-[100dvh] overflow-hidden bg-[#eef2f7]`}>
+      <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent md:max-w-none md:rounded-none md:border-0 md:shadow-none">
         <div className="relative z-[1] flex h-full min-h-0 flex-col">
           <CustomerPortalHeader
             activeView={activeView}
@@ -3041,11 +3055,12 @@ export function CustomerPortal() {
             unreadCount={headerUnreadCount}
           />
 
+          <NativeOfflineNotice />
           <div className="flex min-h-0 flex-1">
             <CustomerBottomNav activeView={activeView} setActiveView={setActiveView} setSelectedOrder={setSelectedOrder} />
             <PullToRefresh
               onRefresh={() => window.location.reload()}
-              className="flex-1 min-h-0 w-full"
+              className="flex-1 min-h-0 min-w-0 w-full"
             >
             <AnimatePresence mode="wait" initial={false}>
               <motion.main
@@ -3054,7 +3069,7 @@ export function CustomerPortal() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.22, ease: 'easeOut' }}
-                className="flex-1 min-h-0 w-full space-y-4 px-2 pb-24 pt-0 sm:px-3 md:px-6 md:pb-8 md:pt-2"
+                className="flex-1 min-h-0 min-w-0 w-full space-y-4 px-2 pb-24 pt-0 sm:px-3 md:px-6 md:pb-8 md:pt-2"
               >
                 {activeView === 'home' && (
                   <CustomerHomeView

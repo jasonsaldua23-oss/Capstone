@@ -1144,7 +1144,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
 
           <Card>
             <CardContent className="pt-4">
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
+              {/* Fix: wrap filters before warehouse/date labels become too narrow to read. */}
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] gap-2">
                 <select
                   aria-label="Filter orders by warehouse"
                   title="Filter by warehouse"

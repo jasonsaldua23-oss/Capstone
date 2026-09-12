@@ -20,7 +20,7 @@ export function DriverBottomNav({
 }: DriverBottomNavProps) {
   return (
     <>
-      <aside className="hidden h-full w-56 shrink-0 border-r border-sky-200/60 bg-[#eff7fb] p-3 md:block">
+      <aside className="hidden min-h-0 overflow-y-auto h-full w-56 shrink-0 border-r border-sky-200/60 bg-[#eff7fb] p-3 md:block">
         <div className="mb-3 px-2 text-xs font-semibold uppercase tracking-wide text-sky-700/60">Navigation</div>
         <div className="space-y-1.5">
           <Button

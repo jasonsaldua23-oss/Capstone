@@ -3,6 +3,9 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/app/page'
+import { useNativeBack } from '@/hooks/use-native-back'
+import { NativeOfflineNotice } from '@/components/shared/native-offline-notice'
+import { useNativeOffline } from '@/hooks/use-native-offline'
 import { toast } from 'sonner'
 import { HistoryView } from './sections/history/history-view'
 import { HomeView } from './sections/home/home-view'
@@ -19,6 +22,7 @@ import { PullToRefresh } from '../shared/pull-to-refresh'
 
 // Driver portal shell: delegates business logic to hook and section components.
 export function DriverPortal() {
+  const offline = useNativeOffline()
   const { user, logout } = useAuth()
   const isMobileViewport = useIsMobile()
   const {
@@ -62,6 +66,12 @@ export function DriverPortal() {
   const [profileViewKey, setProfileViewKey] = useState(0)
   const isTripDetailOpen = activeView === 'trips' && Boolean(selectedTripId)
   const hidePortalHeader = isMobileViewport && isTripDetailOpen
+  // Fix: leave the trip detail before navigating away from its parent tab.
+  useNativeBack(() => {
+    if (selectedTripId) { setSelectedTripId(null); return true }
+    if (activeView !== 'home') { setActiveView('home'); return true }
+    return false
+  })
 
   const handleLogout = async () => {
     await logout()
@@ -93,7 +103,7 @@ export function DriverPortal() {
 
   return (
     // Full-viewport container with shared portal background treatment.
-    <div className={`${portalFont.className} min-h-[100dvh] bg-[#eef2f7]`}>
+    <div className={`${portalFont.className} responsive-workspace min-h-[100dvh] bg-[#eef2f7]`}>
       <div className="relative w-full h-[100dvh] flex flex-col overflow-hidden bg-transparent">
         {/* Header handles top-level navigation shortcuts and logout */}
         {!hidePortalHeader ? (
@@ -118,6 +128,7 @@ export function DriverPortal() {
           />
         ) : null}
 
+        <NativeOfflineNotice />
         <div className="flex min-h-0 flex-1">
           {!(activeView === 'trips' && selectedTripId) ? (
             <DriverBottomNav
@@ -137,7 +148,7 @@ export function DriverPortal() {
           <PullToRefresh
             onRefresh={() => window.location.reload()}
             disabled={activeView === 'trips' && Boolean(selectedTripId)}
-            className={`flex min-h-0 flex-1 flex-col overflow-x-hidden ${activeView === 'trips' && selectedTripId ? 'overflow-y-hidden' : 'overflow-y-auto'}`}
+            className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-x-auto ${activeView === 'trips' && selectedTripId ? 'overflow-y-hidden' : 'overflow-y-auto'}`}
           >
           {/* Route-like animated transitions between views */}
           <AnimatePresence mode="wait" initial={false}>
@@ -147,7 +158,7 @@ export function DriverPortal() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.22, ease: 'easeOut' }}
-              className={`min-h-0 w-full ${
+              className={`min-h-0 min-w-0 w-full ${
                 activeView === 'trips' && selectedTripId ? 'px-0 md:px-6' : 'px-4 md:px-6'
               } ${
                 activeView === 'trips' && selectedTripId ? 'pb-0 md:pb-4' : 'pb-24 md:pb-8'
@@ -265,7 +276,7 @@ export function DriverPortal() {
 
         {/* Blocking dialog used when native camera permission is required */}
         <DriverNativeCameraGateDialog
-          open={isNativeCameraGateOpen}
+          open={isNativeCameraGateOpen && !offline}
           message={nativeCameraGateMessage}
           isChecking={isCheckingNativeCameraPermission}
           onOpenAppSettings={() => {

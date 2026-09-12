@@ -906,7 +906,7 @@ export function WarehouseTripsSection({
         </DialogContent>
       </Dialog>
       <Dialog open={!!selectedDropPointDetail} onOpenChange={(open) => !open && setSelectedDropPointDetail(null)}>
-        <DialogContent className="max-w-xl w-full overflow-hidden rounded-2xl border border-white/40 bg-white/90 p-0 shadow-[0_24px_50px_rgba(15,23,42,0.16)] backdrop-blur-2xl">
+        <DialogContent className="max-w-xl w-full overflow-y-auto rounded-2xl border border-white/40 bg-white/90 p-0 shadow-[0_24px_50px_rgba(15,23,42,0.16)] backdrop-blur-2xl">
           {selectedDropPointDetail ? (
             <div className="space-y-4 p-6">
               {(() => {

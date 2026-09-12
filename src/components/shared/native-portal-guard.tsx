@@ -13,8 +13,30 @@ import { useEffect } from 'react'
 // authenticated portal, so an eligible Driver event is not lost before login.
 import '@/lib/native/install-prompt'
 import { installPortalLock } from '@/lib/native/portal-lock'
+import { isNativeApp, waitForNativeBridge } from '@/lib/native/platform'
+import { handleNativeBack, hasNativeBackHandlers } from '@/hooks/use-native-back'
 
 export function NativePortalGuard() {
   useEffect(() => installPortalLock(), [])
+  useEffect(() => {
+    if (!isNativeApp()) return
+    let disposed = false
+    let remove: (() => Promise<void>) | undefined
+    // Fix: state-based portal navigation is invisible to Android's WebView history.
+    void (async () => {
+      if (!await waitForNativeBridge() || disposed) return
+      const { App } = await import('@capacitor/app')
+      const listener = await App.addListener('backButton', ({ canGoBack }) => {
+        if (handleNativeBack()) return
+        // At the portal root, background the app rather than returning to its login.
+        if (hasNativeBackHandlers()) { void App.minimizeApp(); return }
+        if (canGoBack) window.history.back()
+        else void App.minimizeApp()
+      })
+      if (disposed) await listener.remove()
+      else remove = () => listener.remove()
+    })().catch(error => console.warn('Could not attach phone Back navigation:', error))
+    return () => { disposed = true; void remove?.() }
+  }, [])
   return null
 }

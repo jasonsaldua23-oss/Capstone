@@ -23,7 +23,7 @@ export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout 
   const settingsItem = navItems.find((navItem) => navItem.id === 'settings')
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="portal-sidebar flex min-h-0 flex-col h-full">
       <div className="border-b border-white/20 bg-white/10 p-4 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <img
@@ -38,7 +38,8 @@ export function WarehouseSidebar({ navItems, activeView, onSelectView, onLogout 
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-2">
+      {/* Fix: reserve space for the logo and logout while the menu scrolls. */}
+      <ScrollArea className="min-h-0 flex-1 p-2">
         <nav className="space-y-1">
           {primaryNavItems.map((navItem) => {
             const isActive = activeView === navItem.id

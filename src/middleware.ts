@@ -113,6 +113,10 @@ function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): bo
   if (
     pathname === '/api/auth/email-verification/request' ||
     pathname === '/api/auth/email-verification/confirm' ||
+    // Fix: Capacitor shells need the complete OTP flow, not only the login routes.
+    pathname === '/api/auth/password-reset/request-otp' ||
+    pathname === '/api/auth/password-reset/verify-otp' ||
+    pathname === '/api/auth/password-reset/reset' ||
     pathname === '/api/auth/staff/google' ||
     pathname === '/api/auth/login/verify-otp'
   ) {
