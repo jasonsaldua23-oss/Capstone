@@ -112,12 +112,27 @@ export function CustomerLoginPage() {
 
     setIsLoading(true)
     try {
-      const response = await fetch('/api/auth/customer/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Google customer sign-in is always remembered for the full persistent session.
-        body: JSON.stringify({ credential, rememberMe: true }),
-      })
+      const requestBody = JSON.stringify({ credential, rememberMe: true })
+      let response: Response | null = null
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          response = await fetch('/api/auth/customer/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            cache: 'no-store',
+            // Google customer sign-in is always remembered for the full persistent session.
+            body: requestBody,
+          })
+        } catch (error) {
+          if (attempt === 1) throw error
+        }
+        if (response && ![502, 503, 504].includes(response.status)) break
+        // Fix: Google login is idempotent, so one retry can recover a session
+        // when the production proxy loses the first successful response.
+        if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 350))
+      }
+      if (!response) throw new Error('Google authentication request failed')
       const rawBody = await response.text()
       let data: any = null
       try {
@@ -137,6 +152,7 @@ export function CustomerLoginPage() {
 
       persistCustomerWelcomeState(data?.created ? 'new' : 'existing', String(data?.user?.name || '').trim())
       if (data.token) setTabAuthToken(data.token, { persistent: true })
+      toast.dismiss()
       // Show confirmed login feedback here and retain it across portal navigation.
       setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'customer')
