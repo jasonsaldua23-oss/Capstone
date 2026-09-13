@@ -76,7 +76,7 @@ export function getSelectedReplacementItem(
   return items.find((entry) => entry.selectionId === String(selectionId || ''))
 }
 
-/** Keep replacement quantities in the same selling unit as the delivered line. */
+/** Read the delivered selling unit when converting a submitted case/bottle quantity. */
 export function getReplacementInputModeForItem(
   entry: SelectableReplacementItem | undefined
 ): ReplacementInputMode {
@@ -98,9 +98,15 @@ export function getMaxReplacementQtyForLine(
   const selected = getSelectedReplacementItem(items, line.productId)
   if (!selected) return 0
   if (selected.component) return Math.max(0, Number(selected.component.totalBaseUnits || 0))
-  // OrderItem.quantity is already in the line's selling unit: cases for case
-  // lines and bottles for bottle lines. Never multiply a bottle line again.
-  return getOrderedCaseQtyForItem(selected.orderItem)
+  const orderedQuantity = getOrderedCaseQtyForItem(selected.orderItem)
+  const quantityPerCase = getQuantityPerCaseForItem(selected.orderItem)
+  const sellingMode = getReplacementInputModeForItem(selected)
+  // The customer's submitted mode controls the form. Convert the delivery-line
+  // quantity only when that mode differs from the product's selling unit.
+  if (line.inputMode === 'case') {
+    return sellingMode === 'case' ? orderedQuantity : Math.floor(orderedQuantity / quantityPerCase)
+  }
+  return sellingMode === 'case' ? orderedQuantity * quantityPerCase : orderedQuantity
 }
 
 /** A product already chosen on another line cannot be chosen again. */
@@ -156,11 +162,15 @@ export function buildReplacementRequest(
     const quantityPerCase = component ? 1 : getQuantityPerCaseForItem(selectedItem)
     const inputQty = Math.max(Number(line.quantity || 0), 0)
     const orderedQuantity = getOrderedCaseQtyForItem(selectedItem)
-    // Fix: a case order is replaced in cases and a bottle order in bottles.
-    const effectiveInputMode = getReplacementInputModeForItem(selected)
+    const sellingMode = getReplacementInputModeForItem(selected)
+    // Preserve the quantity mode the customer submitted; only mixed-case
+    // components are always counted as bottles.
+    const effectiveInputMode: ReplacementInputMode = component ? 'bottle' : line.inputMode
     const maxInputQty = component
       ? Number(component.totalBaseUnits || 0)
-      : orderedQuantity
+      : effectiveInputMode === 'case'
+        ? sellingMode === 'case' ? orderedQuantity : Math.floor(orderedQuantity / quantityPerCase)
+        : sellingMode === 'case' ? orderedQuantity * quantityPerCase : orderedQuantity
     if (inputQty > maxInputQty) {
       throw new Error(
         `${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${effectiveInputMode === 'case' ? 'unit(s)' : 'base unit(s)'})`

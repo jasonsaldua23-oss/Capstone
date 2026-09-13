@@ -334,8 +334,13 @@ export function CustomerOrderDetailsDialog(props: any) {
     const selected = getSelectedReplacementItem(line.productId)
     if (!selected) return 0
     if (selected.component) return Math.max(0, Number(selected.component.totalBaseUnits || 0))
-    // The order-line quantity is expressed in its saved selling unit.
-    return getOrderedCaseQtyForItem(selected.orderItem)
+    const orderedQuantity = getOrderedCaseQtyForItem(selected.orderItem)
+    const quantityPerCase = getQuantityPerCaseForItem(selected.orderItem)
+    const sellingMode = getReplacementInputModeForItem(selected)
+    if (line.inputMode === 'case') {
+      return sellingMode === 'case' ? orderedQuantity : Math.floor(orderedQuantity / quantityPerCase)
+    }
+    return sellingMode === 'case' ? orderedQuantity * quantityPerCase : orderedQuantity
   }
   const getSelectableItemsForLine = (lineKey: string) => {
     const selectedByOtherLines = new Set(
@@ -662,17 +667,17 @@ export function CustomerOrderDetailsDialog(props: any) {
               <div className="mb-2 inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white">
                 {(() => {
                   const selected = getSelectedReplacementItem(line.productId)
-                  const requiredInputMode = getReplacementInputModeForItem(selected)
+                  const isComponent = Boolean(selected?.component)
                   return <>
                 <button
                   type="button"
-                  disabled={Boolean(selected) && requiredInputMode !== 'case'}
+                  disabled={isComponent}
                   className={`px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${line.inputMode === 'case' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`}
                   onClick={() => updateReplacementLine(line.key, { inputMode: 'case' })}
                 >
                   By {getReplacementPackageUnit(line.productId).replace(/^./, (letter) => letter.toUpperCase())}
                 </button>
-                <button type="button" disabled={Boolean(selected) && requiredInputMode !== 'bottle'} className={`px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${line.inputMode === 'bottle' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'bottle' })}>
+                <button type="button" className={`px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${line.inputMode === 'bottle' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'bottle' })}>
                   By Bottle
                 </button>
                   </>
@@ -688,8 +693,9 @@ export function CustomerOrderDetailsDialog(props: any) {
                       const selected = getSelectedReplacementItem(e.target.value)
                       updateReplacementLine(line.key, {
                         productId: e.target.value,
-                        // Fix: the order item's saved selling unit controls the claim.
-                        inputMode: getReplacementInputModeForItem(selected),
+                        // Mixed-case components are bottles; retain the customer's
+                        // submitted mode for standard order lines.
+                        inputMode: selected?.component ? 'bottle' : line.inputMode,
                         quantity: '1',
                       })
                     }}
@@ -806,10 +812,13 @@ export function CustomerOrderDetailsDialog(props: any) {
                   const quantityPerCase = component ? 1 : getQuantityPerCaseForItem(selectedItem)
                   const inputQty = Math.max(Number(line.quantity || 0), 0)
                   const orderedQuantity = getOrderedCaseQtyForItem(selectedItem)
-                  const effectiveInputMode = getReplacementInputModeForItem(selected)
+                  const sellingMode = getReplacementInputModeForItem(selected)
+                  const effectiveInputMode = component ? 'bottle' : line.inputMode
                   const maxInputQty = component
                     ? Number(component.totalBaseUnits || 0)
-                    : orderedQuantity
+                    : effectiveInputMode === 'case'
+                      ? sellingMode === 'case' ? orderedQuantity : Math.floor(orderedQuantity / quantityPerCase)
+                      : sellingMode === 'case' ? orderedQuantity * quantityPerCase : orderedQuantity
                   if (inputQty > maxInputQty) {
                     throw new Error(
                       `${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${effectiveInputMode === 'case' ? `${packageUnit}(s)` : 'bottle(s)'})`

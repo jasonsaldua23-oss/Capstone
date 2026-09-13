@@ -5519,7 +5519,7 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
         self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
 
-    def test_case_order_replacement_uses_cases_even_when_the_client_submits_bottles(self) -> None:
+    def test_case_order_replacement_preserves_the_submitted_bottle_quantity(self) -> None:
         # Current orders persist their selling unit on the delivered line.
         self.order_item_a.product_unit = "case"
         self.order_item_a.save(update_fields=["product_unit"])
@@ -5532,8 +5532,8 @@ class CustomerReplacementRequestContractTests(TestCase):
                 "replacementLines": [
                     {
                         "originalOrderItemId": self.order_item_a.id,
-                        # Regression: old clients allowed this case line to be
-                        # submitted as one bottle, creating an ambiguous claim.
+                        # The customer explicitly submitted one bottle from this
+                        # case-priced order line.
                         "inputMode": "bottle",
                         "quantityToReplace": 1,
                         "quantityToReplaceBottles": 1,
@@ -5548,13 +5548,13 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content.decode())
         serialized = response.json()["replacement"]
         line = serialized["replacementLines"][0]
-        self.assertEqual(line["lineInputMode"], "case")
-        self.assertEqual(line["quantityToReplaceCases"], 1)
-        self.assertEqual(line["quantityToReplace"], 6)
-        self.assertNotIn("quantityToReplaceBottles", line)
-        self.assertEqual(serialized["replacementAmount"], 10.0)
+        self.assertEqual(line["lineInputMode"], "bottle")
+        self.assertEqual(line["quantityToReplaceBottles"], 1)
+        self.assertEqual(line["quantityToReplace"], 1)
+        self.assertNotIn("quantityToReplaceCases", line)
+        self.assertEqual(serialized["replacementAmount"], 1.67)
 
-    def test_legacy_case_replacement_is_displayed_as_one_case_with_its_claim_amount(self) -> None:
+    def test_legacy_case_order_preserves_its_submitted_bottle_quantity(self) -> None:
         replacement = Replacement.objects.create(
             replacement_number="RPL-LEGACY-CASE-UNIT",
             order=self.order,
@@ -5586,11 +5586,11 @@ class CustomerReplacementRequestContractTests(TestCase):
 
         serialized = _serialize_replacement(replacement)
         line = serialized["replacementLines"][0]
-        self.assertEqual(line["lineInputMode"], "case")
-        self.assertEqual(line["quantityToReplaceCases"], 1)
-        self.assertEqual(line["quantityToReplace"], 6)
-        self.assertNotIn("quantityToReplaceBottles", line)
-        self.assertEqual(serialized["replacementAmount"], 10.0)
+        self.assertEqual(line["lineInputMode"], "bottle")
+        self.assertEqual(line["quantityToReplaceBottles"], 1)
+        self.assertEqual(line["quantityToReplace"], 1)
+        self.assertNotIn("quantityToReplaceCases", line)
+        self.assertEqual(serialized["replacementAmount"], 1.67)
 
     def test_saved_replacement_succeeds_when_notifications_fail(self) -> None:
         # Regression: secondary notification failures previously returned HTTP 500

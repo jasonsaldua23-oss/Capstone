@@ -1293,15 +1293,14 @@ def _normalize_serialized_replacement_lines(
             source_unit_evidence
             or getattr(original_product, "unit", None)
         )
-        # Current orders record their selling unit on OrderItem. Older orders did
-        # not, so preserve their saved replacement mode instead of guessing after
-        # a product's inventory unit has changed.
+        # A customer explicitly submits each replacement line as cases or bottles.
+        # Preserve that mode; use the source unit only for older records that lack it.
         if str(source_line.get("mixedCaseComponentId") or "").strip():
             authoritative_input_mode = "bottle"
-        elif source_unit_evidence:
-            authoritative_input_mode = "bottle" if "bottle" in source_unit_evidence.lower() else "case"
         elif line_input_mode in {"case", "bottle"}:
             authoritative_input_mode = line_input_mode
+        elif source_unit_evidence:
+            authoritative_input_mode = "bottle" if "bottle" in source_unit_evidence.lower() else "case"
         else:
             authoritative_input_mode = "bottle" if "bottle" in str(source_product_unit or "").lower() else "case"
         if line_input_mode and line_input_mode != authoritative_input_mode:
@@ -3411,7 +3410,20 @@ def _serialize_replacement(
             )
             input_mode = str(line.get("lineInputMode") or line.get("replacementInputMode") or "").lower()
             if input_mode == "bottle":
-                billed_quantity = max(0, _int(line.get("quantityToReplaceBottles"), _int(line.get("quantityToReplace"), 0)))
+                bottle_quantity = max(0, _int(line.get("quantityToReplaceBottles"), _int(line.get("quantityToReplace"), 0)))
+                source_unit = str(
+                    getattr(source_item, "product_unit", "")
+                    or getattr(getattr(source_item, "product", None), "unit", "")
+                    or line.get("originalProductUnit")
+                    or ""
+                ).lower()
+                # A bottle submitted from a case-priced order is a fraction of
+                # that order-line price, never the full case price.
+                billed_quantity = (
+                    bottle_quantity / max(1, _int(line.get("quantityPerCase"), 1))
+                    if "bottle" not in source_unit
+                    else bottle_quantity
+                )
             else:
                 billed_quantity = max(
                     0,
@@ -12242,10 +12254,10 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
             # mode rather than reinterpret historical quantities.
             if mixed_component is not None:
                 input_mode = "bottle"
-            elif recorded_source_unit:
-                input_mode = "bottle" if "bottle" in recorded_source_unit.lower() else "case"
             elif submitted_input_mode in {"case", "bottle"}:
                 input_mode = submitted_input_mode
+            elif recorded_source_unit:
+                input_mode = "bottle" if "bottle" in recorded_source_unit.lower() else "case"
             else:
                 input_mode = "case"
             quantity_to_replace = max(0, _int(raw_line.get("quantityToReplace"), 0))

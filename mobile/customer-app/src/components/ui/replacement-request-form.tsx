@@ -12,7 +12,6 @@ import {
   buildReplacementRequest,
   getMaxReplacementQtyForLine,
   getReplacementOptionLabel,
-  getReplacementInputModeForItem,
   getSelectableItemsForLine,
   getSelectableReplacementItems,
   getSelectedReplacementItem,
@@ -105,7 +104,7 @@ export function ReplacementRequestForm({
 
       {lines.map((line, index) => {
         const selected = getSelectedReplacementItem(selectableItems, line.productId);
-        const requiredInputMode = getReplacementInputModeForItem(selected);
+        const isComponent = Boolean(selected?.component);
         const maxQty = Math.max(getMaxReplacementQtyForLine(selectableItems, line), 1);
         return (
           <View key={line.key} style={styles.replacementLineCard}>
@@ -123,7 +122,7 @@ export function ReplacementRequestForm({
             <View style={styles.replacementModeToggle}>
               <Pressable
                 style={[styles.replacementModeButton, line.inputMode === "case" ? styles.replacementModeButtonActive : null]}
-                disabled={Boolean(selected) && requiredInputMode !== "case"}
+                disabled={isComponent}
                 onPress={() => updateLine(line.key, { inputMode: "case" })}
                 accessibilityRole="button"
               >
@@ -131,7 +130,7 @@ export function ReplacementRequestForm({
                   style={[
                     styles.replacementModeText,
                     line.inputMode === "case" ? styles.replacementModeTextActive : null,
-                    Boolean(selected) && requiredInputMode !== "case" ? styles.disabledButton : null,
+                    isComponent ? styles.disabledButton : null,
                   ]}
                 >
                   By Unit
@@ -139,7 +138,6 @@ export function ReplacementRequestForm({
               </Pressable>
               <Pressable
                 style={[styles.replacementModeButton, line.inputMode === "bottle" ? styles.replacementModeButtonActive : null]}
-                disabled={Boolean(selected) && requiredInputMode !== "bottle"}
                 onPress={() => updateLine(line.key, { inputMode: "bottle" })}
                 accessibilityRole="button"
               >
@@ -147,7 +145,6 @@ export function ReplacementRequestForm({
                   style={[
                     styles.replacementModeText,
                     line.inputMode === "bottle" ? styles.replacementModeTextActive : null,
-                    Boolean(selected) && requiredInputMode !== "bottle" ? styles.disabledButton : null,
                   ]}
                 >
                   By Bottle
@@ -286,8 +283,9 @@ export function ReplacementRequestForm({
           const picked = getSelectedReplacementItem(selectableItems, value);
           updateLine(activeLine.key, {
             productId: value,
-            // Fix: selecting a product also selects its authoritative selling unit.
-            inputMode: getReplacementInputModeForItem(picked),
+            // Mixed-case components are always bottles; keep the customer's chosen
+            // case/bottle mode for every other submitted replacement line.
+            inputMode: picked?.component ? "bottle" : activeLine.inputMode,
             quantity: "1",
           });
         }}
