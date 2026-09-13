@@ -627,6 +627,15 @@ export function TripsView() {
     () => trips.filter((trip) => tripStatusFilter === 'ALL' || normalizeTripStatus(trip.status) === tripStatusFilter),
     [trips, tripStatusFilter],
   )
+  // Completed trip totals are finalized by the backend after all delivery adjustments.
+  const completedTrips = useMemo(
+    () => trips.filter((trip) => normalizeTripStatus(trip.status) === 'COMPLETED'),
+    [trips],
+  )
+  const totalCashCollected = useMemo(
+    () => completedTrips.reduce((sum, trip) => sum + Number(trip.cashCollectedTotal || 0), 0),
+    [completedTrips],
+  )
   const totalTripsPages = Math.max(1, Math.ceil(filteredTrips.length / tripsPageSize))
   const paginatedTrips = useMemo(() => {
     const start = (tripsPage - 1) * tripsPageSize
@@ -672,6 +681,13 @@ export function TripsView() {
             Create Trip
           </Button>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+        {/* Added: make completed-trip cash visible without opening every trip. */}
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total cash collected from completed trips</p>
+        <p className="mt-1 text-xl font-bold text-emerald-900">{formatPeso(totalCashCollected)}</p>
+        <p className="mt-0.5 text-xs text-emerald-700">{completedTrips.length} completed {completedTrips.length === 1 ? 'trip' : 'trips'}</p>
       </div>
 
       <Card>
@@ -740,6 +756,11 @@ export function TripsView() {
                       <p className="text-[13px] text-gray-600">
                         Schedule: {formatTripScheduleDate(trip.tripSchedule)}
                       </p>
+                      {normalizedTripStatus === 'COMPLETED' ? (
+                        <p className="text-[13px] font-semibold text-emerald-700">
+                          Cash collected: {formatPeso(Number(trip.cashCollectedTotal || 0))}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Button

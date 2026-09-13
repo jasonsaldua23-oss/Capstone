@@ -7874,6 +7874,20 @@ def _has_duplicate_product_identity(
     return False
 
 
+def _generated_product_sku(product: Product) -> str:
+    """Build an identity SKU whose stable suffix belongs only to this product."""
+    def part(value: Any, fallback: str, length: int) -> str:
+        normalized = re.sub(r"[^A-Z0-9]", "", str(value or fallback).upper())[:length]
+        return normalized or fallback
+
+    size = str((product.sizes or [""])[0] or "")
+    suffix = part(product.id, secrets.token_hex(3).upper(), 25)[-5:]
+    candidate = f"{part(product.name, 'PRD', 4)}-{part(product.unit, 'UNT', 3)}-{part(size, 'SIZE', 4)}-{suffix}"
+    if not Product.objects.exclude(id=product.id).filter(sku=candidate).exists():
+        return candidate
+    return f"{candidate}-{secrets.token_hex(2).upper()}"
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def products_collection(request: HttpRequest) -> JsonResponse:
@@ -8190,6 +8204,11 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         return _ok({"success": True, "product": _serialize_model(prod)})
     previous_name = str(prod.name or "").strip()
     previous_sku = str(prod.sku or "").strip()
+    previous_identity = (
+        previous_name.casefold(),
+        str(prod.unit or "").strip().casefold(),
+        tuple(str(value or "").strip().casefold() for value in (prod.sizes or [])),
+    )
     body = _json_body(request)
     requested_warehouse_id = str(body.get("warehouseId") or "").strip()
     if requested_warehouse_id:
@@ -8207,7 +8226,7 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
             return _err(str(exc), 400)
     if "quantityPerCase" in body or "quantityPerUnit" in body:
         prod.quantity_per_unit = _int(body.get("quantityPerCase", body.get("quantityPerUnit")), 0) or None
-    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("price", "price")]
+    mapping = [("name", "name"), ("imageUrl", "image_url"), ("price", "price")]
     for key, attr in mapping:
         if key in body:
             setattr(prod, attr, body.get(key))
@@ -8218,6 +8237,17 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         if not isinstance(raw_sizes, list):
             return _err("sizes must be an array", 400)
         prod.sizes = [str(value).strip() for value in raw_sizes if str(value).strip()]
+    current_identity = (
+        str(prod.name or "").strip().casefold(),
+        str(prod.unit or "").strip().casefold(),
+        tuple(str(value or "").strip().casefold() for value in (prod.sizes or [])),
+    )
+    if current_identity != previous_identity:
+        # Fix: identity edits regenerate the SKU so it remains aligned with the
+        # product name, order format, and size shown throughout inventory.
+        prod.sku = _generated_product_sku(prod)
+    elif "sku" in body:
+        prod.sku = str(body.get("sku") or "").strip()
     # Exclude the current row so unchanged edits remain valid, while changing a
     # product into another existing name/size/category combination is rejected.
     if _has_duplicate_product_identity(
@@ -12949,10 +12979,20 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
         oqs = oqs.exclude(id__in=active_route_order_ids)
 
         if route_date:
+            # Fix: route dates are calendar values supplied by the client. Use
+            # UTC boundaries so Django does not shift them to the next local day.
+            route_start = datetime.combine(route_date, time.min, tzinfo=timezone.utc)
+            route_end = route_start + timedelta(days=1)
             oqs = oqs.filter(
-                Q(timeline__delivery_date__date=route_date)
-                | (Q(timeline__isnull=True) & Q(created_at__date=route_date))
-                | (Q(timeline__delivery_date__isnull=True) & Q(created_at__date=route_date))
+                Q(timeline__delivery_date__gte=route_start, timeline__delivery_date__lt=route_end)
+                | (
+                    Q(timeline__isnull=True)
+                    & Q(created_at__gte=route_start, created_at__lt=route_end)
+                )
+                | (
+                    Q(timeline__delivery_date__isnull=True)
+                    & Q(created_at__gte=route_start, created_at__lt=route_end)
+                )
             )
 
         if warehouse_id:
@@ -14227,6 +14267,11 @@ def _coerce_deposit_amount(value: Any) -> tuple[float | None, str | None]:
 
 def _is_returnable_product(product: Product) -> bool:
     if not product:
+        return False
+    product_spec = category_spec(product.category)
+    # Fix: an explicit non-glass category overrides stale returnable flags and
+    # packaging rows left by an earlier product configuration.
+    if product_spec and not product_spec["depositAllowed"]:
         return False
     if product.packaging_type == "RETURNABLE":
         return True
