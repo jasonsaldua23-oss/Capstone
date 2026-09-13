@@ -798,7 +798,6 @@ export function WarehousePortal() {
   const getItemThreshold = (item: InventoryItem | null | undefined) => getInventoryThreshold(item)
   const isOverstockedInventoryItem = (item: InventoryItem | null | undefined) => isInventoryOverstocked(item)
   const [warehouseLoadError, setWarehouseLoadError] = useState<string | null>(null)
-  const latestOrderMarkerRef = useRef<string>('')
   const latestOrderUpdatedAtRef = useRef<string>('')
   const orderDetailsLoadedRef = useRef(false)
   const isPollingOrderStatusesRef = useRef(false)
@@ -2542,15 +2541,6 @@ export function WarehousePortal() {
     return refresh
   }
 
-  const fetchOrderMarker = async () => {
-    const result = await safeFetchJson('/api/orders?limit=1&pageSize=1&includeItems=none&includeFulfillments=true&includeWarehouseAllocations=true&sort=updated_at', { cache: 'no-store', credentials: 'include' })
-    if (!result.ok) {
-      throw new Error(result.error || 'Failed orders fetch')
-    }
-    const topOrder = getCollection<WarehouseOrderItem>(result.data, ['orders'])[0]
-    return `${Number((result.data as any)?.total || 0)}::${topOrder?.updatedAt || topOrder?.createdAt || ''}`
-  }
-
   const getMaxOrderUpdatedAt = (rows: WarehouseOrderItem[]) =>
     rows.reduce((latest, row) => {
       const candidate = String((row as any)?.updatedAt || row?.createdAt || '')
@@ -2656,10 +2646,6 @@ export function WarehousePortal() {
     if (showLoading) setLoadingOrders(true)
     try {
       if (onlyIfNew) {
-        const incomingMarker = await fetchOrderMarker()
-        if (latestOrderMarkerRef.current && incomingMarker === latestOrderMarkerRef.current) {
-          return
-        }
         if (latestOrderUpdatedAtRef.current) {
           const deltaParams = new URLSearchParams({
             includeItems: 'full',
@@ -2680,8 +2666,13 @@ export function WarehousePortal() {
                 persistOrdersSnapshot(merged)
                 return merged
               })
+              // Keep an open order detail synchronized with the faster status poll.
+              setSelectedOrder((prev) => {
+                if (!prev) return prev
+                const fresh = deltaOrders.find((order) => String(order.id) === String(prev.id))
+                return fresh ? { ...prev, ...fresh } : prev
+              })
             }
-            latestOrderMarkerRef.current = incomingMarker
             return
           }
         }
@@ -2695,12 +2686,16 @@ export function WarehousePortal() {
       // Normalize overlapping paginated results so each order appears only once in PR and PO views.
       const list = mergeWarehouseOrders([], getCollection<WarehouseOrderItem>(result.data, ['orders']))
       setOrders(list)
+      setSelectedOrder((prev) => {
+        if (!prev) return prev
+        const fresh = list.find((order) => String(order.id) === String(prev.id))
+        return fresh ? { ...prev, ...fresh } : prev
+      })
       // A summary-only pass carries no line items, so caching it would leave the
       // next refresh showing rows the tables cannot fully render.
       if (!options?.summaryOnly) persistOrdersSnapshot(list)
       if (!options?.summaryOnly) orderDetailsLoadedRef.current = true
       latestOrderUpdatedAtRef.current = getMaxOrderUpdatedAt(list)
-      latestOrderMarkerRef.current = `${Number((result.data as any)?.total || 0)}::${latestOrderUpdatedAtRef.current || ''}`
     } catch (error: any) {
       console.warn('Failed to load orders:', error)
     } finally {
@@ -3639,7 +3634,7 @@ export function WarehousePortal() {
     void refreshChangedOrderStatuses()
     const orderStatusPollInterval = window.setInterval(() => {
       void refreshChangedOrderStatuses()
-    }, activeView === 'trips' || activeView === 'inventory' ? 15000 : 4000)
+    }, activeView === 'trips' || activeView === 'inventory' ? 15000 : 2000)
 
     return () => {
       window.clearInterval(orderStatusPollInterval)

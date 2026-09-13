@@ -2,6 +2,7 @@ const rejectedRequest = 'The server rejected this request. Check the entered inf
 
 type ApiWriteOptions = {
   retryDelayMs?: number
+  fallbackError?: string | null
 }
 
 const waitForRetry = (delayMs: number) => new Promise<void>((resolve) => {
@@ -35,7 +36,8 @@ export async function apiWrite(
       payload = null
     }
     if (response.ok && payload !== null && typeof payload === 'object' &&
-      payload.success !== false && !payload.dbUnavailable) return response
+      // A 2FA challenge is a confirmed login step, not a transient write failure.
+      (payload.success !== false || payload.requiresTwoFactor === true) && !payload.dbUnavailable) return response
 
     const temporarilyUnconfirmed =
       response.ok ||
@@ -51,11 +53,14 @@ export async function apiWrite(
       continue
     }
 
-    const fallback = response.status === 401
-      ? 'Your session could not be verified. Sign in again before continuing.'
-      : response.status === 403
-        ? 'This action was denied. Check your account permissions.'
-        : rejectedRequest
+    // Login callers can opt out of generic fallback copy while preserving real API details.
+    const fallback = options.fallbackError === null
+      ? ''
+      : options.fallbackError || (response.status === 401
+        ? 'Your session could not be verified. Sign in again before continuing.'
+        : response.status === 403
+          ? 'This action was denied. Check your account permissions.'
+          : rejectedRequest)
     const detail = payload?.error || payload?.message || payload?.detail
     const message = typeof detail === 'string' && detail.trim() ? detail : fallback
     const headers = new Headers(response.headers)
@@ -67,7 +72,7 @@ export async function apiWrite(
     return new Response(JSON.stringify({
       ...(payload && typeof payload === 'object' ? payload : {}),
       success: false,
-      error: message,
+      ...(message ? { error: message } : {}),
     }), {
       status: response.status,
       headers,

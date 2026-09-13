@@ -1,6 +1,7 @@
 'use client'
 
 import { LoginSuccess } from '@/components/shared/login-success'
+import { apiWrite } from '@/lib/api-write'
 import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
@@ -304,11 +305,12 @@ export function CustomerLoginPage() {
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/auth/customer/login', {
+      // Fix: keep login pending through temporary connection/server failures instead of showing a generic error.
+      const response = await apiWrite(() => fetch('/api/auth/customer/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, rememberMe }),
-      })
+      }), { fallbackError: null })
       const rawBody = await response.text()
       let data: any = null
       try {
@@ -337,10 +339,8 @@ export function CustomerLoginPage() {
           setLoginError('Invalid email or password.')
           return
         }
-        const fallbackError = response.status >= 500
-          ? 'Login service is temporarily unavailable. Please try again shortly.'
-          : 'Login failed'
-        toast.error(apiError || fallbackError)
+        // Transient failures keep retrying; show only a specific error returned by the API.
+        if (apiError) toast.error(apiError)
         return
       }
 
@@ -350,8 +350,9 @@ export function CustomerLoginPage() {
       setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'customer')
       router.replace(CUSTOMER_HOME_PATH)
-    } catch {
-      toast.error('Unable to reach login service. Please check your connection and try again.')
+    } catch (error) {
+      // Network failures are retried above; keep unexpected implementation errors out of the user-facing UI.
+      console.error('Customer login failed unexpectedly:', error)
     } finally {
       setIsLoading(false)
     }

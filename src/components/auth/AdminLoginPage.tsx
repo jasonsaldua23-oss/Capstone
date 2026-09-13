@@ -1,6 +1,7 @@
 'use client'
 
 import { LoginSuccess } from '@/components/shared/login-success'
+import { apiWrite } from '@/lib/api-write'
 import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -94,12 +95,13 @@ export function AdminLoginPage() {
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/auth/login', {
+      // Fix: keep login pending through temporary connection/server failures instead of showing a generic error.
+      const response = await apiWrite(() => fetch('/api/auth/login', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, rememberMe, portal: 'admin' }),
-      })
+      }), { fallbackError: null })
       const rawBody = await response.text()
       let data: any = null
       try {
@@ -129,10 +131,8 @@ export function AdminLoginPage() {
           setLoginError('Invalid email or password.')
           return
         }
-        const fallbackError = response.status >= 500
-          ? 'Login service is temporarily unavailable. Please try again shortly.'
-          : 'Login failed'
-        toast.error(apiError || fallbackError)
+        // Transient failures keep retrying; show only a specific error returned by the API.
+        if (apiError) toast.error(apiError)
         return
       }
 
@@ -150,8 +150,9 @@ export function AdminLoginPage() {
       setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'admin')
       router.replace('/admin')
-    } catch {
-      toast.error('Unable to reach login service. Please check your connection and try again.')
+    } catch (error) {
+      // Network failures are retried above; keep unexpected implementation errors out of the user-facing UI.
+      console.error('Admin login failed unexpectedly:', error)
     } finally {
       setIsLoading(false)
     }

@@ -2011,6 +2011,43 @@ def _build_assigned_trip_map(order_ids: list[str], require_driver: bool = True) 
     return best_by_order_id
 
 
+def _build_order_pod_drop_point_map(order_ids: list[str]) -> dict[str, TripDropPoint]:
+    """Return the newest stored POD stop per order in one query."""
+    normalized_order_ids = [str(order_id or "").strip() for order_id in order_ids if str(order_id or "").strip()]
+    if not normalized_order_ids:
+        return {}
+
+    pod_by_order_id: dict[str, TripDropPoint] = {}
+    pod_points = (
+        TripDropPoint.objects.filter(
+            order_id__in=normalized_order_ids,
+            status__in=[DropPointStatus.COMPLETED, "DELIVERED"],
+        )
+        .exclude(Q(delivery_photo__isnull=True) | Q(delivery_photo=""))
+        .order_by(F("actual_departure").desc(nulls_last=True), "-updated_at")
+    )
+    for drop_point in pod_points:
+        order_id = str(getattr(drop_point, "order_id", "") or "").strip()
+        if order_id and order_id not in pod_by_order_id:
+            pod_by_order_id[order_id] = drop_point
+    return pod_by_order_id
+
+
+def _resolve_primary_admin_phone() -> str:
+    """Return the configured business contact, preferring the oldest active super admin."""
+    base_query = (
+        User.objects.filter(is_active=True)
+        .exclude(phone__isnull=True)
+        .exclude(phone__exact="")
+        .only("phone")
+    )
+    super_admin = base_query.filter(role=RoleType.SUPER_ADMIN).order_by("created_at").first()
+    if super_admin:
+        return str(getattr(super_admin, "phone", "") or "").strip()
+    admin_user = base_query.filter(role=RoleType.ADMIN).order_by("created_at").first()
+    return str(getattr(admin_user, "phone", "") or "").strip()
+
+
 def _generate_next_trip_number() -> str:
     current_year = timezone.now().year
     prefix = f"TRP-{current_year}-"
@@ -2328,6 +2365,8 @@ def _serialize_order(
     empties_adjustment: Any = _NOT_PROVIDED,
     packaging_cache: dict[str, ProductPackaging] | None = None,
     delivery_transactions: dict[str, list[str]] | None = None,
+    pod_drop_point: TripDropPoint | None = None,
+    primary_admin_phone: Any = _NOT_PROVIDED,
 ) -> dict[str, Any]:
     data = _serialize_model(order)
     data["status"] = _normalize_order_status(data.get("status"))
@@ -2360,6 +2399,14 @@ def _serialize_order(
             data["purchaseOrderStage"] = derived_stage
     # Retail and counter-sale orders may intentionally have no linked customer.
     data["customer"] = _serialize_model(order.customer, exclude={"password"}) if order.customer else None
+    # Customer receipts use the same primary business contact across old and new orders.
+    resolved_admin_phone = (
+        _resolve_primary_admin_phone()
+        if primary_admin_phone is _NOT_PROVIDED
+        else str(primary_admin_phone or "").strip()
+    )
+    data["adminPhone"] = resolved_admin_phone or None
+    data["sellerPhone"] = resolved_admin_phone or None
     warehouse = None
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip()
     if warehouse_id:
@@ -2479,10 +2526,13 @@ def _serialize_order(
     data["isDriverAssigned"] = bool(assigned_driver)
     data["assignedDriverName"] = assigned_driver_name or None
     data["assignedTripId"] = getattr(assigned_trip, "id", None)
+    # Some older deliveries stored POD only on the completed trip stop. Callers
+    # listing customer orders pass that stop so the customer sees the same proof as staff.
+    pod_submitted_at = getattr(order, "pod_submitted_at", None) or getattr(pod_drop_point, "actual_departure", None)
     data["pod"] = {
-        "recipientName": getattr(order, "pod_recipient_name", None),
-        "deliveryPhoto": getattr(order, "pod_photo_url", None),
-        "submittedAt": order.pod_submitted_at.isoformat() if getattr(order, "pod_submitted_at", None) else None,
+        "recipientName": getattr(order, "pod_recipient_name", None) or getattr(pod_drop_point, "recipient_name", None),
+        "deliveryPhoto": getattr(order, "pod_photo_url", None) or getattr(pod_drop_point, "delivery_photo", None),
+        "submittedAt": pod_submitted_at.isoformat() if pod_submitted_at else None,
     }
     if include_progress:
         progress_trip = None if normalized_order_status == OrderStatus.RESCHEDULED else _select_trip_for_order(order.id, require_driver=False)
@@ -4497,7 +4547,8 @@ def _allocate_inventory_for_order_item(
     return allocation_rows
 
 
-OTP_EXPIRY_MINUTES = 5
+# Keep server validation and every OTP email aligned with the two-minute UI countdown.
+OTP_EXPIRY_MINUTES = 2
 
 EMAIL_VERIFICATION_TOKEN_HOURS = 1
 
@@ -6188,7 +6239,7 @@ def _is_valid_stateless_otp(otp_code: str, email: str, account_type: str, purpos
     if not candidate:
         return False
     current = now or timezone.now()
-    # Use a strict rolling window so an OTP expires within ~5 minutes.
+    # Use the shared rolling window so backend validation matches the displayed expiry.
     for minute_offset in range(0, OTP_EXPIRY_MINUTES):
         bucket = _otp_bucket(current - timedelta(minutes=minute_offset))
         expected = _stateless_otp_for_bucket(email, account_type, purpose, bucket)
@@ -9821,6 +9872,8 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         item_trip_assignments_map = _build_order_item_trip_assignments_map(order_ids)
         empties_adjustment_map = empties_adjustments_for_orders(order_ids)
         delivery_transactions_map = _build_delivery_transactions_map(order_ids)
+        # Resolve the receipt contact once for the page instead of once per order.
+        primary_admin_phone = _resolve_primary_admin_phone()
         # Reconciliation only matters for orders that are still open and already have
         # a completed stop. Asking that once for the page avoids a lookup per order.
         open_order_ids = [
@@ -9866,6 +9919,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 empties_adjustment=empties_adjustment_map.get(str(getattr(o, "id", "") or "").strip()),
                 packaging_cache=packaging_cache,
                 delivery_transactions=delivery_transactions_map.get(str(getattr(o, "id", "") or "").strip(), {}),
+                primary_admin_phone=primary_admin_phone,
             )
             if include_items == "preview" and "items" in row:
                 row["itemCount"] = len(row["items"])
@@ -11424,7 +11478,11 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
         ).order_by("-created_at")
         total = qs.count()
         rows = list(qs[off : off + size])
+        order_ids = [str(row.id) for row in rows]
         adjustments = empties_adjustments_for_orders([str(row.id) for row in rows])
+        # Backfill legacy POD fields from trip stops without one query per order.
+        pod_drop_points = _build_order_pod_drop_point_map(order_ids)
+        primary_admin_phone = _resolve_primary_admin_phone()
         customer_product_ids = {
             str(item.product_id)
             for row in rows
@@ -11444,6 +11502,8 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
                     row,
                     empties_adjustment=adjustments.get(str(row.id)),
                     packaging_cache=customer_packaging_cache,
+                    pod_drop_point=pod_drop_points.get(str(row.id)),
+                    primary_admin_phone=primary_admin_phone,
                 )
                 for row in rows
             ],

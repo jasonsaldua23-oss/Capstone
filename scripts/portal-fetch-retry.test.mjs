@@ -395,6 +395,7 @@ test('successful Admin login replaces inherited Warehouse routing and navigates 
   const login = vm.runInNewContext(ts.transpile(`(${handler})`, { target: ts.ScriptTarget.ES2020 }), {
     email: 'admin@example.test', password: 'test-only', rememberMe: false,
     fetch: async () => Response.json({ success: true, user: { role: 'ADMIN' }, token: portalToken('admin') }),
+    apiWrite: send => send(),
     setLoginError: message => { if (message) errors.push(message) }, setIsLoading: () => {},
     resolvePortalFromUser: () => 'admin', persistAdminWelcomeState: () => {},
     setTabAuthToken: client.setTabAuthToken, setLoginSucceeded: () => {},

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2, PackageCheck, ShoppingCart, Truck, Warehouse, Users, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Package, CircleCheck } from 'lucide-react'
 import type { DashboardStats } from '@/types'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
 import { PortalDashboardSkeleton } from '@/components/portals/shared/loading-skeletons'
@@ -337,31 +336,6 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Alerts Section */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="rounded-2xl border-0 shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Pending Replacements
-            </CardTitle>
-            <CardDescription>Replacement cases awaiting driver follow-up</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between py-2 border-b last:border-0">
-                <div>
-                  <p className="font-medium">{stats?.pendingReturns || 0} pending replacement case(s)</p>
-                  <p className="text-sm text-gray-500">Awaiting driver follow-up or closure</p>
-                </div>
-                <Badge variant={Number(stats?.pendingReturns || 0) > 0 ? 'secondary' : 'outline'}>
-                  {Number(stats?.pendingReturns || 0) > 0 ? 'Pending' : 'Clear'}
-                </Badge>
-              </div>
             </div>
           </CardContent>
         </Card>

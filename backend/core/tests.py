@@ -1000,6 +1000,58 @@ class CustomerOrdersApiContractTests(TestCase):
         self.assertIsNone(orders_by_id[pending_order.id]["inventoryTransactionId"])
         self.assertEqual(orders_by_id[pending_order.id]["items"][0]["inventoryTransactionIds"], [])
 
+    def test_customer_orders_falls_back_to_completed_stop_pod_photo(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-CUSTOMER-LEGACY-POD",
+            customer=self.customer,
+            status=OrderStatus.DELIVERED,
+            subtotal=100,
+            total_amount=100,
+        )
+        driver = User.objects.create(
+            email="legacy.pod.driver@example.com",
+            password="hashed",
+            name="Legacy POD Driver",
+            role="DRIVER",
+            is_active=True,
+        )
+        vehicle = Vehicle.objects.create(
+            license_plate="LEGACY-POD-001",
+            type=VehicleType.VAN,
+            status="AVAILABLE",
+            is_active=True,
+        )
+        trip = Trip.objects.create(
+            trip_number="TRIP-CUSTOMER-LEGACY-POD",
+            driver=driver,
+            vehicle=vehicle,
+            status=TripStatus.COMPLETED,
+        )
+        TripDropPoint.objects.create(
+            trip=trip,
+            order=order,
+            sequence=1,
+            status="COMPLETED",
+            location_name="Customer Address",
+            address="123 Main St",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            recipient_name="Customer Recipient",
+            delivery_photo="/uploads/pods/legacy-customer-pod.jpg",
+            actual_departure=timezone.now(),
+        )
+
+        response = self.client.get(
+            "/api/customer/orders",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = next(row for row in response.json()["orders"] if row["id"] == order.id)
+        self.assertEqual(payload["pod"]["deliveryPhoto"], "/uploads/pods/legacy-customer-pod.jpg")
+        self.assertEqual(payload["pod"]["recipientName"], "Customer Recipient")
+
     def test_customer_orders_rejects_non_customer_tokens(self) -> None:
         response = self.client.get(
             "/api/customer/orders",
