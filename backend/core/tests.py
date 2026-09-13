@@ -9,7 +9,7 @@ from django.db import OperationalError
 from django.utils import timezone
 
 from .test_upload_storage import PNG_BYTES
-from .auth import create_token
+from .auth import create_token, decode_token
 from .auth_response_middleware import ApiErrorResponseMiddleware
 from .models import (
     ContainerType,
@@ -55,6 +55,35 @@ class Role:
         @staticmethod
         def create(name: str, description: str | None = None):
             return _RoleValue(name)
+
+
+class SessionTokenContractTests(TestCase):
+    def test_customer_session_token_excludes_large_profile_data(self) -> None:
+        customer = Customer.objects.create(
+            email="compact-session@example.com",
+            password="hashed",
+            name="Compact Session",
+            is_active=True,
+        )
+        token = create_token(
+            {
+                "userId": customer.id,
+                "email": customer.email,
+                "name": customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+                "rememberMe": True,
+                # Regression: the full profile's balance list made Set-Cookie
+                # exceed Nginx's upstream response-header buffer during Google login.
+                "bottleBalances": [{"productId": f"product-{index}", "balance": index} for index in range(200)],
+            },
+            exp_hours=24 * 30,
+        )
+
+        claims = decode_token(token)
+        self.assertIsNotNone(claims)
+        self.assertNotIn("bottleBalances", claims)
+        self.assertLess(len(token), 1024)
 
 
 class Driver:

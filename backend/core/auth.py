@@ -35,6 +35,10 @@ TOKEN_EXP_HOURS = 24
 # Keep-me-logged-in tokens expire after exactly 30 * 24 hours.
 REMEMBER_ME_EXP_HOURS = 24 * 30
 
+# Session JWTs are returned both in the response body and an HttpOnly cookie.
+# Keep only authorization claims here; profile data belongs in /api/auth/me.
+_SESSION_CLAIM_KEYS = ("userId", "email", "name", "role", "type", "rememberMe")
+
 
 def hash_password(password: str) -> str:
     return make_password(password)
@@ -67,8 +71,14 @@ def _account_fingerprint(account) -> str:
 def create_token(payload: dict[str, Any], exp_hours: int = TOKEN_EXP_HOURS) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(hours=exp_hours)
-    token_payload = {**payload, "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
-    if payload.get("type") in {"staff", "customer"}:
+    is_session = payload.get("type") in {"staff", "customer"}
+    token_claims = (
+        {key: payload[key] for key in _SESSION_CLAIM_KEYS if key in payload}
+        if is_session
+        else dict(payload)
+    )
+    token_payload = {**token_claims, "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
+    if is_session:
         account = _session_account(payload)
         if account:
             token_payload["accountState"] = _account_fingerprint(account)
