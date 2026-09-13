@@ -21,6 +21,23 @@ function loadModule(path, dependencies = {}, globals = {}) {
   return exports;
 }
 
+test('Capacitor customer and driver shells start behind the portal auth gate', () => {
+  for (const portal of ['customer', 'driver']) {
+    const config = loadModule('capacitor.config.ts', {}, {
+      process: { env: { APP_VARIANT: portal } },
+      URL,
+    }).default;
+    // A remembered session is validated on the portal loading screen, so login never paints first.
+    assert.equal(config.server.url, `https://annannsbeveragestrading.com/${portal}`);
+  }
+
+  const androidClient = fs.readFileSync(
+    new URL('../android/app/src/main/java/com/logitrack/driver/PortalWebViewClient.java', import.meta.url),
+    'utf8',
+  );
+  assert.match(androidClient, /path\.equals\(portalHome\)/);
+});
+
 test('a Capacitor web shim does not hide the native shell or count as a ready bridge', async () => {
   let poll;
   let cleared = false;

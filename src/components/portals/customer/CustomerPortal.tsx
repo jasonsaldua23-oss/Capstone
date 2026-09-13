@@ -95,6 +95,7 @@ import {
 import { downloadOrderReceipt } from './sections/orders/receipt-utils'
 import { SERVICE_AREA_MESSAGE, useServiceArea } from '@/lib/service-area'
 import { isValidPhilippinePhone } from '@/lib/philippine-phone'
+import { getDepositRefundUnitDetails, getMaximumDepositRefundQuantity, getProductDepositBalanceRows, serializeDepositRefundQuantity } from '@/lib/deposit-refund-units'
 
 const poppins = { className: '' }
 
@@ -1371,23 +1372,47 @@ export function CustomerPortal() {
   )
   const depositRefundOptions = useMemo<DepositRefundOption[]>(() => {
     const usedByContainer = new Map<string, number>()
+    const usedByProductContainer = new Map<string, number>()
     selectedCartItems.forEach((item) => {
       if (item.itemType === 'MIXED_CASE') {
         ;(item.components || []).forEach((component: any) => {
           const containerTypeId = String(component.containerTypeId || '').trim()
           if (containerTypeId) {
-            usedByContainer.set(containerTypeId, (usedByContainer.get(containerTypeId) || 0) + Math.max(0, Number(component.emptyReturnedQuantity || 0)))
+            const used = Math.max(0, Number(component.emptyReturnedQuantity || 0))
+            const productContainerKey = `${String(component.productId || '')}::${containerTypeId}`
+            usedByContainer.set(containerTypeId, (usedByContainer.get(containerTypeId) || 0) + used)
+            usedByProductContainer.set(productContainerKey, (usedByProductContainer.get(productContainerKey) || 0) + used)
           }
         })
         return
       }
       const containerTypeId = String(item.containerTypeId || '').trim()
       if (containerTypeId) {
-        usedByContainer.set(containerTypeId, (usedByContainer.get(containerTypeId) || 0) + Math.max(0, Number(item.emptyReturnedQuantity || 0)))
+        const used = Math.max(0, Number(item.emptyReturnedQuantity || 0))
+        const productContainerKey = `${String(item.productId || '')}::${containerTypeId}`
+        usedByContainer.set(containerTypeId, (usedByContainer.get(containerTypeId) || 0) + used)
+        usedByProductContainer.set(productContainerKey, (usedByProductContainer.get(productContainerKey) || 0) + used)
       }
     })
 
-    return (Array.isArray(user?.bottleBalances) ? user.bottleBalances : []).flatMap((balance: any) => {
+    const balanceRows = (Array.isArray(user?.bottleBalances) ? user.bottleBalances : [])
+      .flatMap(getProductDepositBalanceRows)
+    const knownProductContainerKeys = new Set(
+      balanceRows.map((balance: any) => `${String(balance?.productId || balance?.productIds?.[0] || '')}::${String(balance?.containerTypeId || '')}`)
+    )
+    const unmatchedUsedByContainer = new Map<string, number>()
+    usedByContainer.forEach((totalUsed, containerTypeId) => {
+      let matchedUsed = 0
+      usedByProductContainer.forEach((quantity, productContainerKey) => {
+        if (productContainerKey.endsWith(`::${containerTypeId}`) && knownProductContainerKeys.has(productContainerKey)) {
+          matchedUsed += quantity
+        }
+      })
+      unmatchedUsedByContainer.set(containerTypeId, Math.max(0, totalUsed - matchedUsed))
+    })
+
+    return balanceRows
+      .flatMap((balance: any) => {
       const containerTypeId = String(balance?.containerTypeId || '').trim()
       const productOptions = Array.isArray(balance?.productOptions) && balance.productOptions.length > 0
         ? balance.productOptions
@@ -1395,31 +1420,55 @@ export function CustomerPortal() {
           id: balance?.productIds?.[0],
           label: balance?.productLabel || balance?.productName,
         }]
-      const depositPerContainer = Math.max(0, Number(balance?.depositAmount || 0))
-      if (!containerTypeId || depositPerContainer <= 0) return []
+      if (!containerTypeId) return []
       const availableBottles = Math.max(0, Math.floor(Number(balance?.bottlesAvailable ?? balance?.bottlesOutstanding ?? 0)))
-      const remainingAfterOrderDeposit = Math.max(0, availableBottles - (usedByContainer.get(containerTypeId) || 0))
+      const parentContainerAvailable = Math.max(0, Math.floor(Number(balance?.containerBottlesAvailable ?? availableBottles)))
+      // Fix: cart-level empty credits and manual refunds draw from the same
+      // physical container pool, even when they refer to different products.
+      const containerBottlesAvailable = Math.max(
+        0,
+        parentContainerAvailable - (usedByContainer.get(containerTypeId) || 0)
+      )
       const refundableBalance = Math.max(0, Number(balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0))
-      const maxQuantity = Math.min(remainingAfterOrderDeposit, Math.floor((refundableBalance + 0.000001) / depositPerContainer))
-      if (maxQuantity <= 0) return []
       // Every product option shares this container balance; checkout enforces the
       // combined limit while letting the customer identify the exact product.
       return productOptions.flatMap((productOption: any) => {
         const productId = String(productOption?.id || '').trim()
         if (!productId) return []
+        const productContainerKey = `${productId}::${containerTypeId}`
+        const isProductBalance = Array.isArray(balance?.productBalances) && balance.productBalances.length > 0
+        let used = isProductBalance
+          ? (usedByProductContainer.get(productContainerKey) || 0)
+          : (usedByContainer.get(containerTypeId) || 0)
+        if (isProductBalance) {
+          const unmatchedUsed = unmatchedUsedByContainer.get(containerTypeId) || 0
+          const additionalUsed = Math.min(Math.max(0, availableBottles - used), unmatchedUsed)
+          used += additionalUsed
+          unmatchedUsedByContainer.set(containerTypeId, unmatchedUsed - additionalUsed)
+        }
+        const remainingAfterOrderDeposit = Math.max(0, availableBottles - used)
+        const unitDetails = getDepositRefundUnitDetails(productOption, balance)
+        if (unitDetails.depositPerUnit <= 0) return []
+        const maxQuantity = getMaximumDepositRefundQuantity(
+          remainingAfterOrderDeposit,
+          refundableBalance,
+          unitDetails
+        )
+        if (maxQuantity <= 0) return []
         return [{
           productId,
           productName: String(productOption?.label || productOption?.name || balance?.containerTypeName || 'Returnable product'),
           containerTypeId,
           containerTypeName: String(balance?.containerTypeName || 'Returnable container'),
-          depositPerContainer,
+          ...unitDetails,
           maxQuantity,
+          containerBottlesAvailable,
         }]
       })
     })
   }, [selectedCartItems, user?.bottleBalances])
   const depositCreditAmount = useMemo(
-    () => Math.round(depositRefundLines.reduce((total, line) => total + (line.quantity * line.depositPerContainer), 0) * 100) / 100,
+    () => Math.round(depositRefundLines.reduce((total, line) => total + (line.quantity * line.depositPerUnit), 0) * 100) / 100,
     [depositRefundLines]
   )
   const discountCasesAffected = useMemo(
@@ -1833,11 +1882,14 @@ export function CustomerPortal() {
           casesAffected: checkoutDiscountBreakdown.casesAffected,
           totalDiscount: checkoutDiscountBreakdown.totalDiscount,
         },
-        depositCreditAmount,
+        // The server prices these product-specific lines authoritatively. Sending
+        // a duplicated cached total can reject a valid order after packaging data refreshes.
         depositRefundLines: depositRefundLines.map((line) => ({
           productId: line.productId,
           containerTypeId: line.containerTypeId,
-          quantity: line.quantity,
+          // Fix: the API stores bottle equivalents but prices explicit cases and
+          // bottles separately, so preserve the selected packaging unit here.
+          ...serializeDepositRefundQuantity(line),
         })),
         items: selectedCartItems.map((item) =>
           item.itemType === 'MIXED_CASE'

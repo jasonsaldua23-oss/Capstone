@@ -66,6 +66,31 @@ class GlassDepositCalculationTests(TestCase):
         result = calculate_deposit_for_order_item(product, full_quantity=1, empty_returned_quantity=0)
         self.assertFalse(result["is_returnable"])
 
+    def test_pet_product_stays_ineligible_with_stale_returnable_packaging(self) -> None:
+        product = Product.objects.create(
+            sku="PET-STALE-RGB",
+            name="PET Product With Stale Packaging",
+            category="Carbonated (PET/PLASTIC)",
+            packaging_type="RETURNABLE",
+        )
+        container = ContainerType.objects.create(
+            code="PET-STALE-CONTAINER",
+            name="Stale Returnable Container",
+            deposit_amount=Decimal("6.00"),
+        )
+        ProductPackaging.objects.create(
+            product=product,
+            container_type=container,
+            is_returnable=True,
+            is_active=True,
+            deposit_amount=Decimal("6.00"),
+        )
+
+        self.assertFalse(_is_returnable_product(product))
+        result = calculate_deposit_for_order_item(product, full_quantity=12, empty_returned_quantity=0)
+        self.assertFalse(result["is_returnable"])
+        self.assertEqual(result["depositCharged"], Decimal("0"))
+
 
 class GlassProductRegistrationTests(TestCase):
     def test_supported_sizes_persist_bottle_and_case_deposits(self) -> None:

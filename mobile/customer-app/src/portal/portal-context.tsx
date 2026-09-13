@@ -211,7 +211,7 @@ function useCustomerPortalState() {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [replacements, setReplacements] = useState<CustomerReplacement[]>([]);
   const [eligibleEmptyItems, setEligibleEmptyItems] = useState<EligibleEmptyItem[]>([]);
-  const [emptyCasesByProductId, setEmptyCasesByProductId] = useState<Record<string, number>>({});
+  const [emptyQuantitiesByProductId, setEmptyQuantitiesByProductId] = useState<Record<string, number>>({});
   const [recordingEmptyProductId, setRecordingEmptyProductId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<CustomerTab>("home");
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -1373,12 +1373,13 @@ function useCustomerPortalState() {
     else setActiveTab("orders");
   }
 
-  async function handleRecordEmptyCases(item: EligibleEmptyItem) {
-    const cases = Math.max(1, Number(emptyCasesByProductId[item.productId] || 1));
+  async function handleRecordEmpties(item: EligibleEmptyItem) {
+    const quantity = Math.max(1, Number(emptyQuantitiesByProductId[item.productId] || 1));
+    const unit = String(item.unit || "").toLowerCase() === "case" ? "case" : "bottle";
     setRecordingEmptyProductId(item.productId);
     setError(null);
     try {
-      const message = await recordEmptyBottles(item.productId, cases);
+      const message = await recordEmptyBottles(item.productId, quantity, unit);
       Alert.alert("Empties Recorded", message);
       const [nextEligible, nextProfile] = await Promise.all([
         fetchEligibleEmptyItems(),
@@ -1854,8 +1855,8 @@ function useCustomerPortalState() {
     setReplacements,
     eligibleEmptyItems,
     setEligibleEmptyItems,
-    emptyCasesByProductId,
-    setEmptyCasesByProductId,
+    emptyQuantitiesByProductId,
+    setEmptyQuantitiesByProductId,
     recordingEmptyProductId,
     setRecordingEmptyProductId,
     activeTab,
@@ -1982,7 +1983,7 @@ function useCustomerPortalState() {
     handleMarkAllNotificationsRead,
     handleClearNotifications,
     handleNotificationPress,
-    handleRecordEmptyCases,
+    handleRecordEmpties,
     handleSearchAddress,
     selectAddressSearchResult,
     resetSecurityState,

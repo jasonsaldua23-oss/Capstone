@@ -20,12 +20,14 @@ const variantConfig: Record<AppVariant, { appId: string; appName: string; path: 
   driver: {
     appId: 'com.logitrack.driver',
     appName: 'AAB Driver',
-    path: '/driver/login',
+    // Fix: start at the auth-gated portal so remembered sessions never paint the login page first.
+    path: '/driver',
   },
   customer: {
     appId: 'com.logitrack.customer',
     appName: 'AAB SHOP',
-    path: '/customer/login',
+    // Fix: signed-out users are redirected to login after the portal checks their session.
+    path: '/customer',
   },
   admin: {
     appId: 'com.logitrack.admin',

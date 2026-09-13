@@ -11,6 +11,7 @@ from .models import (
     ContainerType,
     Customer,
     CustomerBottleBalance,
+    DepositTransaction,
     MixedCaseComponent,
     OrderDepositRefundClaim,
     Order,
@@ -18,10 +19,140 @@ from .models import (
     Product,
     ProductPackaging,
 )
+from .rgb.services import get_customer_bottle_balances
 from .views_api import _create_order_from_checkout_payload
 
 
 class CustomerOrderDepositRefundTests(TestCase):
+    def test_bottle_product_balance_keeps_per_bottle_quantity_and_value(self) -> None:
+        customer = Customer.objects.create(email="bottle-balance@example.com", password="hashed", name="Bottle Balance")
+        product = Product.objects.create(sku="BOTTLE-BALANCE", name="Bottle Product", unit="bottle", price=20, category="Carbonated (Glass)")
+        container_type = ContainerType.objects.create(
+            code="BOTTLE-BALANCE-GLASS",
+            name="Bottle Balance Glass",
+            deposit_amount=Decimal("6.00"),
+        )
+        ProductPackaging.objects.create(
+            product=product,
+            container_type=container_type,
+            is_primary=True,
+            is_returnable=True,
+            deposit_amount=Decimal("6.00"),
+            case_deposit_amount=Decimal("52.00"),
+            containers_per_case=12,
+        )
+        CustomerBottleBalance.objects.create(
+            customer=customer,
+            container_type=container_type,
+            bottles_outstanding=12,
+            deposit_balance=Decimal("72.00"),
+        )
+
+        serialized = get_customer_bottle_balances(customer)[0]
+
+        self.assertEqual(serialized["unit"], "bottle")
+        self.assertEqual(serialized["bottlesAvailable"], 12)
+        self.assertEqual(serialized["depositAvailable"], 72.0)
+        self.assertEqual(serialized["productOptions"][0]["unit"], "bottle")
+
+    def test_shared_container_balance_keeps_products_separate(self) -> None:
+        customer = Customer.objects.create(email="separate-products@example.com", password="hashed", name="Separate Products")
+        container_type = ContainerType.objects.create(
+            code="SHARED-PRODUCT-GLASS",
+            name="Shared Product Glass",
+            deposit_amount=Decimal("2.00"),
+        )
+        products = [
+            Product.objects.create(sku="SHARED-MD", name="Mountain Dew", unit="case", price=200, category="Carbonated (Glass)"),
+            Product.objects.create(sku="SHARED-PEPSI", name="Pepsi", unit="case", price=200, category="Carbonated (Glass)"),
+        ]
+        for index, product in enumerate(products):
+            ProductPackaging.objects.create(
+                product=product,
+                container_type=container_type,
+                is_primary=True,
+                is_returnable=True,
+                deposit_amount=Decimal("2.00"),
+                # The second product exercises the per-product fallback price.
+                case_deposit_amount=Decimal("42.00") if index == 0 else Decimal("0.00"),
+                containers_per_case=24,
+            )
+        CustomerBottleBalance.objects.create(
+            customer=customer,
+            container_type=container_type,
+            bottles_outstanding=72,
+            deposit_balance=Decimal("132.00"),
+        )
+        for product, cases in zip(products, [2, 1]):
+            DepositTransaction.objects.create(
+                customer=customer,
+                type=DepositTransaction.TransactionType.ADJUSTMENT,
+                amount=Decimal("42.00") * cases,
+                balance_before=Decimal("0.00"),
+                balance_after=Decimal("42.00") * cases,
+                container_type=container_type,
+                container_count=24 * cases,
+                reason=f"Customer declared {cases} empty case(s) of {product.name}",
+                reference_type="product",
+                reference_id=product.id,
+            )
+
+        serialized = get_customer_bottle_balances(customer)[0]
+
+        self.assertEqual(len(serialized["productBalances"]), 2)
+        self.assertEqual(
+            {row["productName"]: row["availableQuantity"] for row in serialized["productBalances"]},
+            {"Mountain Dew": 2, "Pepsi": 1},
+        )
+        self.assertEqual(sum(row["bottlesAvailable"] for row in serialized["productBalances"]), 72)
+        self.assertEqual(
+            {row["productName"]: row["depositPerUnit"] for row in serialized["productBalances"]},
+            {"Mountain Dew": 42.0, "Pepsi": 48.0},
+        )
+
+        # Checkout must validate the same per-product prices shown by the client.
+        order = _create_order_from_checkout_payload(
+            customer=customer,
+            body={
+                "depositRefundLines": [
+                    {
+                        "productId": products[0].id,
+                        "containerTypeId": container_type.id,
+                        "cases": 2,
+                        "bottles": 0,
+                    },
+                    {
+                        "productId": products[1].id,
+                        "containerTypeId": container_type.id,
+                        "cases": 1,
+                        "bottles": 0,
+                    },
+                ],
+            },
+            normalized_items=[{
+                "productId": products[0].id,
+                "quantity": 1,
+                "unitPrice": 200,
+                "totalPrice": 200,
+            }],
+            subtotal=200,
+            tax=0,
+            shipping_cost=0,
+            discount=0,
+            total_amount=200,
+            selected_warehouse_id=None,
+            shipping_latitude=None,
+            shipping_longitude=None,
+            payment_status="pending",
+            performed_by=customer.id,
+        )
+        # The purchased case adds a new ₱42 deposit before the ₱132 refund.
+        self.assertEqual(order.total_amount, 110)
+        self.assertEqual(
+            sum(claim.requested_amount for claim in order.deposit_refund_claims.all()),
+            Decimal("132.00"),
+        )
+
     def test_refund_reduces_the_selected_order_and_available_credit_once(self) -> None:
         customer = Customer.objects.create(
             email="order-refund@example.com",
@@ -33,7 +164,7 @@ class CustomerOrderDepositRefundTests(TestCase):
             name="Order Refund Product",
             unit="case",
             price=200,
-            category="Carbonated(Cans)",
+            category="Carbonated (Glass)",
         )
         container_type = ContainerType.objects.create(
             code="ORDER-REFUND-GLASS",
@@ -129,6 +260,7 @@ class CustomerOrderDepositRefundTests(TestCase):
             name="Later Refund Product",
             unit="case",
             price=100,
+            category="Carbonated (Glass)",
         )
         container_type = ContainerType.objects.create(
             code="LATER-REFUND-GLASS",
@@ -150,6 +282,12 @@ class CustomerOrderDepositRefundTests(TestCase):
             bottles_outstanding=288,
             deposit_balance=Decimal("1248.00"),
         )
+        serialized_balance = get_customer_bottle_balances(customer)[0]
+        product_option = serialized_balance["productOptions"][0]
+        self.assertEqual(product_option["unit"], "case")
+        self.assertEqual(product_option["containersPerCase"], 12)
+        self.assertEqual(product_option["depositAmount"], 6.0)
+        self.assertEqual(product_option["caseDepositAmount"], 52.0)
         order = Order.objects.create(
             order_number="PO-LATER-REFUND",
             purchase_order_number="PO-LATER-REFUND",
@@ -225,7 +363,7 @@ class CustomerOrderDepositRefundTests(TestCase):
 
     def test_customer_records_cases_and_loose_bottles_from_purchase_history(self) -> None:
         customer = Customer.objects.create(email="mixed-units@example.com", password="hashed", name="Mixed Units")
-        product = Product.objects.create(sku="MIXED-UNITS", name="Mixed Units Product", unit="case", price=200)
+        product = Product.objects.create(sku="MIXED-UNITS", name="Mixed Units Product", unit="case", price=200, category="Carbonated (Glass)")
         container_type = ContainerType.objects.create(
             code="MIXED-UNITS-GLASS",
             name="Mixed Units Bottle",
@@ -267,7 +405,7 @@ class CustomerOrderDepositRefundTests(TestCase):
 
     def test_mixed_case_components_are_eligible_as_loose_bottles(self) -> None:
         customer = Customer.objects.create(email="mixed-case-history@example.com", password="hashed", name="Mixed Case History")
-        product = Product.objects.create(sku="MIXED-COMPONENT", name="Mixed Component", unit="case", price=240)
+        product = Product.objects.create(sku="MIXED-COMPONENT", name="Mixed Component", unit="case", price=240, category="Carbonated (Glass)")
         container_type = ContainerType.objects.create(
             code="MIXED-COMPONENT-GLASS",
             name="Mixed Component Bottle",
@@ -318,5 +456,6 @@ class CustomerOrderDepositRefundTests(TestCase):
         self.assertEqual(response.status_code, 200)
         eligible = response.json()["eligibleItems"][0]
         self.assertEqual(eligible["productId"], product.id)
+        self.assertEqual(eligible["unit"], "bottle")
         self.assertEqual(eligible["availableCasesToReturn"], 0)
         self.assertEqual(eligible["availableLooseBottlesToReturn"], 9)

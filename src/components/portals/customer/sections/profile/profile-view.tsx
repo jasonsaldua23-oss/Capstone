@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label'
 import { resolveClientImageUrl } from '@/lib/client-image'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
+import { getDepositRefundUnitDetails, getMaximumDepositRefundQuantity, getProductDepositBalanceRows } from '@/lib/deposit-refund-units'
 import { Bell, Camera, ChevronRight, Clock, Loader2, LogOut, MapPin, Package, PencilLine, ShieldCheck, Lock, CreditCard, HelpCircle, MessageSquare, Info, Leaf, Phone, ArrowLeft, KeyRound, Minus, Plus, Recycle, WalletCards } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -180,11 +181,10 @@ export function CustomerProfileView({
   const lastFetchedReservedRef = useRef<number>(0)
   const isFetchingReservedRef = useRef<boolean>(false)
   const refundEmptyOptions = useMemo(() => (
-    (Array.isArray(user?.bottleBalances) ? user.bottleBalances : []).flatMap((balance: any) => {
+    (Array.isArray(user?.bottleBalances) ? user.bottleBalances : [])
+      .flatMap(getProductDepositBalanceRows)
+      .flatMap((balance: any) => {
       const containerTypeId = String(balance?.containerTypeId || '').trim()
-      const depositPerContainer = Math.max(0, Number(balance?.depositAmount || 0))
-      const containersPerCase = Math.max(1, Math.floor(Number(balance?.containersPerCase || 1)))
-      const caseDepositAmount = Math.max(0, Number(balance?.caseDepositAmount || (depositPerContainer * containersPerCase)))
       const bottlesAvailable = Math.max(0, Math.floor(Number(balance?.bottlesAvailable ?? balance?.bottlesOutstanding ?? 0)))
       const refundableBalance = Math.max(0, Number(balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0))
       const productOptions = Array.isArray(balance?.productOptions) ? balance.productOptions : []
@@ -192,16 +192,19 @@ export function CustomerProfileView({
       return productOptions.flatMap((product: any) => {
         const productId = String(product?.id || '').trim()
         if (!productId) return []
+        const unitDetails = getDepositRefundUnitDetails(product, balance)
         return [{
           key: `${productId}::${containerTypeId}`,
           productId,
           productName: String(product?.label || product?.name || 'Returnable product'),
           containerTypeId,
           containerTypeName: String(balance?.containerTypeName || 'Returnable container'),
-          depositPerContainer,
-          containersPerCase,
-          caseDepositAmount,
+          ...unitDetails,
+          depositPerContainer: Math.max(0, Number(product?.depositAmount ?? balance?.depositAmount ?? 0)),
+          containersPerCase: Math.max(1, Math.floor(Number(product?.containersPerCase ?? balance?.containersPerCase ?? 1))),
+          caseDepositAmount: Math.max(0, Number(product?.caseDepositAmount ?? balance?.caseDepositAmount ?? 0)),
           bottlesAvailable,
+          containerBottlesAvailable: Math.max(0, Number(balance?.containerBottlesAvailable ?? bottlesAvailable)),
           refundableBalance,
         }]
       })
@@ -302,9 +305,11 @@ export function CustomerProfileView({
       if (res.ok && data.success && Array.isArray(data.eligibleItems)) {
         setEligibleProducts(data.eligibleItems)
         if (data.eligibleItems.length > 0) {
-          setSelectedProductId(data.eligibleItems[0].productId)
-          setRecordCases(data.eligibleItems[0].availableCasesToReturn > 0 ? 1 : 0)
-          setRecordLooseBottles(0)
+          const firstItem = data.eligibleItems[0]
+          const recordsCases = String(firstItem?.unit || '').trim().toLowerCase() === 'case'
+          setSelectedProductId(firstItem.productId)
+          setRecordCases(recordsCases && firstItem.availableCasesToReturn > 0 ? 1 : 0)
+          setRecordLooseBottles(!recordsCases && firstItem.availableBottlesToReturn > 0 ? 1 : 0)
         } else {
           setSelectedProductId('')
         }
@@ -322,10 +327,13 @@ export function CustomerProfileView({
       toast.error('Please select a product')
       return
     }
+    const recordsCases = String(selectedItem.unit || '').trim().toLowerCase() === 'case'
     const containersPerCase = Math.max(1, Number(selectedItem.containersPerCase || 1))
-    const totalBottles = (recordCases * containersPerCase) + recordLooseBottles
+    const selectedQuantity = recordsCases ? recordCases : recordLooseBottles
+    const totalBottles = recordsCases ? recordCases * containersPerCase : recordLooseBottles
     if (totalBottles <= 0 || totalBottles > Number(selectedItem.availableBottlesToReturn || 0)) {
-      toast.error(`Please record between 1 and ${selectedItem.availableBottlesToReturn} available bottles`)
+      const maximum = recordsCases ? selectedItem.availableCasesToReturn : selectedItem.availableBottlesToReturn
+      toast.error(`Please record between 1 and ${maximum} available ${recordsCases ? 'cases' : 'bottles'}`)
       return
     }
 
@@ -337,8 +345,8 @@ export function CustomerProfileView({
         credentials: 'include',
         body: JSON.stringify({
           productId: selectedProductId,
-          cases: recordCases,
-          bottles: recordLooseBottles,
+          cases: recordsCases ? selectedQuantity : 0,
+          bottles: recordsCases ? 0 : selectedQuantity,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -387,7 +395,7 @@ export function CustomerProfileView({
     }
     const exceedsContainerBalance = Array.from(requestedByContainer.entries()).some(([containerTypeId, quantity]) => {
       const option = refundEmptyOptions.find((entry: any) => entry.containerTypeId === containerTypeId)
-      return quantity > Number(option?.bottlesAvailable || 0)
+      return quantity > Number(option?.containerBottlesAvailable || option?.bottlesAvailable || 0)
     })
     if (exceedsContainerBalance) {
       toast.error('The selected quantities exceed your available empties')
@@ -1439,13 +1447,15 @@ export function CustomerProfileView({
 
   // Added: keep bottle balances out of the main profile and expose them from the profile menu.
   if (subView === 'empties-deposits') {
-    const bottleBalances = Array.isArray(user?.bottleBalances) ? user.bottleBalances : []
+    const bottleBalances = (Array.isArray(user?.bottleBalances) ? user.bottleBalances : [])
+      .flatMap(getProductDepositBalanceRows)
     const formatDeposit = (amount: unknown) => new Intl.NumberFormat('en-PH', {
       style: 'currency',
       currency: 'PHP',
     }).format(Number(amount) || 0)
 
     const selectedItem = eligibleProducts.find((p) => p.productId === selectedProductId)
+    const selectedItemIsCase = String(selectedItem?.unit || '').trim().toLowerCase() === 'case'
 
     return (
       <div className="space-y-5 pb-[calc(env(safe-area-inset-bottom)+6.75rem)] md:pb-6 bg-[#f8f9fa] min-h-screen">
@@ -1538,30 +1548,29 @@ export function CustomerProfileView({
             {bottleBalances.length > 0 ? (
               <div className="divide-y divide-slate-100">
                 {bottleBalances.map((balance: any) => {
-                  const containersPerCase = Math.max(1, Math.floor(Number(balance.containersPerCase || 1)))
                   const bottlesAvailable = Number.isFinite(Number(balance.bottlesAvailable))
                     ? Math.max(0, Math.floor(Number(balance.bottlesAvailable)))
                     : Math.max(0, Math.floor(Number(balance.bottlesOutstanding || 0)))
-                  const casesAvailable = Number.isFinite(Number(balance.casesAvailable))
-                    ? Math.max(0, Math.floor(Number(balance.casesAvailable)))
-                    : Math.floor(bottlesAvailable / containersPerCase)
-                  const looseBottlesAvailable = Number.isFinite(Number(balance.looseBottlesAvailable))
-                    ? Math.max(0, Math.floor(Number(balance.looseBottlesAvailable)))
-                    : bottlesAvailable % containersPerCase
-
-                  const casesReserved = Number(balance.casesReserved || 0)
-                  const looseReserved = Number(balance.looseBottlesReserved || 0)
-                  const hasReserved = casesReserved > 0 || looseReserved > 0
-
-                  const isCaseFormat = casesAvailable > 0 || (casesReserved > 0 && looseBottlesAvailable === 0)
-                  const depositAmount = isCaseFormat ? balance.caseDepositAmount : balance.depositAmount
-                  const depositUnit = isCaseFormat ? 'case' : 'bottle'
-                  const depositAvailable = Number.isFinite(Number(balance.depositAvailable))
-                    ? Number(balance.depositAvailable)
-                    : (Number.isFinite(Number(balance.depositBalance)) ? Number(balance.depositBalance) : 0)
+                  const reservedBottles = Math.max(0, Math.floor(Number(balance.bottlesReserved || 0)))
+                  const productOptions = Array.isArray(balance.productOptions) ? balance.productOptions : []
+                  const productUnits = productOptions.map((product: any) => String(product?.unit || '').trim().toLowerCase())
+                  const isCaseFormat = productUnits.length > 0
+                    ? productUnits.every((unit: string) => unit === 'case')
+                    : String(balance.unit || '').trim().toLowerCase() === 'case'
+                  const unitDetails = getDepositRefundUnitDetails(
+                    isCaseFormat ? productOptions[0] : { ...productOptions[0], unit: 'bottle' },
+                    balance
+                  )
+                  const availableQuantity = Math.floor(bottlesAvailable / unitDetails.containersPerUnit)
+                  const reservedQuantity = Math.floor(reservedBottles / unitDetails.containersPerUnit)
+                  const hasReserved = reservedQuantity > 0
+                  const depositAvailable = Math.min(
+                    Math.max(0, Number(balance.depositBalanceTotal ?? balance.depositBalance ?? 0)),
+                    availableQuantity * unitDetails.depositPerUnit
+                  )
 
                   return (
-                    <div key={balance.containerTypeId} className="px-4 py-3.5">
+                    <div key={`${balance.containerTypeId}-${balance.productId || balance.productIds?.[0] || 'balance'}`} className="px-4 py-3.5">
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">
                           {/* Fix: show each exact stored product name with its size. */}
@@ -1569,22 +1578,16 @@ export function CustomerProfileView({
                             {balance.productLabel || balance.productName || balance.containerTypeName || 'Returnable container'}
                           </p>
                           <p className="mt-0.5 text-xs text-slate-500">
-                            Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(depositAmount)}/{depositUnit}</span>
-                            {isCaseFormat && looseBottlesAvailable > 0 ? (
-                              <span> · Loose: <span className="font-semibold text-emerald-700">{formatDeposit(balance.depositAmount)}/bottle</span></span>
-                            ) : null}
+                            Deposit value: <span className="font-semibold text-emerald-700">{formatDeposit(unitDetails.depositPerUnit)}/{unitDetails.unitLabel}</span>
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className={`text-lg font-bold ${casesAvailable > 0 || looseBottlesAvailable > 0 ? 'text-slate-900' : 'text-slate-400'}`}>
-                            {isCaseFormat ? casesAvailable : looseBottlesAvailable}
+                          <p className={`text-lg font-bold ${availableQuantity > 0 ? 'text-slate-900' : 'text-slate-400'}`}>
+                            {availableQuantity}
                           </p>
                           <p className="text-xs text-slate-500">
-                            {isCaseFormat ? `empty case${casesAvailable !== 1 ? 's' : ''}` : `loose bottle${looseBottlesAvailable !== 1 ? 's' : ''}`} available
+                            empty {isCaseFormat ? 'case' : 'bottle'}{availableQuantity !== 1 ? 's' : ''} available
                           </p>
-                          {isCaseFormat && looseBottlesAvailable > 0 ? (
-                            <p className="text-[11px] text-slate-500">+ {looseBottlesAvailable} loose bottle{looseBottlesAvailable !== 1 ? 's' : ''}</p>
-                          ) : null}
                           <p className={`mt-0.5 text-xs font-semibold ${depositAvailable > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
                             {formatDeposit(depositAvailable)} credit
                           </p>
@@ -1598,9 +1601,7 @@ export function CustomerProfileView({
                             <span>Reserved in active orders:</span>
                           </span>
                           <span className="font-bold">
-                            {casesReserved > 0 ? `${casesReserved} case${casesReserved !== 1 ? 's' : ''}` : ''}
-                            {casesReserved > 0 && looseReserved > 0 ? ' + ' : ''}
-                            {looseReserved > 0 ? `${looseReserved} bottle${looseReserved !== 1 ? 's' : ''}` : ''}
+                            {reservedQuantity} {unitDetails.unitLabel}{reservedQuantity !== 1 ? 's' : ''}
                             {' '}({formatDeposit(balance.depositReserved || 0)})
                           </span>
                         </div>
@@ -1786,28 +1787,23 @@ export function CustomerProfileView({
                 <div className="space-y-2.5">
                   {refundEmptyOptions.map((option: any) => {
                     const containersPerCase = Math.max(1, Number(option.containersPerCase || 1))
-                    const supportsCases = containersPerCase > 1
+                    const supportsCases = option.unitType === 'CASE'
                     const selected = refundQuantityByProduct[option.key] || { cases: 0, bottles: 0 }
                     const selectedCases = supportsCases ? Math.max(0, selected.cases) : 0
-                    const selectedBottles = Math.max(0, selected.bottles)
+                    const selectedBottles = supportsCases ? 0 : Math.max(0, selected.bottles)
                     const selectedQuantity = (selectedCases * containersPerCase) + selectedBottles
                     const availableCases = supportsCases ? Math.floor(option.bottlesAvailable / containersPerCase) : 0
-                    const availableBottles = supportsCases ? option.bottlesAvailable % containersPerCase : option.bottlesAvailable
-                    const maximumCases = supportsCases && option.caseDepositAmount > 0
-                      ? Math.max(0, Math.min(
-                        Math.floor((option.bottlesAvailable - selectedBottles) / containersPerCase),
-                        Math.floor((option.refundableBalance - (selectedBottles * option.depositPerContainer) + 0.000001) / option.caseDepositAmount)
-                      ))
-                      : 0
-                    const maximumBottles = option.depositPerContainer > 0
-                      ? Math.max(0, Math.min(
-                        option.bottlesAvailable - (selectedCases * containersPerCase),
-                        Math.floor((option.refundableBalance - (selectedCases * option.caseDepositAmount) + 0.000001) / option.depositPerContainer)
-                      ))
-                      : 0
+                    const availableBottles = supportsCases ? 0 : option.bottlesAvailable
+                    const maximumQuantity = getMaximumDepositRefundQuantity(
+                      option.bottlesAvailable,
+                      option.refundableBalance,
+                      option
+                    )
+                    const maximumCases = supportsCases ? maximumQuantity : 0
+                    const maximumBottles = supportsCases ? 0 : maximumQuantity
 
-                    // Added: preserve full cases and loose bottles as separate
-                    // quantities because their deposit prices can differ.
+                    // Fix: keep only the quantity that matches this product's
+                    // packaging type while retaining the API's case/bottle shape.
                     const updateCaseAndBottleQuantity = (cases: number, bottles: number) => {
                       setRefundQuantityByProduct((current) => ({
                         ...current,
@@ -1824,7 +1820,7 @@ export function CustomerProfileView({
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-slate-900">{option.productName}</p>
                             <p className="mt-0.5 text-xs text-slate-500">
-                              {option.containerTypeName} · {supportsCases ? `${formatDeposit(option.caseDepositAmount)}/case · ` : ''}{formatDeposit(option.depositPerContainer)}/bottle
+                              {option.containerTypeName} · {supportsCases ? `${formatDeposit(option.caseDepositAmount)}/case` : `${formatDeposit(option.depositPerContainer)}/bottle`}
                             </p>
                             <p className="mt-1 text-xs font-medium text-emerald-700">
                               {availableCases > 0 ? `${availableCases} case${availableCases === 1 ? '' : 's'}` : ''}
@@ -1833,7 +1829,7 @@ export function CustomerProfileView({
                               {' available'}
                             </p>
                           </div>
-                          <div className={`grid shrink-0 gap-2 ${supportsCases ? 'w-36 grid-cols-2' : 'w-20 grid-cols-1'}`}>
+                          <div className="grid w-20 shrink-0 grid-cols-1 gap-2">
                             {supportsCases ? <div className="space-y-1">
                               <Label htmlFor={`profile-refund-cases-${option.key}`} className="text-[10px] font-semibold text-slate-500">Cases</Label>
                               <Input
@@ -1851,7 +1847,7 @@ export function CustomerProfileView({
                                 aria-label={`Cases of ${option.productName}`}
                               />
                             </div> : null}
-                            <div className="space-y-1">
+                            {!supportsCases ? <div className="space-y-1">
                               <Label htmlFor={`profile-refund-bottles-${option.key}`} className="text-[10px] font-semibold text-slate-500">Bottles</Label>
                               <Input
                                 id={`profile-refund-bottles-${option.key}`}
@@ -1867,7 +1863,7 @@ export function CustomerProfileView({
                                 placeholder="0"
                                 aria-label={`Loose bottles of ${option.productName}`}
                               />
-                            </div>
+                            </div> : null}
                           </div>
                         </div>
                         {selectedQuantity > 0 ? (
@@ -1910,10 +1906,10 @@ export function CustomerProfileView({
             <DialogHeader>
               <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Recycle className="h-5 w-5 text-emerald-600" />
-                Record Empty Cases and Bottles
+                Record Empty Containers
               </DialogTitle>
               <DialogDescription className="text-xs text-slate-500">
-                Declare full cases and loose bottles from your past orders to automatically waive container deposits at checkout.
+                Declare empties from past orders using each product&apos;s packaging type.
               </DialogDescription>
             </DialogHeader>
 
@@ -1952,13 +1948,16 @@ export function CustomerProfileView({
                     onChange={(e) => {
                       setSelectedProductId(e.target.value)
                       const nextItem = eligibleProducts.find((item) => item.productId === e.target.value)
-                      setRecordCases(Number(nextItem?.availableCasesToReturn || 0) > 0 ? 1 : 0)
-                      setRecordLooseBottles(0)
+                      const recordsCases = String(nextItem?.unit || '').trim().toLowerCase() === 'case'
+                      setRecordCases(recordsCases && Number(nextItem?.availableCasesToReturn || 0) > 0 ? 1 : 0)
+                      setRecordLooseBottles(!recordsCases && Number(nextItem?.availableBottlesToReturn || 0) > 0 ? 1 : 0)
                     }}
                   >
                     {eligibleProducts.map((prod) => (
                       <option key={prod.productId} value={prod.productId}>
-                        {prod.productName} ({prod.availableCasesToReturn} case{prod.availableCasesToReturn === 1 ? '' : 's'} + {prod.availableLooseBottlesToReturn} loose bottle{prod.availableLooseBottlesToReturn === 1 ? '' : 's'} available)
+                        {prod.productName} ({String(prod.unit || '').toLowerCase() === 'case'
+                          ? `${prod.availableCasesToReturn} case${prod.availableCasesToReturn === 1 ? '' : 's'}`
+                          : `${prod.availableBottlesToReturn} bottle${prod.availableBottlesToReturn === 1 ? '' : 's'}`} available)
                       </option>
                     ))}
                   </select>
@@ -1966,8 +1965,8 @@ export function CustomerProfileView({
 
                 {selectedItem ? (
                   <>
-                    {/* Case Quantity Stepper */}
-                    <div className="space-y-1.5">
+                    {/* Fix: show only the quantity control matching the product unit. */}
+                    {selectedItemIsCase ? <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <Label className="text-xs font-semibold text-slate-700">Number of Cases to Return</Label>
                         <span className="text-[11px] font-medium text-emerald-700">
@@ -1977,7 +1976,7 @@ export function CustomerProfileView({
 
                       <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-2">
                         <span className="text-xs font-medium text-slate-600 pl-2">
-                          {recordCases} case{recordCases === 1 ? '' : 's'} ({recordCases * selectedItem.containersPerCase} bottles)
+                          {recordCases} case{recordCases === 1 ? '' : 's'}
                         </span>
 
                         <div className="flex items-center gap-1.5">
@@ -2014,22 +2013,18 @@ export function CustomerProfileView({
                           </Button>
                         </div>
                       </div>
-                    </div>
+                    </div> : null}
 
-                    {/* Loose bottles are recorded separately from complete cases. */}
-                    <div className="space-y-1.5">
+                    {!selectedItemIsCase ? <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs font-semibold text-slate-700">Loose Bottles to Return</Label>
+                        <Label className="text-xs font-semibold text-slate-700">Number of Bottles to Return</Label>
                         <span className="text-[11px] font-medium text-emerald-700">
-                          Max with selected cases: {Math.max(0, Math.min(
-                            selectedItem.containersPerCase - 1,
-                            selectedItem.availableBottlesToReturn - (recordCases * selectedItem.containersPerCase),
-                          ))}
+                          Max available: {selectedItem.availableBottlesToReturn} bottle(s)
                         </span>
                       </div>
                       <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-2">
                         <span className="pl-2 text-xs font-medium text-slate-600">
-                          {recordLooseBottles} loose bottle{recordLooseBottles === 1 ? '' : 's'}
+                          {recordLooseBottles} bottle{recordLooseBottles === 1 ? '' : 's'}
                         </span>
                         <div className="flex items-center gap-1.5">
                           <Button
@@ -2050,34 +2045,29 @@ export function CustomerProfileView({
                             size="icon"
                             variant="outline"
                             className="h-8 w-8 rounded-xl border-slate-200 bg-white"
-                            disabled={recordLooseBottles >= Math.max(0, Math.min(
-                              selectedItem.containersPerCase - 1,
-                              selectedItem.availableBottlesToReturn - (recordCases * selectedItem.containersPerCase),
-                            ))}
-                            onClick={() => setRecordLooseBottles((prev) => Math.min(
-                              Math.max(0, Math.min(
-                                selectedItem.containersPerCase - 1,
-                                selectedItem.availableBottlesToReturn - (recordCases * selectedItem.containersPerCase),
-                              )),
-                              prev + 1,
-                            ))}
+                            disabled={recordLooseBottles >= selectedItem.availableBottlesToReturn}
+                            onClick={() => setRecordLooseBottles((prev) => Math.min(selectedItem.availableBottlesToReturn, prev + 1))}
                           >
                             <Plus className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>
-                    </div>
+                    </div> : null}
 
                     {/* Deposit Preview Card */}
                     <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs space-y-1.5">
                       <div className="flex items-center justify-between font-semibold text-emerald-900">
                         <span>Deposit Credit to Apply:</span>
                         <span className="text-sm font-bold text-emerald-700">
-                          {formatDeposit((recordCases * selectedItem.caseDeposit) + (recordLooseBottles * selectedItem.unitDeposit))}
+                          {formatDeposit(selectedItemIsCase
+                            ? recordCases * selectedItem.caseDeposit
+                            : recordLooseBottles * selectedItem.unitDeposit)}
                         </span>
                       </div>
                       <p className="text-[11px] text-emerald-800 leading-snug">
-                        ✓ Recorded balance: {recordCases} case{recordCases === 1 ? '' : 's'} and {recordLooseBottles} loose bottle{recordLooseBottles === 1 ? '' : 's'}.
+                        ✓ Recorded balance: {selectedItemIsCase
+                          ? `${recordCases} case${recordCases === 1 ? '' : 's'}`
+                          : `${recordLooseBottles} bottle${recordLooseBottles === 1 ? '' : 's'}`}.
                       </p>
                     </div>
 
@@ -2094,7 +2084,7 @@ export function CustomerProfileView({
                       <Button
                         type="button"
                         className="flex-1 rounded-xl bg-emerald-600 text-xs font-bold text-white shadow-xs hover:bg-emerald-500"
-                        disabled={isSubmittingEmpties || ((recordCases * selectedItem.containersPerCase) + recordLooseBottles) <= 0}
+                        disabled={isSubmittingEmpties || (selectedItemIsCase ? recordCases : recordLooseBottles) <= 0}
                         onClick={handleRecordEmpties}
                       >
                         {isSubmittingEmpties ? (
@@ -2103,7 +2093,9 @@ export function CustomerProfileView({
                             Recording...
                           </>
                         ) : (
-                          `Record ${recordCases} case${recordCases === 1 ? '' : 's'} + ${recordLooseBottles} bottle${recordLooseBottles === 1 ? '' : 's'}`
+                          selectedItemIsCase
+                            ? `Record ${recordCases} case${recordCases === 1 ? '' : 's'}`
+                            : `Record ${recordLooseBottles} bottle${recordLooseBottles === 1 ? '' : 's'}`
                         )}
                       </Button>
                     </div>

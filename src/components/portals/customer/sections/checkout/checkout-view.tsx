@@ -18,8 +18,12 @@ export type DepositRefundOption = {
   productName: string
   containerTypeId: string
   containerTypeName: string
-  depositPerContainer: number
+  unitType: 'CASE' | 'BOTTLE'
+  unitLabel: 'case' | 'bottle'
+  containersPerUnit: number
+  depositPerUnit: number
   maxQuantity: number
+  containerBottlesAvailable: number
 }
 
 export type DepositRefundLine = DepositRefundOption & {
@@ -107,7 +111,7 @@ export function CustomerCheckoutView({
   depositRefundOptions.forEach((option) => {
     availableByContainer.set(
       option.containerTypeId,
-      Math.max(availableByContainer.get(option.containerTypeId) || 0, option.maxQuantity * option.depositPerContainer)
+      (availableByContainer.get(option.containerTypeId) || 0) + (option.maxQuantity * option.depositPerUnit)
     )
   })
   const availableDepositCredit = Array.from(availableByContainer.values()).reduce((total, amount) => total + amount, 0)
@@ -123,25 +127,31 @@ export function CustomerCheckoutView({
     depositRefundOptions.forEach((option) => {
       remainingByContainer.set(
         option.containerTypeId,
-        Math.max(remainingByContainer.get(option.containerTypeId) || 0, option.maxQuantity)
+        Math.max(remainingByContainer.get(option.containerTypeId) || 0, option.containerBottlesAvailable)
       )
     })
     return depositRefundOptions.flatMap((option) => {
       const requested = lines.find(
         (line) => line.productId === option.productId && line.containerTypeId === option.containerTypeId
       )?.quantity || 0
-      const affordableQuantity = option.depositPerContainer > 0
-        ? Math.floor((remainingOrderValue + 0.000001) / option.depositPerContainer)
+      const affordableQuantity = option.depositPerUnit > 0
+        ? Math.floor((remainingOrderValue + 0.000001) / option.depositPerUnit)
         : 0
+      const availableUnits = Math.floor(
+        (remainingByContainer.get(option.containerTypeId) || 0) / option.containersPerUnit
+      )
       const quantity = Math.max(0, Math.min(
         Math.floor(requested),
         option.maxQuantity,
-        remainingByContainer.get(option.containerTypeId) || 0,
+        availableUnits,
         affordableQuantity
       ))
       if (quantity <= 0) return []
-      remainingByContainer.set(option.containerTypeId, (remainingByContainer.get(option.containerTypeId) || 0) - quantity)
-      remainingOrderValue -= quantity * option.depositPerContainer
+      remainingByContainer.set(
+        option.containerTypeId,
+        (remainingByContainer.get(option.containerTypeId) || 0) - (quantity * option.containersPerUnit)
+      )
+      remainingOrderValue -= quantity * option.depositPerUnit
       return [{ ...option, quantity }]
     })
   }
@@ -149,8 +159,8 @@ export function CustomerCheckoutView({
   // Keep an existing request valid when the cart, balance, or discount changes.
   useEffect(() => {
     const normalized = normalizeRefundLines(depositRefundLines)
-    const currentShape = depositRefundLines.map(({ productId, containerTypeId, quantity }) => ({ productId, containerTypeId, quantity }))
-    const nextShape = normalized.map(({ productId, containerTypeId, quantity }) => ({ productId, containerTypeId, quantity }))
+    const currentShape = depositRefundLines.map(({ productId, containerTypeId, quantity, unitType, containersPerUnit, depositPerUnit }) => ({ productId, containerTypeId, quantity, unitType, containersPerUnit, depositPerUnit }))
+    const nextShape = normalized.map(({ productId, containerTypeId, quantity, unitType, containersPerUnit, depositPerUnit }) => ({ productId, containerTypeId, quantity, unitType, containersPerUnit, depositPerUnit }))
     if (JSON.stringify(currentShape) !== JSON.stringify(nextShape)) setDepositRefundLines(normalized)
   }, [depositRefundLines, depositRefundOptions, payableBeforeRefund, setDepositRefundLines])
 
@@ -164,7 +174,7 @@ export function CustomerCheckoutView({
     setRefundDialogOpen(false)
   }
   const refundDraftAmount = refundDraft.reduce(
-    (total, line) => total + (line.quantity * line.depositPerContainer),
+    (total, line) => total + (line.quantity * line.depositPerUnit),
     0
   )
 
@@ -476,8 +486,8 @@ export function CustomerCheckoutView({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-900">{option.productName}</p>
-                        <p className="text-xs text-slate-500">{option.containerTypeName} · {formatPeso(option.depositPerContainer)} each</p>
-                        <p className="mt-1 text-xs text-emerald-700">Up to {option.maxQuantity} empties available</p>
+                        <p className="text-xs text-slate-500">{option.containerTypeName} · {formatPeso(option.depositPerUnit)} per {option.unitLabel}</p>
+                        <p className="mt-1 text-xs text-emerald-700">Up to {option.maxQuantity} {option.unitLabel}{option.maxQuantity === 1 ? '' : 's'} available</p>
                       </div>
                       <div className="w-24 shrink-0">
                         <Label htmlFor={`refund-${option.productId}`} className="sr-only">Empty quantity</Label>

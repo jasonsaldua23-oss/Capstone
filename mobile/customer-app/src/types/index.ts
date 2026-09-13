@@ -208,6 +208,36 @@ export interface CustomerBottleBalance {
   depositBalance?: number;
   bottlesReturnedTotal?: number;
   bottlesSoldTotal?: number;
+  bottlesAvailable?: number;
+  depositBalanceTotal?: number;
+  depositAmount?: number;
+  caseDepositAmount?: number;
+  containersPerCase?: number;
+  productOptions?: Array<{
+    id?: string;
+    unit?: string;
+    containersPerCase?: number;
+    depositAmount?: number;
+    caseDepositAmount?: number;
+  }>;
+  productBalances?: Array<{
+    id?: string;
+    productId?: string;
+    productName?: string;
+    productLabel?: string;
+    unit?: string;
+    containersPerCase?: number;
+    depositAmount?: number;
+    caseDepositAmount?: number;
+    depositPerUnit?: number;
+    bottlesAvailable?: number;
+    bottlesReserved?: number;
+    availableQuantity?: number;
+    reservedQuantity?: number;
+    depositAvailable?: number;
+    depositReserved?: number;
+  }>;
+  unit?: "case" | "bottle";
 }
 
 export interface EligibleEmptyItem {
@@ -217,10 +247,12 @@ export interface EligibleEmptyItem {
   category?: string | null;
   containerTypeId: string;
   containerTypeName: string;
+  unit: "case" | "bottle";
   containersPerCase: number;
   unitDeposit: number;
   caseDeposit: number;
   totalCasesOrdered: number;
   currentlyHeldCases: number;
   availableCasesToReturn: number;
+  availableBottlesToReturn: number;
 }

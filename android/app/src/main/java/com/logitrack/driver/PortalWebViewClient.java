@@ -130,13 +130,15 @@ public class PortalWebViewClient extends BridgeWebViewClient {
         return TextUtils.isEmpty(path) ? "/" : path;
     }
 
-    /** "/driver/login" (and legacy "/login/driver") -> "driver". */
+    /** "/driver", "/driver/login" (and legacy "/login/driver") -> "driver". */
     private static String portalFromPath(String rawPath) {
         String path = normalise(rawPath).toLowerCase(Locale.US);
         for (String candidate : new String[] { "admin", "warehouse", "driver", "customer" }) {
+            // Fix: remembered sessions now start at the portal home rather than painting login first.
+            String portalHome = "/" + candidate;
             String scopedLogin = "/" + candidate + "/login";
             String legacyLogin = "/login/" + candidate;
-            if (path.equals(scopedLogin) || path.startsWith(scopedLogin + "/") ||
+            if (path.equals(portalHome) || path.equals(scopedLogin) || path.startsWith(scopedLogin + "/") ||
                 path.equals(legacyLogin) || path.startsWith(legacyLogin + "/")) {
                 return candidate;
             }

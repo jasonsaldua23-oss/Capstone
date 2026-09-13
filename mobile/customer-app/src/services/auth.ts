@@ -577,12 +577,13 @@ export async function fetchEligibleEmptyItems(): Promise<EligibleEmptyItem[]> {
   return Array.isArray(data.eligibleItems) ? data.eligibleItems : [];
 }
 
-export async function recordEmptyBottles(productId: string, cases: number): Promise<string> {
+export async function recordEmptyBottles(productId: string, quantity: number, unit: "case" | "bottle"): Promise<string> {
   const token = await getToken();
   const data = await apiRequest<{ message?: string }>("/api/customer/empty-bottles/record", {
     method: "POST",
     token,
-    body: JSON.stringify({ productId, cases }),
+    // Fix: preserve the packaging unit selected by the recording screen.
+    body: JSON.stringify({ productId, cases: unit === "case" ? quantity : 0, bottles: unit === "bottle" ? quantity : 0 }),
   });
   return data.message || "Empty bottles recorded successfully.";
 }

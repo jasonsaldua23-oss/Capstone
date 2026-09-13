@@ -178,7 +178,7 @@ def _price_for(product: Product, mode: str) -> Decimal:
 
 def _deposit_configuration(product: Product) -> tuple[ProductPackaging | None, Decimal, Decimal, bool]:
     category = require_category_spec(product.category)
-    if category["depositExempt"]:
+    if not category["depositAllowed"]:
         return None, Decimal("0.00"), Decimal("0.00"), False
     packaging = _primary_packaging(product)
     eligible = bool(

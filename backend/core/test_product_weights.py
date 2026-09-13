@@ -221,6 +221,8 @@ class ProductWeightApiContractTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content.decode())
         product.refresh_from_db()
         self.assertEqual(product.weight, 18.6)
+        self.assertNotEqual(product.sku, "PEPS-WEIGHT-EDIT")
+        self.assertTrue(product.sku.startswith("PEPS-CAS-1LIT-"))
 
     def test_zero_stock_product_archive_can_be_listed_and_restored(self) -> None:
         product = Product.objects.create(

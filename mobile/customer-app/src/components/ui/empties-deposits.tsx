@@ -11,6 +11,21 @@ import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
 
+function formatReservedEmptyUnits(items: any[]): string {
+  const totals = (Array.isArray(items) ? items : []).reduce((result, item) => {
+    const quantity = Math.max(0, Number(item?.emptyReturnedQuantity || 0));
+    const isCase = String(item?.productUnit || item?.product?.unit || item?.unit || "").trim().toLowerCase() === "case";
+    const containersPerCase = Math.max(1, Number(item?.containersPerCase || item?.quantityPerCase || item?.product?.quantityPerCase || 1));
+    if (isCase) result.cases += Math.floor(quantity / containersPerCase);
+    else result.bottles += quantity;
+    return result;
+  }, { cases: 0, bottles: 0 });
+  return [
+    totals.cases > 0 ? `${totals.cases} case${totals.cases === 1 ? "" : "s"}` : "",
+    totals.bottles > 0 ? `${totals.bottles} bottle${totals.bottles === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" + ") || "0 bottles";
+}
+
 export function EmptiesDeposits({
   recordOpen,
   onRecordOpenChange,
@@ -23,15 +38,20 @@ export function EmptiesDeposits({
     profile,
     orders,
     eligibleEmptyItems,
-    emptyCasesByProductId,
-    setEmptyCasesByProductId,
+    emptyQuantitiesByProductId,
+    setEmptyQuantitiesByProductId,
     recordingEmptyProductId,
-    handleRecordEmptyCases,
+    handleRecordEmpties,
   } = useCustomerPortal();
 
   const [emptiesTab, setEmptiesTab] = useState<"available" | "reserved">("available");
 
-  const bottleBalances = Array.isArray(profile?.bottleBalances) ? profile!.bottleBalances : [];
+  const bottleBalances: any[] = (Array.isArray(profile?.bottleBalances) ? profile!.bottleBalances : []).flatMap((balance: any): any[] => {
+    const productBalances = Array.isArray(balance.productBalances) ? balance.productBalances : [];
+    return productBalances.length > 0
+      ? productBalances.map((productBalance: any) => ({ ...balance, containerBottlesAvailable: balance.bottlesAvailable, ...productBalance, productOptions: [productBalance] }))
+      : [balance];
+  });
   // Active orders that are holding empties, as the web's reservedOrders does.
   const reservedOrders = orders.filter((order) => {
     const status = String(order.status || "").toUpperCase();
@@ -90,31 +110,31 @@ export function EmptiesDeposits({
             <View style={styles.emptiesEmptyState}>
               <Text style={styles.emptiesEmptyTitle}>No Empty Bottles Recorded</Text>
               <Text style={styles.emptiesEmptyHint}>
-                Have empty cases at home from past purchases? Use Record Empties to declare them in cases and waive
-                container deposits on your next order.
+                Declare empties from past orders using each product's packaging type.
               </Text>
             </View>
           ) : (
             bottleBalances.map((balance, index) => {
-              const containersPerCase = Math.max(1, Number((balance as any).containersPerCase || 1));
               const bottlesAvailable = Number.isFinite(Number((balance as any).bottlesAvailable))
                 ? Math.max(0, Math.floor(Number((balance as any).bottlesAvailable)))
                 : Math.max(0, Math.floor(Number(balance.bottlesOutstanding || 0)));
-              const casesAvailable = Number.isFinite(Number((balance as any).casesAvailable))
-                ? Math.max(0, Math.floor(Number((balance as any).casesAvailable)))
-                : Math.floor(bottlesAvailable / containersPerCase);
-              const looseAvailable = Number.isFinite(Number((balance as any).looseBottlesAvailable))
-                ? Math.max(0, Math.floor(Number((balance as any).looseBottlesAvailable)))
-                : bottlesAvailable % containersPerCase;
-              const casesReserved = Number((balance as any).casesReserved || 0);
-              const isCaseFormat = casesAvailable > 0 || (casesReserved > 0 && looseAvailable === 0);
+              const productOptions = Array.isArray(balance.productOptions) ? balance.productOptions : [];
+              const productUnits = productOptions.map((product: any) => String(product?.unit || "").trim().toLowerCase());
+              const isCaseFormat = productUnits.length > 0
+                ? productUnits.every((unit: string) => unit === "case")
+                : String((balance as any).unit || "").trim().toLowerCase() === "case";
+              const selectedPackaging = productOptions[0];
+              const containersPerUnit = isCaseFormat
+                ? Math.max(1, Number(selectedPackaging?.containersPerCase || balance.containersPerCase || 1))
+                : 1;
               const depositAmount = isCaseFormat
-                ? Number((balance as any).caseDepositAmount || 0)
-                : Number((balance as any).depositAmount || 0);
-              const depositAvailable = Number.isFinite(Number((balance as any).depositAvailable))
-                ? Number((balance as any).depositAvailable)
-                : Number((balance as any).depositBalance || 0);
-              const count = isCaseFormat ? casesAvailable : looseAvailable;
+                ? Number(selectedPackaging?.caseDepositAmount || balance.caseDepositAmount || 0)
+                : Number(selectedPackaging?.depositAmount || balance.depositAmount || 0);
+              const count = Math.floor(bottlesAvailable / containersPerUnit);
+              const depositAvailable = Math.min(
+                Math.max(0, Number(balance.depositBalanceTotal ?? balance.depositBalance ?? 0)),
+                count * depositAmount
+              );
               return (
                 <View key={`${balance.containerTypeId || "balance"}-${index}`} style={styles.emptiesBalanceCard}>
                   <View style={styles.emptiesBalanceRow}>
@@ -135,15 +155,10 @@ export function EmptiesDeposits({
                       </Text>
                       <Text style={styles.emptiesBalanceUnit}>
                         {isCaseFormat
-                          ? `empty case${casesAvailable !== 1 ? "s" : ""}`
-                          : `loose bottle${looseAvailable !== 1 ? "s" : ""}`}{" "}
+                          ? `empty case${count !== 1 ? "s" : ""}`
+                          : `empty bottle${count !== 1 ? "s" : ""}`}{" "}
                         available
                       </Text>
-                      {isCaseFormat && looseAvailable > 0 ? (
-                        <Text style={styles.emptiesBalanceUnit}>
-                          + {looseAvailable} loose bottle{looseAvailable !== 1 ? "s" : ""}
-                        </Text>
-                      ) : null}
                       <Text
                         style={[
                           styles.emptiesBalanceCredit,
@@ -161,7 +176,7 @@ export function EmptiesDeposits({
 
           <ModalShell
             visible={recordOpen}
-            title="Record Empty Cases and Bottles"
+            title="Record Empty Containers"
             onClose={() => onRecordOpenChange(false)}
           >
             {eligibleEmptyItems.length === 0 ? (
@@ -170,23 +185,27 @@ export function EmptiesDeposits({
               </View>
             ) : (
               eligibleEmptyItems.map((item) => {
-                const cases = Math.max(1, emptyCasesByProductId[item.productId] || 1);
+                const quantity = Math.max(1, emptyQuantitiesByProductId[item.productId] || 1);
+                const isCase = String(item.unit || "").toLowerCase() === "case";
+                const maximumQuantity = isCase ? item.availableCasesToReturn : item.availableBottlesToReturn;
+                const depositPerUnit = isCase ? item.caseDeposit : item.unitDeposit;
+                const unitLabel = isCase ? "case" : "bottle";
                 return (
                   <View key={item.productId} style={styles.emptiesBalanceCard}>
                     <Text style={styles.emptiesSectionTitleTight}>Select Purchased Beverage</Text>
                     <Text style={styles.emptiesBalanceName}>{item.productName}</Text>
                     <Text style={styles.emptiesBalanceMeta}>
-                      Max available: <Text style={styles.emptiesBalanceStrong}>{item.availableCasesToReturn}</Text>
+                      Max available: <Text style={styles.emptiesBalanceStrong}>{maximumQuantity} {unitLabel}{maximumQuantity === 1 ? "" : "s"}</Text>
                     </Text>
-                    <Text style={styles.emptiesBalanceMeta}>Number of Cases to Return</Text>
+                    <Text style={styles.emptiesBalanceMeta}>Number of {isCase ? "Cases" : "Bottles"} to Return</Text>
                     <View style={styles.emptiesRecordRow}>
                       <View style={[styles.qtyControls, styles.emptiesQtyControls]}>
                         <Pressable
                           style={styles.qtyButton}
                           onPress={() =>
-                            setEmptyCasesByProductId((current) => ({
+                            setEmptyQuantitiesByProductId((current) => ({
                               ...current,
-                              [item.productId]: Math.max(1, cases - 1),
+                              [item.productId]: Math.max(1, quantity - 1),
                             }))
                           }
                           accessibilityRole="button"
@@ -194,13 +213,13 @@ export function EmptiesDeposits({
                         >
                           <Text style={styles.qtyButtonText}>−</Text>
                         </Pressable>
-                        <Text style={styles.qtyValue}>{cases}</Text>
+                        <Text style={styles.qtyValue}>{quantity}</Text>
                         <Pressable
                           style={styles.qtyButton}
                           onPress={() =>
-                            setEmptyCasesByProductId((current) => ({
+                            setEmptyQuantitiesByProductId((current) => ({
                               ...current,
-                              [item.productId]: Math.min(item.availableCasesToReturn, cases + 1),
+                              [item.productId]: Math.min(maximumQuantity, quantity + 1),
                             }))
                           }
                           accessibilityRole="button"
@@ -211,7 +230,7 @@ export function EmptiesDeposits({
                       </View>
                       <Pressable
                         style={styles.primaryButtonCompact}
-                        onPress={() => handleRecordEmptyCases(item)}
+                        onPress={() => handleRecordEmpties(item)}
                         disabled={recordingEmptyProductId === item.productId}
                         accessibilityRole="button"
                       >
@@ -223,7 +242,7 @@ export function EmptiesDeposits({
                     </View>
                     <Text style={styles.emptiesBalanceMeta}>
                       Deposit Credit to Apply:{" "}
-                      <Text style={styles.emptiesBalanceStrong}>{formatPeso(cases * item.caseDeposit)}</Text>
+                      <Text style={styles.emptiesBalanceStrong}>{formatPeso(quantity * depositPerUnit)}</Text>
                     </Text>
                   </View>
                 );
@@ -254,10 +273,7 @@ export function EmptiesDeposits({
                   <Text style={styles.emptiesBalanceMeta}>
                     Reserved in active orders:{" "}
                     <Text style={styles.emptiesBalanceStrong}>
-                      {(order.items || []).reduce(
-                        (sum: number, item: any) => sum + Number(item?.emptyReturnedQuantity || 0),
-                        0
-                      )}
+                      {formatReservedEmptyUnits(order.items || [])}
                     </Text>
                   </Text>
                   <View style={styles.emptiesLockedRow}>

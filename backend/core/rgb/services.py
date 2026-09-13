@@ -88,9 +88,10 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
         )
         .exclude(order_item__order__status__in=["CANCELLED", "CANCELED", "REJECTED", "DELIVERED", "COMPLETED", "FAILED", "FAILED_DELIVERY"])
         .exclude(order_item__order__request_status__in=["REJECTED", "CANCELLED"])
-        .select_related("order_item__order")
+        .select_related("product", "order_item__order")
     )
     reserved_by_container: dict[str, int] = {}
+    reserved_by_product_container: dict[tuple[str, str], int] = {}
     for item in active_order_items:
         ct_id = item.container_type_id
         if not ct_id and item.product:
@@ -99,13 +100,21 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
                 ct_id = pkg.container_type_id
         if ct_id:
             ct_key = str(ct_id)
-            reserved_by_container[ct_key] = reserved_by_container.get(ct_key, 0) + max(0, int(item.empty_returned_quantity or 0))
+            reserved_quantity = max(0, int(item.empty_returned_quantity or 0))
+            reserved_by_container[ct_key] = reserved_by_container.get(ct_key, 0) + reserved_quantity
+            if item.product_id:
+                product_key = (ct_key, str(item.product_id))
+                reserved_by_product_container[product_key] = reserved_by_product_container.get(product_key, 0) + reserved_quantity
 
     for mc in active_mc_components:
         ct_id = mc.container_type_id
         if ct_id:
             ct_key = str(ct_id)
-            reserved_by_container[ct_key] = reserved_by_container.get(ct_key, 0) + max(0, int(mc.empty_covered_quantity or 0))
+            reserved_quantity = max(0, int(mc.empty_covered_quantity or 0))
+            reserved_by_container[ct_key] = reserved_by_container.get(ct_key, 0) + reserved_quantity
+            if mc.product_id:
+                product_key = (ct_key, str(mc.product_id))
+                reserved_by_product_container[product_key] = reserved_by_product_container.get(product_key, 0) + reserved_quantity
 
     # Pending order refund claims reserve the promised empties until the driver
     # records the actual collection or the order leaves the active workflow.
@@ -119,7 +128,11 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
     )
     for claim in active_refund_claims:
         container_key = str(claim.container_type_id)
-        reserved_by_container[container_key] = reserved_by_container.get(container_key, 0) + max(0, int(claim.requested_quantity or 0))
+        reserved_quantity = max(0, int(claim.requested_quantity or 0))
+        reserved_by_container[container_key] = reserved_by_container.get(container_key, 0) + reserved_quantity
+        if claim.product_id:
+            product_key = (container_key, str(claim.product_id))
+            reserved_by_product_container[product_key] = reserved_by_product_container.get(product_key, 0) + reserved_quantity
 
     balances = list(CustomerBottleBalance.objects.filter(customer=customer).select_related("container_type"))
     balance_container_ids = [str(balance.container_type_id) for balance in balances]
@@ -129,14 +142,16 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
     # in the catalog that happens to use the same bottle type.
     declared_product_ids_by_container: dict[str, list[str]] = {}
     legacy_product_names_by_container: dict[str, list[str]] = {}
-    declaration_transactions = DepositTransaction.objects.filter(
+    declaration_transactions = list(DepositTransaction.objects.filter(
         customer=customer,
         type=DepositTransaction.TransactionType.ADJUSTMENT,
         container_type_id__in=balance_container_ids,
         reason__startswith="Customer declared ",
-    ).order_by("created_at")
+    ).order_by("created_at"))
+    declaration_transactions_by_container: dict[str, list[DepositTransaction]] = {}
     for transaction in declaration_transactions:
         container_key = str(transaction.container_type_id)
+        declaration_transactions_by_container.setdefault(container_key, []).append(transaction)
         if transaction.reference_type == "product" and transaction.reference_id:
             declared_product_ids_by_container.setdefault(container_key, []).append(str(transaction.reference_id))
             continue
@@ -182,9 +197,14 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             if product and product not in exact_products:
                 exact_products.append(product)
         for product_name in legacy_product_names_by_container.get(container_key, []):
-            for product in products_by_name.get(product_name, []):
-                if product not in exact_products:
-                    exact_products.append(product)
+            # Legacy rows stored only a name. Choose one matching packaging instead
+            # of expanding that one declaration into every same-name catalog item.
+            product = next((
+                candidate for candidate in products_by_name.get(product_name, [])
+                if any(str(packaging.product_id) == str(candidate.id) for packaging in associated_packagings)
+            ), None)
+            if product and product not in exact_products:
+                exact_products.append(product)
         if not exact_products:
             exact_products = [
                 packaging.product
@@ -196,7 +216,12 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             product.name for product in exact_products if product.name
         ))
         product_labels: list[str] = []
-        product_options: list[dict[str, str]] = []
+        packaging_by_product_id: dict[str, ProductPackaging] = {}
+        for packaging in associated_packagings:
+            packaging_by_product_id.setdefault(str(packaging.product_id), packaging)
+        primary_packaging = associated_packagings[0] if associated_packagings else None
+
+        product_options: list[dict[str, Any]] = []
         for product in exact_products:
             if not product or not str(product.name or "").strip():
                 continue
@@ -210,8 +235,29 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             exact_label = f"{product.name} - {size_label}" if size_label else str(product.name)
             if exact_label not in product_labels:
                 product_labels.append(exact_label)
-            product_options.append({"id": str(product.id), "name": str(product.name), "label": exact_label})
-        primary_packaging = associated_packagings[0] if associated_packagings else None
+            product_packaging = packaging_by_product_id.get(str(product.id))
+            product_deposit_amount = (
+                (product_packaging.deposit_amount if product_packaging else None)
+                or balance.container_type.deposit_amount
+                or 0
+            )
+            product_containers_per_case = max(1, int(product_packaging.containers_per_case or 1)) if product_packaging else 1
+            product_options.append({
+                "id": str(product.id),
+                "name": str(product.name),
+                "label": exact_label,
+                # Fix: refund selectors need the exact product unit so case products
+                # use case quantities/prices and bottle products use bottle values.
+                "unit": str(product.unit or ""),
+                "containersPerCase": product_containers_per_case,
+                "depositAmount": float(product_deposit_amount),
+                "caseDepositAmount": float(
+                    (product_packaging.case_deposit_amount if product_packaging else None)
+                    # Fix: a missing case price falls back to this product's own
+                    # bottle price and case size, never another shared product.
+                    or (product_deposit_amount * product_containers_per_case)
+                ),
+            })
         containers_per_case = max(1, int(primary_packaging.containers_per_case or 1)) if primary_packaging else 1
         
         total_bottles = max(0, int(balance.bottles_outstanding or 0))
@@ -224,8 +270,85 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
 
         unit_deposit = float(balance.container_type.deposit_amount or 0)
         case_deposit = float(primary_packaging.case_deposit_amount or 0) if primary_packaging else (unit_deposit * containers_per_case)
-        deposit_available = float((cases_available * case_deposit) + (loose_bottles_available * unit_deposit))
-        deposit_reserved = float((cases_reserved * case_deposit) + (loose_bottles_reserved * unit_deposit))
+        counts_by_case = bool(exact_products) and all(
+            str(product.unit or "").strip().lower() == "case" for product in exact_products
+        )
+        # Fix: a bottle product keeps per-bottle value even when its count happens
+        # to contain enough bottles to form a case.
+        deposit_available = float(
+            (cases_available * case_deposit) + (loose_bottles_available * unit_deposit)
+            if counts_by_case
+            else bottles_available * unit_deposit
+        )
+        deposit_reserved = float(
+            (cases_reserved * case_deposit) + (loose_bottles_reserved * unit_deposit)
+            if counts_by_case
+            else bottles_reserved * unit_deposit
+        )
+
+        declared_by_product: dict[str, int] = {}
+        for declaration in declaration_transactions_by_container.get(container_key, []):
+            product_id = str(declaration.reference_id or "") if declaration.reference_type == "product" else ""
+            if product_id not in packaging_by_product_id:
+                reason = str(declaration.reason or "")
+                product_name = reason.rsplit(" of ", 1)[-1].strip() if " of " in reason else ""
+                product_id = next((
+                    str(candidate.id) for candidate in products_by_name.get(product_name, [])
+                    if str(candidate.id) in packaging_by_product_id
+                ), "")
+            if product_id:
+                declared_by_product[product_id] = declared_by_product.get(product_id, 0) + max(0, int(declaration.container_count or 0))
+
+        # The database balance remains container-level. Reconcile historical
+        # deductions against product declarations while keeping every product row
+        # separate and ensuring their totals never exceed the shared balance.
+        excess = max(0, sum(declared_by_product.values()) - total_bottles)
+        for product_id in list(declared_by_product):
+            removed = min(excess, declared_by_product[product_id])
+            declared_by_product[product_id] -= removed
+            excess -= removed
+            if excess <= 0:
+                break
+        unattributed = max(0, total_bottles - sum(declared_by_product.values()))
+        if unattributed > 0 and product_options:
+            fallback_product_id = str(product_options[0]["id"])
+            declared_by_product[fallback_product_id] = declared_by_product.get(fallback_product_id, 0) + unattributed
+
+        product_balances: list[dict[str, Any]] = []
+        remaining_unattributed_reservation = max(
+            0,
+            bottles_reserved - sum(reserved_by_product_container.get((container_key, product_id), 0) for product_id in declared_by_product),
+        )
+        for option in product_options:
+            product_id = str(option["id"])
+            product_total = max(0, declared_by_product.get(product_id, 0))
+            if product_total <= 0:
+                continue
+            product_reserved = min(product_total, reserved_by_product_container.get((container_key, product_id), 0))
+            if remaining_unattributed_reservation > 0:
+                additional_reserved = min(product_total - product_reserved, remaining_unattributed_reservation)
+                product_reserved += additional_reserved
+                remaining_unattributed_reservation -= additional_reserved
+            product_available = max(0, product_total - product_reserved)
+            product_containers_per_case = max(1, int(option["containersPerCase"] or 1))
+            product_is_case = str(option["unit"] or "").strip().lower() == "case"
+            product_available_units = product_available // product_containers_per_case if product_is_case else product_available
+            product_reserved_units = product_reserved // product_containers_per_case if product_is_case else product_reserved
+            product_deposit_per_unit = float(option["caseDepositAmount"] if product_is_case else option["depositAmount"])
+            product_balances.append({
+                **option,
+                "productId": product_id,
+                "productName": option["name"],
+                "productLabel": option["label"],
+                "bottlesTotalOnRecord": product_total,
+                "bottlesAvailable": product_available,
+                "bottlesReserved": product_reserved,
+                "availableQuantity": product_available_units,
+                "reservedQuantity": product_reserved_units,
+                "depositPerUnit": product_deposit_per_unit,
+                "depositAvailable": float(product_available_units * product_deposit_per_unit),
+                "depositReserved": float(product_reserved_units * product_deposit_per_unit),
+            })
 
         serialized.append({
             "containerTypeId": balance.container_type_id,
@@ -235,6 +358,7 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             "productNames": prod_names,
             "productIds": [str(product.id) for product in exact_products],
             "productOptions": product_options,
+            "productBalances": product_balances,
             # Exact stored product names and sizes for the customer portal.
             "productLabel": " · ".join(product_labels) if product_labels else None,
             "productLabels": product_labels,
@@ -254,6 +378,7 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             "casesTotalOnRecord": cases_total,
             "looseBottlesOutstanding": loose_bottles_available,
             "caseDepositAmount": case_deposit,
+            "unit": "case" if counts_by_case else "bottle",
             "depositBalance": deposit_available,
             "depositBalanceTotal": float(balance.deposit_balance),
             "bottlesReturnedTotal": balance.bottles_returned_total,
@@ -299,7 +424,7 @@ def calculate_deposit_for_order_item(
     """
     product_spec = category_spec(product.category)
     # Alcohol uses glass packaging but is completely excluded from deposit accounting.
-    if product_spec and product_spec["depositExempt"]:
+    if product_spec and not product_spec["depositAllowed"]:
         return {
             "is_returnable": False,
             "containerTypeId": None,
@@ -371,7 +496,7 @@ def process_order_deposits(
 
     for item in order_items:
         product_spec = category_spec(getattr(getattr(item, "product", None), "category", None))
-        if product_spec and product_spec["depositExempt"]:
+        if product_spec and not product_spec["depositAllowed"]:
             continue
         if not item.is_returnable_item:
             continue

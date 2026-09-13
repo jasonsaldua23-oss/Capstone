@@ -7816,6 +7816,20 @@ def _has_duplicate_product_identity(
     return False
 
 
+def _generated_product_sku(product: Product) -> str:
+    """Build an identity SKU whose stable suffix belongs only to this product."""
+    def part(value: Any, fallback: str, length: int) -> str:
+        normalized = re.sub(r"[^A-Z0-9]", "", str(value or fallback).upper())[:length]
+        return normalized or fallback
+
+    size = str((product.sizes or [""])[0] or "")
+    suffix = part(product.id, secrets.token_hex(3).upper(), 25)[-5:]
+    candidate = f"{part(product.name, 'PRD', 4)}-{part(product.unit, 'UNT', 3)}-{part(size, 'SIZE', 4)}-{suffix}"
+    if not Product.objects.exclude(id=product.id).filter(sku=candidate).exists():
+        return candidate
+    return f"{candidate}-{secrets.token_hex(2).upper()}"
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def products_collection(request: HttpRequest) -> JsonResponse:
@@ -7884,7 +7898,7 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 row["baseUnitPrice"] = 0.0
 
             pkg = packaging_by_product.get(product.id)
-            if pkg:
+            if pkg and _is_returnable_product(product):
                 row["packagingType"] = "RETURNABLE" if pkg.is_returnable else "NON_RETURNABLE"
                 row["containerTypeId"] = pkg.container_type_id
                 row["containerTypeName"] = pkg.container_type.name if pkg.container_type else None
@@ -7899,6 +7913,13 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 row["containersPerCase"] = pkg_obj.containers_per_case
                 row["depositAmount"] = float(pkg_obj.deposit_amount)
                 row["caseDepositAmount"] = float(pkg_obj.case_deposit_amount)
+            else:
+                # Category rules are authoritative when legacy packaging data conflicts.
+                row["packagingType"] = "NON_RETURNABLE"
+                row["containerTypeId"] = None
+                row["containerTypeName"] = None
+                row["depositAmount"] = 0.0
+                row["caseDepositAmount"] = 0.0
 
             products_out.append(row)
 
@@ -8132,6 +8153,11 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         return _ok({"success": True, "product": _serialize_model(prod)})
     previous_name = str(prod.name or "").strip()
     previous_sku = str(prod.sku or "").strip()
+    previous_identity = (
+        previous_name.casefold(),
+        str(prod.unit or "").strip().casefold(),
+        tuple(str(value or "").strip().casefold() for value in (prod.sizes or [])),
+    )
     body = _json_body(request)
     requested_warehouse_id = str(body.get("warehouseId") or "").strip()
     if requested_warehouse_id:
@@ -8149,7 +8175,7 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
             return _err(str(exc), 400)
     if "quantityPerCase" in body or "quantityPerUnit" in body:
         prod.quantity_per_unit = _int(body.get("quantityPerCase", body.get("quantityPerUnit")), 0) or None
-    mapping = [("sku", "sku"), ("name", "name"), ("imageUrl", "image_url"), ("price", "price")]
+    mapping = [("name", "name"), ("imageUrl", "image_url"), ("price", "price")]
     for key, attr in mapping:
         if key in body:
             setattr(prod, attr, body.get(key))
@@ -8160,6 +8186,17 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         if not isinstance(raw_sizes, list):
             return _err("sizes must be an array", 400)
         prod.sizes = [str(value).strip() for value in raw_sizes if str(value).strip()]
+    current_identity = (
+        str(prod.name or "").strip().casefold(),
+        str(prod.unit or "").strip().casefold(),
+        tuple(str(value or "").strip().casefold() for value in (prod.sizes or [])),
+    )
+    if current_identity != previous_identity:
+        # Fix: identity edits always regenerate the SKU from the saved name,
+        # order format, and size, even if a client submits the previous SKU.
+        prod.sku = _generated_product_sku(prod)
+    elif "sku" in body:
+        prod.sku = str(body.get("sku") or "").strip()
     # Exclude the current row so unchanged edits remain valid, while changing a
     # product into another existing name/size/category combination is rejected.
     if _has_duplicate_product_identity(
@@ -8201,8 +8238,12 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
             # Zero the stored amounts rather than tearing down packaging records,
             # which historical orders and bottle balances still reference.
             ProductPackaging.objects.filter(product=prod, is_active=True).update(
-                deposit_amount=Decimal("0.00"), case_deposit_amount=Decimal("0.00")
+                is_returnable=False,
+                deposit_amount=Decimal("0.00"),
+                case_deposit_amount=Decimal("0.00"),
             )
+            prod.packaging_type = "NON_RETURNABLE"
+            prod.save(update_fields=["packaging_type", "updated_at"])
         elif bottle_deposit is not None or case_deposit is not None:
             pkg_obj, ct_obj = _get_or_create_product_packaging(prod)
             updated_fields: list[str] = []
@@ -10217,6 +10258,27 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             )
         except Exception:
             logger.exception("Failed to notify staff for committed order %s", order.id)
+        # Notify the customer when the bulk-order discount (>=50 cases/packs) is applied.
+        if discount > 0 and discount_breakdown.get("option", DISCOUNT_NO) != DISCOUNT_NO:
+            try:
+                _discount_percent = float(discount_breakdown.get("percent") or 0)
+                _cases_affected = int(discount_breakdown.get("casesAffected") or 0)
+                _discount_name = str(discount_breakdown.get("name") or "Discount").strip()
+                _create_customer_notification(
+                    customer=customer,
+                    title="Bulk order discount applied! 🎉",
+                    message=(
+                        f"Your order {order.order_number} qualifies for a {_discount_percent:g}% discount "
+                        f"({_discount_name}) because it includes {_cases_affected} case(s)/pack(s) "
+                        "meeting the 50-case minimum. "
+                        f"You saved ₱{discount:,.2f} on this order."
+                    ),
+                    notification_type="ORDER",
+                    reference_type="order",
+                    reference_id=order.id,
+                )
+            except Exception:
+                logger.exception("Failed to send discount notification for order %s", order.id)
         return _ok({"success": True, "duplicate": False, "order": _serialize_order(order)}, 201)
     staff, err = _require_staff(request)
     if err:
@@ -14148,6 +14210,11 @@ def _coerce_deposit_amount(value: Any) -> tuple[float | None, str | None]:
 def _is_returnable_product(product: Product) -> bool:
     if not product:
         return False
+    product_spec = category_spec(product.category)
+    # Fix: only categories explicitly configured for glass deposits are eligible,
+    # even if stale product or packaging flags still say RETURNABLE.
+    if product_spec and not product_spec["depositAllowed"]:
+        return False
     if product.packaging_type == "RETURNABLE":
         return True
     cat = str(product.category or "").strip().lower()
@@ -14228,6 +14295,7 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
     # Group purchased containers by product. Mixed-case components have no product
     # on the parent order item, so include each component's actual bottle quantity.
     purchased_bottles_by_product: dict[str, int] = {}
+    purchased_units_by_product: dict[str, set[str]] = {}
     for item in order_items:
         if item.item_type == OrderItemType.MIXED_CASE:
             for component in item.mixed_case_components.select_related("product").all():
@@ -14238,6 +14306,7 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
                     purchased_bottles_by_product.get(product.id, 0)
                     + max(0, _int(component.total_base_units, 0))
                 )
+                purchased_units_by_product.setdefault(product.id, set()).add("bottle")
             continue
         prod = item.product
         if not prod or not prod.is_active or not _is_returnable_product(prod):
@@ -14245,6 +14314,7 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
         pkg, _ = _get_or_create_product_packaging(prod)
         containers_per_case = pkg.containers_per_case or (prod.quantity_per_unit or 24)
         item_unit = str(getattr(item, "product_unit", "") or getattr(item, "unit", "") or getattr(prod, "unit", "") or "").strip().lower()
+        purchased_units_by_product.setdefault(prod.id, set()).add("case" if item_unit == "case" else "bottle")
         quantity_bottles = item.quantity * containers_per_case if item_unit == "case" else item.quantity
         purchased_bottles_by_product[prod.id] = purchased_bottles_by_product.get(prod.id, 0) + max(0, quantity_bottles)
 
@@ -14274,7 +14344,12 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
         currently_held_bottles = recorded_by_product.get(str(prod_id), 0)
         available_bottles = max(0, total_bottles_ordered - currently_held_bottles)
         available_cases, available_loose_bottles = divmod(available_bottles, max(1, containers_per_case))
-        if available_bottles > 0:
+        purchased_units = purchased_units_by_product.get(prod_id, set())
+        return_unit = "bottle" if purchased_units == {"bottle"} else (
+            "case" if str(product.unit or "").strip().lower() == "case" else "bottle"
+        )
+        available_return_quantity = available_cases if return_unit == "case" else available_bottles
+        if available_return_quantity > 0:
             eligible_items.append({
                 "productId": product.id,
                 "productName": product.name,
@@ -14282,6 +14357,8 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
                 "category": product.category,
                 "containerTypeId": container_type.id,
                 "containerTypeName": container_type.name,
+                # Fix: recording controls must follow how this product was packaged.
+                "unit": return_unit,
                 "containersPerCase": containers_per_case,
                 "unitDeposit": unit_deposit,
                 "caseDeposit": case_deposit,
@@ -14388,6 +14465,10 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
         balance.last_return_at = timezone.now()
         balance.save()
 
+        recorded_label = " and ".join([
+            *([f"{cases} empty case(s)"] if cases > 0 else []),
+            *([f"{loose_bottles} empty bottle(s)"] if loose_bottles > 0 else []),
+        ])
         DepositTransaction.objects.create(
             customer=customer,
             type=DepositTransaction.TransactionType.ADJUSTMENT,
@@ -14396,7 +14477,7 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
             balance_after=balance.deposit_balance,
             container_type=container_type,
             container_count=added_bottles,
-            reason=f"Customer declared {cases} empty case(s) and {loose_bottles} loose bottle(s) of {product.name}",
+            reason=f"Customer declared {recorded_label} of {product.name}",
             # Fix: preserve the exact product behind this container-level balance.
             reference_type="product",
             reference_id=product.id,
@@ -14406,7 +14487,7 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
     updated_customer = Customer.objects.get(id=customer.id)
     return _ok({
         "success": True,
-        "message": f"Successfully recorded {cases} case(s) and {loose_bottles} loose bottle(s) of {product.name}.",
+        "message": f"Successfully recorded {recorded_label} of {product.name}.",
         "user": _customer_payload(updated_customer),
     })
 
