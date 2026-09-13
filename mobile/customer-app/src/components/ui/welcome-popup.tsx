@@ -1,5 +1,4 @@
-// Mirrors src/components/portals/shared/welcome-popup.tsx as the customer portal
-// configures it: emerald panel, slate title, close button in the corner.
+// Mirrors the flat, neutral welcome surface used by every web portal.
 import { X } from "lucide-react-native";
 import React from "react";
 import { Modal, Pressable, Text, View } from "react-native";
@@ -34,7 +33,7 @@ export function WelcomePopup({
               accessibilityLabel="Close welcome popup"
               hitSlop={8}
             >
-              <X size={16} color={theme.colors.emeraldDark} />
+              <X size={16} color={theme.colors.slate600} />
             </Pressable>
           </View>
         </View>

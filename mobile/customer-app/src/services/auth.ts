@@ -9,7 +9,7 @@ import type {
   EligibleEmptyItem,
   Product,
 } from "../types";
-import { MAIL_REQUEST_TIMEOUT_MS, apiRequest } from "./api";
+import { ApiError, MAIL_REQUEST_TIMEOUT_MS, apiRequest } from "./api";
 
 const TOKEN_KEY = "customer_auth_token";
 const USER_KEY = "customer_auth_user";
@@ -20,6 +20,17 @@ interface LoginResponse {
   user: CustomerUser;
   token: string;
 }
+
+type LoginChallengeResponse = {
+  success: false;
+  requiresTwoFactor: true;
+  challengeToken: string;
+  message?: string;
+};
+
+export type CustomerLoginResult =
+  | { status: "AUTHENTICATED"; user: CustomerUser }
+  | { status: "OTP_REQUIRED"; challengeToken: string; message: string };
 
 interface EmailVerificationResponse {
   success: boolean;
@@ -184,15 +195,28 @@ function toCustomerFeedbackItem(payload: FeedbackItemResponse): CustomerFeedback
   };
 }
 
-export async function login(email: string, password: string, rememberMe = true): Promise<CustomerUser> {
-  const data = await apiRequest<LoginResponse>("/api/auth/customer/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password, rememberMe }),
-  });
-  await AsyncStorage.setItem(TOKEN_KEY, data.token);
-  await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
-  await AsyncStorage.setItem(REMEMBER_ME_KEY, rememberMe ? "true" : "false");
-  return data.user;
+export async function login(email: string, password: string, rememberMe = true): Promise<CustomerLoginResult> {
+  try {
+    const data = await apiRequest<LoginResponse>("/api/auth/customer/login", {
+      method: "POST",
+      timeoutMs: MAIL_REQUEST_TIMEOUT_MS,
+      body: JSON.stringify({ email, password, rememberMe }),
+    });
+    const user = await persistAuthenticatedSession(data, rememberMe);
+    return { status: "AUTHENTICATED", user };
+  } catch (error) {
+    // Fix: apiRequest correctly rejects success:false responses, but HTTP 202 is the
+    // expected intermediate result for a 2FA-enabled customer.
+    const payload = error instanceof ApiError ? error.payload as Partial<LoginChallengeResponse> | null : null;
+    if (error instanceof ApiError && error.status === 202 && payload?.requiresTwoFactor && payload.challengeToken) {
+      return {
+        status: "OTP_REQUIRED",
+        challengeToken: payload.challengeToken,
+        message: String(payload.message || "Verification code sent to your email"),
+      };
+    }
+    throw error;
+  }
 }
 
 async function persistAuthenticatedSession(data: LoginResponse, rememberMe: boolean): Promise<CustomerUser> {
@@ -200,6 +224,18 @@ async function persistAuthenticatedSession(data: LoginResponse, rememberMe: bool
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
   await AsyncStorage.setItem(REMEMBER_ME_KEY, rememberMe ? "true" : "false");
   return data.user;
+}
+
+export async function verifyLoginOtp(
+  challengeToken: string,
+  otp: string,
+  rememberMe: boolean
+): Promise<CustomerUser> {
+  const data = await apiRequest<LoginResponse>("/api/auth/login/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ challengeToken, otp }),
+  });
+  return persistAuthenticatedSession(data, rememberMe);
 }
 
 export async function requestEmailVerification(email: string): Promise<void> {

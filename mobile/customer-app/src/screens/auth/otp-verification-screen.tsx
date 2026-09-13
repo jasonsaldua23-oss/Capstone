@@ -27,6 +27,7 @@ type OtpVerificationScreenProps = {
   error?: string | null;
   /** Bumped by the caller each time a code is sent, to restart both countdowns. */
   sentAt?: number;
+  backLabel?: string;
 };
 
 export function OtpVerificationScreen({
@@ -40,6 +41,7 @@ export function OtpVerificationScreen({
   resending = false,
   error,
   sentAt = 0,
+  backLabel = "Back to sign up",
 }: OtpVerificationScreenProps) {
   const [expiresIn, setExpiresIn] = useState(OTP_EXPIRY_SECONDS);
   const [resendIn, setResendIn] = useState(OTP_RESEND_COOLDOWN_SECONDS);
@@ -176,7 +178,7 @@ export function OtpVerificationScreen({
           </Pressable>
 
           <Pressable onPress={onBack} accessibilityRole="button">
-            <Text style={styles.otpScreenCancel}>Back to sign up</Text>
+            <Text style={styles.otpScreenCancel}>{backLabel}</Text>
           </Pressable>
         </View>
       </ScrollView>

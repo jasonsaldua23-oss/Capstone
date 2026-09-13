@@ -110,10 +110,10 @@ export function CustomerHomeView({
         subtitle="Place your order and we will deliver it to your store."
         onClose={() => setShowWelcomePopup(false)}
         overlayClassName="bg-black/70"
-        panelClassName="border-emerald-200 bg-[#eaf8f1]"
+        panelClassName="border-slate-200 bg-white"
         titleClassName="text-slate-900"
         subtitleClassName="text-slate-600"
-        buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+        buttonClassName="bg-slate-100 text-slate-600 hover:bg-slate-200"
       />
       <div className="grid gap-4 px-3 pt-3 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-3">

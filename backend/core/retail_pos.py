@@ -595,12 +595,16 @@ def _resolve_retail_customer(payload: dict[str, Any]) -> tuple[Customer | None, 
     if customer_type != "WALK_IN":
         raise ValueError("customerType must be EXISTING or WALK_IN")
     walk_in = payload.get("walkIn") if isinstance(payload.get("walkIn"), dict) else {}
+    name = str(walk_in.get("name") or "").strip()
+    if re.search(r"\d", name):
+        # Fix: direct retail API calls cannot save numeric walk-in customer names.
+        raise ValueError("Names cannot contain numbers.")
     contact = re.sub(r"\D", "", str(walk_in.get("contactNumber") or ""))
     # Added: enforce the same Philippine mobile formats used by other profiles.
     if not re.fullmatch(r"(?:09\d{9}|63\d{10})", contact):
         raise ValueError("Please enter a valid Philippine mobile number")
     return None, {
-        "name": str(walk_in.get("name") or "").strip() or None,
+        "name": name or None,
         "contact": contact,
         "notes": str(walk_in.get("notes") or "").strip() or None,
     }

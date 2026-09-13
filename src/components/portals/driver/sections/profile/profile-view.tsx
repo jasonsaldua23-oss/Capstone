@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PortalProfileSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
-import { formatFullName, splitFullName } from '@/lib/person-name'
+import { formatFullName, splitFullName, validatePersonName } from '@/lib/person-name'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Bell, ChevronRight, FileText, Loader2, LogOut, PencilLine, ShieldCheck, Camera, Lock, HelpCircle, MessageSquare, Info, ArrowLeft, KeyRound, Phone } from 'lucide-react'
@@ -404,6 +404,14 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   const onSave = async (mode: 'profile' | 'license' = 'profile') => {
     if (mode === 'profile' && (!draft.firstName.trim() || !draft.lastName.trim())) {
       toast.error('Name is required')
+      return
+    }
+    const nameError = mode === 'profile'
+      ? validatePersonName(draft.firstName, draft.middleName, draft.lastName, draft.suffix)
+      : null
+    if (nameError) {
+      // Fix: reject numeric driver profile names before saving.
+      toast.error(nameError)
       return
     }
     if (mode === 'profile' && !/^[^\s@]+@gmail\.com$/i.test(draft.email.trim())) {
@@ -1581,12 +1589,9 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               <h3 className="text-xl font-bold text-[#17365d] truncate">
                 {formatFullName(form.firstName, form.middleName, form.lastName, form.suffix, form.name || 'Driver')}
               </h3>
-              <p className="text-sm text-[#5f7390] truncate">
-                {[form.firstName, form.middleName ? `${form.middleName.replace(/\.+$/, '').charAt(0).toUpperCase()}.` : '', form.lastName, form.suffix].filter(Boolean).join(' ') || 'Name details not set'}
-              </p>
               <p className="text-sm text-[#5f7390] truncate mt-0.5">{form.email}</p>
-              {/* Show the driver's saved contact number in the same profile position used by customers. */}
-              <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#e0f2fe] px-2.5 py-0.5 text-xs font-semibold text-[#0369a1]">
+              {/* Design: present contact information as neutral text without a decorative pill. */}
+              <span className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-slate-500">
                 <Phone className="h-3 w-3" />
                 {form.phone || 'No phone number'}
               </span>

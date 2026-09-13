@@ -243,7 +243,7 @@ export function PurchaseRequestsScreen() {
                     <Text style={styles.listCardMetaStrong}>+{formatPeso(depositTotal)}</Text>
                   </View>
                 ) : null}
-                <Text style={styles.listCardSectionLabel}>Estimated Total</Text>
+                <Text style={styles.listCardSectionLabel}>Total Amount</Text>
                 <Text style={styles.listCardTotal}>{formatPeso(Number(o.totalAmount || 0))}</Text>
                 <Text style={styles.listCardStatusCaption}>{text.label}</Text>
 

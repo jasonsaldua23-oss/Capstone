@@ -1,6 +1,7 @@
 'use client'
 
 import { LoginSuccess } from '@/components/shared/login-success'
+import { OtpVerificationModal } from '@/components/shared/otp-verification-modal'
 import { retryingApiRead } from '@/lib/retrying-api-read'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -27,6 +28,8 @@ export function WarehouseLoginPage() {
   const [loginError, setLoginError] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [isLoginOtpOpen, setIsLoginOtpOpen] = useState(false)
+  const [loginChallengeToken, setLoginChallengeToken] = useState('')
 
   const persistWarehouseWelcomeState = (userData: any) => {
     if (typeof window === 'undefined') return
@@ -107,6 +110,14 @@ export function WarehouseLoginPage() {
         data = null
       }
 
+      // Fix: HTTP 202 is a valid first step when warehouse 2FA is enabled.
+      if (response.status === 202 && data?.requiresTwoFactor && data?.challengeToken) {
+        setLoginChallengeToken(String(data.challengeToken))
+        setIsLoginOtpOpen(true)
+        toast.success(data?.message || 'Verification code sent')
+        return
+      }
+
       if (!response.ok || !data?.success || !data?.user) {
         const apiError = String(data?.error || data?.message || '').trim()
         const normalizedApiError = apiError.toLowerCase()
@@ -147,6 +158,47 @@ export function WarehouseLoginPage() {
     }
   }
 
+  const verifyLoginOtp = async (otp: string) => {
+    const response = await fetch('/api/auth/login/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken: loginChallengeToken, otp }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data?.success || !data?.user) {
+      toast.error(data?.error || 'Invalid or expired verification code')
+      return false
+    }
+    if (resolvePortalFromUser(data.user) !== 'warehouse') {
+      if (data.token) clearTabAuthToken()
+      await fetch('/api/auth/logout', { method: 'POST' })
+      toast.error('This account cannot access the warehouse portal.')
+      return false
+    }
+
+    persistWarehouseWelcomeState(data.user)
+    if (data.token) setTabAuthToken(data.token, { persistent: rememberMe })
+    setLoginSucceeded(true)
+    sessionStorage.setItem('login-success-pending', 'warehouse')
+    router.replace('/warehouse')
+    return true
+  }
+
+  const resendLoginOtp = async () => {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, rememberMe, portal: 'warehouse' }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (response.status === 202 && data?.challengeToken) {
+      setLoginChallengeToken(String(data.challengeToken))
+      return true
+    }
+    toast.error(data?.error || 'Failed to resend verification code')
+    return false
+  }
+
   // Show confirmation only after the API has authenticated this account.
   if (loginSucceeded) return <LoginSuccess />
 
@@ -167,6 +219,14 @@ export function WarehouseLoginPage() {
       style={{ backgroundImage: "url('/customer-login-bg.png')" }}
     >
       <Toaster position="top-right" />
+      <OtpVerificationModal
+        open={isLoginOtpOpen}
+        onOpenChange={setIsLoginOtpOpen}
+        email={email.trim().toLowerCase()}
+        onVerify={verifyLoginOtp}
+        onResendCode={resendLoginOtp}
+        theme="blue"
+      />
       <Card className="w-full max-w-[420px] rounded-[24px] border border-[#dce3ec] bg-white/95 shadow-[0_16px_42px_rgba(15,23,42,0.14)] backdrop-blur-sm">
         <CardHeader className="space-y-2 pb-0 pt-6">
           <div className="mx-auto flex h-[112px] w-[112px] items-center justify-center overflow-hidden">

@@ -38,6 +38,7 @@ import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, Check
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import { validatePasswordPolicy } from '@/lib/password-policy'
+import { validatePersonName } from '@/lib/person-name'
 import {
   toArray,
   getCollection,
@@ -173,6 +174,14 @@ export function DriversView() {
   }
 
   const createDriver = async () => {
+    if (driverForm.mode === 'new') {
+      const nameError = validatePersonName(driverForm.name)
+      if (nameError) {
+        // Fix: reject numeric names in the standalone driver creation form.
+        toast.error(nameError)
+        return
+      }
+    }
     const rawLic = driverForm.licenseNumber.trim()
     if (!rawLic) {
       toast.error('License number is required')

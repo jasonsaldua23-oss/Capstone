@@ -356,7 +356,8 @@ export function WarehouseOrdersView({
                                 variant="outline"
                                 className="border-blue-200 text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                                 disabled={updatingOrderId === order.id || isAssignedToDelivery}
-                                onClick={() => setActionState({ order, action: 'assign' })}
+                                // Fix: assignment starts in Transportation > Trips, so skip the extra confirmation step.
+                                onClick={onOpenTransportation}
                                 title={isAssignedToDelivery ? 'Order is already assigned to a delivery trip' : undefined}
                               >
                                 {isAssignedToDelivery ? 'Assigned' : 'Assign Delivery'}

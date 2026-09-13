@@ -848,6 +848,12 @@ export default function App() {
   }
 
   async function handleSaveProfile() {
+    const nameError = validatePersonName(profileForm.firstName, profileForm.middleName, profileForm.lastName, profileForm.suffix);
+    if (nameError) {
+      // Fix: reject numeric driver names before the mobile app submits them.
+      setError(nameError);
+      return;
+    }
     setSavingProfile(true);
     setError(null);
     try {
@@ -1701,12 +1707,11 @@ export default function App() {
                     </View>
                   </View>
                   <View style={styles.summaryContent}>
-                    <Text style={styles.summaryName}>{profile?.name || user.name || ""}</Text>
-                    <Text style={styles.summaryMeta}>{compactDriverName(profile)}</Text>
+                    <Text style={styles.summaryName}>{formatDriverFullName(profile, user)}</Text>
                     <Text style={styles.summaryMeta}>{profile?.email || user.email || ""}</Text>
                     {profile?.phone || user.phone ? (
                       <View style={styles.phonePill}>
-                        <Ionicons name="call" size={12} color="#0369a1" />
+                        <Ionicons name="call" size={12} color="#5f7390" />
                         <Text style={styles.phonePillText}>{profile?.phone || user.phone}</Text>
                       </View>
                     ) : null}
@@ -3177,12 +3182,6 @@ function getInitials(value: string) {
   return parts.map((part) => part[0]?.toUpperCase() || "").join("");
 }
 
-function compactDriverName(profile: DriverProfile | null): string {
-  if (!profile) return "Name details not set";
-  const middleInitial = String(profile.middleName || "").replace(/\.+$/, "").charAt(0).toUpperCase();
-  return [profile.firstName, middleInitial ? `${middleInitial}.` : "", profile.lastName, profile.suffix].filter(Boolean).join(" ") || "Name details not set";
-}
-
 function productNameWithSize(name: string, size?: string | null): string {
   const cleanName = String(name || "Product").trim();
   const cleanSize = String(size || "").trim();
@@ -3235,6 +3234,10 @@ function validatePasswordPolicy(nextPassword: string) {
   if (!/\d/.test(nextPassword)) return "Password must include at least one number.";
   if (!/[^A-Za-z0-9\s]/.test(nextPassword)) return "Password must include at least one special character.";
   return null;
+}
+
+function validatePersonName(...values: Array<string | null | undefined>) {
+  return values.some((value) => /\d/.test(String(value || ""))) ? "Names cannot contain numbers." : null;
 }
 
 const styles = StyleSheet.create({
@@ -3631,8 +3634,9 @@ const styles = StyleSheet.create({
   verificationBody: { color: "#334155", fontSize: 13, lineHeight: 18, fontFamily: "Poppins_400Regular" },
   // --- Profile ---
   sectionHeading: { color: "#0f172a", fontSize: 14, fontFamily: "Poppins_700Bold" },
-  phonePill: { marginTop: 6, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, backgroundColor: "#e0f2fe", paddingHorizontal: 10, paddingVertical: 4 },
-  phonePillText: { color: "#0369a1", fontSize: 12, fontFamily: "Poppins_600SemiBold" },
+  // Design: keep the phone number as neutral profile metadata, not a colored pill.
+  phonePill: { marginTop: 6, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5 },
+  phonePillText: { color: "#5f7390", fontSize: 12, fontFamily: "Poppins_500Medium" },
   fieldLabel: { color: "#334155", fontSize: 13, fontFamily: "Poppins_600SemiBold" },
   passwordRules: { borderRadius: 16, borderWidth: 1, borderColor: "#f1f5f9", backgroundColor: "#f8fafc", padding: 12, gap: 6 },
   passwordRulesTitle: { color: "#94a3b8", fontSize: 10, letterSpacing: 0.8, fontFamily: "Poppins_700Bold", textTransform: "uppercase" },

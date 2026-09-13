@@ -35,6 +35,13 @@ export function AuthScreen() {
     setError,
     rememberMe,
     setRememberMe,
+    loginOtpVisible,
+    setLoginOtpVisible,
+    loginOtp,
+    setLoginOtp,
+    loginOtpSentAt,
+    verifyingLoginOtp,
+    resendingLoginOtp,
     orders,
     securityForm,
     setSecurityForm,
@@ -45,6 +52,8 @@ export function AuthScreen() {
     otpVerified,
     setOtpVerified,
     handleLogin,
+    handleVerifyLoginOtp,
+    handleResendLoginOtp,
     handleGoogleCredential,
     handleRequestRegistrationOtp,
     handleVerifyRegistrationOtp,
@@ -78,6 +87,28 @@ export function AuthScreen() {
   useEffect(() => {
     if (emailVerificationToken) setOtpPageVisible(false);
   }, [emailVerificationToken]);
+
+  if (loginOtpVisible) {
+    return (
+      <OtpVerificationScreen
+        email={email.trim().toLowerCase()}
+        value={loginOtp}
+        onChange={setLoginOtp}
+        onVerify={handleVerifyLoginOtp}
+        onResend={handleResendLoginOtp}
+        onBack={() => {
+          setLoginOtpVisible(false);
+          setLoginOtp("");
+          setError(null);
+        }}
+        verifying={verifyingLoginOtp}
+        resending={resendingLoginOtp}
+        error={error}
+        sentAt={loginOtpSentAt}
+        backLabel="Cancel"
+      />
+    );
+  }
 
 
   // A page, not a modal: it takes over the screen and Back returns to the form.
@@ -252,7 +283,7 @@ export function AuthScreen() {
         </ScrollView>
         <ModalShell
           visible={forgotPasswordVisible}
-          title="Reset Password"
+          title="Set a new password"
           onClose={() => {
             setForgotPasswordVisible(false);
             resetSecurityState();
@@ -273,7 +304,7 @@ export function AuthScreen() {
             <Pressable style={styles.secondaryButtonCompact} onPress={handleRequestOtp} disabled={sendingOtp}>
               {/* Resend once a code is outstanding — the label keyed off otpVerified, so it
                   read "Send" for a code already sent and "Resend" only after verifying. */}
-              <Text style={styles.secondaryButtonText}>{sendingOtp ? "Sending..." : otpExpiry > 0 ? "Resend Verification OTP" : "Send Verification OTP"}</Text>
+              <Text style={styles.secondaryButtonText}>{sendingOtp ? "Sending..." : otpExpiry > 0 ? "Resend Verification OTP" : "Request Verification OTP"}</Text>
             </Pressable>
           </View>
           <Pressable style={styles.modalOutlineButton} onPress={handleVerifyOtp} disabled={verifyingOtp || securityForm.otp.length !== 6}>
@@ -283,7 +314,7 @@ export function AuthScreen() {
           <TextInput style={styles.input} value={securityForm.confirmPassword} onChangeText={(value) => setSecurityForm((current) => ({ ...current, confirmPassword: value }))} secureTextEntry placeholder="Confirm password" />
           {!!error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable style={[styles.primaryButton, !otpVerified || resettingPassword ? styles.disabledButton : null]} onPress={handleChangePassword} disabled={!otpVerified || resettingPassword}>
-            <Text style={styles.primaryButtonText}>{resettingPassword ? "Updating..." : "Reset Password"}</Text>
+            <Text style={styles.primaryButtonText}>{resettingPassword ? "Updating..." : "Save new password"}</Text>
           </Pressable>
         </ModalShell>
       </ImageBackground>

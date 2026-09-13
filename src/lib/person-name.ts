@@ -2,6 +2,15 @@
 // backend/core/views_api.py, which recomputes User.name from the structured fields
 // whenever any of them is saved — so a screen that edits a person's name must edit
 // first/middle/last/suffix, never the flat display name, or the two drift apart.
+export const PERSON_NAME_NUMBER_ERROR = 'Names cannot contain numbers.'
+
+/** Reject numeric characters in any user-entered person-name field. */
+export function validatePersonName(...values: Array<string | null | undefined>): string | null {
+  return values.some((value) => /\d/.test(String(value || '')))
+    ? PERSON_NAME_NUMBER_ERROR
+    : null
+}
+
 export function formatFullName(
   firstName?: string | null,
   middleName?: string | null,

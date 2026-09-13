@@ -2228,11 +2228,9 @@ export function CustomerProfileView({
           <h3 className="text-xl font-bold text-slate-900 truncate">
             {formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName || user?.name || '')}
           </h3>
-          <p className="text-sm text-slate-500 truncate">
-            {[profileFirstName, profileMiddleName ? `${profileMiddleName.replace(/\.+$/, '').charAt(0).toUpperCase()}.` : '', profileLastName, profileSuffix].filter(Boolean).join(' ') || 'Name details not set'}
-          </p>
           <p className="text-sm text-slate-500 truncate mt-0.5">{profileEmail || user?.email || ''}</p>
-          <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#eef8f2] px-2.5 py-0.5 text-xs font-semibold text-[#14532d]">
+          {/* Design: present contact information as neutral text without a decorative pill. */}
+          <span className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-slate-500">
             <Phone className="h-3 w-3" />
             {profilePhone || user?.phone || user?.contactNumber || user?.mobile || 'No phone number'}
           </span>

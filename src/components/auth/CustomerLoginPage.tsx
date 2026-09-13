@@ -9,6 +9,7 @@ import Script from 'next/script'
 import { getTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
 import { isNativeApp } from '@/lib/native/platform'
 import { validatePasswordPolicy, PASSWORD_POLICY_MESSAGE } from '@/lib/password-policy'
+import { validatePersonName } from '@/lib/person-name'
 import { forgotPasswordHref, resolvePortalFromUser } from '@/components/auth/portal-auth-utils'
 import { homePathForPortal } from '@/lib/portal-scope'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -50,6 +51,7 @@ export function CustomerLoginPage() {
   const [firstName, setFirstName] = useState('')
   const [middleName, setMiddleName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [suffix, setSuffix] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -372,12 +374,18 @@ export function CustomerLoginPage() {
       return
     }
 
-    if (!firstName.trim() || !lastName.trim()) {
-      toast.error('Please enter your first and last name.')
+    if (!firstName.trim() || !middleName.trim() || !lastName.trim()) {
+      toast.error('Please enter your first, middle, and last name.')
+      return
+    }
+    const nameError = validatePersonName(firstName, middleName, lastName, suffix)
+    if (nameError) {
+      // Fix: reject numeric name parts before customer registration reaches the API.
+      toast.error(nameError)
       return
     }
 
-    const fullName = [firstName.trim(), middleName.trim(), lastName.trim()].filter(Boolean).join(' ')
+    const fullName = [firstName.trim(), middleName.trim(), lastName.trim(), suffix.trim()].filter(Boolean).join(' ')
 
     setIsLoading(true)
 
@@ -389,6 +397,7 @@ export function CustomerLoginPage() {
           firstName: firstName.trim(),
           middleName: middleName.trim(),
           lastName: lastName.trim(),
+          suffix: suffix.trim() || null,
           name: fullName,
           email,
           password,
@@ -641,6 +650,7 @@ export function CustomerLoginPage() {
               </form>
             ) : (
               <form key="customer-register-form" onSubmit={handleRegister} autoComplete="off" className="space-y-2.5 sm:space-y-4">
+                {/* Updated: neutral, flat input surfaces keep registration formal and reserve green for focus states. */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
                   <div className="space-y-1 sm:space-y-1.5">
                     <Label htmlFor="reg-first-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
@@ -653,7 +663,7 @@ export function CustomerLoginPage() {
                       onChange={(e) => setFirstName(e.target.value)}
                       placeholder="e.g. Juan"
                       required
-                      className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-11"
+                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11"
                     />
                   </div>
                   <div className="space-y-1 sm:space-y-1.5">
@@ -667,25 +677,42 @@ export function CustomerLoginPage() {
                       onChange={(e) => setLastName(e.target.value)}
                       placeholder="e.g. Dela Cruz"
                       required
-                      className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-11"
+                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11"
                     />
                   </div>
                 </div>
-                <div className="space-y-1 sm:space-y-1.5">
-                  <div className="flex items-center justify-between">
+                {/* Updated: middle name is required; suffix remains an optional structured name part. */}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2.5">
+                  <div className="space-y-1 sm:space-y-1.5">
                     <Label htmlFor="reg-middle-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
-                      Middle Name
+                      Middle Name <span className="text-red-500">*</span>
                     </Label>
-                    <span className="text-[10px] text-slate-400 font-normal">(Optional)</span>
+                    <Input
+                      id="reg-middle-name"
+                      autoComplete="additional-name"
+                      value={middleName}
+                      onChange={(e) => setMiddleName(e.target.value)}
+                      placeholder="e.g. Santos"
+                      required
+                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11"
+                    />
                   </div>
-                  <Input
-                    id="reg-middle-name"
-                    autoComplete="additional-name"
-                    value={middleName}
-                    onChange={(e) => setMiddleName(e.target.value)}
-                    placeholder="e.g. Santos"
-                    className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-11"
-                  />
+                  <div className="space-y-1 sm:space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="reg-suffix" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                        Suffix
+                      </Label>
+                      <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
+                    </div>
+                    <Input
+                      id="reg-suffix"
+                      autoComplete="honorific-suffix"
+                      value={suffix}
+                      onChange={(e) => setSuffix(e.target.value)}
+                      placeholder="e.g. Jr., Sr., III"
+                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11"
+                    />
+                  </div>
                 </div>
                 <div className="space-y-1.5 sm:space-y-2">
                   <div className="flex items-center justify-between">
@@ -712,7 +739,7 @@ export function CustomerLoginPage() {
                       }}
                       placeholder="Enter email address"
                       required
-                      className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-11 sm:text-base disabled:bg-slate-100/70 disabled:text-slate-600"
+                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11 sm:text-base disabled:bg-slate-100 disabled:text-slate-600"
                     />
                     {!emailVerified && (
                       <Button
@@ -730,7 +757,7 @@ export function CustomerLoginPage() {
                 <div className="space-y-1.5 sm:space-y-2">
                   <Label htmlFor="reg-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Password</Label>
                   <div className="relative">
-                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 pr-10 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:pr-11 sm:text-base" />
+                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-10 rounded-xl border-slate-300 bg-white pr-10 text-[15px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-12 sm:pr-11 sm:text-base" />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -747,7 +774,7 @@ export function CustomerLoginPage() {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm password"
                     required
-                    className="h-10 rounded-xl border-emerald-100 bg-emerald-50/50 px-3 text-[15px] text-slate-900 placeholder:text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] focus-visible:ring-emerald-500 sm:h-12 sm:text-base"
+                    className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[15px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-12 sm:text-base"
                   />
                   {confirmPassword && password !== confirmPassword ? (
                     <p className="text-[12px] text-red-600 sm:text-sm">Passwords do not match</p>

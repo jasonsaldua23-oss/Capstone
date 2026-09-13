@@ -102,6 +102,35 @@ test('web interceptor preserves one-shot writes and cancels outstanding reads on
   uninstall()
 })
 
+test('logout clears local credentials immediately but waits for server cookie cleanup', async () => {
+  let finishServerLogout
+  let observedRequest
+  const serverLogout = new Promise(resolve => { finishServerLogout = resolve })
+  const { client, uninstall } = loadPortal('admin', false, async (url, init) => {
+    observedRequest = { url, init }
+    await serverLogout
+    return Response.json({ success: true })
+  })
+
+  let completed = false
+  const pending = client.logoutTabAuthSession('admin').then(result => {
+    completed = true
+    return result
+  })
+  await flush()
+
+  assert.equal(client.getTabAuthToken(), null)
+  assert.equal(completed, false, 'navigation must wait for the cookie-clearing response')
+  assert.equal(observedRequest.url, '/api/auth/logout')
+  assert.equal(observedRequest.init.headers.get('Authorization'), `Bearer ${portalToken('admin')}`)
+  assert.equal(observedRequest.init.headers.get('X-Portal'), 'admin')
+
+  finishServerLogout()
+  assert.equal(await pending, true)
+  assert.equal(completed, true)
+  uninstall()
+})
+
 test('address search retries without forwarding portal credentials', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let calls = 0

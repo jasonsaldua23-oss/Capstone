@@ -44,6 +44,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
+import { validatePersonName } from '@/lib/person-name'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { getTabAuthToken } from '@/lib/client-auth'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
@@ -424,6 +425,12 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     }
     if (!walkInLastName.trim()) {
       toast.error('Last name is required for walk-in customer')
+      return false
+    }
+    const nameError = validatePersonName(walkInFirstName, walkInMiddleName, walkInLastName, walkInSuffix)
+    if (nameError) {
+      // Fix: walk-in customer names follow the same no-number rule as account names.
+      toast.error(nameError)
       return false
     }
     if (!walkInContact.trim()) {

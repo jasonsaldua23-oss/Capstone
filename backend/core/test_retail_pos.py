@@ -270,6 +270,25 @@ class RetailPosApiTests(TestCase):
         self.assertEqual(created.json()["error"], "Please enter a valid Philippine mobile number")
         self.assertFalse(Order.objects.filter(retail_request_id="invalid-phone-001").exists())
 
+    def test_walk_in_sale_rejects_numbers_in_customer_name(self):
+        payload = {
+            "warehouseId": self.warehouse.id,
+            "customerType": "WALK_IN",
+            "walkIn": {"name": "Juan 123 Dela Cruz", "contactNumber": "09171234567"},
+            "fulfillmentType": "IMMEDIATE",
+            "items": [{"mode": "LOOSE", "productId": self.product.id, "quantity": 1, "emptyBottlesProvided": 0}],
+            "amountPaid": "32.00",
+        }
+        quoted = self._post_json("/api/retail/quote", payload)
+        self.assertEqual(quoted.status_code, 200, quoted.content)
+        payload.update({"quoteToken": quoted.json()["quoteToken"], "idempotencyKey": "invalid-name-001"})
+
+        created = self._post_json("/api/retail/sales", payload)
+
+        self.assertEqual(created.status_code, 400, created.content)
+        self.assertEqual(created.json()["error"], "Names cannot contain numbers.")
+        self.assertFalse(Order.objects.filter(retail_request_id="invalid-name-001").exists())
+
     def test_pickup_reserves_then_consumes_stock_once(self):
         payload = {
             "warehouseId": self.warehouse.id,

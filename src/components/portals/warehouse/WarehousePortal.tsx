@@ -27,6 +27,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
+import { validatePersonName } from '@/lib/person-name'
 import {
   getDriverProfileCompletenessIssue as getDriverProfileIssue,
   getDriverVehicleLicenseIssue,
@@ -968,6 +969,12 @@ export function WarehousePortal() {
     }
     if (!profileFirstName.trim() || !profileLastName.trim() || !profileEmail.trim()) {
       toast.error('Name and email are required')
+      return
+    }
+    const nameError = validatePersonName(profileFirstName, profileMiddleName, profileLastName, profileSuffix)
+    if (nameError) {
+      // Fix: reject numeric warehouse-staff profile names before saving.
+      toast.error(nameError)
       return
     }
     if (!isValidPhilippinePhone(profilePhone)) {
@@ -5081,6 +5088,7 @@ export function WarehousePortal() {
             <TransportationView
               readOnly={false}
               canManageDrivers={false}
+              initialTab="trips"
               tripsContent={
                 <WarehouseTripsSection
                   loadingTrips={loadingTrips}

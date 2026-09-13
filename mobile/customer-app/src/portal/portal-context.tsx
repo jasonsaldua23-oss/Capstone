@@ -48,6 +48,7 @@ import {
   updateSecuritySetting,
   uploadCustomerAvatar,
   uploadReplacementEvidence,
+  verifyLoginOtp,
   verifyPasswordResetOtp,
   type CustomerFeedbackItem,
   type CustomerProfileUpdateInput,
@@ -65,6 +66,7 @@ import {
   localDateInput,
   normalizeOrderStatus,
   validatePasswordPolicy,
+  validatePersonName,
   withinNegrosOccidental,
 } from "../lib/customer-logic";
 import { buildReceiptHtml, formatAddress, getInitials } from "../lib/format";
@@ -194,6 +196,12 @@ function useCustomerPortalState() {
   const [verifyingEmailOtp, setVerifyingEmailOtp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(true);
+  const [loginOtpVisible, setLoginOtpVisible] = useState(false);
+  const [loginOtp, setLoginOtp] = useState("");
+  const [loginChallengeToken, setLoginChallengeToken] = useState("");
+  const [loginOtpSentAt, setLoginOtpSentAt] = useState(0);
+  const [verifyingLoginOtp, setVerifyingLoginOtp] = useState(false);
+  const [resendingLoginOtp, setResendingLoginOtp] = useState(false);
   const [user, setUser] = useState<CustomerUser | null>(null);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -554,24 +562,69 @@ function useCustomerPortalState() {
     }
   }
 
+  async function completeCustomerLogin(loggedIn: CustomerUser) {
+    setUser(loggedIn);
+    await hydrateStoredCart(loggedIn.userId);
+    await refreshData(false, loggedIn.userId, loggedIn);
+    await loadNotificationPreferences();
+    setWelcomeMode("existing");
+    // The session is open even if a follow-up portal read is slow.
+    setError(null);
+  }
+
   async function handleLogin() {
     setLoading(true);
     setError(null);
     try {
-      const loggedIn = await login(email.trim(), password, rememberMe);
-      setUser(loggedIn);
-      await hydrateStoredCart(loggedIn.userId);
-      await refreshData(false, loggedIn.userId, loggedIn);
-      await loadNotificationPreferences();
-      setWelcomeMode("existing");
-      // The session is open the moment login() resolves. A slow follow-up fetch must
-      // not leave a red failure message behind on a sign-in that actually worked -
-      // the screens below pull to refresh on their own.
-      setError(null);
+      const result = await login(email.trim(), password, rememberMe);
+      if (result.status === "OTP_REQUIRED") {
+        // Fix: show the native verification screen instead of treating 202 as failure.
+        setLoginChallengeToken(result.challengeToken);
+        setLoginOtp("");
+        setLoginOtpSentAt(Date.now());
+        setLoginOtpVisible(true);
+        return;
+      }
+      await completeCustomerLogin(result.user);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleVerifyLoginOtp() {
+    if (loginOtp.length !== 6 || !loginChallengeToken) return;
+    setVerifyingLoginOtp(true);
+    setError(null);
+    try {
+      const loggedIn = await verifyLoginOtp(loginChallengeToken, loginOtp, rememberMe);
+      setLoginOtpVisible(false);
+      await completeCustomerLogin(loggedIn);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Verification failed.");
+    } finally {
+      setVerifyingLoginOtp(false);
+    }
+  }
+
+  async function handleResendLoginOtp() {
+    setResendingLoginOtp(true);
+    setError(null);
+    try {
+      const result = await login(email.trim(), password, rememberMe);
+      if (result.status === "OTP_REQUIRED") {
+        setLoginChallengeToken(result.challengeToken);
+        setLoginOtp("");
+        setLoginOtpSentAt(Date.now());
+        return;
+      }
+      setLoginOtpVisible(false);
+      await completeCustomerLogin(result.user);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to resend verification code.");
+    } finally {
+      setResendingLoginOtp(false);
     }
   }
 
@@ -633,6 +686,8 @@ function useCustomerPortalState() {
 
   async function handleRegister() {
     if (!registration.firstName.trim() || !registration.lastName.trim()) return setError("First name and last name are required.");
+    const nameError = validatePersonName(registration.firstName, registration.middleName, registration.lastName, registration.suffix);
+    if (nameError) return setError(nameError);
     const passwordError = validatePasswordPolicy(password);
     if (passwordError) return setError(passwordError);
     if (registration.confirmPassword !== password) return setError("Passwords do not match.");
@@ -762,6 +817,8 @@ function useCustomerPortalState() {
 
   async function handlePlaceOrder() {
     if (!profile) return;
+    const shippingNameError = validatePersonName(profileForm.name, profileForm.firstName, profileForm.middleName, profileForm.lastName, profileForm.suffix);
+    if (shippingNameError) return setError(shippingNameError);
     if (!profileForm.address.trim()) return setError("Add a delivery address before checkout.");
     if (!isValidPhilippinePhone(profileForm.phone)) return setError("Enter a valid Philippine mobile number before checkout.");
     const standardCartItems = Object.entries(cart)
@@ -962,6 +1019,11 @@ function useCustomerPortalState() {
 
   async function handleSaveAddress() {
     if (!user) return;
+    const addressNameError = validatePersonName(addressForm.name || profileForm.name);
+    if (addressNameError) {
+      setError(addressNameError);
+      return;
+    }
     if (addressForm.phone.trim() && !isValidPhilippinePhone(addressForm.phone)) {
       setError("Please enter a valid Philippine mobile number (e.g., 09171234567 or 639171234567).");
       return;
@@ -1044,6 +1106,15 @@ function useCustomerPortalState() {
 
   async function handleSaveProfile() {
     if (!user) return;
+    const hasStructuredName = Boolean(profileForm.firstName || profileForm.middleName || profileForm.lastName || profileForm.suffix);
+    const nameError = hasStructuredName
+      ? validatePersonName(profileForm.firstName, profileForm.middleName, profileForm.lastName, profileForm.suffix)
+      : validatePersonName(profileForm.name);
+    if (nameError) {
+      // Fix: reject numeric customer names before the mobile app submits them.
+      setError(nameError);
+      return;
+    }
     if (profileForm.phone.trim() && !isValidPhilippinePhone(profileForm.phone)) {
       setError("Enter a valid Philippine mobile number (09XXXXXXXXX or 63XXXXXXXXXX).");
       return;
@@ -1758,6 +1829,13 @@ function useCustomerPortalState() {
     setError,
     rememberMe,
     setRememberMe,
+    loginOtpVisible,
+    setLoginOtpVisible,
+    loginOtp,
+    setLoginOtp,
+    loginOtpSentAt,
+    verifyingLoginOtp,
+    resendingLoginOtp,
     user,
     setUser,
     profile,
@@ -1876,6 +1954,8 @@ function useCustomerPortalState() {
     persistNotificationPreferences,
     refreshData,
     handleLogin,
+    handleVerifyLoginOtp,
+    handleResendLoginOtp,
     handleGoogleCredential,
     handleRequestRegistrationOtp,
     handleVerifyRegistrationOtp,

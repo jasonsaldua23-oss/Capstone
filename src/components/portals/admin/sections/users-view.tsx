@@ -32,6 +32,7 @@ import {
 
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { validatePasswordPolicy } from '@/lib/password-policy'
+import { validatePersonName } from '@/lib/person-name'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { safeFetchJson } from './shared'
 
@@ -296,6 +297,12 @@ export function UsersView() {
   const saveUser = async (mode: 'create' | 'edit') => {
     if (mode === 'create' && !canSave) {
       toast.error('Please complete all required fields.')
+      return
+    }
+    const nameError = validatePersonName(form.firstName, form.middleName, form.lastName, form.suffix)
+    if (nameError) {
+      // Fix: apply the same person-name rule to staff and driver account forms.
+      toast.error(nameError)
       return
     }
     const emailError = validateField('email', form.email)

@@ -47,7 +47,7 @@ import {
 } from '@/lib/driver-license-restrictions'
 import { getDriverAssignmentIssue, getDriverVehicleLicenseIssue } from '@/lib/driver-eligibility'
 import { getRequiredLicenseCodeForVehicle } from '@/lib/driver-license-restrictions'
-import { formatFullName, splitFullName } from '@/lib/person-name'
+import { formatFullName, splitFullName, validatePersonName } from '@/lib/person-name'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import { DepositRefundRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
@@ -90,8 +90,9 @@ const formatDriverStatus = (value: unknown, isActive = true) => {
   return status === 'ON_LEAVE' ? 'On Leave' : status === 'INACTIVE' ? 'Inactive' : 'Active'
 }
 
-export function TransportationView({ notificationReferenceType = '', notificationReferenceId = '', notificationFocusKey, readOnly = true, canManageDrivers = false, tripsContent }: { notificationReferenceType?: string; notificationReferenceId?: string; notificationFocusKey?: number; readOnly?: boolean; canManageDrivers?: boolean; tripsContent?: React.ReactNode } = {}) {
-  const [activeTab, setActiveTab] = useState<'vehicles' | 'trips' | 'drivers'>('vehicles')
+export function TransportationView({ notificationReferenceType = '', notificationReferenceId = '', notificationFocusKey, readOnly = true, canManageDrivers = false, initialTab = 'vehicles', tripsContent }: { notificationReferenceType?: string; notificationReferenceId?: string; notificationFocusKey?: number; readOnly?: boolean; canManageDrivers?: boolean; initialTab?: 'vehicles' | 'trips' | 'drivers'; tripsContent?: React.ReactNode } = {}) {
+  // Warehouse navigation can open Trips directly; Admin keeps Fleet Management as its default.
+  const [activeTab, setActiveTab] = useState<'vehicles' | 'trips' | 'drivers'>(initialTab)
   const [vehicles, setVehicles] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
   const [trips, setTrips] = useState<any[]>([])
@@ -427,6 +428,12 @@ export function TransportationView({ notificationReferenceType = '', notificatio
 
     if (!firstName || !lastName || !email || !phoneNumber) {
       toast.error('First name, last name, email, and phone number are required')
+      return
+    }
+    const nameError = validatePersonName(firstName, middleName, lastName, suffix)
+    if (nameError) {
+      // Fix: reject numeric driver names in the transportation editor.
+      toast.error(nameError)
       return
     }
     if (!isValidPhilippinePhone(phoneNumber)) {

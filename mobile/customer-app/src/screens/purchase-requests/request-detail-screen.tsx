@@ -124,7 +124,7 @@ export function PurchaseRequestDetailScreen({ orderId }: { orderId: string }) {
         <View style={styles.detailInfoCard}>
           <View style={styles.detailInfoHeadRow}>
             <Wallet size={16} color={theme.colors.textBody} />
-            <Text style={styles.detailInfoHeading}>Estimated Total</Text>
+            <Text style={styles.detailInfoHeading}>Total Amount</Text>
           </View>
           <Text style={styles.detailBigTotal}>{formatPeso(orderTotal)}</Text>
         </View>
@@ -184,7 +184,7 @@ export function PurchaseRequestDetailScreen({ orderId }: { orderId: string }) {
             </View>
           ) : null}
           <View style={styles.detailSummaryRow}>
-            <Text style={styles.checkoutTotalLabel}>Estimated Total</Text>
+            <Text style={styles.checkoutTotalLabel}>Total Amount</Text>
             <Text style={styles.listCardTotal}>{formatPeso(orderTotal)}</Text>
           </View>
         </View>

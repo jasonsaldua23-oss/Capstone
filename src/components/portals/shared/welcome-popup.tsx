@@ -30,7 +30,8 @@ export function WelcomePopup({
 
   return createPortal(
     <div data-welcome-popup className={`fixed inset-0 z-[999] flex items-center justify-center p-4 backdrop-blur-[2px] ${overlayClassName || 'bg-black/70'}`}>
-      <div className={`w-full max-w-md rounded-2xl border p-4 shadow-2xl ${panelClassName}`}>
+      {/* Design: keep welcome messaging on a formal, flat surface in every portal. */}
+      <div className={`w-full max-w-md rounded-2xl border bg-none p-4 shadow-xl ${panelClassName}`}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className={`text-xl font-extrabold leading-tight tracking-[-0.01em] ${titleClassName}`}>{message}</p>

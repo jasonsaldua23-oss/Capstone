@@ -30,16 +30,11 @@ export function ProfileScreen() {
   if (activeProfileModal && activeProfileModal !== "address") return <ProfileSections />;
 
   const avatarUrl = profile?.avatar || user.avatar || null;
-  const fullName = String(profile?.name || user.name || "").trim();
-  const nameDetails =
-    [
-      profile?.firstName,
-      profile?.middleName ? `${String(profile.middleName).replace(/\.+$/, "").charAt(0).toUpperCase()}.` : "",
-      profile?.lastName,
-      profile?.suffix,
-    ]
-      .filter(Boolean)
-      .join(" ") || "Name details not set";
+  // Keep one complete profile name while preserving the account-name fallback.
+  const fullName = [profile?.firstName, profile?.middleName, profile?.lastName, profile?.suffix]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ") || String(profile?.name || user.name || "").trim();
 
   const menuItems = [
     { key: "edit", title: "Edit Profile", Icon: PencilLine, onPress: () => openProfileModal("edit") },
@@ -77,13 +72,10 @@ export function ProfileScreen() {
             {fullName}
           </Text>
           <Text style={styles.profileMeta} numberOfLines={1}>
-            {nameDetails}
-          </Text>
-          <Text style={styles.profileMeta} numberOfLines={1}>
             {profile?.email || user.email || ""}
           </Text>
           <View style={styles.profilePhoneChip}>
-            <Phone size={12} color="#14532d" />
+            <Phone size={12} color={theme.colors.slate500} />
             <Text style={styles.profilePhoneChipText}>
               {profile?.phone || user.phone || "No phone number"}
             </Text>

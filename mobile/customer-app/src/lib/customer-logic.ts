@@ -73,6 +73,13 @@ export function validatePasswordPolicy(password: string): string | null {
   return isPasswordValid(password) ? null : PASSWORD_POLICY_MESSAGE;
 }
 
+export const PERSON_NAME_NUMBER_ERROR = "Names cannot contain numbers.";
+
+/** Reject numeric characters in any user-entered person-name field. */
+export function validatePersonName(...values: Array<string | null | undefined>): string | null {
+  return values.some((value) => /\d/.test(String(value || ""))) ? PERSON_NAME_NUMBER_ERROR : null;
+}
+
 export function isValidPhilippinePhone(phone: string): boolean {
   const cleaned = String(phone || "").replace(/\D/g, "");
   return /^09\d{9}$/.test(cleaned) || /^63\d{10}$/.test(cleaned);

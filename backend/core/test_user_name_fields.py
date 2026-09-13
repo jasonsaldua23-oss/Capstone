@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 from django.test import RequestFactory, TestCase
 
-from .models import DriverServiceArea, RoleType, User
-from .views_api import user_detail, users_collection
+from .models import Customer, DriverServiceArea, RoleType, User
+from .views_api import auth_register, customer_detail, user_detail, users_collection
 
 VALID_PASSWORD = "Str0ng!Passw0rd"
 
@@ -63,6 +63,13 @@ class UserCreationNameFieldTests(TestCase):
     def test_display_name_is_derived_from_the_parts(self):
         self._create({"name": "whatever", "firstName": "Janrick", "lastName": "Saldua"})
         self.assertEqual(User.objects.get(email="new.driver@gmail.com").name, "Janrick Saldua")
+
+    def test_staff_creation_rejects_numbers_in_name_parts(self):
+        response = self._create({"firstName": "Janrick", "middleName": "123", "lastName": "Saldua"})
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(json.loads(response.content)["error"], "Names cannot contain numbers.")
+        self.assertFalse(User.objects.filter(email="new.driver@gmail.com").exists())
 
     def test_a_one_word_first_name_is_not_doubled(self):
         self._create({"name": "jandriver", "firstName": "jandriver"})
@@ -118,6 +125,22 @@ class UserCreationNameFieldTests(TestCase):
         self.assertEqual(list(DriverServiceArea.objects.filter(driver=user).values_list("city", flat=True)), ["talisay"])
         self.assertEqual(json.loads(response.content)["user"]["serviceArea"], "talisay")
 
+    def test_staff_update_rejects_numbers_without_changing_the_name(self):
+        user = User.objects.create(
+            email="warehouse@gmail.com",
+            password="unused",
+            name="Jan Staff",
+            first_name="Jan",
+            last_name="Staff",
+            role=RoleType.WAREHOUSE_STAFF,
+        )
+
+        response = self._update(user, {"firstName": "Jan2"})
+
+        self.assertEqual(response.status_code, 400, response.content)
+        user.refresh_from_db()
+        self.assertEqual((user.first_name, user.name), ("Jan", "Jan Staff"))
+
     def test_invalid_driver_service_area_is_rejected_without_removing_existing_area(self):
         self._create({"name": "Driver", "serviceArea": "silay"})
         user = User.objects.get(email="new.driver@gmail.com")
@@ -126,3 +149,47 @@ class UserCreationNameFieldTests(TestCase):
 
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(list(user.service_areas.values_list("city", flat=True)), ["silay"])
+
+
+class CustomerNameValidationTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_registration_rejects_a_numeric_middle_name(self):
+        request = self.factory.post(
+            "/",
+            data=json.dumps({
+                "firstName": "Jan",
+                "middleName": "123",
+                "lastName": "Test",
+                "email": "jan.test@gmail.com",
+                "password": VALID_PASSWORD,
+            }),
+            content_type="application/json",
+        )
+
+        response = auth_register(request)
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(json.loads(response.content)["error"], "Names cannot contain numbers.")
+        self.assertFalse(Customer.objects.filter(email="jan.test@gmail.com").exists())
+
+    def test_profile_update_rejects_a_numeric_last_name(self):
+        customer = Customer.objects.create(
+            email="customer@gmail.com",
+            password="unused",
+            name="Jan Test",
+            first_name="Jan",
+            last_name="Test",
+        )
+        request = self.factory.put(
+            "/",
+            data=json.dumps({"lastName": "Test2"}),
+            content_type="application/json",
+        )
+        with patch("core.views_api._require_auth", return_value={"type": "customer", "userId": customer.id}):
+            response = customer_detail(request, customer.id)
+
+        self.assertEqual(response.status_code, 400, response.content)
+        customer.refresh_from_db()
+        self.assertEqual((customer.last_name, customer.name), ("Test", "Jan Test"))

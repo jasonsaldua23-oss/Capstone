@@ -74,10 +74,10 @@ export function WarehouseDashboardView({
         subtitle="Manage dispatch, monitor inventory, and keep fulfillment moving."
         onClose={() => setShowWelcomePopup(false)}
         overlayClassName="bg-black/70"
-        panelClassName="border-emerald-200 bg-[#eaf8f1]"
+        panelClassName="border-slate-200 bg-white"
         titleClassName="text-slate-900"
         subtitleClassName="text-slate-600"
-        buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+        buttonClassName="bg-slate-100 text-slate-600 hover:bg-slate-200"
       />
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Warehouse Dashboard</h1>

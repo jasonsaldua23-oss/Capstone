@@ -156,6 +156,32 @@ export function clearTabAuthToken() {
   if (localStorage.getItem(PERSISTENT_TAB_AUTH_TOKEN_KEY) === token) localStorage.removeItem(PERSISTENT_TAB_AUTH_TOKEN_KEY)
 }
 
+export async function logoutTabAuthSession(portal?: string): Promise<boolean> {
+  // Capture the credential before clearing storage so Django can identify and
+  // expire the matching role-scoped HttpOnly cookies on the first logout.
+  const token = getTabAuthToken()
+  const logoutPortal = portal || tokenPortal(token) || requestedPortal()
+  clearTabAuthToken()
+
+  const headers = new Headers()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (logoutPortal) headers.set('X-Portal', logoutPortal)
+
+  try {
+    const response = await window.fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      keepalive: true,
+      headers,
+    })
+    return response.ok
+  } catch {
+    // Local credentials are already gone; callers can still complete the UI logout.
+    return false
+  }
+}
+
 export function installTabAuthFetchInterceptor() {
   if (typeof window === 'undefined') {
     return () => {}

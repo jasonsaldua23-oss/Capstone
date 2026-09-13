@@ -2224,6 +2224,21 @@ def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool = Fal
     response.delete_cookie(TOKEN_NAME, path="/")
 
 
+PERSON_NAME_NUMBER_ERROR = "Names cannot contain numbers."
+
+
+def _person_name_has_number(*values: Any) -> bool:
+    """Return whether any submitted person-name value contains a numeric character."""
+    return any(re.search(r"\d", str(value or "")) for value in values)
+
+
+def _submitted_person_name_has_number(body: dict[str, Any]) -> bool:
+    """Validate structured parts when present because they replace the flat display name."""
+    structured_keys = ("firstName", "middleName", "lastName", "suffix")
+    keys = structured_keys if any(key in body for key in structured_keys) else ("name",)
+    return _person_name_has_number(*(body.get(key) for key in keys if key in body))
+
+
 def _format_display_name(
     first_name: str | None,
     middle_name: str | None,
@@ -2287,6 +2302,9 @@ def _customer_payload(customer: Customer) -> dict[str, Any]:
         "avatar": customer.avatar,
         "role": "CUSTOMER",
         "type": "customer",
+        # Fix: keep customer security preferences in the authenticated profile.
+        "twoFactorEnabled": bool(getattr(customer, "two_factor_enabled", False)),
+        "loginAlertsEnabled": bool(getattr(customer, "login_alerts_enabled", True)),
         "bottleBalances": balances,
     }
 
@@ -6458,6 +6476,8 @@ def auth_login(request: HttpRequest) -> JsonResponse:
         challenge_token = create_token(
             {
                 "type": "login_2fa",
+                # Fix: verification can now resolve staff and customer challenges safely.
+                "accountType": "staff",
                 "userId": user.id,
                 "email": user.email,
                 "portal": portal or "",
@@ -6519,12 +6539,19 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
     if retry_after:
         return throttle_response(retry_after)
 
-    user = User.objects.filter(id=user_id, email=email, is_active=True).first()
-    if not user:
+    # Challenges issued before accountType was added are staff challenges.
+    account_type = str(challenge_payload.get("accountType") or "staff").strip().lower()
+    if account_type == "customer":
+        account = Customer.objects.filter(id=user_id, email=email, is_active=True).first()
+    elif account_type == "staff":
+        account = User.objects.filter(id=user_id, email=email, is_active=True).first()
+    else:
+        return _err("Invalid login challenge", 401)
+    if not account:
         return _err("Account is unavailable", 401)
 
     now = timezone.now()
-    if not _is_valid_stateless_otp(otp_code, email, "staff", "login_2fa", now):
+    if not _is_valid_stateless_otp(otp_code, email, account_type, "login_2fa", now):
         result = record_failure("login_otp_verify", email, ip_address, OTP_FAILURE_POLICY)
         logger.warning(
             "Login OTP failure account_hash=%s source_ip=%s count=%s",
@@ -6532,26 +6559,30 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
             ip_address,
             result.account_count,
         )
-        _alert_admin_login_failure(
-            "login_otp_verify", user, ip_address, result.account_count, "Two-factor verification"
-        )
+        if account_type == "staff":
+            _alert_admin_login_failure(
+                "login_otp_verify", account, ip_address, result.account_count, "Two-factor verification"
+            )
         return _err("Invalid or expired verification code", 400)
     clear_account_failures("login_otp_verify", email)
 
-    user.last_login_at = timezone.now()
-    user.save(update_fields=["last_login_at", "updated_at"])
-    payload = _user_payload(user)
+    if account_type == "staff":
+        account.last_login_at = timezone.now()
+        account.save(update_fields=["last_login_at", "updated_at"])
+        payload = _user_payload(account)
+    else:
+        payload = _customer_payload(account)
     # Keep auth token lifetime independent from UI inactivity timeout.
     token_exp_hours = REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS
     # Preserve the original remember-me choice through the completed 2FA login.
     token = create_token({**payload, "rememberMe": remember_me}, token_exp_hours)
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
-    if bool(getattr(user, "login_alerts_enabled", True)):
+    if bool(getattr(account, "login_alerts_enabled", True)):
         try:
-            _email_login_alert(user)
+            _email_login_alert(account)
         except Exception:
-            logger.exception("Failed to send login alert email for user=%s", user.id)
+            logger.exception("Failed to send login alert email for account=%s", account.id)
     return resp
 
 
@@ -6577,6 +6608,41 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
         record_failure("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
         return _err("Invalid email or password", 401)
     clear_account_failures("password_login", email)
+    if bool(getattr(customer, "two_factor_enabled", False)):
+        if not _otp_mail_ready():
+            return _err("2FA is enabled but OTP email service is not configured", 500)
+        retry_after = consume_event("login_otp_send", email, ip_address, OTP_SEND_POLICY)
+        if retry_after:
+            return throttle_response(retry_after)
+        now = timezone.now()
+        code = _stateless_otp_for_bucket(customer.email, "customer", "login_2fa", _otp_bucket(now))
+        try:
+            _send_login_otp_email(customer.email, code)
+        except Exception:
+            logger.exception("Failed to send customer login 2FA OTP")
+            return _err("Failed to send login verification code", 500)
+
+        # Fix: customer login now pauses until the emailed OTP is verified.
+        challenge_token = create_token(
+            {
+                "type": "login_2fa",
+                "accountType": "customer",
+                "userId": customer.id,
+                "email": customer.email,
+                "portal": "customer",
+                "rememberMe": bool(remember_me),
+            },
+            exp_hours=1,
+        )
+        return _ok(
+            {
+                "success": False,
+                "requiresTwoFactor": True,
+                "message": "Verification code sent to your email",
+                "challengeToken": challenge_token,
+            },
+            202,
+        )
     payload = _customer_payload(customer)
     token = create_token(
         {**payload, "rememberMe": remember_me},
@@ -6711,6 +6777,9 @@ def auth_register(request: HttpRequest) -> JsonResponse:
     suffix = str(body.get("suffix") or "").strip()
 
     name = str(body.get("name", "")).strip()
+    if _person_name_has_number(first_name, middle_name, last_name, suffix, name):
+        # Fix: API callers cannot bypass the customer registration name rule.
+        return _err(PERSON_NAME_NUMBER_ERROR, 400)
     if first_name and last_name:
         name_parts = [first_name]
         if middle_name:
@@ -6998,6 +7067,9 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     middle_name = str(body.get("middleName") or "").strip() or None
     last_name = str(body.get("lastName") or "").strip() or None
     suffix = str(body.get("suffix") or "").strip() or None
+    if _person_name_has_number(name, first_name, middle_name, last_name, suffix):
+        # Fix: enforce the rule for every staff or driver account created by an admin.
+        return _err(PERSON_NAME_NUMBER_ERROR, 400)
     if first_name or middle_name or last_name or suffix:
         name = _format_display_name(first_name, middle_name, last_name, suffix, name)
     if not email or not name or not password or not role_id:
@@ -7097,6 +7169,8 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         )
         return _ok({"success": True})
     body = _json_body(request)
+    if _submitted_person_name_has_number(body):
+        return _err(PERSON_NAME_NUMBER_ERROR, 400)
     current_email = str(user.email or "").strip().lower()
     current_role = str(user.role or "").strip()
     requested_email_raw = body.get("email", None)
@@ -7274,6 +7348,8 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
     email = str(body.get("email", "")).strip().lower()
     name = str(body.get("name", "")).strip()
     password = str(body.get("password", "")).strip()
+    if _person_name_has_number(name):
+        return _err(PERSON_NAME_NUMBER_ERROR, 400)
     if not email or not name or not password:
         return _err("name, email and password are required")
     password_error = _validate_password_strength(password)
@@ -7333,6 +7409,8 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         c.delete()
         return _ok({"success": True})
     body = _json_body(request)
+    if _submitted_person_name_has_number(body):
+        return _err(PERSON_NAME_NUMBER_ERROR, 400)
     discount_keys = {
         "discountOption",
         "discountStatus",
@@ -7404,6 +7482,11 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
             return _err(address_error, 400)
     if "isActive" in body and p.get("type") == "staff":
         c.is_active = bool(body.get("isActive"))
+    # Fix: these customer settings were accepted by the UI but previously discarded.
+    if "twoFactorEnabled" in body:
+        c.two_factor_enabled = bool(body.get("twoFactorEnabled"))
+    if "loginAlertsEnabled" in body:
+        c.login_alerts_enabled = bool(body.get("loginAlertsEnabled"))
     if body.get("password"):
         password_error = _validate_password_strength(str(body["password"]))
         if password_error:
@@ -9808,6 +9891,9 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         })
     if request.method == "POST":
         body = _json_body(request)
+        if _person_name_has_number(body.get("shippingName")):
+            # Fix: shipping contact names follow the same validation as customer profiles.
+            return _err(PERSON_NAME_NUMBER_ERROR, 400)
         customer_id = str(body.get("customerId") or (p.get("userId") if p.get("type") == "customer" else "") or "").strip()
         if not customer_id:
             return _err("customerId is required")
@@ -12298,6 +12384,8 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         row["user"]["totalDeliveries"] = row["totalDeliveries"]
         return _ok({"success": True, "driver": row})
     body = _json_body(request)
+    if _submitted_person_name_has_number(body):
+        return _err(PERSON_NAME_NUMBER_ERROR, 400)
     next_license_number: str | None = None
     for key, attr in [
         ("emergencyContact", "emergency_contact"),

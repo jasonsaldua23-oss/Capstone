@@ -375,7 +375,7 @@ export function HomeScreen() {
             <View style={styles.orderRailFooter}>
               <Text style={styles.orderRailLabel}>Total items</Text>
               <Text style={styles.orderRailValue}>{totalUnits} units</Text>
-              <Text style={styles.orderRailLabelSpaced}>Estimated Total</Text>
+              <Text style={styles.orderRailLabelSpaced}>Total</Text>
               <Text style={styles.orderRailTotal}>{formatPeso(estimatedTotal)}</Text>
               <Pressable style={styles.orderRailButton} onPress={() => setActiveTab("cart")} accessibilityRole="button">
                 <Text style={styles.orderRailButtonText}>Continue to Checkout</Text>

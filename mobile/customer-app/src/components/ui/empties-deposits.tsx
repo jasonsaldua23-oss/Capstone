@@ -61,7 +61,7 @@ export function EmptiesDeposits({
         >
           <Package size={14} color="#2563eb" />
           <Text style={[styles.emptiesTabText, emptiesTab === "reserved" ? styles.emptiesTabTextReserved : null]}>
-            Used / Reserved Deposits
+            Used or Reserved Deposits
           </Text>
           {reservedOrders.length > 0 ? (
             <View style={styles.emptiesTabCount}>
@@ -161,7 +161,7 @@ export function EmptiesDeposits({
 
           <ModalShell
             visible={recordOpen}
-            title="Record Empty Bottle Cases"
+            title="Record Empty Cases and Bottles"
             onClose={() => onRecordOpenChange(false)}
           >
             {eligibleEmptyItems.length === 0 ? (

@@ -9,6 +9,7 @@ import { useAuth } from '@/app/page'
 import { clearTabAuthToken } from '@/lib/client-auth'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { toast } from 'sonner'
+import { validatePersonName } from '@/lib/person-name'
 import { CustomerProfileView } from './sections/profile/profile-view'
 import { CustomerFeedbackView } from './sections/feedback/feedback-view'
 import { CustomerHomeView } from './sections/home/home-view'
@@ -1762,6 +1763,12 @@ export function CustomerPortal() {
       toast.error('Please complete all detailed shipping fields')
       return
     }
+    const shippingNameError = validatePersonName(shippingName)
+    if (shippingNameError) {
+      // Fix: reject numeric shipping contact names before checkout.
+      toast.error(shippingNameError)
+      return
+    }
     if (selectedCartItems.length === 0) {
       toast.error('Your cart is empty')
       return
@@ -2200,6 +2207,11 @@ export function CustomerPortal() {
     }
     if (!profileFirstName.trim() || !profileLastName.trim()) {
       toast.error('First name and last name are required')
+      return false
+    }
+    const nameError = validatePersonName(shippingName, profileFirstName, profileMiddleName, profileLastName, profileSuffix)
+    if (nameError) {
+      toast.error(nameError)
       return false
     }
     if (
@@ -2833,6 +2845,12 @@ export function CustomerPortal() {
     }
     if (!profileFirstName.trim() || !profileLastName.trim()) {
       toast.error('Name is required')
+      return false
+    }
+    const nameError = validatePersonName(profileFirstName, profileMiddleName, profileLastName, profileSuffix)
+    if (nameError) {
+      // Fix: customer profile names cannot contain numeric characters.
+      toast.error(nameError)
       return false
     }
     if (!profileEmail.trim()) {

@@ -94,7 +94,7 @@ export function EditAddressScreen() {
       <View style={styles.addressBody}>
         <Text style={styles.addressSectionTitle}>Contact Information</Text>
         <Field
-          label="Full Name"
+          label="Full name"
           value={addressForm.name}
           placeholder="Full name"
           onChangeText={(next) => setAddressField("name", next)}

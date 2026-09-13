@@ -119,10 +119,10 @@ export function HomeView({
         subtitle="Check your assigned trips and complete deliveries on time."
         onClose={() => setShowWelcomePopup(false)}
         overlayClassName="bg-black/70"
-        panelClassName="border-emerald-200 bg-[#eaf8f1]"
+        panelClassName="border-slate-200 bg-white"
         titleClassName="text-slate-900"
         subtitleClassName="text-slate-600"
-        buttonClassName="bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+        buttonClassName="bg-slate-100 text-slate-600 hover:bg-slate-200"
       />
       {isLoading ? (
         <div className="space-y-4 rounded-[1.6rem] p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:p-5 md:pb-5">

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getAvailableQuantity, getOrderStageIndex, isOrderCancellable, isOrderTrackable, isValidPhilippinePhone, normalizeOrderStatus, validatePasswordPolicy, withinNegrosOccidental } from "./customer-logic.ts";
+import { getAvailableQuantity, getOrderStageIndex, isOrderCancellable, isOrderTrackable, isValidPhilippinePhone, normalizeOrderStatus, PERSON_NAME_NUMBER_ERROR, validatePasswordPolicy, validatePersonName, withinNegrosOccidental } from "./customer-logic.ts";
 
 const order = (status: string, extra: Record<string, unknown> = {}) => ({
   id: "o",
@@ -64,4 +64,9 @@ test("checkout accepts only supported Philippine mobile formats", () => {
   assert.equal(isValidPhilippinePhone("09171234567"), true);
   assert.equal(isValidPhilippinePhone("+63 917 123 4567"), true);
   assert.equal(isValidPhilippinePhone("12345"), false);
+});
+
+test("person-name validation rejects numbers in any name part", () => {
+  assert.equal(validatePersonName("Juan", "123", "Dela Cruz"), PERSON_NAME_NUMBER_ERROR);
+  assert.equal(validatePersonName("Juan", "Santos", "Dela Cruz", "Jr."), null);
 });

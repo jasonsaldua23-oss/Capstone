@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { validatePasswordPolicy } from '@/lib/password-policy'
+import { validatePersonName } from '@/lib/person-name'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
@@ -270,6 +271,12 @@ export function SettingsView() {
   const handleProfileSave = async () => {
     if (!accountEmail) {
       toast.error('Unable to resolve account email')
+      return
+    }
+    const nameError = validatePersonName(firstName, middleName, lastName, suffix)
+    if (nameError) {
+      // Fix: do not allow numeric characters in administrator profile names.
+      toast.error(nameError)
       return
     }
     if (!isValidPhilippinePhone(phone)) {

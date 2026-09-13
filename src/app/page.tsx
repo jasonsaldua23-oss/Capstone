@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { LoginSuccess } from '@/components/shared/login-success'
 import { AdminPortal, CustomerPortal, DriverPortal, WarehousePortal } from '@/components/portals'
-import { clearTabAuthToken, getTabAuthToken, setTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor } from '@/lib/client-auth'
+import { clearTabAuthToken, getTabAuthToken, setTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor, logoutTabAuthSession } from '@/lib/client-auth'
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
 import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
@@ -438,31 +438,30 @@ export default function Home() {
     return () => window.clearTimeout(timer)
   }, [showLoginSuccess, isMounted, isLoading, authError, user, portal])
 
-  const logoutToPortal = (targetPortal: PortalType) => {
+  const logoutToPortal = async (targetPortal: PortalType) => {
     const nextPortal = allowedPortals.includes(targetPortal) ? targetPortal : defaultPortal
     logoutRedirectPortalRef.current = nextPortal
     rememberTabLoginPortal(nextPortal)
     setSessionExpiredPortal(null)
-    clearTabAuthToken()
     resetInstallPromptForNewSession(nextPortal)
     queryClient.clear()
+    // Fix: keep the portal mounted in a signing-out state until Django's cookie
+    // deletion response arrives, preventing /api/auth/me from restoring it first.
+    setIsLoading(true)
     setUser(null)
     setPortal(nextPortal)
-    setIsLoading(false)
+    const serverLogoutSucceeded = await logoutTabAuthSession(nextPortal)
+    if (!serverLogoutSucceeded) console.error('Logout cookie cleanup request failed')
     router.replace(loginPathForPortal(nextPortal))
-
-    // Best-effort cookie cleanup; do not block UI logout flow.
-    void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch((error) => {
-      console.error('Logout background request failed:', error)
-    })
+    setIsLoading(false)
   }
 
   const logout = async () => {
-    logoutToPortal(portal)
+    await logoutToPortal(portal)
   }
 
   const recoverToLogin = async () => {
-    logoutToPortal(portal)
+    await logoutToPortal(portal)
   }
 
   // A successful login has explicit feedback while its portal session is restored.

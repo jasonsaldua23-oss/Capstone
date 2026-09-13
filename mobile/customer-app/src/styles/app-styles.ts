@@ -1094,19 +1094,15 @@ const styles = StyleSheet.create({
   },
   profileName: { color: theme.colors.text, fontSize: 20, fontFamily: "Poppins_700Bold" },
   profileMeta: { color: theme.colors.slate500, fontSize: 14, fontFamily: "Poppins_400Regular" },
-  // rounded-full bg-[#eef8f2] px-2.5 py-0.5 text-xs text-[#14532d]
+  // Design: keep the phone number as neutral profile metadata, not a colored chip.
   profilePhoneChip: {
     marginTop: 6,
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    borderRadius: 999,
-    backgroundColor: "#eef8f2",
-    paddingHorizontal: 10,
-    paddingVertical: 2,
   },
-  profilePhoneChipText: { color: "#14532d", fontSize: 12, fontFamily: "Poppins_600SemiBold" },
+  profilePhoneChipText: { color: theme.colors.slate500, fontSize: 12, fontFamily: "Poppins_500Medium" },
   // rounded-3xl border border-slate-100 bg-white
   profileMenuCard: {
     marginHorizontal: 16,
@@ -1704,13 +1700,13 @@ const styles = StyleSheet.create({
   mixedCaseNameCompact: { color: "#1e293b", fontSize: 11, fontFamily: "Poppins_500Medium" },
   mixedCaseQty: { color: theme.colors.slate500, fontSize: 11, fontFamily: "Poppins_400Regular" },
   mixedCaseQtyCompact: { color: theme.colors.slate500, fontSize: 10, fontFamily: "Poppins_400Regular" },
-  // WelcomePopup: bg-black/70 overlay, emerald panel, emerald-100 close button
+  // Design: match the web portals with a formal, flat welcome panel.
   welcomeOverlay: { flex: 1, padding: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.7)" },
-  welcomePanel: { width: "100%", maxWidth: 448, borderRadius: 16, borderWidth: 1, borderColor: "#a7f3d0", backgroundColor: theme.colors.surfaceWelcome, padding: 16 },
+  welcomePanel: { width: "100%", maxWidth: 448, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.white, padding: 16 },
   welcomePanelRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   welcomeTitle: { color: theme.colors.text, fontSize: 20, lineHeight: 24, fontFamily: "Poppins_800ExtraBold", letterSpacing: -0.2 },
   welcomeSubtitle: { marginTop: 4, color: theme.colors.slate600, fontSize: 14, fontFamily: "Poppins_400Regular" },
-  welcomeCloseButton: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.emeraldBorder },
+  welcomeCloseButton: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.slate100 },
   disabledButton: { opacity: 0.45 },
   sectionHeadingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface },
