@@ -137,7 +137,16 @@ def upload_bytes(object_path: str, data: bytes, content_type: str | None = None)
 
 def upload_private_bytes(object_path: str, data: bytes, content_type: str | None = None) -> None:
     """Store evidence in the private bucket; callers expose it only through the API."""
-    _upload_bytes(object_path, data, content_type, bucket=_private_bucket())
+    try:
+        _upload_bytes(object_path, data, content_type, bucket=_private_bucket())
+    except ObjectStorageError:
+        key = str(settings.SUPABASE_SERVICE_ROLE_KEY).strip()
+        if not key.startswith("sb_secret_"):
+            raise
+        # Fix: some Storage deployments still require a bearer JWT and reject
+        # opaque server keys. Keep evidence behind /api/media on persistent disk.
+        logger.warning("Falling back to protected persistent disk path=%s", object_path)
+        _store_on_persistent_disk(object_path.lstrip("/"), data)
 
 
 def download_private_bytes(object_path: str) -> tuple[bytes, str]:

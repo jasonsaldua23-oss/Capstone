@@ -15,7 +15,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
 
 from . import object_storage
-from .views_api import upload_product_image
+from .views_api import upload_pod_image, upload_product_image
 
 # Fix: successful-upload fixtures must be decodable images, not just a PNG header.
 _source = BytesIO()
@@ -179,3 +179,30 @@ class ProductImageUploadTests(TestCase):
     def test_non_image_uploads_are_still_rejected(self):
         response = self._upload(filename="notes.txt", content_type="text/plain")
         self.assertEqual(response.status_code, 400)
+
+
+class PrivateEvidenceUploadTests(TestCase):
+    def test_new_secret_key_keeps_pod_protected_when_storage_requires_a_jwt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = {
+                "SUPABASE_URL": "https://project.supabase.co",
+                "SUPABASE_SERVICE_ROLE_KEY": "sb_secret_server-key",
+                "SUPABASE_PRIVATE_UPLOADS_BUCKET": "uploads-private",
+                "MEDIA_ROOT": tmp,
+            }
+            upload = SimpleUploadedFile("pod.png", PNG_BYTES, content_type="image/png")
+            request = RequestFactory().post("/", data={"file": upload})
+            driver_auth = {"type": "staff", "role": "DRIVER", "userId": "driver-1"}
+            with override_settings(**settings), patch(
+                "core.views_api._require_staff", return_value=(driver_auth, None)
+            ), patch("core.object_storage.requests.post") as post:
+                post.return_value.ok = False
+                post.return_value.status_code = 400
+                post.return_value.text = "headers must have required property 'authorization'"
+                response = upload_pod_image(request)
+
+            payload = json.loads(response.content)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(payload["imageUrl"].startswith("/api/media/pods/"))
+            stored_path = Path(tmp) / "uploads" / payload["imageUrl"].removeprefix("/api/media/")
+            self.assertTrue(stored_path.is_file())
