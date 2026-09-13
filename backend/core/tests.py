@@ -39,7 +39,7 @@ from .models import (
     VehicleType,
     Warehouse,
 )
-from .views_api import _create_scheduled_replacement_order, _mark_order_delivered, _replacement_product_lines
+from .views_api import _create_scheduled_replacement_order, _mark_order_delivered, _replacement_product_lines, _serialize_replacement
 
 
 class _RoleValue(str):
@@ -5518,6 +5518,79 @@ class CustomerReplacementRequestContractTests(TestCase):
         )
         self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
         self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
+
+    def test_case_order_replacement_uses_cases_even_when_the_client_submits_bottles(self) -> None:
+        # Current orders persist their selling unit on the delivered line.
+        self.order_item_a.product_unit = "case"
+        self.order_item_a.save(update_fields=["product_unit"])
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={
+                "orderId": self.order.id,
+                "damageType": "Broken seal",
+                "evidence": ["https://example.com/repl-proof.jpg"],
+                "replacementLines": [
+                    {
+                        "originalOrderItemId": self.order_item_a.id,
+                        # Regression: old clients allowed this case line to be
+                        # submitted as one bottle, creating an ambiguous claim.
+                        "inputMode": "bottle",
+                        "quantityToReplace": 1,
+                        "quantityToReplaceBottles": 1,
+                        "reason": "Broken seal",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        serialized = response.json()["replacement"]
+        line = serialized["replacementLines"][0]
+        self.assertEqual(line["lineInputMode"], "case")
+        self.assertEqual(line["quantityToReplaceCases"], 1)
+        self.assertEqual(line["quantityToReplace"], 6)
+        self.assertNotIn("quantityToReplaceBottles", line)
+        self.assertEqual(serialized["replacementAmount"], 10.0)
+
+    def test_legacy_case_replacement_is_displayed_as_one_case_with_its_claim_amount(self) -> None:
+        replacement = Replacement.objects.create(
+            replacement_number="RPL-LEGACY-CASE-UNIT",
+            order=self.order,
+            customer_id=self.customer.id,
+            reason="Broken seal",
+            status="PENDING",
+            requested_by="CUSTOMER",
+            replacement_mode="CUSTOMER_SUBMITTED",
+            original_order_item_id=self.order_item_a.id,
+            replacement_product_id=self.product_a.id,
+            replacement_quantity=1,
+            notes="Meta: " + json.dumps(
+                {
+                    "replacementLines": [
+                        {
+                            "originalOrderItemId": self.order_item_a.id,
+                            "originalProductUnit": "case",
+                            "replacementProductId": self.product_a.id,
+                            "replacementProductUnit": "case",
+                            "lineInputMode": "bottle",
+                            "quantityPerCase": 6,
+                            "quantityToReplace": 1,
+                            "quantityToReplaceBottles": 1,
+                        }
+                    ]
+                }
+            ),
+        )
+
+        serialized = _serialize_replacement(replacement)
+        line = serialized["replacementLines"][0]
+        self.assertEqual(line["lineInputMode"], "case")
+        self.assertEqual(line["quantityToReplaceCases"], 1)
+        self.assertEqual(line["quantityToReplace"], 6)
+        self.assertNotIn("quantityToReplaceBottles", line)
+        self.assertEqual(serialized["replacementAmount"], 10.0)
 
     def test_saved_replacement_succeeds_when_notifications_fail(self) -> None:
         # Regression: secondary notification failures previously returned HTTP 500

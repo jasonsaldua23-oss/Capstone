@@ -4716,6 +4716,8 @@ export function WarehousePortal() {
       const rawQuantityReplaced = Number(line?.quantityReplaced ?? line?.replacedQuantity ?? fallbackLine.quantityReplaced ?? 0)
       const quantityReplaced = isReplacementCompleted ? rawQuantityReplaced : 0
       return {
+        // Preserve the saved unit/count fields for the warehouse detail formatter.
+        ...line,
         originalProductName: formatProductNameWithSize(originalBaseName, originalSize),
         replacementProductName: formatProductNameWithSize(replacementBaseName, replacementSize),
         originalProductCategory: originalCategory,

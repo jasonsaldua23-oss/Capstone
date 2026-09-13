@@ -231,6 +231,8 @@ export function getReplacementItemsForRecord(record: any): ReplacementDisplayIte
 
 export function getReplacementTotalAmount(record: any, linkedOrder: any | null): number {
   if (!record) return 0
+  const authoritativeAmount = Number(record?.replacementAmount ?? record?.replacementTotalAmount)
+  if (Number.isFinite(authoritativeAmount) && authoritativeAmount >= 0) return authoritativeAmount
   const meta = parseReplacementMeta(record?.notes)
   const sourceLines = getSourceLines(record, meta)
   if (!sourceLines.length) return 0

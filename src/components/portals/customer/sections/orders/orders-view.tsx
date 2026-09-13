@@ -387,6 +387,8 @@ export function CustomerOrdersView(props: any) {
 
   const getReplacementTotalAmount = (record: any, linkedOrder: any | null): number => {
     if (!record) return 0
+    const authoritativeAmount = Number(record?.replacementAmount ?? record?.replacementTotalAmount)
+    if (Number.isFinite(authoritativeAmount) && authoritativeAmount >= 0) return authoritativeAmount
     const meta = parseReplacementMeta(record)
     const sourceLines =
       (Array.isArray(record?.replacementLines) && record.replacementLines.length ? record.replacementLines : null) ||

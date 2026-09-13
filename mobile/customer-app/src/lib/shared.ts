@@ -84,6 +84,7 @@ export {
   getSelectableReplacementItems,
   getSelectableItemsForLine,
   getSelectedReplacementItem,
+  getReplacementInputModeForItem,
   getMaxReplacementQtyForLine,
   getReplacementOptionLabel,
   buildReplacementRequest,

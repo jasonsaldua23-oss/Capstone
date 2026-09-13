@@ -1284,6 +1284,50 @@ def _normalize_serialized_replacement_lines(
             or ""
         ).strip().lower()
 
+        recorded_source_unit = str(getattr(original_item, "product_unit", "") or "").strip()
+        serialized_source_unit = str(
+            source_line.get("originalProductUnit") or source_line.get("productUnit") or ""
+        ).strip()
+        source_unit_evidence = recorded_source_unit or serialized_source_unit
+        source_product_unit = _normalize_product_unit(
+            source_unit_evidence
+            or getattr(original_product, "unit", None)
+        )
+        # Current orders record their selling unit on OrderItem. Older orders did
+        # not, so preserve their saved replacement mode instead of guessing after
+        # a product's inventory unit has changed.
+        if str(source_line.get("mixedCaseComponentId") or "").strip():
+            authoritative_input_mode = "bottle"
+        elif source_unit_evidence:
+            authoritative_input_mode = "bottle" if "bottle" in source_unit_evidence.lower() else "case"
+        elif line_input_mode in {"case", "bottle"}:
+            authoritative_input_mode = line_input_mode
+        else:
+            authoritative_input_mode = "bottle" if "bottle" in str(source_product_unit or "").lower() else "case"
+        if line_input_mode and line_input_mode != authoritative_input_mode:
+            # Fix legacy claims whose client-selected mode contradicted the
+            # delivered item's selling unit (for example, a case saved as one bottle).
+            if authoritative_input_mode == "case":
+                requested_packages = quantity_to_replace_cases or quantity_to_replace_bottles or quantity_to_replace
+                replaced_packages = quantity_replaced_cases or quantity_replaced_bottles or quantity_replaced
+                quantity_to_replace_cases = requested_packages
+                quantity_replaced_cases = replaced_packages
+                quantity_to_replace_bottles = 0
+                quantity_replaced_bottles = 0
+                quantity_to_replace = requested_packages * quantity_per_case
+                quantity_replaced = replaced_packages * quantity_per_case
+            else:
+                requested_bottles = quantity_to_replace_bottles or quantity_to_replace_cases or quantity_to_replace
+                replaced_bottles = quantity_replaced_bottles or quantity_replaced_cases or quantity_replaced
+                quantity_to_replace_bottles = requested_bottles
+                quantity_replaced_bottles = replaced_bottles
+                quantity_to_replace_cases = 0
+                quantity_replaced_cases = 0
+                quantity_to_replace = requested_bottles
+                quantity_replaced = replaced_bottles
+            line_input_mode = authoritative_input_mode
+            remaining_quantity = max(quantity_to_replace - quantity_replaced, 0)
+
         if line_input_mode == "bottle":
             if quantity_to_replace_bottles <= 0 and quantity_to_replace > 0:
                 quantity_to_replace_bottles = quantity_to_replace
@@ -1382,6 +1426,16 @@ def _normalize_serialized_replacement_lines(
         if line_input_mode:
             normalized_line["lineInputMode"] = line_input_mode
             normalized_line["replacementInputMode"] = line_input_mode
+        # Do not leak the contradictory legacy count back to clients. A line
+        # has one display unit: cases or bottles, determined above from its source item.
+        if line_input_mode == "case":
+            normalized_line.pop("quantityToReplaceBottles", None)
+            normalized_line.pop("quantityReplacedBottles", None)
+        elif line_input_mode == "bottle":
+            normalized_line.pop("quantityToReplaceCases", None)
+            normalized_line.pop("quantityToReplaceUnits", None)
+            normalized_line.pop("quantityReplacedCases", None)
+            normalized_line.pop("quantityReplacedUnits", None)
         if quantity_to_replace_cases > 0:
             normalized_line["quantityToReplaceCases"] = quantity_to_replace_cases
             normalized_line["quantityToReplaceUnits"] = quantity_to_replace_cases
@@ -1464,9 +1518,21 @@ def _create_scheduled_replacement_order(
     source_items = list(source_order.items.select_related("product").all())
     source_lines = []
     if isinstance(meta.get("replacementLines"), list) and meta.get("replacementLines"):
-        source_lines = meta.get("replacementLines")
+        source_lines = _normalize_serialized_replacement_lines(
+            replacement,
+            source_order,
+            meta,
+            normalized_status=_normalize_replacement_status(replacement.status),
+            delivered_linked_replacement_order=False,
+        )
     elif isinstance(meta.get("replacementItems"), list) and meta.get("replacementItems"):
-        source_lines = meta.get("replacementItems")
+        source_lines = _normalize_serialized_replacement_lines(
+            replacement,
+            source_order,
+            meta,
+            normalized_status=_normalize_replacement_status(replacement.status),
+            delivered_linked_replacement_order=False,
+        )
     elif replacement.replacement_product_id and replacement.replacement_quantity:
         source_lines = [{
             "replacementProductId": replacement.replacement_product_id,
@@ -3327,6 +3393,36 @@ def _serialize_replacement(
         data["remainingQuantity"] = total_remaining
         data["replacementLines"] = structured_replacement_lines
         data["replacementItems"] = structured_replacement_lines
+
+        # The claim value includes only the selected replacement quantities.
+        # Order totals include unrelated products, discounts and deposits.
+        replacement_amount = 0.0
+        source_items_by_id = {
+            str(item.id): item
+            for item in OrderItem.objects.select_related("product").filter(order_id=order.id)
+        } if order is not None else {}
+        for line in structured_replacement_lines:
+            source_item = source_items_by_id.get(str(line.get("originalOrderItemId") or ""))
+            unit_price = float(
+                (getattr(source_item, "unit_price", 0) if source_item else 0)
+                or line.get("unitPrice")
+                or line.get("price")
+                or 0
+            )
+            input_mode = str(line.get("lineInputMode") or line.get("replacementInputMode") or "").lower()
+            if input_mode == "bottle":
+                billed_quantity = max(0, _int(line.get("quantityToReplaceBottles"), _int(line.get("quantityToReplace"), 0)))
+            else:
+                billed_quantity = max(
+                    0,
+                    _int(line.get("quantityToReplaceCases"), _int(line.get("quantityToReplaceUnits"), 0)),
+                )
+                if billed_quantity <= 0:
+                    quantity_per_case = max(1, _int(line.get("quantityPerCase"), 1))
+                    billed_quantity = max(0, _int(line.get("quantityToReplace"), 0)) / quantity_per_case
+            replacement_amount += unit_price * billed_quantity
+        data["replacementAmount"] = round(replacement_amount, 2)
+        data["replacementTotalAmount"] = data["replacementAmount"]
 
         first_line = structured_replacement_lines[0]
         original_names: list[str] = []
@@ -12136,7 +12232,22 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
                     1,
                 ),
             )
-            input_mode = str(raw_line.get("inputMode") or raw_line.get("lineInputMode") or "").strip().lower()
+            submitted_input_mode = str(raw_line.get("inputMode") or raw_line.get("lineInputMode") or "").strip().lower()
+            recorded_source_unit = str(getattr(source_item, "product_unit", "") or "").strip()
+            source_product_unit = _normalize_product_unit(
+                recorded_source_unit or getattr(product, "unit", None)
+            )
+            # Fix: replacements retain the unit used by the delivered order line.
+            # Legacy orders have no saved unit, so keep their explicit submitted
+            # mode rather than reinterpret historical quantities.
+            if mixed_component is not None:
+                input_mode = "bottle"
+            elif recorded_source_unit:
+                input_mode = "bottle" if "bottle" in recorded_source_unit.lower() else "case"
+            elif submitted_input_mode in {"case", "bottle"}:
+                input_mode = submitted_input_mode
+            else:
+                input_mode = "case"
             quantity_to_replace = max(0, _int(raw_line.get("quantityToReplace"), 0))
             quantity_to_replace_cases = max(
                 0,
@@ -12148,16 +12259,26 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
             quantity_to_replace_bottles = max(0, _int(raw_line.get("quantityToReplaceBottles"), 0))
 
             if input_mode == "case":
+                if submitted_input_mode == "bottle" and quantity_to_replace_cases <= 0:
+                    quantity_to_replace_cases = quantity_to_replace_bottles or quantity_to_replace
+                elif not submitted_input_mode and quantity_to_replace_cases <= 0:
+                    # Legacy requests without a mode carry base units. Reject a partial
+                    # case rather than silently rounding it down to one whole case.
+                    legacy_base_quantity = quantity_to_replace_bottles or quantity_to_replace
+                    if legacy_base_quantity % quantity_per_case:
+                        return _err("Case replacement quantities must be whole cases", 400)
+                    quantity_to_replace_cases = legacy_base_quantity // quantity_per_case
                 if quantity_to_replace_cases <= 0 and quantity_to_replace > 0 and quantity_per_case > 0:
                     quantity_to_replace_cases = max(1, quantity_to_replace // quantity_per_case)
-                if quantity_to_replace <= 0 and quantity_to_replace_cases > 0:
-                    quantity_to_replace = quantity_to_replace_cases * quantity_per_case
+                quantity_to_replace = quantity_to_replace_cases * quantity_per_case
+                quantity_to_replace_bottles = 0
             else:
-                input_mode = "bottle"
+                if submitted_input_mode == "case" and quantity_to_replace_bottles <= 0:
+                    quantity_to_replace_bottles = quantity_to_replace_cases or quantity_to_replace
                 if quantity_to_replace_bottles <= 0 and quantity_to_replace > 0:
                     quantity_to_replace_bottles = quantity_to_replace
-                if quantity_to_replace <= 0 and quantity_to_replace_bottles > 0:
-                    quantity_to_replace = quantity_to_replace_bottles
+                quantity_to_replace = quantity_to_replace_bottles
+                quantity_to_replace_cases = 0
 
             if quantity_to_replace <= 0:
                 return _err("Each replacement line must have quantity greater than zero", 400)
@@ -12192,12 +12313,12 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
                 "originalProductName": original_product_name,
                 "originalProductSku": original_product_sku,
                 "originalProductSize": original_product_size,
-                "originalProductUnit": str(getattr(product, "unit", "") or "").strip() or None,
+                "originalProductUnit": str(source_product_unit or "").strip() or None,
                 "replacementProductId": replacement_product_id,
                 "replacementProductName": original_product_name,
                 "replacementProductSku": original_product_sku,
                 "replacementProductSize": original_product_size,
-                "replacementProductUnit": str(getattr(product, "unit", "") or "").strip() or None,
+                "replacementProductUnit": str(source_product_unit or "").strip() or None,
                 "lineInputMode": input_mode,
                 "replacementInputMode": input_mode,
                 "quantityPerCase": quantity_per_case,
@@ -12244,10 +12365,16 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
             product = component.product if component is not None else source_item.product
             if product is None:
                 return _err("Each replacement line must reference an available product", 400)
+            recorded_source_unit = str(getattr(source_item, "product_unit", "") or "").strip()
+            source_product_unit = _normalize_product_unit(
+                recorded_source_unit or getattr(product, "unit", None)
+            )
             source_capacity = (
                 max(0, _int(component.total_base_units, 0))
                 if component is not None
-                else max(0, _int(source_item.quantity, 0)) * max(1, _int(product.quantity_per_unit, 0))
+                else max(0, _int(source_item.quantity, 0)) * (
+                    1 if recorded_source_unit and "bottle" in recorded_source_unit.lower() else max(1, _int(product.quantity_per_unit, 0))
+                )
             )
             requested_units = max(0, _int(line.get("quantityToReplace"), 0))
             active_claims = ReplacementLine.objects.filter(
