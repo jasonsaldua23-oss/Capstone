@@ -329,9 +329,16 @@ export function CustomerOrdersView(props: any) {
         .filter((label: string) => String(label || '').trim() && String(label || '').trim().toUpperCase() !== 'N/A')
       if (labels.length > 0) return labels.join(', ')
     }
-    const formatQty = (qty: number, kind: 'unit' | 'bottle') =>
+    const formatQty = (qty: number, kind: string) =>
       `${Math.floor(qty)} ${kind}${qty > 1 ? 's' : ''}`
     const description = String(record?.description || '')
+    const savedUnit = String(
+      record?.replacementProductUnit ||
+      record?.replacementProduct?.unit ||
+      record?.originalOrderItem?.product?.unit ||
+      ''
+    ).trim().toLowerCase()
+    const packageUnit = savedUnit.includes('pack') ? 'pack' : savedUnit.includes('bundle') ? 'bundle' : 'case'
     const byUnit = description.match(/By\s*Unit:\s*(\d+)/i)
     const qtyPerUnitMatch = description.match(/Qty\/(?:Unit|Case)\s*(\d+)/i)
     const qtyPerUnitFromDescription = Number(qtyPerUnitMatch?.[1] || 0)
@@ -342,12 +349,12 @@ export function CustomerOrdersView(props: any) {
       0
     if (byUnit) {
       const qty = Number(byUnit[1] || 0)
-      if (Number.isFinite(qty) && qty > 0) return formatQty(qty, 'unit')
+      if (Number.isFinite(qty) && qty > 0) return formatQty(qty, packageUnit)
     }
     const byCase = description.match(/By\s*Case:\s*(\d+)/i)
     if (byCase) {
       const qty = Number(byCase[1] || 0)
-      if (Number.isFinite(qty) && qty > 0) return formatQty(qty, 'unit')
+      if (Number.isFinite(qty) && qty > 0) return formatQty(qty, 'case')
     }
     const byBottle = description.match(/By\s*Bottle:\s*(\d+)/i)
     if (byBottle) {
@@ -355,7 +362,7 @@ export function CustomerOrdersView(props: any) {
       if (Number.isFinite(qty) && qty > 0) return formatQty(qty, 'bottle')
     }
     const unitQty = Number(meta?.replacementCases ?? meta?.quantityToReplaceCases ?? 0)
-    if (Number.isFinite(unitQty) && unitQty > 0) return formatQty(unitQty, 'unit')
+    if (Number.isFinite(unitQty) && unitQty > 0) return formatQty(unitQty, packageUnit)
     const bottleQty = Number(meta?.replacementBottles ?? meta?.quantityToReplaceBottles ?? 0)
     if (Number.isFinite(bottleQty) && bottleQty > 0) return formatQty(bottleQty, 'bottle')
     const fallback = Number(record?.quantityToReplace ?? meta?.quantityToReplace ?? record?.replacementQuantity ?? 0)
@@ -364,16 +371,16 @@ export function CustomerOrdersView(props: any) {
       if (mode === 'case' || mode === 'unit') {
         if (qtyPerUnit > 0) {
           const units = Math.max(1, Math.round(fallback / qtyPerUnit))
-          return formatQty(units, 'unit')
+          return formatQty(units, packageUnit)
         }
-        return formatQty(fallback, 'unit')
+        return formatQty(fallback, packageUnit)
       }
       if (mode === 'bottle') return formatQty(fallback, 'bottle')
       if (qtyPerUnit > 0 && fallback % qtyPerUnit === 0) {
         const units = Math.max(1, Math.round(fallback / qtyPerUnit))
-        return formatQty(units, 'unit')
+        return formatQty(units, packageUnit)
       }
-      return formatQty(fallback, 'unit')
+      return formatQty(fallback, packageUnit)
     }
     return 'N/A'
   }

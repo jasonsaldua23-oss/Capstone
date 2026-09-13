@@ -110,6 +110,41 @@ const getReceiptItemSize = (item: any) => {
   return sizes.join(', ') || String(item?.sizeLabel || item?.size || '').trim()
 }
 
+const getReceiptEmptyReturnLabel = (items: any[] | undefined) => {
+  let returnedCases = 0
+  let returnedBottles = 0
+
+  for (const item of items || []) {
+    const returned = Math.max(0, Math.floor(Number(item?.emptyBottlesProvided || 0)))
+    if (!returned) continue
+
+    if (String(item?.mode || '').toUpperCase() === 'CASE') {
+      const caseCapacity = Math.max(1, Math.floor(Number(item?.caseCapacity || 1)))
+      // Fix: retail case returns are stored as bottle equivalents; convert them
+      // back to cases for the receipt while preserving any legacy remainder.
+      returnedCases += Math.floor(returned / caseCapacity)
+      returnedBottles += returned % caseCapacity
+    } else {
+      returnedBottles += returned
+    }
+  }
+
+  const parts: string[] = []
+  if (returnedCases) parts.push(`${returnedCases} ${returnedCases === 1 ? 'case' : 'cases'}`)
+  if (returnedBottles) parts.push(`${returnedBottles} ${returnedBottles === 1 ? 'bottle' : 'bottles'}`)
+  return parts.join(', ') || '0 bottles'
+}
+
+const getReceiptDepositLabel = (items: any[] | undefined) => {
+  const depositItems = (items || []).filter((item) => Number(item?.deposit || 0) > 0 || Number(item?.emptyBottlesProvided || 0) > 0)
+  const hasCaseDeposit = depositItems.some((item) => item?.mode === 'CASE')
+  const hasBottleDeposit = depositItems.some((item) => item?.mode !== 'CASE')
+
+  if (hasCaseDeposit && hasBottleDeposit) return 'Case & Bottle Deposit'
+  if (hasCaseDeposit) return 'Case Deposit'
+  return 'Bottle Deposit'
+}
+
 import { useQuery } from '@tanstack/react-query'
 
 async function authFetch(url: string, init?: RequestInit) {
@@ -1481,11 +1516,11 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                   <span className="font-medium text-slate-800">{peso(receipt.productTotal)}</span>
                 </div>
                 <div className="flex justify-between text-slate-600">
-                  <span>Empty Bottles Returned</span>
-                  <span className="font-medium text-slate-800">{receipt.emptyBottlesProvided || 0} pcs</span>
+                  <span>Empty Containers Returned</span>
+                  <span className="font-medium text-slate-800">{getReceiptEmptyReturnLabel(receipt.items)}</span>
                 </div>
                 <div className="flex justify-between text-slate-600">
-                  <span>Bottle Deposit</span>
+                  <span>{getReceiptDepositLabel(receipt.items)}</span>
                   <span className="font-medium text-slate-800">{peso(receipt.deposit)}</span>
                 </div>
                 <div className="h-px bg-slate-100" />

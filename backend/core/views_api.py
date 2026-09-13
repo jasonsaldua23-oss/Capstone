@@ -1341,6 +1341,19 @@ def _normalize_serialized_replacement_lines(
             or original_product_size
             or ""
         ).strip() or None
+        original_product_unit = str(
+            source_line.get("originalProductUnit")
+            or source_line.get("productUnit")
+            or getattr(original_item, "product_unit", "")
+            or getattr(original_product, "unit", "")
+            or ""
+        ).strip() or None
+        replacement_product_unit = str(
+            source_line.get("replacementProductUnit")
+            or getattr(replacement_product, "unit", "")
+            or original_product_unit
+            or ""
+        ).strip() or None
 
         normalized_line = dict(source_line)
         normalized_line.update(
@@ -1350,10 +1363,15 @@ def _normalize_serialized_replacement_lines(
                 "originalProductName": original_product_name,
                 "originalProductSku": original_product_sku,
                 "originalProductSize": original_product_size,
+                # Fix: replacement screens need the authoritative selling unit
+                # so saved bottle equivalents are displayed as cases when applicable.
+                "originalProductUnit": original_product_unit,
                 "replacementProductId": replacement_product_id or None,
                 "replacementProductName": replacement_product_name,
                 "replacementProductSku": replacement_product_sku,
                 "replacementProductSize": replacement_product_size,
+                "replacementProductUnit": replacement_product_unit,
+                "productUnit": replacement_product_unit or original_product_unit,
                 "quantityToReplace": quantity_to_replace,
                 "quantityReplaced": quantity_replaced,
                 "remainingQuantity": remaining_quantity,
@@ -3576,6 +3594,10 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                 for r in replacements:
                     order_returns_map.setdefault(str(r.order_id), []).append(r)
 
+        # Fix: cash is final only after the trip is closed. The delivered order
+        # status is the accounting authority even if an older stop status is stale.
+        trip_is_completed = str(getattr(trip, "status", "") or "").upper() == TripStatus.COMPLETED
+
         for dp in drop_point_rows:
             row = _serialize_model(dp)
             row["address"] = _strip_default_country_suffix(row.get("address"))
@@ -3604,8 +3626,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     + float((empties_adjustment or {}).get("amount") or 0),
                     2,
                 )
-                # Added: only successful deliveries count as cash received by the driver.
-                if str(getattr(dp, "status", "") or "").upper() in {DropPointStatus.COMPLETED, "DELIVERED"}:
+                if trip_is_completed and _normalize_order_status(dp.order.status) == OrderStatus.DELIVERED:
                     cash_collected_total += amount_due
                 row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number
@@ -5002,6 +5023,43 @@ def _replacement_product_lines(replacement: Replacement | None) -> list[ProductL
     """Read the products of a replacement request off its saved lines."""
     if replacement is None:
         return []
+    meta = _extract_replacement_meta(getattr(replacement, "notes", ""))
+    structured_lines = _get_structured_replacement_lines(meta)
+    if structured_lines:
+        # Replacement quantities are accounted for as base containers. Convert
+        # case-mode lines back to their selling unit for customer-facing emails.
+        formatted_lines: list[ProductLine] = []
+        for row in structured_lines:
+            product_id = str(row.get("replacementProductId") or row.get("originalProductId") or "").strip()
+            product = Product.objects.filter(id=product_id).first() if product_id else None
+            input_mode = str(row.get("lineInputMode") or row.get("replacementInputMode") or "").strip().lower()
+            requested_base_units = max(0, _int(row.get("quantityToReplace"), 0))
+            if input_mode == "case":
+                quantity_per_case = max(
+                    1,
+                    _int(row.get("quantityPerCase"), _int(getattr(product, "quantity_per_unit", 0), 1)),
+                )
+                quantity = max(
+                    0,
+                    _int(row.get("quantityToReplaceCases"), _int(row.get("quantityToReplaceUnits"), 0)),
+                )
+                if quantity <= 0 and requested_base_units % quantity_per_case == 0:
+                    quantity = requested_base_units // quantity_per_case
+                unit = str(row.get("replacementProductUnit") or getattr(product, "unit", "") or "case").strip()
+            else:
+                quantity = max(0, _int(row.get("quantityToReplaceBottles"), requested_base_units))
+                # Customer-facing replacement quantities use the requested package:
+                # a bottle-mode line is always expressed in bottles.
+                unit = "bottle"
+            formatted_lines.append(
+                ProductLine(
+                    name=str(row.get("replacementProductName") or row.get("originalProductName") or getattr(product, "name", "") or "Product").strip(),
+                    category=str(getattr(product, "category", "") or "").strip(),
+                    size=str(row.get("replacementProductSize") or row.get("originalProductSize") or _get_product_size_label(product) or "").strip(),
+                    quantity=format_quantity(quantity, unit),
+                )
+            )
+        return formatted_lines
     lines: list[ProductLine] = []
     try:
         rows = list(replacement.lines.select_related("product").all())
@@ -10984,8 +11042,6 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         Order.objects.filter(id__in=requested_order_ids).prefetch_related("items__product").all()
     )
     orders_by_id = {str(order.id): order for order in orders_to_assign}
-    missing_order_i
-... [truncated for diff preview]
     missing_order_ids = [oid for oid in requested_order_ids if oid not in orders_by_id]
     if missing_order_ids:
         return _err("Some orders were not found", 404)
@@ -12106,6 +12162,7 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
                 "originalProductName": original_product_name,
                 "originalProductSku": original_product_sku,
                 "originalProductSize": original_product_size,
+                "originalProductUnit": str(getattr(product, "unit", "") or "").strip() or None,
                 "replacementProductId": replacement_product_id,
                 "replacementProductName": original_product_name,
                 "replacementProductSku": original_product_sku,

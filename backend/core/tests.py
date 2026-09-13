@@ -39,7 +39,7 @@ from .models import (
     VehicleType,
     Warehouse,
 )
-from .views_api import _create_scheduled_replacement_order, _mark_order_delivered
+from .views_api import _create_scheduled_replacement_order, _mark_order_delivered, _replacement_product_lines
 
 
 class _RoleValue(str):
@@ -1309,6 +1309,9 @@ class DriverTripsApiContractTests(TestCase):
             for index, amount in enumerate((100.0, 200.0, 300.0), start=1)
         ]
         for index, order in enumerate(orders, start=1):
+            if index < 3:
+                order.status = OrderStatus.DELIVERED
+                order.save(update_fields=["status", "updated_at"])
             TripDropPoint.objects.create(
                 trip=trip,
                 order=order,
@@ -1328,17 +1331,27 @@ class DriverTripsApiContractTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         row = next(item for item in response.json()["trips"] if item["id"] == trip.id)
-        # Only the two completed deliveries have been collected so far.
-        self.assertEqual(row["cashCollectedTotal"], 300.0)
+        # Cash remains unfinalized until the whole trip is explicitly closed.
+        self.assertEqual(row["cashCollectedTotal"], 0.0)
 
         trip.drop_points.filter(order=orders[2]).update(status="COMPLETED")
-        completed_response = self.client.get(
-            "/api/driver/trips",
-            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
-        )
+        orders[2].status = OrderStatus.DELIVERED
+        orders[2].save(update_fields=["status", "updated_at"])
+        trip.status = TripStatus.COMPLETED
+        trip.save(update_fields=["status", "updated_at"])
+        # The finalized total includes post-delivery additions such as a verified
+        # empties shortfall; deductions are already stored in order.total_amount.
+        with patch(
+            "core.views_api.empties_adjustments_for_orders",
+            return_value={orders[2].id: {"amount": 50.0}},
+        ):
+            completed_response = self.client.get(
+                "/api/driver/trips",
+                HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+            )
 
         completed_row = next(item for item in completed_response.json()["trips"] if item["id"] == trip.id)
-        self.assertEqual(completed_row["cashCollectedTotal"], 600.0)
+        self.assertEqual(completed_row["cashCollectedTotal"], 650.0)
 
     def test_driver_trips_forbidden_for_non_driver_staff(self) -> None:
         response = self.client.get(
@@ -5325,6 +5338,7 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.product_a = Product.objects.create(
             sku="SKU-REPL-A",
             name="Return Product A",
+            unit="case",
             price=10,
             quantity_per_unit=6,
             sizes=["500ml"],
@@ -5332,6 +5346,7 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.product_b = Product.objects.create(
             sku="SKU-REPL-B",
             name="Return Product B",
+            unit="bottle",
             price=20,
             quantity_per_unit=12,
             sizes=["1L"],
@@ -5465,6 +5480,13 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(len(serialized["replacementLines"]), 2)
         self.assertEqual(serialized["replacementLines"][0]["originalProductName"], "Return Product A")
         self.assertEqual(serialized["replacementLines"][1]["originalProductName"], "Return Product B")
+        self.assertEqual(serialized["replacementLines"][0]["replacementProductUnit"], "case")
+        self.assertEqual(serialized["replacementLines"][1]["replacementProductUnit"], "bottle")
+        # Customer emails must use the selected packaging unit, not raw base bottles.
+        self.assertEqual(
+            [line.quantity for line in _replacement_product_lines(replacement)],
+            ["2 Cases", "3 Bottles"],
+        )
         self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
         self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
 
@@ -5731,6 +5753,9 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertAlmostEqual(scheduled_order.total_amount, 5.0)
 
     def test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock(self) -> None:
+        # This scenario requests loose bottles from a product stocked by the case.
+        self.product_b.unit = "case"
+        self.product_b.save(update_fields=["unit", "updated_at"])
         warehouse = Warehouse.objects.create(
             name="Mixed Replacement Warehouse",
             code="WH-MIXED-REPL-001",

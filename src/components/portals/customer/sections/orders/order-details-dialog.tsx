@@ -86,7 +86,7 @@ export function CustomerOrderDetailsDialog(props: any) {
     }
   }
 
-  const getLegacyReplacementQty = (record: any): { qty: number; label: 'unit' | 'bottle' } => {
+  const getLegacyReplacementQty = (record: any): { qty: number; label: string } => {
     const meta = typeof record?.notes === 'string' && record.notes.includes('Meta:')
       ? parseReplacementMeta(record)
       : {}
@@ -153,7 +153,10 @@ export function CustomerOrderDetailsDialog(props: any) {
         inputMode === 'bottle'
           ? (Number.isFinite(bottleQty) && bottleQty > 0 ? Math.floor(bottleQty) : Math.floor(fallbackQty))
           : (Number.isFinite(unitQty) && unitQty > 0 ? Math.floor(unitQty) : Math.floor(fallbackQty))
-      const label: 'unit' | 'bottle' = inputMode === 'bottle' ? 'bottle' : 'unit'
+      const savedUnit = String(line?.replacementProductUnit || line?.originalProductUnit || line?.productUnit || '').trim().toLowerCase()
+      const label = inputMode === 'bottle'
+        ? 'bottle'
+        : savedUnit.includes('pack') ? 'pack' : savedUnit.includes('bundle') ? 'bundle' : 'case'
       return {
         name:
           line?.replacementProductName ||
@@ -312,6 +315,11 @@ export function CustomerOrderDetailsDialog(props: any) {
   }
   const getSelectedReplacementItem = (selectionId: string) =>
     selectableReplacementItems.find((entry: any) => entry.selectionId === String(selectionId || ''))
+  const getReplacementPackageUnit = (selectionId: string) => {
+    const selected = getSelectedReplacementItem(selectionId)
+    const unit = String(selected?.orderItem?.productUnit || selected?.orderItem?.product?.unit || '').trim().toLowerCase()
+    return unit.includes('pack') ? 'pack' : unit.includes('bundle') ? 'bundle' : 'case'
+  }
   const getMaxReplacementQtyForLine = (line: { productId: string; inputMode: 'case' | 'bottle' }) => {
     const selected = getSelectedReplacementItem(line.productId)
     if (!selected) return 0
@@ -649,7 +657,7 @@ export function CustomerOrderDetailsDialog(props: any) {
                   className={`px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${line.inputMode === 'case' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`}
                   onClick={() => updateReplacementLine(line.key, { inputMode: 'case' })}
                 >
-                  By Unit
+                  By {getReplacementPackageUnit(line.productId).replace(/^./, (letter) => letter.toUpperCase())}
                 </button>
                 <button type="button" className={`px-3 text-xs font-semibold ${line.inputMode === 'bottle' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'bottle' })}>
                   By Bottle
@@ -778,6 +786,7 @@ export function CustomerOrderDetailsDialog(props: any) {
                   const component = selected?.component
                   const product = component?.product || selectedItem?.product || {}
                   const productName = component?.productName || product?.name || selectedItem?.productName || 'Product'
+                  const packageUnit = getReplacementPackageUnit(line.productId)
                   const quantityPerCase = component ? 1 : getQuantityPerCaseForItem(selectedItem)
                   const inputQty = Math.max(Number(line.quantity || 0), 0)
                   const orderedCases = getOrderedCaseQtyForItem(selectedItem)
@@ -787,7 +796,7 @@ export function CustomerOrderDetailsDialog(props: any) {
                     : effectiveInputMode === 'case' ? orderedCases : orderedCases * quantityPerCase
                   if (inputQty > maxInputQty) {
                     throw new Error(
-                      `${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${effectiveInputMode === 'case' ? 'unit(s)' : 'base unit(s)'})`
+                      `${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${effectiveInputMode === 'case' ? `${packageUnit}(s)` : 'bottle(s)'})`
                     )
                   }
                   const quantityToReplace = effectiveInputMode === 'case'
@@ -808,6 +817,8 @@ export function CustomerOrderDetailsDialog(props: any) {
                     replacementProductName: productName,
                     replacementProductSku: String(component?.productSku || product?.sku || selectedItem?.productSku || '').trim() || undefined,
                     replacementProductSize: sizeLabel || undefined,
+                    originalProductUnit: packageUnit,
+                    replacementProductUnit: packageUnit,
                     inputMode: effectiveInputMode,
                     lineInputMode: effectiveInputMode,
                     quantityPerCase,
@@ -825,8 +836,10 @@ export function CustomerOrderDetailsDialog(props: any) {
                 const combinedReason = distinctReasons.length === 1 ? distinctReasons[0] : 'Multiple issues'
                 const combinedDescription = submittedLines
                   .map((line) => {
+                    const packageUnit = String(line.replacementProductUnit || 'case').toLowerCase()
+                    const packageUnitTitle = packageUnit.replace(/^./, (letter) => letter.toUpperCase())
                     const modeText = line.lineInputMode === 'case'
-                      ? `By Unit: ${line.quantityToReplaceCases || 0} unit(s), Qty/Unit ${line.quantityPerCase || 1}`
+                      ? `By ${packageUnitTitle}: ${line.quantityToReplaceCases || 0} ${packageUnit}(s), Qty/${packageUnitTitle} ${line.quantityPerCase || 1}`
                       : `By Bottle: ${line.quantityToReplaceBottles || 0} bottle(s), Qty/Unit ${line.quantityPerCase || 1}`
                     const lineDetail = line.description ? `. ${line.description}` : ''
                     return `[${line.originalProductName || 'Product'}] ${modeText}. Reason: ${line.reason}${lineDetail}`

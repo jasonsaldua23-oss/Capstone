@@ -67,8 +67,13 @@ export function HistoryView({
   // Level 1: selectedTrip = null, selectedStop = null (Trips list)
   // Level 2: selectedTrip != null, selectedStop = null (Purchase Orders in Trip)
   // Level 3: selectedTrip != null, selectedStop != null (Order & Products detail)
-  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
+  const [selectedTripSnapshot, setSelectedTrip] = useState<Trip | null>(null)
   const [selectedStop, setSelectedStop] = useState<any | null>(null)
+
+  // Fix: keep an open history detail aligned with polling after trip completion.
+  const selectedTrip = selectedTripSnapshot
+    ? trips.find((trip) => trip.id === selectedTripSnapshot.id) ?? selectedTripSnapshot
+    : null
 
   const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
 

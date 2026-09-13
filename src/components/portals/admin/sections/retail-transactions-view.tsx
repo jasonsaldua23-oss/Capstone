@@ -379,7 +379,7 @@ export function RetailTransactionsView() {
 
       {/* Receipt Detail Modal */}
       <Dialog open={Boolean(selectedReceipt)} onOpenChange={(open) => !open && setSelectedReceipt(null)}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedReceipt ? (
             (() => {
               const receiptDate = (selectedReceipt as any).createdAt || (selectedReceipt as any).date

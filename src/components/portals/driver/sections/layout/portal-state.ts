@@ -38,6 +38,7 @@ interface Trip {
   updatedAt?: string | null
   totalDropPoints: number
   completedDropPoints: number
+  cashCollectedTotal?: number
   latestLocation?: {
     latitude?: number | null
     longitude?: number | null

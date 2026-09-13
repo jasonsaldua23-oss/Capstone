@@ -131,7 +131,7 @@ export function CustomerOrderDetailPage(props: any) {
     }
   }
 
-  const getLegacyReplacementQty = (record: any): { qty: number; label: 'unit' | 'bottle' } => {
+  const getLegacyReplacementQty = (record: any): { qty: number; label: string } => {
     const meta =
       typeof record?.notes === 'string' && record.notes.includes('Meta:')
         ? parseReplacementMeta(record)
@@ -179,7 +179,10 @@ export function CustomerOrderDetailPage(props: any) {
         inputMode === 'bottle'
           ? Number.isFinite(bottleQty) && bottleQty > 0 ? Math.floor(bottleQty) : Math.floor(fallbackQty)
           : Number.isFinite(unitQty) && unitQty > 0 ? Math.floor(unitQty) : Math.floor(fallbackQty)
-      const label: 'unit' | 'bottle' = inputMode === 'bottle' ? 'bottle' : 'unit'
+      const savedUnit = String(line?.replacementProductUnit || line?.originalProductUnit || line?.productUnit || '').trim().toLowerCase()
+      const label = inputMode === 'bottle'
+        ? 'bottle'
+        : savedUnit.includes('pack') ? 'pack' : savedUnit.includes('bundle') ? 'bundle' : 'case'
       return {
         name: line?.replacementProductName || line?.originalProductName || record?.replacementProductName || record?.originalProductName || `Product ${index + 1}`,
         qty: Number.isFinite(qty) && qty > 0 ? qty : 0,
@@ -225,6 +228,11 @@ export function CustomerOrderDetailPage(props: any) {
   }
   const getSelectedReplacementItem = (selectionId: string) =>
     selectableReplacementItems.find((entry: any) => entry.selectionId === String(selectionId || ''))
+  const getReplacementPackageUnit = (selectionId: string) => {
+    const selected = getSelectedReplacementItem(selectionId)
+    const unit = String(selected?.orderItem?.productUnit || selected?.orderItem?.product?.unit || '').trim().toLowerCase()
+    return unit.includes('pack') ? 'pack' : unit.includes('bundle') ? 'bundle' : 'case'
+  }
   const getMaxReplacementQtyForLine = (line: { productId: string; inputMode: 'case' | 'bottle' }) => {
     const selected = getSelectedReplacementItem(line.productId)
     if (!selected) return 0
@@ -713,7 +721,7 @@ export function CustomerOrderDetailPage(props: any) {
                     className={`px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${line.inputMode === 'case' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`}
                     onClick={() => updateReplacementLine(line.key, { inputMode: 'case' })}
                   >
-                    By Unit
+                    By {getReplacementPackageUnit(line.productId).replace(/^./, (letter) => letter.toUpperCase())}
                   </button>
                   <button
                     type="button"
@@ -852,6 +860,7 @@ export function CustomerOrderDetailPage(props: any) {
                     const component = selected?.component
                     const product = component?.product || selectedItem?.product || {}
                     const productName = component?.productName || product?.name || selectedItem?.productName || 'Product'
+                    const packageUnit = getReplacementPackageUnit(line.productId)
                     const quantityPerCase = component ? 1 : getQuantityPerCaseForItem(selectedItem)
                     const inputQty = Math.max(Number(line.quantity || 0), 0)
                     const orderedCases = getOrderedCaseQtyForItem(selectedItem)
@@ -860,7 +869,7 @@ export function CustomerOrderDetailPage(props: any) {
                       ? Number(component.totalBaseUnits || 0)
                       : effectiveInputMode === 'case' ? orderedCases : orderedCases * quantityPerCase
                     if (inputQty > maxInputQty) {
-                      throw new Error(`${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${effectiveInputMode === 'case' ? 'unit(s)' : 'base unit(s)'})`)
+                      throw new Error(`${productName}: replacement quantity cannot be higher than ordered quantity (${maxInputQty} ${effectiveInputMode === 'case' ? `${packageUnit}(s)` : 'bottle(s)'})`)
                     }
                     const quantityToReplace = effectiveInputMode === 'case' ? inputQty * quantityPerCase : inputQty
                     const sizeLabel = Array.isArray(product?.sizes) && product.sizes.length
@@ -877,6 +886,8 @@ export function CustomerOrderDetailPage(props: any) {
                       replacementProductName: productName,
                       replacementProductSku: String(component?.productSku || product?.sku || selectedItem?.productSku || '').trim() || undefined,
                       replacementProductSize: sizeLabel || undefined,
+                      originalProductUnit: packageUnit,
+                      replacementProductUnit: packageUnit,
                       inputMode: effectiveInputMode,
                       lineInputMode: effectiveInputMode,
                       quantityPerCase,
@@ -893,8 +904,10 @@ export function CustomerOrderDetailPage(props: any) {
                   const distinctReasons = Array.from(new Set(submittedLines.map((l) => String(l.reason || '').trim()).filter(Boolean)))
                   const combinedReason = distinctReasons.length === 1 ? distinctReasons[0] : 'Multiple issues'
                   const combinedDescription = submittedLines.map((l) => {
+                    const packageUnit = String(l.replacementProductUnit || 'case').toLowerCase()
+                    const packageUnitTitle = packageUnit.replace(/^./, (letter) => letter.toUpperCase())
                     const modeText = l.lineInputMode === 'case'
-                      ? `By Unit: ${l.quantityToReplaceCases || 0} unit(s), Qty/Unit ${l.quantityPerCase || 1}`
+                      ? `By ${packageUnitTitle}: ${l.quantityToReplaceCases || 0} ${packageUnit}(s), Qty/${packageUnitTitle} ${l.quantityPerCase || 1}`
                       : `By Bottle: ${l.quantityToReplaceBottles || 0} bottle(s), Qty/Unit ${l.quantityPerCase || 1}`
                     const lineDetail = l.description ? `. ${l.description}` : ''
                     return `[${l.originalProductName || 'Product'}] ${modeText}. Reason: ${l.reason}${lineDetail}`
