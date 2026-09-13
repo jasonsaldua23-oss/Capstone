@@ -5,6 +5,7 @@ import * as MapLibreRN from "@maplibre/maplibre-react-native";
 import React, { useMemo, useRef } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 
+import driverVanImage from "../../../../public/icons/aab-van-iso.png";
 import type { CustomerTrackingItem } from "../types";
 
 const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
@@ -73,9 +74,10 @@ export function CustomerTrackingMap({
         {driver ? (
           <MapLibreRN.MarkerView coordinate={driver} anchor={{ x: 0.5, y: 0.5 }} allowOverlap>
             <Image
-              source={require("../../../../public/icons/aab-van-iso.png")}
+              source={driverVanImage}
               style={styles.driverMarker}
               resizeMode="contain"
+              alt="Live driver location"
               accessibilityLabel="Live driver location"
             />
           </MapLibreRN.MarkerView>

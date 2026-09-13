@@ -49,7 +49,7 @@ export function EditAddressScreen() {
     clearAddressForm,
     handlePinnedLocation,
     handleOutsideServiceArea,
-    useCurrentLocation,
+    useCurrentLocation: requestCurrentLocation,
     resolvingPinnedAddress,
     savingProfile,
     handleSaveAddress,
@@ -173,7 +173,7 @@ export function EditAddressScreen() {
 
         <Pressable
           style={styles.addressLocationButton}
-          onPress={() => void useCurrentLocation()}
+          onPress={() => void requestCurrentLocation()}
           accessibilityRole="button"
         >
           <MapPin size={14} color={theme.colors.emeraldDark} />

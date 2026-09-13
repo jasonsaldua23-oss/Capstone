@@ -1,7 +1,7 @@
 'use client'
 import { replacementOrderQuantity } from '@/lib/replacement-order-quantity'
 
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -33,6 +33,7 @@ type TripItem = {
   tripSchedule?: string | null
   totalDropPoints?: number
   completedDropPoints?: number
+  cashCollectedTotal?: number
   driver?: {
     name?: string
     user?: {
@@ -86,7 +87,7 @@ export function WarehouseTripsSection({
   onEditTripDropPoints,
   editingTripId,
 }: WarehouseTripsSectionProps) {
-  const [tripsPage, setTripsPage] = useState(1)
+  const [tripPageSelection, setTripPageSelection] = useState({ scope: '', page: 1 })
   const [tripStatusFilter, setTripStatusFilter] = useState('ALL')
   const tripsPageSize = 10
   const [selectedDropPointDetail, setSelectedDropPointDetail] = useState<any | null>(null)
@@ -249,20 +250,17 @@ export function WarehouseTripsSection({
     [scopedTrips, tripStatusFilter],
   )
   const totalTripsPages = Math.max(1, Math.ceil(filteredTrips.length / tripsPageSize))
-  const paginatedTrips = useMemo(() => {
-    const start = (tripsPage - 1) * tripsPageSize
-    return filteredTrips.slice(start, start + tripsPageSize)
-  }, [filteredTrips, tripsPage])
-
-  useEffect(() => {
-    setTripsPage(1)
-  }, [scopedTrips.length, tripStatusFilter])
-
-  useEffect(() => {
-    if (tripsPage > totalTripsPages) {
-      setTripsPage(totalTripsPages)
-    }
-  }, [tripsPage, totalTripsPages])
+  // A different status/result set starts at page one without a state-sync effect.
+  const tripPageScope = [scopedTrips.length, tripStatusFilter].join('\u0000')
+  const tripsPage = tripPageSelection.scope === tripPageScope ? Math.min(tripPageSelection.page, totalTripsPages) : 1
+  const setTripsPage = (next: number | ((page: number) => number)) => {
+    setTripPageSelection((current) => {
+      const page = current.scope === tripPageScope ? Math.min(current.page, totalTripsPages) : 1
+      const requested = typeof next === 'function' ? next(page) : next
+      return { scope: tripPageScope, page: Math.min(totalTripsPages, Math.max(1, requested)) }
+    })
+  }
+  const paginatedTrips = filteredTrips.slice((tripsPage - 1) * tripsPageSize, tripsPage * tripsPageSize)
   const getAssignedQtyForCurrentTripAndWarehouseFromLegs = (point: any): number => {
     const tripId = String((selectedTrip as any)?.id || '').trim()
     const tripNumber = String((selectedTrip as any)?.tripNumber || '').trim()
@@ -310,18 +308,15 @@ export function WarehouseTripsSection({
     const pendingItemQty = getPendingItemAssignmentQtyForCurrentTrip(point)
     return pendingItemQty > 0
   }
-  const pendingQtyForAllocatingPoint = useMemo(() => {
-    if (!allocatingPoint) return 0
-    return getPendingAllocationQtyForCurrentTrip(allocatingPoint)
-  }, [allocatingPoint, selectedTrip, activeWarehouseId, activeWarehouseName])
-  const allocatingOrderAlreadyInSelectedTrip = useMemo(() => {
+  const pendingQtyForAllocatingPoint = allocatingPoint ? getPendingAllocationQtyForCurrentTrip(allocatingPoint) : 0
+  const allocatingOrderAlreadyInSelectedTrip = (() => {
     const orderId = String(allocatingPoint?.order?.id || '').trim()
     if (!orderId || !selectedTrip) return false
     const points = Array.isArray(selectedTrip?.dropPoints) ? selectedTrip.dropPoints : []
     return points.some((point: any) => String(point?.orderId || point?.order?.id || '').trim() === orderId)
-  }, [allocatingPoint, selectedTrip])
+  })()
   const canDirectAssignCurrentDropPoint = pendingQtyForAllocatingPoint > 0
-  const pendingItemsForAllocatingPoint = useMemo(() => {
+  const pendingItemsForAllocatingPoint = (() => {
     const items = Array.isArray(allocatingPoint?.order?.items) ? allocatingPoint.order.items : []
     return items
       .map((item: any) => {
@@ -345,7 +340,7 @@ export function WarehouseTripsSection({
         return { name, size, pendingQty }
       })
       .filter((line) => line.pendingQty > 0)
-  }, [allocatingPoint, selectedTrip, activeWarehouseId, activeWarehouseName])
+  })()
   const formatPeso = (amount: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 2 }).format(amount)
   const getOrderItemName = (item: any) =>
@@ -770,6 +765,13 @@ export function WarehouseTripsSection({
                     </div>
                   </div>
                 </div>
+                {statusKey === 'COMPLETED' && (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                    {/* Added: warehouse staff can reconcile the driver's completed-trip cash. */}
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total cash collected</p>
+                    <p className="mt-1 text-xl font-bold text-emerald-900">{formatPeso(Number(selectedTrip.cashCollectedTotal || 0))}</p>
+                  </div>
+                )}
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
                   <p className="mb-3 flex items-center gap-2 text-[14px] font-bold leading-none text-[#0f172f]">
                     <MapPin className="h-5 w-5 text-blue-600" />

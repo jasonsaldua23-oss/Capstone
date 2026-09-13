@@ -31,7 +31,12 @@ export function MixedCaseComponents({
             {showImages ? (
               <View style={[styles.mixedCaseThumb, compact ? styles.mixedCaseThumbCompact : null]}>
                 {imageUrl ? (
-                  <Image source={{ uri: imageUrl }} style={styles.mixedCaseThumbImage} resizeMode="cover" />
+                  <Image
+                    source={{ uri: imageUrl }}
+                    style={styles.mixedCaseThumbImage}
+                    resizeMode="cover"
+                    alt={getMixedCaseComponentNameWithSize(component)}
+                  />
                 ) : (
                   <Package size={16} color={theme.colors.textFaint} />
                 )}

@@ -1,0 +1,3698 @@
+[
+  {
+    "route": "/api/auth/login",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/login",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/login",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/login",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/login",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/login",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/login",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/login",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/login/verify-otp",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/login/verify-otp",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/login/verify-otp",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/login/verify-otp",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/login/verify-otp",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/login/verify-otp",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/login/verify-otp",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/login/verify-otp",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/staff/google",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/staff/google",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/staff/google",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/staff/google",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/staff/google",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/staff/google",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/staff/google",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/staff/google",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/customer/login",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/customer/login",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/customer/login",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/customer/login",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/customer/login",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/customer/login",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/customer/login",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/customer/login",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/customer/google",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/customer/google",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/customer/google",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/customer/google",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/customer/google",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/customer/google",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/customer/google",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/customer/google",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/register",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/register",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/register",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/register",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/register",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/register",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/register",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/register",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/request",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/request",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/request",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/request",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/request",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/request",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/request",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/request",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/confirm",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/confirm",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/confirm",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/confirm",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/confirm",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/confirm",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/confirm",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/confirm",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/request-existing",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/request-existing",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/request-existing",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/request-existing",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/request-existing",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/request-existing",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/request-existing",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/email-verification/request-existing",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/email-verification/confirm-existing",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/confirm-existing",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/confirm-existing",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/confirm-existing",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/confirm-existing",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/email-verification/confirm-existing",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/email-verification/confirm-existing",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/email-verification/confirm-existing",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/auth/logout",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 200
+  },
+  {
+    "route": "/api/auth/logout",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 200
+  },
+  {
+    "route": "/api/auth/logout",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 200
+  },
+  {
+    "route": "/api/auth/logout",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 200
+  },
+  {
+    "route": "/api/auth/logout",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 200
+  },
+  {
+    "route": "/api/auth/logout",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 200
+  },
+  {
+    "route": "/api/auth/logout",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 200
+  },
+  {
+    "route": "/api/auth/logout",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 200
+  },
+  {
+    "route": "/api/auth/password-reset/request-otp",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/request-otp",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/request-otp",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/request-otp",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/request-otp",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/request-otp",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/request-otp",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/request-otp",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/verify-otp",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/verify-otp",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/verify-otp",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/verify-otp",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/verify-otp",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/verify-otp",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/verify-otp",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/verify-otp",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/reset",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/reset",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/reset",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/reset",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/reset",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/reset",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/auth/password-reset/reset",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/auth/password-reset/reset",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/users",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/users",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/users",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/users",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/users",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/users",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/users",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/users",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/users/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/users/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/users/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/users/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/users/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/users/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/users/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/users/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/customers",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/customers",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/customers",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/customers",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/customers",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/customers",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/customers",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/customers",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/customers/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/customers/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/customers/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/customers/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/customers/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/customers/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/customers/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/customers/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/warehouses",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/warehouses",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/warehouses",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/warehouses",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/warehouses",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/warehouses",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/warehouses",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/warehouses",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/warehouses/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/warehouses/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/warehouses/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/warehouses/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/warehouses/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/warehouses/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/warehouses/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/warehouses/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/products",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/products",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/products",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/products",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/products",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/products",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/products",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/products",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/products/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/products/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/products/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/products/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/products/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/products/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/products/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/products/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/inventory",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/inventory",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/inventory",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/empty-returns",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/empty-returns",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/empty-returns",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/inventory/empty-returns",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/inventory/empty-returns",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/empty-returns",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/empty-returns",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/empty-returns",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/audit-missing",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/inventory/audit-missing",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/inventory/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/audit-missing",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/inventory/audit-missing",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/bulk",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/bulk",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/bulk",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/stock-batches/bulk",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/stock-batches/bulk",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/bulk",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/bulk",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/bulk",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/expired-stock",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/expired-stock",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/expired-stock",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/stock-batches/expired-stock",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/stock-batches/expired-stock",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/expired-stock",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/expired-stock",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/stock-batches/expired-stock",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/vehicles",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/drivers",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/drivers",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/drivers",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/drivers",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/drivers",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/feedback",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/feedback",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/feedback",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/feedback",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/feedback",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/feedback",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/feedback",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 201
+  },
+  {
+    "route": "/api/feedback",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/feedback",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/feedback",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/feedback",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/feedback",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/feedback",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/feedback",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/feedback",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/feedback",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/notifications",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/notifications",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/notifications",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/notifications",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/notifications",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/notifications",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/notifications",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/notifications",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/push-subscriptions",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/push-subscriptions",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/push-subscriptions",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/push-subscriptions",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/push-subscriptions",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/push-subscriptions",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/push-subscriptions",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/push-subscriptions",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/quote",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/retail/quote",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/quote",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/quote",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/quote",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/quote",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/quote",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/quote",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/retail/sales",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/sales",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/sales",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/payment",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/payment",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/payment",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/payment",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/payment",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/payment",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/payment",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/payment",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/pickup-status",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/pickup-status",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/pickup-status",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/pickup-status",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/pickup-status",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/pickup-status",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/pickup-status",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/pickup-status",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/cancel",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/cancel",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/cancel",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/cancel",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/cancel",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/cancel",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/cancel",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/retail/sales/audit-missing/cancel",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/orders",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/orders",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/orders/audit-missing/status",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders/audit-missing/status",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders/audit-missing/status",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders/audit-missing/status",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders/audit-missing/status",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/orders/audit-missing/status",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/orders/audit-missing/status",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/orders/audit-missing/status",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/trips",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/trips",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/trips",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/product-image",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/product-image",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/product-image",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/product-image",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/product-image",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/product-image",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/product-image",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/product-image",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/pod-image",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/pod-image",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/pod-image",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/pod-image",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/pod-image",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/pod-image",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/pod-image",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/pod-image",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/damage-image",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/damage-image",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/damage-image",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/damage-image",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/damage-image",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/damage-image",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/damage-image",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/damage-image",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/uploads/customer-avatar",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/customer-avatar",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/customer-avatar",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/customer-avatar",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/customer-avatar",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/customer-avatar",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/customer-avatar",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/customer-avatar",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/replacement-evidence",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/uploads/replacement-evidence",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/uploads/replacement-evidence",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/uploads/replacement-evidence",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/uploads/replacement-evidence",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/uploads/replacement-evidence",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/uploads/replacement-evidence",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/uploads/replacement-evidence",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 400
+  },
+  {
+    "route": "/api/customer/orders",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/customer/orders",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/deposit-refund",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/deposit-refund",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/deposit-refund",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/deposit-refund",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/deposit-refund",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/deposit-refund",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/deposit-refund",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 500
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/deposit-refund",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/cancel",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/cancel",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/cancel",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/cancel",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/cancel",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/cancel",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/cancel",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/customer/orders/audit-missing/cancel",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/customer/replacements",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/customer/replacements",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/customer/replacements/audit-missing/cancel",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements/audit-missing/cancel",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements/audit-missing/cancel",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements/audit-missing/cancel",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements/audit-missing/cancel",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements/audit-missing/cancel",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/replacements/audit-missing/cancel",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/customer/replacements/audit-missing/cancel",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/customer/empty-bottles/record",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/empty-bottles/record",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/empty-bottles/record",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/empty-bottles/record",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/empty-bottles/record",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/empty-bottles/record",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 401
+  },
+  {
+    "route": "/api/customer/empty-bottles/record",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/customer/empty-bottles/record",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/driver/location",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/location",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/location",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/location",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/location",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 400
+  },
+  {
+    "route": "/api/driver/location",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 500
+  },
+  {
+    "route": "/api/driver/location",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/location",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/profile",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/profile",
+    "method": "PUT",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/profile",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/profile",
+    "method": "PUT",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/profile",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 200
+  },
+  {
+    "route": "/api/driver/profile",
+    "method": "PUT",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 200
+  },
+  {
+    "route": "/api/driver/profile",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/driver/profile",
+    "method": "PUT",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/route-plan",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 200
+  },
+  {
+    "route": "/api/trips/route-plan",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 200
+  },
+  {
+    "route": "/api/trips/route-plan",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 200
+  },
+  {
+    "route": "/api/trips/route-plan",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 200
+  },
+  {
+    "route": "/api/trips/route-plan",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 200
+  },
+  {
+    "route": "/api/trips/route-plan",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 200
+  },
+  {
+    "route": "/api/trips/route-plan",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/route-plan",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/start",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/start",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/start",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/start",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/start",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/start",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/start",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/start",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/complete",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/complete",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/complete",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/complete",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/complete",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/complete",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/complete",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/complete",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/drop-points/audit-missing",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/drop-points/audit-missing",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/drop-points/audit-missing",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/drop-points/audit-missing",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/drop-points/audit-missing",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/drop-points/audit-missing",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/drop-points/audit-missing",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/drop-points/audit-missing",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/stops/audit-missing",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/stops/audit-missing",
+    "method": "PATCH",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/stops/audit-missing",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/stops/audit-missing",
+    "method": "PATCH",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/stops/audit-missing",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/stops/audit-missing",
+    "method": "PATCH",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/stops/audit-missing",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/stops/audit-missing",
+    "method": "PATCH",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/unassign",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/unassign",
+    "method": "POST",
+    "role": "SUPER_ADMIN",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/unassign",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/unassign",
+    "method": "POST",
+    "role": "WAREHOUSE_STAFF",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/unassign",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "{}",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/unassign",
+    "method": "POST",
+    "role": "DRIVER",
+    "body": "[]",
+    "status": 404
+  },
+  {
+    "route": "/api/trips/audit-missing/unassign",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "{}",
+    "status": 403
+  },
+  {
+    "route": "/api/trips/audit-missing/unassign",
+    "method": "POST",
+    "role": "CUSTOMER",
+    "body": "[]",
+    "status": 403
+  }
+]

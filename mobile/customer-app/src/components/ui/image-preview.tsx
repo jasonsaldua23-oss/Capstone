@@ -32,7 +32,7 @@ export function ImagePreview({
         accessibilityRole="button"
         accessibilityLabel={`Open full-size ${accessibilityLabel}`}
       >
-        <Image source={{ uri }} style={style} resizeMode="cover" />
+        <Image source={{ uri }} style={style} resizeMode="cover" alt={accessibilityLabel} />
         {caption ? <Text style={styles.imagePreviewCaption}>{caption}</Text> : null}
       </Pressable>
 
@@ -48,7 +48,7 @@ export function ImagePreview({
           </Pressable>
           {/* Tapping the backdrop closes, the way the web dialog does. */}
           <Pressable style={styles.imagePreviewFill} onPress={() => setOpen(false)}>
-            <Image source={{ uri }} style={styles.imagePreviewImage} resizeMode="contain" />
+            <Image source={{ uri }} style={styles.imagePreviewImage} resizeMode="contain" alt={accessibilityLabel} />
           </Pressable>
         </View>
       </Modal>

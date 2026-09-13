@@ -1,0 +1,56 @@
+TAP version 13
+# (node:1692) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/src/lib/report-metrics.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\CAPSTONE\\package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: inventory shows complete loose sets as cases and preserves remaining bottles
+ok 1 - inventory shows complete loose sets as cases and preserves remaining bottles
+  ---
+  duration_ms: 11.4068
+  type: 'test'
+  ...
+# Subtest: inventory availability and stock health use reserved quantities
+ok 2 - inventory availability and stock health use reserved quantities
+  ---
+  duration_ms: 2.9047
+  type: 'test'
+  ...
+# Subtest: warehouse capacity summary keeps one decimal precision and fallback capacity
+ok 3 - warehouse capacity summary keeps one decimal precision and fallback capacity
+  ---
+  duration_ms: 0.7015
+  type: 'test'
+  ...
+# Subtest: inventory movement selectors keep only in and out and chart totals match row totals
+ok 4 - inventory movement selectors keep only in and out and chart totals match row totals
+  ---
+  duration_ms: 60.5268
+  type: 'test'
+  ...
+# Subtest: warehouse dashboard total retains cancelled orders while activity metrics exclude them
+ok 5 - warehouse dashboard total retains cancelled orders while activity metrics exclude them
+  ---
+  duration_ms: 11.5962
+  type: 'test'
+  ...
+# Subtest: active trip counting uses normalized trip statuses
+ok 6 - active trip counting uses normalized trip statuses
+  ---
+  duration_ms: 0.5305
+  type: 'test'
+  ...
+# Subtest: order report selectors normalize statuses and build report totals from primary orders only
+ok 7 - order report selectors normalize statuses and build report totals from primary orders only
+  ---
+  duration_ms: 5.3855
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 552.1702

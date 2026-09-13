@@ -1,0 +1,75 @@
+.venv/Scripts/python.exe : Creating test database for alias 'default' 
+('file:memorydb_default?mode=memory&cache=shared')...
+At line:2 char:1
++ .venv/Scripts/python.exe test-reports/2026-09-13-prelaunch/run_backen ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Creating test d...che=shared')...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Found 1 test(s).
+Skipping setup of unused database(s): supabase.
+Operations to perform:
+  Synchronize unmigrated apps: core, corsheaders, rest_framework, staticfiles
+  Apply all migrations: (none)
+Synchronizing apps without migrations:
+  Creating tables...
+    Creating table User
+    Creating table core_driverservicearea
+    Creating table Customer
+    Creating table AuthThrottleState
+    Creating table Feedback
+    Creating table Warehouse
+    Creating table PackagingProfile
+    Creating table Product
+    Creating table Inventory
+    Creating table InventoryTransaction
+    Creating table StockBatch
+    Creating table Order
+    Creating table OrderTimeline
+    Creating table OrderItem
+    Creating table Vehicle
+    Creating table Trip
+    Creating table TripDropPoint
+    Creating table LocationLog
+    Creating table Replacement
+    Creating table Notification
+    Creating table PushSubscription
+    Creating table MixedCaseComponent
+    Creating table InventoryReservation
+    Creating table ReplacementLine
+    Creating table ReturnReceipt
+    Creating table ReturnReceiptLine
+    Creating table ContainerType
+    Creating table ProductPackaging
+    Creating table CustomerDepositLedger
+    Creating table DepositTransaction
+    Creating table CustomerBottleBalance
+    Creating table OrderDepositRefundClaim
+    Creating table BottleReturn
+    Creating table BottleReturnLine
+    Running deferred SQL...
+Running migrations:
+  No migrations to apply.
+System check identified no issues (0 silenced).
+test_staff_otp_cannot_be_reused_across_portals 
+(core.test_password_reset_portals.PasswordResetPortalValidationTests.test_staff_otp_cannot_be_reused_across_portals) 
+... FAIL
+
+======================================================================
+FAIL: test_staff_otp_cannot_be_reused_across_portals 
+(core.test_password_reset_portals.PasswordResetPortalValidationTests.test_staff_otp_cannot_be_reused_across_portals)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_password_reset_portals.py", line 117, in 
+test_staff_otp_cannot_be_reused_across_portals
+    self.assertEqual(correct_portal.status_code, 200)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 429 != 200
+
+----------------------------------------------------------------------
+Ran 1 test in 0.027s
+
+FAILED (failures=1)
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+

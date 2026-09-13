@@ -287,6 +287,7 @@ def render_html(body: EmailBody, *, heading: str, preheader: str = "", logo_src:
  style="width:600px;max-width:600px;background:#FFFFFF;border:1px solid {LINE};border-radius:8px;
  font-family:Arial,Helvetica,sans-serif;">
   <tr><td class="pad" style="padding:24px 32px 18px;border-bottom:1px solid {LINE};">{logo}</td></tr>
+
   <tr><td style="height:3px;background:{GREEN};font-size:0;line-height:0;">&nbsp;</td></tr>
   <tr><td class="pad" style="padding:28px 32px 8px;">
     <h1 class="h1" style="margin:0 0 18px;font-size:21px;line-height:1.35;font-weight:bold;color:{NAVY};">

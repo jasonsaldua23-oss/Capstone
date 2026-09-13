@@ -6,6 +6,7 @@
 import React from "react";
 import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
+import driverVanImage from "../../../../public/icons/aab-van-iso.png";
 import type { CustomerTrackingItem } from "../types";
 
 export function CustomerTrackingMap({
@@ -46,9 +47,10 @@ export function CustomerTrackingMap({
       ) : null}
       {hasDriverLocation ? (
         <Image
-          source={require("../../../../public/icons/aab-van-iso.png")}
+          source={driverVanImage}
           style={styles.driverMarker}
           resizeMode="contain"
+          alt="Live driver location"
           accessibilityLabel="Live driver location"
         />
       ) : (

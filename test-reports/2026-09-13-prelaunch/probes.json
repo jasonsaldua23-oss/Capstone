@@ -1,0 +1,262 @@
+[
+  {
+    "probe": "login_SUPER_ADMIN",
+    "status": 200,
+    "token_hours": 720.0,
+    "cookie_httponly": false
+  },
+  {
+    "probe": "login_ADMIN",
+    "status": 200,
+    "token_hours": 720.0,
+    "cookie_httponly": false
+  },
+  {
+    "probe": "login_WAREHOUSE_STAFF",
+    "status": 200,
+    "token_hours": 720.0,
+    "cookie_httponly": false
+  },
+  {
+    "probe": "login_DRIVER",
+    "status": 200,
+    "token_hours": 720.0,
+    "cookie_httponly": false
+  },
+  {
+    "probe": "login_CUSTOMER",
+    "status": 200
+  },
+  {
+    "probe": "driver_self_promotes",
+    "status": 200,
+    "persisted_role": "SUPER_ADMIN"
+  },
+  {
+    "probe": "driver_disables_admin",
+    "status": 200,
+    "is_active": false
+  },
+  {
+    "probe": "disabled_admin_token",
+    "auth_me": 401,
+    "users_api": 200
+  },
+  {
+    "probe": "customer_lists_other_customers",
+    "status": 200,
+    "other_customer_present": true,
+    "fields": [
+      "email",
+      "name",
+      "firstName",
+      "middleName",
+      "lastName",
+      "suffix",
+      "phone",
+      "avatar",
+      "address",
+      "city",
+      "province",
+      "zipCode",
+      "country",
+      "latitude",
+      "longitude",
+      "discountOption",
+      "discountPercent",
+      "discountAmountPerCase",
+      "discountStatus",
+      "discountAppliedByUserId",
+      "discountAppliedByName",
+      "discountUpdatedAt",
+      "isActive",
+      "twoFactorEnabled",
+      "loginAlertsEnabled",
+      "createdAt",
+      "id",
+      "successfulDeliveries",
+      "successfulDeliverySpend",
+      "lastOrderNumber",
+      "lastOrderDate"
+    ]
+  },
+  {
+    "probe": "customer_other_detail_guard",
+    "status": 403
+  },
+  {
+    "probe": "driver_resets_other_customer_password",
+    "status": 200,
+    "changed": true
+  },
+  {
+    "probe": "logout_replay",
+    "logout_status": 200,
+    "replayed_status": 200
+  },
+  {
+    "probe": "demoted_admin_token",
+    "status": 200
+  },
+  {
+    "probe": "password_reset_otp_replay",
+    "first": 200,
+    "second": 200,
+    "old_session": 200
+  },
+  {
+    "probe": "malformed_login_[]",
+    "status": 500
+  },
+  {
+    "probe": "malformed_login_null",
+    "status": 500
+  },
+  {
+    "probe": "malformed_login_42",
+    "status": 500
+  },
+  {
+    "probe": "malformed_login_\"text\"",
+    "status": 500
+  },
+  {
+    "probe": "malformed_login_{",
+    "status": 400
+  },
+  {
+    "probe": "spoofed_image_upload",
+    "status": 200,
+    "url_extension": ".html",
+    "anonymous_get": 200,
+    "served_type": "text/html",
+    "cache": "public, max-age=31536000, immutable"
+  },
+  {
+    "probe": "same_millisecond_upload_collision",
+    "same_url": true,
+    "first_content_overwritten": true
+  },
+  {
+    "probe": "invalid_6mb_image",
+    "status": 200
+  },
+  {
+    "probe": "missing_jwt_secret_accepts_session",
+    "status": 200
+  },
+  {
+    "probe": "two_factor_challenge_as_session",
+    "login_status": 202,
+    "customers_status": 200,
+    "orders_status": 200,
+    "auth_me_status": 200
+  },
+  {
+    "probe": "shared_checkout_other_customer",
+    "status": 201,
+    "other_owner": true,
+    "error": null
+  },
+  {
+    "probe": "checkout_client_financial_fields",
+    "status": 201,
+    "total": 0.0,
+    "payment_status": "paid",
+    "error": null
+  },
+  {
+    "probe": "checkout_without_request_id_repeated",
+    "first": 201,
+    "second": 201,
+    "distinct_orders": true
+  },
+  {
+    "probe": "deposit_refund_runtime",
+    "status": 500
+  },
+  {
+    "probe": "duplicate_staff_database_constraint",
+    "same_email_role_count": 2
+  },
+  {
+    "probe": "email_proof_as_session",
+    "confirmation": 200,
+    "customers": 200
+  },
+  {
+    "probe": "verified_registration",
+    "status": 201,
+    "auth_me": 200
+  },
+  {
+    "probe": "untrusted_origin_cors",
+    "status": 200,
+    "reflected_origin": true,
+    "credentials": "true"
+  },
+  {
+    "probe": "cookie_mutation_no_csrf",
+    "status": 200
+  },
+  {
+    "probe": "configuration_properties",
+    "django_secret_uses_source_default": true,
+    "otp_uses_source_default": true,
+    "cors_allow_all": true,
+    "csrf_cookie_samesite": "Lax"
+  },
+  {
+    "probe": "checkout_delivered_without_approval",
+    "status": 201,
+    "order_status": "DELIVERED",
+    "request_status": "PENDING_APPROVAL"
+  },
+  {
+    "probe": "checkout_quantity_0",
+    "status": 400,
+    "error": "Quantity for product AUDIT-WATER must be a positive whole number"
+  },
+  {
+    "probe": "checkout_quantity_-1",
+    "status": 400,
+    "error": "Quantity for product AUDIT-WATER must be a positive whole number"
+  },
+  {
+    "probe": "checkout_quantity_1.5",
+    "status": 400,
+    "error": "Quantity for product AUDIT-WATER must be a positive whole number"
+  },
+  {
+    "probe": "checkout_with_request_id",
+    "first": 201,
+    "second": 200,
+    "same_order": true
+  },
+  {
+    "probe": "expired_token_rejected",
+    "status": 401
+  },
+  {
+    "probe": "duplicate_customer_registration",
+    "status": 409
+  },
+  {
+    "probe": "feedback_validation_empty",
+    "status": 201,
+    "stored_rating": null,
+    "stored_message": ""
+  },
+  {
+    "probe": "feedback_validation_-1",
+    "status": 201,
+    "stored_rating": -1,
+    "stored_message": "Audit review"
+  },
+  {
+    "probe": "feedback_validation_999",
+    "status": 201,
+    "stored_rating": 999,
+    "stored_message": "Audit review"
+  }
+]

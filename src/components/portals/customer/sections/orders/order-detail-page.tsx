@@ -292,7 +292,7 @@ export function CustomerOrderDetailPage(props: any) {
   })()
 
   // The total is the subtotal less any discount, plus the refundable deposit on
-  // returnable containers, plus tax and delivery when they apply. Showing only the
+  // returnable containers. Showing only the
   // subtotal and the total left the difference unexplained on screen.
   const getOrderChargeBreakdown = (o: any) => {
     const items = Array.isArray(o?.items) ? o.items : []
@@ -305,6 +305,7 @@ export function CustomerOrderDetailPage(props: any) {
       (sum: number, item: any) => sum + Number(item?.netDeposit ?? item?.depositTotal ?? 0),
       0,
     )
+    // Removed fee rows; exclude historical fees from residuals so they are not relabeled as other charges.
     const tax = Number(o?.tax || 0)
     const shipping = Number(o?.shippingCost || 0)
     const total = Number(o?.totalAmount || 0)
@@ -325,7 +326,7 @@ export function CustomerOrderDetailPage(props: any) {
       other = Math.round((other + (appliedDeposit - chargedDeposit)) * 100) / 100
       appliedDeposit = chargedDeposit
     }
-    return { subtotal, discount, deposit: appliedDeposit, tax, shipping, depositRefund, total, other }
+    return { subtotal, discount, deposit: appliedDeposit, depositRefund, total, other }
   }
 
   const getOrderDisplayDateTime = (o: any) => {
@@ -561,18 +562,6 @@ export function CustomerOrderDetailPage(props: any) {
                   <div className="flex items-center justify-between text-slate-600">
                     <span>Container deposit</span>
                     <span>{formatPeso(breakdown.deposit)}</span>
-                  </div>
-                )}
-                {breakdown.tax > 0 && (
-                  <div className="flex items-center justify-between text-slate-600">
-                    <span>Tax</span>
-                    <span>{formatPeso(breakdown.tax)}</span>
-                  </div>
-                )}
-                {breakdown.shipping > 0 && (
-                  <div className="flex items-center justify-between text-slate-600">
-                    <span>Delivery fee</span>
-                    <span>{formatPeso(breakdown.shipping)}</span>
                   </div>
                 )}
                 {breakdown.depositRefund > 0 && (

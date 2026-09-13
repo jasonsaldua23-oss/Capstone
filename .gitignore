@@ -141,3 +141,11 @@ dist-apk/
 # Temporary Office lock files created while local test documents are open.
 ~$*
 /.codex-pdf-preview/
+
+# Fix: retain local recovery backups without distributing account snapshots in source.
+/backend/db.sqlite3.bak
+/backend/db_backups/*.zip
+
+# Retain the reviewed recovery implementations outside deployable application routes.
+!/scripts/local-recovery/
+!/scripts/local-recovery/*

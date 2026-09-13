@@ -1,0 +1,26 @@
+TAP version 13
+# (node:25336) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/src/lib/warehouse-search.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\CAPSTONE\\package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: warehouse search supports case-insensitive multiword queries and status labels
+ok 1 - warehouse search supports case-insensitive multiword queries and status labels
+  ---
+  duration_ms: 5.079
+  type: 'test'
+  ...
+# Subtest: blank and unmatched queries return no results; only supplied records are searched
+ok 2 - blank and unmatched queries return no results; only supplied records are searched
+  ---
+  duration_ms: 2.0548
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 453.9636

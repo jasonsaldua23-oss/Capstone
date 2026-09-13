@@ -5,26 +5,19 @@ type ApiWriteOptions = {
   fallbackError?: string | null
 }
 
-const waitForRetry = (delayMs: number) => new Promise<void>((resolve) => {
-  setTimeout(resolve, delayMs)
-})
-
 export async function apiWrite(
   send: () => Promise<Response>,
   options: ApiWriteOptions = {},
 ): Promise<Response> {
-  const retryDelayMs = Math.max(0, options.retryDelayMs ?? 3000)
-
-  while (true) {
+  // Fix: an ambiguous write may already be committed; never replay it automatically.
+  {
     let response: Response
     try {
       response = await send()
     } catch (error) {
       // Abort and programming errors must still reach their existing handlers.
       if (!(error instanceof TypeError)) throw error
-      // Fix: keep the caller's loading state pending through temporary connection loss.
-      await waitForRetry(retryDelayMs)
-      continue
+      throw new Error('The request could not be confirmed. Refresh the record before submitting again.')
     }
 
     // No-content responses are valid for endpoints that intentionally return no body.
@@ -39,18 +32,8 @@ export async function apiWrite(
       // A 2FA challenge is a confirmed login step, not a transient write failure.
       (payload.success !== false || payload.requiresTwoFactor === true) && !payload.dbUnavailable) return response
 
-    const temporarilyUnconfirmed =
-      response.ok ||
-      response.status === 408 ||
-      response.status === 425 ||
-      response.status === 429 ||
-      response.status >= 500 ||
-      Boolean(payload?.dbUnavailable)
-    if (temporarilyUnconfirmed) {
-      // A temporary/malformed response leaves the original fetch promise pending,
-      // so buttons and forms keep showing their existing loading state until success.
-      await waitForRetry(retryDelayMs)
-      continue
+    if (response.ok) {
+      throw new Error('The server response could not confirm this save. Refresh the record before submitting again.')
     }
 
     // Login callers can opt out of generic fallback copy while preserving real API details.

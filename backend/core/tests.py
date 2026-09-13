@@ -8,11 +8,13 @@ from django.http import HttpResponse
 from django.db import OperationalError
 from django.utils import timezone
 
+from .test_upload_storage import PNG_BYTES
 from .auth import create_token
 from .auth_response_middleware import ApiErrorResponseMiddleware
 from .models import (
     ContainerType,
     Customer,
+    DriverServiceArea,
     DropPointType,
     Feedback,
     Inventory,
@@ -488,9 +490,9 @@ class PurchaseRequestWorkflowTests(TestCase):
             name="Central Warehouse",
             code="WH-001",
             address="Burgos Street",
-            city="Bacolod",
+            city="Talisay",
             province="Negros Occidental",
-            zip_code="6100",
+            zip_code="6115",
         )
         self.staff = User.objects.create(
             email="warehouse.staff@example.com",
@@ -633,8 +635,8 @@ class DriverVehicleActiveTripValidationTests(TestCase):
         self.staff = User.objects.create(
             email="transport.admin@example.com",
             password="hashed",
-            name="Transport Admin",
-            role="ADMIN",
+            name="Transport Warehouse Operator",
+            role="WAREHOUSE_STAFF",
             is_active=True,
         )
         self.driver = User.objects.create(
@@ -665,7 +667,7 @@ class DriverVehicleActiveTripValidationTests(TestCase):
                 "userId": self.staff.id,
                 "email": self.staff.email,
                 "name": self.staff.name,
-                "role": "ADMIN",
+                "role": "WAREHOUSE_STAFF",
                 "type": "staff",
             }
         )
@@ -1294,6 +1296,50 @@ class DriverTripsApiContractTests(TestCase):
         self.assertEqual(row["latestLocation"]["latitude"], float(latest_log.latitude))
         self.assertEqual(row["latestLocation"]["longitude"], float(latest_log.longitude))
 
+    def test_driver_trip_sums_cash_from_successfully_delivered_orders(self) -> None:
+        trip = Trip.objects.create(
+            trip_number="TRP-DRIVER-CASH-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.IN_PROGRESS,
+            total_drop_points=3,
+        )
+        orders = [
+            Order.objects.create(order_number=f"ORD-CASH-{index}", subtotal=amount, total_amount=amount)
+            for index, amount in enumerate((100.0, 200.0, 300.0), start=1)
+        ]
+        for index, order in enumerate(orders, start=1):
+            TripDropPoint.objects.create(
+                trip=trip,
+                order=order,
+                sequence=index,
+                status="COMPLETED" if index < 3 else "PENDING",
+                location_name=f"Cash Stop {index}",
+                address=f"Address {index}",
+                city="Bacolod",
+                province="Negros Occidental",
+                zip_code="6100",
+            )
+
+        response = self.client.get(
+            "/api/driver/trips",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()["trips"] if item["id"] == trip.id)
+        # Only the two completed deliveries have been collected so far.
+        self.assertEqual(row["cashCollectedTotal"], 300.0)
+
+        trip.drop_points.filter(order=orders[2]).update(status="COMPLETED")
+        completed_response = self.client.get(
+            "/api/driver/trips",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        completed_row = next(item for item in completed_response.json()["trips"] if item["id"] == trip.id)
+        self.assertEqual(completed_row["cashCollectedTotal"], 600.0)
+
     def test_driver_trips_forbidden_for_non_driver_staff(self) -> None:
         response = self.client.get(
             "/api/driver/trips",
@@ -1366,9 +1412,9 @@ class CustomerOrdersPostApiContractTests(TestCase):
             name="Post Customer",
             phone="+1-555-1000",
             address="123 Test Ave",
-            city="Bacolod",
+            city="Talisay",
             province="Negros Occidental",
-            zip_code="6100",
+            zip_code="6115",
             is_active=True,
         )
         self.other_customer = Customer.objects.create(
@@ -1658,11 +1704,11 @@ class CustomerOrdersPostApiContractTests(TestCase):
             name="Near Warehouse",
             code="WH-POST-NEAR-001",
             address="Near Road",
-            city="Bacolod",
+            city="Talisay",
             province="Negros Occidental",
-            zip_code="6100",
-            latitude=10.3150,
-            longitude=123.3000,
+            zip_code="6115",
+            latitude=10.6760,
+            longitude=122.9500,
             is_active=True,
         )
         far_warehouse = Warehouse.objects.create(
@@ -1709,8 +1755,8 @@ class CustomerOrdersPostApiContractTests(TestCase):
         response = self.client.post(
             "/api/customer/orders",
             data={
-                "shippingLatitude": 10.3140,
-                "shippingLongitude": 123.3010,
+                "shippingLatitude": 10.6765,
+                "shippingLongitude": 122.9505,
                 "items": [
                     {
                         "productId": self.product.id,
@@ -1892,9 +1938,8 @@ class DriverProfileApiContractTests(TestCase):
                 "phone": "09171234567",
                 "avatar": "/uploads/avatars/new.png",
                 "emergencyContact": "Updated Emergency Contact",
-                "licenseNumber": "LIC-PROFILE-UPDATED",
+                "licenseNumber": "D09-22-000984",
                 "licenseType": "C",
-                "licensePhotoUrl": "/uploads/licenses/license-new.png",
                 "licenseExpiry": "2030-01-15T10:00:00Z",
             },
             content_type="application/json",
@@ -1908,16 +1953,16 @@ class DriverProfileApiContractTests(TestCase):
         self.assertEqual(payload["driver"]["user"]["firstName"], "Updated")
         self.assertEqual(payload["driver"]["user"]["lastName"], "Driver")
         self.assertEqual(payload["driver"]["user"]["phone"], "09171234567")
-        self.assertEqual(payload["driver"]["licenseNumber"], "LIC-PROFILE-UPDATED")
+        self.assertEqual(payload["driver"]["licenseNumber"], "D09-22-000984")
         self.assertEqual(payload["driver"]["licenseType"], "C")
-        self.assertEqual(payload["driver"]["licensePhotoUrl"], "/uploads/licenses/license-new.png")
+        self.assertIsNone(payload["driver"]["licensePhotoUrl"])
 
         self.driver.refresh_from_db()
         self.driver_user.refresh_from_db()
         self.assertEqual(self.driver.emergency_contact, "Updated Emergency Contact")
-        self.assertEqual(self.driver.license_number, "LIC-PROFILE-UPDATED")
+        self.assertEqual(self.driver.license_number, "D09-22-000984")
         self.assertEqual(self.driver.license_type, "C")
-        self.assertEqual(self.driver.license_photo_url, "/uploads/licenses/license-new.png")
+        self.assertIsNone(self.driver.license_photo_url)
         self.assertEqual(self.driver_user.name, "Updated Driver")
         self.assertEqual(self.driver_user.first_name, "Updated")
         self.assertEqual(self.driver_user.last_name, "Driver")
@@ -2076,6 +2121,7 @@ class OrderStatusTransitionApiContractTests(TestCase):
             "order_number": f"ORD-STATUS-{Order.objects.count() + 1:03d}",
             "customer": self.customer,
             "status": OrderStatus.PREPARING,
+            "request_status": "APPROVED",
             "subtotal": 100,
             "total_amount": 110,
         }
@@ -2485,6 +2531,10 @@ class TripExecutionApiContractTests(TestCase):
         self.assertIsNotNone(self.dp_1.actual_arrival)
 
     def test_drop_point_completion_updates_trip_completion_fields(self) -> None:
+        # Stop completion is a driver action after the trip starts.
+        self.trip.status = TripStatus.IN_PROGRESS
+        self.trip.actual_start_at = timezone.now()
+        self.trip.save(update_fields=["status", "actual_start_at", "updated_at"])
         order_1 = Order.objects.create(
             order_number="PO-NOTIFY-DELIVERY-001",
             purchase_request_number="PR-NOTIFY-DELIVERY-001",
@@ -2514,18 +2564,18 @@ class TripExecutionApiContractTests(TestCase):
 
         response_first = self.client.patch(
             f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
-            data={"status": "COMPLETED"},
+            data={"status": "COMPLETED", "deliveryPhoto": "/uploads/pod/first.jpg"},
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
         )
         self.assertEqual(response_first.status_code, 200)
         self.trip.refresh_from_db()
         self.assertEqual(self.trip.completed_drop_points, 1)
-        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+        self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
 
         response_second = self.client.patch(
             f"/api/trips/{self.trip.id}/drop-points/{self.dp_2.id}",
-            data={"status": "COMPLETED"},
+            data={"status": "COMPLETED", "deliveryPhoto": "/uploads/pod/second.jpg"},
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
         )
@@ -2537,6 +2587,13 @@ class TripExecutionApiContractTests(TestCase):
 
         self.trip.refresh_from_db()
         self.assertEqual(self.trip.completed_drop_points, 2)
+        self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
+        completion = self.client.post(
+            f"/api/trips/{self.trip.id}/complete",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(completion.status_code, 200, completion.content)
+        self.trip.refresh_from_db()
         self.assertEqual(self.trip.status, TripStatus.COMPLETED)
         self.assertIsNotNone(self.trip.actual_end_at)
         order_1.refresh_from_db()
@@ -2593,10 +2650,14 @@ class TripExecutionApiContractTests(TestCase):
         notify_staff.assert_not_called()
 
 
-    def test_trip_completes_when_remaining_drop_point_is_skipped(self) -> None:
+    def test_trip_stays_open_when_remaining_drop_point_is_skipped(self) -> None:
+        # A skipped stop needs follow-up, so it cannot close the delivery trip.
+        self.trip.status = TripStatus.IN_PROGRESS
+        self.trip.actual_start_at = timezone.now()
+        self.trip.save(update_fields=["status", "actual_start_at", "updated_at"])
         response_first = self.client.patch(
             f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
-            data={"status": "COMPLETED"},
+            data={"status": "COMPLETED", "deliveryPhoto": "/uploads/pod/skipped-first.jpg"},
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
         )
@@ -2612,8 +2673,15 @@ class TripExecutionApiContractTests(TestCase):
 
         self.trip.refresh_from_db()
         self.assertEqual(self.trip.completed_drop_points, 2)
-        self.assertEqual(self.trip.status, TripStatus.COMPLETED)
-        self.assertIsNotNone(self.trip.actual_end_at)
+        self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
+        completion = self.client.post(
+            f"/api/trips/{self.trip.id}/complete",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(completion.status_code, 400, completion.content)
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
+        self.assertIsNone(self.trip.actual_end_at)
 
     def test_drop_point_failed_reschedule_today_moves_stop_to_route_end(self) -> None:
         response = self.client.patch(
@@ -2721,7 +2789,7 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(payload["dropPoint"]["status"], "FAILED")
 
         order.refresh_from_db()
-        self.assertEqual(order.status, OrderStatus.PREPARING)
+        self.assertEqual(order.status, OrderStatus.RESCHEDULED)
 
     def test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it(self) -> None:
         warehouse = Warehouse.objects.create(
@@ -2826,7 +2894,7 @@ class TripExecutionApiContractTests(TestCase):
         self.trip.refresh_from_db()
         self.assertEqual(self.dp_1.status, "FAILED")
         self.assertEqual(inventory.reserved_quantity, 2)
-        self.assertEqual(order.status, OrderStatus.PREPARING)
+        self.assertEqual(order.status, OrderStatus.RESCHEDULED)
         self.assertIsNone(order.loaded_at)
         self.assertIsNone(order.warehouse_dispatched_at)
         self.assertEqual(self.trip.completed_drop_points, 1)
@@ -2991,6 +3059,13 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(single_drop_point.status, "FAILED")
         self.assertEqual(single_trip.completed_drop_points, 1)
         self.assertEqual(single_trip.total_drop_points, 1)
+        self.assertEqual(single_trip.status, TripStatus.IN_PROGRESS)
+        completion = self.client.post(
+            f"/api/trips/{single_trip.id}/complete",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(completion.status_code, 200, completion.content)
+        single_trip.refresh_from_db()
         self.assertEqual(single_trip.status, TripStatus.COMPLETED)
         self.assertIsNotNone(single_trip.actual_end_at)
 
@@ -3189,7 +3264,7 @@ class UploadEndpointsAuthContractTests(TestCase):
         self.assertEqual(non_image.json()["error"], "Only image files are allowed")
 
     def test_upload_customer_avatar_accepts_authenticated_customer_with_image(self) -> None:
-        image_file = SimpleUploadedFile("avatar.png", b"\x89PNG\r\n\x1a\nfake", content_type="image/png")
+        image_file = SimpleUploadedFile("avatar.png", PNG_BYTES, content_type="image/png")
         response = self.client.post(
             "/api/uploads/customer-avatar",
             data={"file": image_file},
@@ -3198,10 +3273,10 @@ class UploadEndpointsAuthContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["success"])
-        self.assertIn("/uploads/customers/customer-", payload["imageUrl"])
+        self.assertIn("/api/media/customers/customer-", payload["imageUrl"])
 
     def test_upload_customer_avatar_accepts_authenticated_driver_with_image(self) -> None:
-        image_file = SimpleUploadedFile("driver-avatar.png", b"\x89PNG\r\n\x1a\nfake", content_type="image/png")
+        image_file = SimpleUploadedFile("driver-avatar.png", PNG_BYTES, content_type="image/png")
         response = self.client.post(
             "/api/uploads/customer-avatar",
             data={"file": image_file},
@@ -3420,12 +3495,20 @@ class RoutePlanStructureContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()
         self.admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.warehouse_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
         self.driver_role = Role.objects.create(name="DRIVER", description="Driver")
         self.admin_user = User.objects.create(
             email="route.plan.structure.admin@route.local",
             password="hashed",
             name="Route Plan Structure Admin",
             role=self.admin_role,
+            is_active=True,
+        )
+        self.warehouse_user = User.objects.create(
+            email="route.plan.structure.warehouse@route.local",
+            password="hashed",
+            name="Route Plan Structure Warehouse Staff",
+            role=self.warehouse_role,
             is_active=True,
         )
         self.driver_user = User.objects.create(
@@ -3465,6 +3548,7 @@ class RoutePlanStructureContractTests(TestCase):
             zip_code="6100",
             latitude=10.30,
             longitude=123.90,
+            manager_id=self.warehouse_user.id,
             is_active=True,
         )
         self.product = Product.objects.create(
@@ -3480,6 +3564,15 @@ class RoutePlanStructureContractTests(TestCase):
                 "email": self.admin_user.email,
                 "name": self.admin_user.name,
                 "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+        self.warehouse_token = create_token(
+            {
+                "userId": self.warehouse_user.id,
+                "email": self.warehouse_user.email,
+                "name": self.warehouse_user.name,
+                "role": "WAREHOUSE_STAFF",
                 "type": "staff",
             }
         )
@@ -3681,7 +3774,8 @@ class RoutePlanStructureContractTests(TestCase):
 
         delete_response = self.client.delete(
             f"/api/trips/{trip.id}",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+            # Trip changes require a warehouse operator assigned to this warehouse.
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
         )
         self.assertEqual(delete_response.status_code, 200)
 
@@ -3707,7 +3801,7 @@ class RoutePlanStructureContractTests(TestCase):
 
         response = self.client.delete(
             f"/api/trips/{trip.id}",
-            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
         )
 
         self.assertEqual(response.status_code, 409)
@@ -3784,7 +3878,7 @@ class TripsPostCreationContractTests(TestCase):
         self.order_1.shipping_name = "Customer 1"
         self.order_1.shipping_phone = "+1-555-0001"
         self.order_1.shipping_address = "Address 1"
-        self.order_1.shipping_city = "Bacolod"
+        self.order_1.shipping_city = "Talisay"
         self.order_1.shipping_province = "Negros Occidental"
         self.order_1.shipping_zip_code = "6100"
         self.order_1.shipping_country = "Philippines"
@@ -3807,7 +3901,7 @@ class TripsPostCreationContractTests(TestCase):
         self.order_2.shipping_name = "Customer 2"
         self.order_2.shipping_phone = "+1-555-0002"
         self.order_2.shipping_address = "Address 2"
-        self.order_2.shipping_city = "Bacolod"
+        self.order_2.shipping_city = "Talisay"
         self.order_2.shipping_province = "Negros Occidental"
         self.order_2.shipping_zip_code = "6100"
         self.order_2.shipping_country = "Philippines"
@@ -3827,6 +3921,7 @@ class TripsPostCreationContractTests(TestCase):
                 "updated_at",
             ]
         )
+        DriverServiceArea.objects.create(driver=self.driver_user, city="talisay", assigned_by=self.admin_user.id)
         self.admin_token = create_token(
             {
                 "userId": self.admin_user.id,
@@ -4288,7 +4383,7 @@ class DeliveryLifecycleFlowContractTests(TestCase):
 
         completed = self.client.patch(
             f"/api/trips/{trip_id}/drop-points/{drop_point_id}",
-            data={"status": "COMPLETED"},
+            data={"status": "COMPLETED", "deliveryPhoto": "/uploads/pod/lifecycle.jpg"},
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
         )
@@ -4817,7 +4912,7 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         self.assertEqual(tx.updated_stock, 14)
         self.assertEqual(tx.performed_by, self.warehouse_user.id)
 
-    def test_stock_batch_quantity_edit_syncs_or_deletes_linked_transaction(self) -> None:
+    def test_stock_batch_quantity_edit_preserves_stock_in_and_records_adjustments(self) -> None:
         self.primary_inventory.quantity = 10
         self.primary_inventory.save(update_fields=["quantity", "updated_at"])
         batch = StockBatch.objects.create(
@@ -4847,7 +4942,16 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
         original_tx.refresh_from_db()
-        self.assertEqual(original_tx.quantity, 6)
+        # Keep the original receipt intact and append the reduction to the ledger.
+        self.assertEqual(original_tx.quantity, 10)
+        reduction = InventoryTransaction.objects.get(
+            reference_type="stock_batch_adjustment",
+            reference_id=batch.id,
+            updated_stock=6,
+        )
+        self.assertEqual(reduction.type, "OUT")
+        self.assertEqual(reduction.quantity, 4)
+        self.assertEqual(reduction.previous_stock, 10)
 
         self.primary_inventory.refresh_from_db()
         self.assertEqual(self.primary_inventory.quantity, 6)
@@ -4860,7 +4964,15 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
         )
         self.assertEqual(depleted_response.status_code, 200)
         self.assertFalse(StockBatch.objects.filter(id=batch.id).exists())
-        self.assertFalse(InventoryTransaction.objects.filter(id=original_tx.id).exists())
+        original_tx.refresh_from_db()
+        depletion = InventoryTransaction.objects.get(
+            reference_type="stock_batch_adjustment",
+            reference_id=batch.id,
+            updated_stock=0,
+        )
+        self.assertEqual(depletion.type, "OUT")
+        self.assertEqual(depletion.quantity, 6)
+        self.assertEqual(depletion.previous_stock, 6)
 
         self.primary_inventory.refresh_from_db()
         self.assertEqual(self.primary_inventory.quantity, 0)
@@ -5729,11 +5841,11 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(inventory_b.loose_bottles, 9)
         self.assertTrue(
             InventoryTransaction.objects.filter(
-                type="OUT",
+                type="IN",
                 quantity_unit="BASE_UNIT",
-                reference_type="order_item",
+                reference_type="replacement_bottle_remainder",
                 reference_id=bottle_item.id,
-                quantity=3,
+                quantity=9,
             ).exists()
         )
 
@@ -5895,14 +6007,17 @@ class ApiErrorResponseTests(SimpleTestCase):
         middleware = ApiErrorResponseMiddleware(lambda request: HttpResponse())
         self.assertIsNone(middleware.process_exception(RequestFactory().get('/admin'), RuntimeError('test')))
 
-class AuthMeTabSessionTests(SimpleTestCase):
+class AuthMeTabSessionTests(TestCase):
+    def setUp(self):
+        # Live session validation needs real disposable accounts.
+        User.objects.create(id='admin-test', email='admin-test@audit.invalid', name='Admin', role='ADMIN')
+        Customer.objects.create(id='customer-test', email='customer-test@audit.invalid', name='Customer')
+
     def test_staff_restore_returns_existing_verified_token_without_cache(self):
         from .views_api import auth_me
         token = create_token({'userId': 'admin-test', 'type': 'staff', 'role': 'ADMIN'})
         request = RequestFactory().get('/api/auth/me', HTTP_AUTHORIZATION=f'Bearer {token}')
-        with patch('core.views_api.User.objects') as users, patch('core.views_api._user_payload', return_value={'role': 'ADMIN'}):
-            users.filter.return_value.first.return_value = SimpleNamespace(id='admin-test')
-            response = auth_me(request)
+        response = auth_me(request)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content)['token'], token)
         self.assertIn('no-store', response['Cache-Control'])
@@ -5919,14 +6034,18 @@ class AuthMeTabSessionTests(SimpleTestCase):
         from .views_api import auth_me
         token = create_token({'userId': 'customer-test', 'type': 'customer'})
         request = RequestFactory().get('/api/auth/me', HTTP_AUTHORIZATION=f'Bearer {token}')
-        with patch('core.views_api.Customer.objects') as customers, patch('core.views_api._customer_payload', return_value={'type': 'customer'}):
-            customers.filter.return_value.first.return_value = SimpleNamespace(id='customer-test')
-            response = auth_me(request)
+        response = auth_me(request)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content)['token'], token)
         self.assertIn('no-store', response['Cache-Control'])
 
-class ConcurrentPortalCookieTests(SimpleTestCase):
+class ConcurrentPortalCookieTests(TestCase):
+    def setUp(self):
+        # Each cookie represents a real account with independently revocable sessions.
+        for name, role in [('admin', 'ADMIN'), ('warehouse', 'WAREHOUSE_STAFF'), ('driver', 'DRIVER')]:
+            User.objects.create(id=name, email=f'{name}@audit.invalid', name=name, role=role)
+        Customer.objects.create(id='customer', email='customer@audit.invalid', name='Customer')
+
     def test_four_cookie_sessions_restore_and_logout_independently(self):
         from .auth import PORTAL_TOKEN_NAMES, extract_token
         from .views_api import _set_auth_cookie, auth_logout

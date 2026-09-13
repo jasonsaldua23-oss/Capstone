@@ -1,0 +1,39 @@
+
+> logitrack-driver-app@1.0.0 test
+> node --test --experimental-strip-types src/lib/*.test.ts
+
+(node:17708) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/mobile/driver-app/src/lib/driver-logic.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\CAPSTONE\mobile\driver-app\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ trip start is blocked by every order that is not loaded or dispatched (4.5453ms)
+✔ trip start is allowed only on its scheduled calendar date (7.3687ms)
+✔ trip search includes vehicle, customer, address, and order data (1.6732ms)
+✔ GPS samples reject poor accuracy and impossible movement (0.9875ms)
+✔ distance and status helpers are deterministic (0.7416ms)
+✔ assigned tricycles use a tricycle marker instead of an arrow or dot (0.5879ms)
+✔ offline queue coalesces locations but preserves delivery mutation order (2.6829ms)
+(node:13112) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/mobile/driver-app/src/lib/otp.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\CAPSTONE\mobile\driver-app\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ the driver app's OTP timings match the shared source (16.4033ms)
+✔ the countdown formats identically to the shared source (0.7627ms)
+✔ the countdown reads as m:ss (0.4309ms)
+(node:27944) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/mobile/driver-app/src/lib/route-progress.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\CAPSTONE\mobile\driver-app\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ route projection snaps a GPS point onto road geometry (3.8049ms)
+✔ route projection respects monotonic progress bounds (0.551ms)
+✔ completed and remaining routes meet at the same projected point (3.6348ms)
+✔ heading interpolation takes the shortest turn across north (0.4625ms)
+✔ bearing follows the direction of travel (0.6015ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 907.0522

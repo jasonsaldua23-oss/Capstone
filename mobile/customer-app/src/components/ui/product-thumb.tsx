@@ -45,6 +45,7 @@ export function ProductThumb({ uri, name, size = 40 }: ProductThumbProps) {
       source={{ uri: resolveImageUrl(path) }}
       style={[styles.productThumbImage, box]}
       resizeMode="cover"
+      alt={name || "Product"}
       onError={() => setFailed(true)}
     />
   );

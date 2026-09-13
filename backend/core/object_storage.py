@@ -45,6 +45,11 @@ def _bucket() -> str:
     return str(getattr(settings, "SUPABASE_UPLOADS_BUCKET", "") or "uploads").strip().strip("/")
 
 
+def _private_bucket() -> str:
+    """Keep evidence out of the public catalog bucket."""
+    return str(getattr(settings, "SUPABASE_PRIVATE_UPLOADS_BUCKET", "") or "uploads-private").strip().strip("/")
+
+
 def public_url(object_path: str) -> str:
     """The public URL for an object already stored in the bucket."""
     return f"{_base_url()}/storage/v1/object/public/{_bucket()}/{object_path.lstrip('/')}"
@@ -68,11 +73,14 @@ def _store_on_persistent_disk(object_path: str, data: bytes) -> str:
     return f"/uploads/{object_path}"
 
 
-def upload_bytes(object_path: str, data: bytes, content_type: str | None = None) -> str:
-    """Store bytes at `object_path` in the bucket and return the public URL.
-
-    `object_path` is the path within the bucket, e.g. "products/product-123.png".
-    """
+def _upload_bytes(
+    object_path: str,
+    data: bytes,
+    content_type: str | None = None,
+    *,
+    bucket: str,
+) -> None:
+    """Store bytes in the requested bucket without changing an existing object."""
     if not is_configured():
         raise ObjectStorageError("Object storage is not configured")
 
@@ -87,55 +95,125 @@ def upload_bytes(object_path: str, data: bytes, content_type: str | None = None)
     headers.update(
         {
             "Content-Type": resolved_type,
-            # Uploads are uniquely named, so a collision means a retry of the same file.
-            "x-upsert": "true",
+            # Fix: a colliding object key must fail instead of replacing existing evidence.
+            "x-upsert": "false",
         }
     )
     try:
         response = requests.post(
-            f"{_base_url()}/storage/v1/object/{_bucket()}/{clean_path}",
+            f"{_base_url()}/storage/v1/object/{bucket}/{clean_path}",
             data=data,
             headers=headers,
             timeout=UPLOAD_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
         logger.warning("Supabase upload connection failed path=%s error=%s", clean_path, exc)
-        # Fix: the persistent upload directory is already the compatibility path
-        # for opaque Supabase keys, including transient connection resets.
-        if key.startswith("sb_secret_"):
-            return _store_on_persistent_disk(clean_path, data)
         raise ObjectStorageError("Could not connect to object storage") from exc
     if not response.ok:
         detail = str(response.text or "")[:300]
         logger.error("Supabase upload failed path=%s status=%s body=%s", clean_path, response.status_code, detail)
-        # Fix: Supabase's raw Storage endpoint still requires an Authorization JWT,
-        # while new sb_secret keys are explicitly not JWTs. Keep production uploads
-        # available on Lightsail's persistent disk until Storage accepts these keys.
-        incompatible_secret_key = key.startswith("sb_secret_") and (
-            "required property 'authorization'" in detail or "Invalid Compact JWS" in detail
-        )
-        if incompatible_secret_key:
-            logger.warning("Falling back to persistent disk for upload path=%s", clean_path)
-            return _store_on_persistent_disk(clean_path, data)
         raise ObjectStorageError(f"Upload rejected by storage ({response.status_code})")
+
+
+def upload_bytes(object_path: str, data: bytes, content_type: str | None = None) -> str:
+    """Store public catalog bytes and return their public URL.
+
+    `object_path` is the path within the bucket, e.g. "products/product-123.png".
+    """
+    clean_path = object_path.lstrip("/")
+    try:
+        _upload_bytes(clean_path, data, content_type, bucket=_bucket())
+    except ObjectStorageError:
+        key = str(settings.SUPABASE_SERVICE_ROLE_KEY).strip()
+        if not key.startswith("sb_secret_"):
+            raise
+        # Supabase's newer opaque server keys cannot be used as Bearer JWTs by
+        # some Storage deployments. This public-catalog-only fallback preserves
+        # existing product uploads; private evidence never falls back publicly.
+        logger.warning("Falling back to persistent disk for catalog path=%s", clean_path)
+        return _store_on_persistent_disk(clean_path, data)
     return public_url(clean_path)
 
 
+def upload_private_bytes(object_path: str, data: bytes, content_type: str | None = None) -> None:
+    """Store evidence in the private bucket; callers expose it only through the API."""
+    _upload_bytes(object_path, data, content_type, bucket=_private_bucket())
+
+
+def download_private_bytes(object_path: str) -> tuple[bytes, str]:
+    """Read a private object with the service credential for an authorized API response."""
+    if not is_configured():
+        raise ObjectStorageError("Object storage is not configured")
+    clean_path = object_path.lstrip("/")
+    key = str(settings.SUPABASE_SERVICE_ROLE_KEY).strip()
+    try:
+        response = requests.get(
+            f"{_base_url()}/storage/v1/object/{_private_bucket()}/{clean_path}",
+            headers=_api_key_headers(key),
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        logger.warning("Private media download failed path=%s error=%s", clean_path, exc)
+        raise ObjectStorageError("Could not retrieve private media") from exc
+    if not response.ok:
+        raise ObjectStorageError(f"Private media download rejected ({response.status_code})")
+    return response.content, str(response.headers.get("Content-Type") or "application/octet-stream")
+
+
+def download_public_bytes(object_path: str) -> tuple[bytes, str]:
+    """Read a legacy public-bucket object during the explicit private-media migration."""
+    if not is_configured():
+        raise ObjectStorageError("Object storage is not configured")
+    clean_path = object_path.lstrip("/")
+    key = str(settings.SUPABASE_SERVICE_ROLE_KEY).strip()
+    try:
+        response = requests.get(
+            f"{_base_url()}/storage/v1/object/{_bucket()}/{clean_path}",
+            headers=_api_key_headers(key),
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        raise ObjectStorageError("Could not retrieve legacy public media") from exc
+    if not response.ok:
+        raise ObjectStorageError(f"Legacy public media download rejected ({response.status_code})")
+    return response.content, str(response.headers.get("Content-Type") or "application/octet-stream")
+
+
+def delete_public_object(object_path: str) -> None:
+    """Remove a copied legacy object so its former public URL no longer works."""
+    if not is_configured():
+        raise ObjectStorageError("Object storage is not configured")
+    key = str(settings.SUPABASE_SERVICE_ROLE_KEY).strip()
+    try:
+        response = requests.delete(
+            f"{_base_url()}/storage/v1/object/{_bucket()}/{object_path.lstrip('/')}",
+            headers=_api_key_headers(key),
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        raise ObjectStorageError("Could not remove legacy public media") from exc
+    if not response.ok:
+        raise ObjectStorageError(f"Legacy public media deletion rejected ({response.status_code})")
+
+
 def ensure_bucket() -> dict[str, Any]:
-    """Create the public bucket if it does not exist. Safe to call repeatedly."""
+    """Create the public catalog and private evidence buckets when absent."""
     if not is_configured():
         raise ObjectStorageError("Object storage is not configured")
     key = str(settings.SUPABASE_SERVICE_ROLE_KEY).strip()
     headers = _api_key_headers(key)
     headers["Content-Type"] = "application/json"
-    response = requests.post(
-        f"{_base_url()}/storage/v1/bucket",
-        json={"name": _bucket(), "id": _bucket(), "public": True},
-        headers=headers,
-        timeout=UPLOAD_TIMEOUT_SECONDS,
-    )
-    if response.status_code == 409:
-        return {"created": False, "bucket": _bucket()}
-    if not response.ok:
-        raise ObjectStorageError(f"Could not create bucket ({response.status_code}): {str(response.text or '')[:200]}")
-    return {"created": True, "bucket": _bucket()}
+    created: list[str] = []
+    for bucket, is_public in ((_bucket(), True), (_private_bucket(), False)):
+        response = requests.post(
+            f"{_base_url()}/storage/v1/bucket",
+            json={"name": bucket, "id": bucket, "public": is_public},
+            headers=headers,
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+        if response.status_code == 409:
+            continue
+        if not response.ok:
+            raise ObjectStorageError(f"Could not create bucket ({response.status_code}): {str(response.text or '')[:200]}")
+        created.append(bucket)
+    return {"created": bool(created), "buckets": created or [_bucket(), _private_bucket()]}

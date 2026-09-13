@@ -1,9 +1,11 @@
+import uuid
 import hashlib
 import hmac
 import base64
 import json
 import logging
 import math
+import mimetypes
 import os
 import requests
 import re
@@ -29,7 +31,7 @@ from django.core.mail import send_mail
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.forms.models import model_to_dict
-from django.http import HttpRequest, JsonResponse
+from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.cache import never_cache
@@ -63,6 +65,8 @@ from .auth import (
     token_portal,
     create_token,
     decode_token,
+    decode_session,
+    revoke_session,
     extract_token,
     hash_password,
     verify_password,
@@ -106,6 +110,7 @@ from .models import (
     ProductPackaging,
     PushSubscription,
     Replacement,
+    ReplacementLine,
     ReplacementStatus,
     ReservationStatus,
     RoleType,
@@ -429,6 +434,17 @@ def _int(v: Any, default: int) -> int:
         return default
 
 
+def _is_whole_number(value: Any) -> bool:
+    """Accept integer JSON values without silently truncating fractional input."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value) and value.is_integer()
+    return bool(re.fullmatch(r"[+-]?\d+", str(value or "").strip()))
+
+
 def _warehouse_capacity_error(
     warehouse: Warehouse,
     *,
@@ -633,11 +649,26 @@ def _normalize_order_items_for_checkout(raw_items: Any) -> tuple[list[dict[str, 
 
 
 def _compute_order_totals(body: dict[str, Any], subtotal: float) -> tuple[float, float, float, float]:
-    shipping_cost = float(body.get("shippingCost") or 0)
+    # Required: orders have no tax or shipping fees, even if an older client sends them.
+    shipping_cost = 0.0
+    tax = 0.0
     discount = float(body.get("discount") or 0)
-    tax = float(body.get("tax") if body.get("tax") is not None else 0)
-    total = float(body.get("totalAmount") if body.get("totalAmount") is not None else subtotal + tax + shipping_cost - discount)
+    total = float(subtotal - discount)
     return tax, shipping_cost, discount, total
+
+
+def _count_discount_eligible_cases(items: list[dict[str, Any]]) -> int:
+    """Count case and pack lines while excluding individually sold bottles."""
+    total_cases = 0
+    for item in items:
+        quantity = max(0, _int(item.get("quantity"), 0))
+        if str(item.get("itemType") or "").upper() == OrderItemType.MIXED_CASE:
+            total_cases += quantity
+            continue
+        product = item.get("product")
+        if _normalize_product_unit(getattr(product, "unit", None)) != PRODUCT_UNIT_BOTTLE:
+            total_cases += quantity
+    return total_cases
 
 
 def _build_discount_breakdown_for_customer(*, customer: Customer, subtotal: float, total_cases: int) -> dict[str, Any]:
@@ -658,7 +689,11 @@ def _build_discount_breakdown_for_customer(*, customer: Customer, subtotal: floa
         option = DISCOUNT_NO
 
     per_case_discount = 0.0
-    if option != DISCOUNT_NO and total_cases > 0:
+    # The customer portal and the backend share a 50-case eligibility threshold.
+    is_eligible = total_cases >= 50
+    if option != DISCOUNT_NO and not is_eligible:
+        option = DISCOUNT_NO
+    if option != DISCOUNT_NO and is_eligible:
         average_case_price = subtotal / max(1, total_cases)
         per_case_discount = average_case_price * (percent / 100.0)
 
@@ -673,7 +708,7 @@ def _build_discount_breakdown_for_customer(*, customer: Customer, subtotal: floa
         "percent": percent if option != DISCOUNT_NO else 0.0,
         "amountPerCase": 0.0,
         "perCaseDiscount": per_case_discount if option != DISCOUNT_NO else 0.0,
-        "casesAffected": max(0, total_cases),
+        "casesAffected": max(0, total_cases) if is_eligible else 0,
         "totalDiscount": max(0.0, total_discount),
         "appliedByName": str(getattr(customer, "discount_applied_by_name", "") or "").strip() or None,
     }
@@ -875,7 +910,8 @@ def _create_order_from_checkout_payload(
         purchase_request_number=pr_number,
         customer=customer,
         request_status=PurchaseRequestStatus.PENDING_APPROVAL,
-        status=_normalize_order_status(body.get("status") or OrderStatus.PENDING),
+        # Fix: checkout cannot bypass purchase-request approval or delivery steps.
+        status=OrderStatus.PENDING,
         priority=body.get("priority") or "normal",
         subtotal=0,
         tax=0,
@@ -1469,8 +1505,13 @@ def _create_scheduled_replacement_order(
         qty_bottles = max(raw_qty, 0)
         replacement_cases = max(0, _int(line.get("replacementCases"), 0))
         replacement_bottles = max(0, _int(line.get("replacementBottles"), 0))
-        by_case = bool(re.search(r"\bby\s*case\b", notes_lower))
-        by_bottle = bool(re.search(r"\bby\s*bottle\b", notes_lower))
+        line_input_mode = str(
+            line.get("lineInputMode") or line.get("replacementInputMode") or ""
+        ).strip().lower()
+        # Structured line metadata takes precedence over free-form notes, which
+        # keeps bottle replacements priced and returned as bottle quantities.
+        by_case = line_input_mode == "case" or bool(re.search(r"\bby\s*case\b", notes_lower))
+        by_bottle = line_input_mode == "bottle" or bool(re.search(r"\bby\s*bottle\b", notes_lower))
         product_id = str(
             line.get("replacementProductId")
             or line.get("productId")
@@ -1549,7 +1590,12 @@ def _create_scheduled_replacement_order(
             or (matched_source_item.unit_price if matched_source_item else getattr(product, "price", 0))
             or 0
         )
-        line_total = unit_price * qty
+        if by_bottle and not is_bottle_unit:
+            # The physical order still carries the required case, but this
+            # replacement charges only the requested bottles at their case-derived price.
+            line_total = (unit_price / quantity_per_case) * qty_bottles
+        else:
+            line_total = unit_price * qty
         subtotal += line_total
         OrderItem.objects.create(
             order=replacement_order,
@@ -2069,7 +2115,11 @@ def _payload(request: HttpRequest) -> dict[str, Any] | None:
     token = extract_token(request)
     if not token:
         return None
-    return decode_token(token)
+    payload = decode_session(token)
+    # Fix: email proofs and pending 2FA challenges are not authenticated sessions.
+    if not payload or payload.get("type") not in {"staff", "customer"} or not payload.get("userId"):
+        return None
+    return payload
 
 
 def _require_auth(request: HttpRequest) -> dict[str, Any] | None:
@@ -2084,7 +2134,7 @@ def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonRes
     # Fix: a stale cross-portal Bearer token must not mask the valid staff-only
     # HttpOnly cookie held by this browser session.
     staff_cookie = request.COOKIES.get(STAFF_TOKEN_NAME)
-    staff_payload = decode_token(staff_cookie) if staff_cookie else None
+    staff_payload = decode_session(staff_cookie) if staff_cookie else None
     requested_portal = str(request.headers.get("X-Portal", "")).lower()
     if staff_payload and staff_payload.get("type") == "staff" and (
         requested_portal not in PORTAL_TOKEN_NAMES or token_portal(staff_payload) == requested_portal
@@ -3467,6 +3517,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
     trip_schedule_candidates: list[str] = []
     if include_points:
         drop_points: list[dict[str, Any]] = []
+        cash_collected_total = 0.0
         prefetched_drop_points = getattr(trip, "_prefetched_objects_cache", {}).get("drop_points")
         if prefetched_drop_points is not None:
             drop_point_rows = sorted(prefetched_drop_points, key=lambda point: point.sequence)
@@ -3547,6 +3598,15 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     str(getattr(trip, "warehouse_id", "") or "").strip() or None,
                     allocations_map,
                 )
+                empties_adjustment = empties_adjustment_map.get(str(dp.order.id))
+                amount_due = round(
+                    float(getattr(dp.order, "total_amount", 0) or 0)
+                    + float((empties_adjustment or {}).get("amount") or 0),
+                    2,
+                )
+                # Added: only successful deliveries count as cash received by the driver.
+                if str(getattr(dp, "status", "") or "").upper() in {DropPointStatus.COMPLETED, "DELIVERED"}:
+                    cash_collected_total += amount_due
                 row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number
                 # The empties the customer claimed at checkout, for the driver to verify.
@@ -3574,8 +3634,8 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     "isDriverAssigned": bool(trip.driver_id),
                     "assignedDriverName": str(getattr(getattr(trip.driver, "user", None), "name", "") or "").strip() or None,
                     "totalAmount": dp.order.total_amount,
-                    "emptiesAdjustment": empties_adjustment_map.get(str(dp.order.id)),
-                    "amountDue": round(float(getattr(dp.order, "total_amount", 0) or 0) + float((empties_adjustment_map.get(str(dp.order.id)) or {}).get("amount") or 0), 2),
+                    "emptiesAdjustment": empties_adjustment,
+                    "amountDue": amount_due,
                     # Added: transportation, driver, and warehouse trip details
                     # need the same applied-refund breakdown as the order portals.
                     "depositRefundClaims": [
@@ -3642,6 +3702,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                         row["longitude"] = fallback_lng
             drop_points.append(row)
         data["dropPoints"] = drop_points
+        data["cashCollectedTotal"] = round(cash_collected_total, 2)
     else:
         schedule_rows = trip.drop_points.select_related("order__timeline").all()
         for dp in schedule_rows:
@@ -4310,64 +4371,50 @@ def _reconcile_replacement_bottle_remainder_on_delivery(order: Order, performed_
     order_number = str(getattr(order, "order_number", "") or "").strip().upper()
     if not order_number.startswith("RPL-"):
         return
-    scheduled = _get_scheduled_replacement_payload(order)
-    if not scheduled:
-        return
-    if str(scheduled.get("unitMode") or "").strip().upper() != "BOTTLE":
-        return
-    if InventoryTransaction.objects.filter(
-        reference_type="replacement_bottle_remainder",
-        reference_id=order.id,
-    ).exists():
-        return
-
-    order_items = list(order.items.select_related("product").all())
-    if len(order_items) != 1:
-        return
-    order_item = order_items[0]
-    product = getattr(order_item, "product", None)
-    if not product:
-        return
-    product_unit = _normalize_product_unit(getattr(product, "unit", None))
-    if product_unit == "bottle":
-        return
-
-    qty_per_case = max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
-    delivered_case_qty = max(0, _int(getattr(order_item, "quantity", 0), 0))
-    delivered_bottle_equivalent = delivered_case_qty * qty_per_case
-    expected_bottles = max(0, _int(scheduled.get("quantityToReplace"), 0))
-    remainder_bottles = max(0, delivered_bottle_equivalent - expected_bottles)
-    if remainder_bottles <= 0:
-        return
-
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip() or None
-    inventory = Inventory.objects.filter(product=product, warehouse_id=warehouse_id).first() if warehouse_id else None
-    if not inventory:
-        inventory = Inventory.objects.filter(product=product).first()
-    if not inventory:
-        return
-
-    previous_loose_bottles = max(0, _int(getattr(inventory, "loose_bottles", 0), 0))
-    inventory.loose_bottles = previous_loose_bottles + remainder_bottles
-    inventory.save(update_fields=["loose_bottles", "updated_at"])
-    InventoryTransaction.objects.create(
-        warehouse=getattr(inventory, "warehouse", None),
-        product=product,
-        type="IN",
-        quantity=remainder_bottles,
-        # Fix: this reconciliation returns loose bottles, not cases, and must retain its stock snapshots.
-        quantity_unit=InventoryQuantityUnit.BASE_UNIT,
-        stock_unit_label="Bottle",
-        previous_stock=previous_loose_bottles,
-        updated_stock=inventory.loose_bottles,
-        reference_type="replacement_bottle_remainder",
-        reference_id=order.id,
-        notes=(
-            f"RPL bottle reconciliation for {order.order_number}: "
-            f"expected {expected_bottles}, deducted {delivered_bottle_equivalent}, "
-            f"returned remainder {remainder_bottles} as loose bottles"
-        ),
-    )
+    for order_item in order.items.select_related("product").all():
+        item_notes = str(getattr(order_item, "notes", "") or "")
+        if "ReplacementUnitMode=BOTTLE" not in item_notes:
+            continue
+        if InventoryTransaction.objects.filter(
+            reference_type="replacement_bottle_remainder",
+            reference_id=order_item.id,
+        ).exists():
+            continue
+        product = getattr(order_item, "product", None)
+        if not product or _normalize_product_unit(getattr(product, "unit", None)) == "bottle":
+            continue
+        requested_match = re.search(r"ReplacementRequestedBottles=(\d+)", item_notes)
+        expected_bottles = _int(requested_match.group(1), 0) if requested_match else 0
+        qty_per_case = max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
+        delivered_bottle_equivalent = max(0, _int(getattr(order_item, "quantity", 0), 0)) * qty_per_case
+        remainder_bottles = max(0, delivered_bottle_equivalent - expected_bottles)
+        if remainder_bottles <= 0:
+            continue
+        inventory = Inventory.objects.filter(product=product, warehouse_id=warehouse_id).first() if warehouse_id else None
+        if not inventory:
+            inventory = Inventory.objects.filter(product=product).first()
+        if not inventory:
+            continue
+        previous_loose_bottles = max(0, _int(getattr(inventory, "loose_bottles", 0), 0))
+        inventory.loose_bottles = previous_loose_bottles + remainder_bottles
+        inventory.save(update_fields=["loose_bottles", "updated_at"])
+        InventoryTransaction.objects.create(
+            warehouse=inventory.warehouse,
+            product=product,
+            type="IN",
+            quantity=remainder_bottles,
+            quantity_unit=InventoryQuantityUnit.BASE_UNIT,
+            stock_unit_label="Bottle",
+            previous_stock=previous_loose_bottles,
+            updated_stock=inventory.loose_bottles,
+            reference_type="replacement_bottle_remainder",
+            reference_id=order_item.id,
+            notes=(
+                f"RPL bottle reconciliation for {order.order_number}: expected {expected_bottles}, "
+                f"deducted {delivered_bottle_equivalent}, returned remainder {remainder_bottles} as loose bottles"
+            ),
+        )
 
 
 def _reconcile_delivered_order_from_completed_drop_point(order: Order, performed_by: str | None = None) -> bool:
@@ -6220,7 +6267,7 @@ def _stockin_would_flag_overstock(inventory: Inventory, stockin_qty: int) -> boo
 
 
 def _otp_secret() -> str:
-    return str(getattr(settings, "OTP_SECRET_KEY", "") or settings.SECRET_KEY or "otp-fallback-secret")
+    return str(getattr(settings, "OTP_SECRET_KEY", "") or settings.SECRET_KEY)
 
 
 def _otp_bucket(value: datetime) -> int:
@@ -6239,6 +6286,11 @@ def _is_valid_stateless_otp(otp_code: str, email: str, account_type: str, purpos
     if not candidate:
         return False
     current = now or timezone.now()
+    # Fix: a successful reset consumes its account/purpose-scoped proof across workers.
+    from .models import ConsumedAuthProof
+    proof_digest = hmac.new(_otp_secret().encode(), f"{email}|{account_type}|{purpose}|{candidate}".encode(), hashlib.sha256).hexdigest()
+    if ConsumedAuthProof.objects.filter(digest=proof_digest, expires_at__gt=current).exists():
+        return False
     # Use the shared rolling window so backend validation matches the displayed expiry.
     for minute_offset in range(0, OTP_EXPIRY_MINUTES):
         bucket = _otp_bucket(current - timedelta(minutes=minute_offset))
@@ -6926,6 +6978,10 @@ def auth_me(request: HttpRequest) -> JsonResponse:
 def auth_logout(request: HttpRequest) -> JsonResponse:
     resp = _ok({"success": True, "message": "Logout successful"})
     payload = _require_auth(request)
+    # Fix: cookie deletion alone cannot revoke a copied Bearer token.
+    token = extract_token(request)
+    if token:
+        revoke_session(token)
     account_type = str((payload or {}).get("type") or "").strip().lower()
     # Clear only the signed-out portal's dedicated cookie; other portal sessions remain usable.
     portal = token_portal(payload or {})
@@ -7028,8 +7084,25 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
         return _err("Invalid or expired OTP", 400)
     clear_account_failures("password_reset_otp", email)
 
-    account.password = hash_password(new_password)
-    account.save(update_fields=["password", "updated_at"])
+    from .models import ConsumedAuthProof
+    proof_digest = hmac.new(_otp_secret().encode(), f"{email}|{otp_scope}|password_reset|{otp_code}".encode(), hashlib.sha256).hexdigest()
+    with transaction.atomic():
+        # The unique digest makes simultaneous reuse fail before changing the password.
+        proof, created = ConsumedAuthProof.objects.get_or_create(
+            digest=proof_digest,
+            defaults={"purpose": "password_reset", "expires_at": now + timedelta(minutes=OTP_EXPIRY_MINUTES)},
+        )
+        if not created and proof.expires_at > now:
+            return _err("Invalid or expired OTP", 400)
+        if not created:
+            # A later randomly recurring code may be used only after its old window ends.
+            proof = ConsumedAuthProof.objects.select_for_update().get(pk=proof.pk)
+            if proof.expires_at > now:
+                return _err("Invalid or expired OTP", 400)
+            proof.expires_at = now + timedelta(minutes=OTP_EXPIRY_MINUTES)
+            proof.save(update_fields=["expires_at"])
+        account.password = hash_password(new_password)
+        account.save(update_fields=["password", "updated_at"])
 
     return _ok({"success": True, "message": "Password reset successful. Please log in."})
 
@@ -7087,9 +7160,15 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     staff, err = _require_staff(request)
     if err:
         return err
+    actor_role = str(staff.get("role") or "").upper()
+    if request.method == "POST" and actor_role not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        return _err("Only administrators can create staff accounts", 403)
     if request.method == "GET":
         page, size, off = _pagination(request)
         qs = User.objects.prefetch_related("service_areas").all().order_by("-created_at")
+        # Fix: drivers need their own profile, not the staff directory.
+        if actor_role == RoleType.DRIVER:
+            qs = qs.filter(id=staff.get("userId"))
         s = str(request.GET.get("search", "")).strip()
         if s:
             qs = qs.filter(Q(name__icontains=s) | Q(email__icontains=s))
@@ -7109,6 +7188,8 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     name = str(body.get("name", "")).strip()
     password = str(body.get("password", "")).strip()
     role_id = str(body.get("roleId", "")).strip()
+    if role_id == RoleType.SUPER_ADMIN and actor_role != RoleType.SUPER_ADMIN:
+        return _err("Only the owner can create an owner account", 403)
     phone = _normalize_philippine_phone(body.get("phone"))
     email_verification_token = str(body.get("emailVerificationToken", "")).strip()
     # Fix: the structured name parts were accepted from the client and then dropped,
@@ -7125,11 +7206,11 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         name = _format_display_name(first_name, middle_name, last_name, suffix, name)
     if not email or not name or not password or not role_id:
         return _err("name, email, password and roleId are required")
-    if not phone:
-        return _err(PHILIPPINE_PHONE_ERROR)
     password_error = _validate_password_strength(password)
     if password_error:
         return _err(password_error)
+    if not phone:
+        return _err(PHILIPPINE_PHONE_ERROR)
     if not _is_gmail_email(email):
         return _err("Invalid email format for staff/driver account")
     if role_id not in {x for x, _ in RoleType.choices}:
@@ -7201,6 +7282,16 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         user = User.objects.prefetch_related("service_areas").get(id=user_id)
     except User.DoesNotExist:
         return _err("User not found", 404)
+    actor_role = str(staff.get("role") or "").upper()
+    is_admin = actor_role in {RoleType.ADMIN, RoleType.SUPER_ADMIN}
+    is_self = str(staff.get("userId")) == str(user.id)
+    # Fix: self-service profiles never grant administration of other accounts.
+    if not is_admin and not is_self:
+        return _err("Forbidden", 403)
+    if request.method != "GET" and user.role == RoleType.SUPER_ADMIN and actor_role != RoleType.SUPER_ADMIN:
+        return _err("Only the owner can modify this account", 403)
+    if request.method == "DELETE" and (not is_admin or is_self):
+        return _err("This account cannot be deleted by this session", 403)
     if request.method == "GET":
         row = _serialize_model(user, exclude={"password"})
         row["serviceAreas"] = [area.city for area in user.service_areas.all()]
@@ -7220,6 +7311,11 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         )
         return _ok({"success": True})
     body = _json_body(request)
+    # Fix: privilege changes require administration even on one's own account.
+    if not is_admin and any(key in body for key in ("roleId", "isActive", "adminResetPassword")):
+        return _err("Only administrators can change account privileges", 403)
+    if body.get("roleId") == RoleType.SUPER_ADMIN and actor_role != RoleType.SUPER_ADMIN:
+        return _err("Only the owner can assign this role", 403)
     if _submitted_person_name_has_number(body):
         return _err(PERSON_NAME_NUMBER_ERROR, 400)
     current_email = str(user.email or "").strip().lower()
@@ -7241,7 +7337,8 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
             return _err("Only administrators can assign a driver service area", 403)
         if service_area not in {"silay", "talisay"}:
             return _err("Select Silay or Talisay as the driver's service area", 400)
-    if requested_role == RoleType.DRIVER and not service_area_supplied and not user.service_areas.exists():
+    # Fix: legacy missing service areas must not block unrelated profile/password updates.
+    if role_change_requested and requested_role == RoleType.DRIVER and not service_area_supplied and not user.service_areas.exists():
         return _err("Select Silay or Talisay as the driver's service area", 400)
     if email_change_requested or role_change_requested:
         existing_message = _staff_email_conflict_message(requested_email, requested_role, exclude_user_id=user.id)
@@ -7359,6 +7456,9 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         page, size, off = _pagination(request)
         qs = _real_customers(Customer.objects.all()).order_by("-created_at")
+        # Fix: a customer session may only read its own directory record.
+        if p.get("type") == "customer":
+            qs = qs.filter(id=p.get("userId"))
         s = str(request.GET.get("search", "")).strip()
         if s:
             qs = qs.filter(Q(name__icontains=s) | Q(email__icontains=s) | Q(phone__icontains=s))
@@ -7395,46 +7495,9 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
     _, err = _require_staff(request)
     if err:
         return err
-    body = _json_body(request)
-    email = str(body.get("email", "")).strip().lower()
-    name = str(body.get("name", "")).strip()
-    password = str(body.get("password", "")).strip()
-    if _person_name_has_number(name):
-        return _err(PERSON_NAME_NUMBER_ERROR, 400)
-    if not email or not name or not password:
-        return _err("name, email and password are required")
-    password_error = _validate_password_strength(password)
-    if password_error:
-        return _err(password_error)
-    if not _is_gmail_email(email):
-        return _err("Invalid email format for customer account")
-    if _email_exists_for_account(email, "customer"):
-        return _err("This email address is already registered.", 409)
-    address_error = _ensure_negros_occidental_address(
-        latitude=body.get("latitude"),
-        longitude=body.get("longitude"),
-        city=body.get("city"),
-        province=body.get("province"),
-        require_coordinates=False,
-    )
-    if address_error:
-        return _err(address_error, 400)
-    c = Customer.objects.create(
-        email=email,
-        password=hash_password(password),
-        name=name,
-        phone=body.get("phone"),
-        avatar=body.get("avatar"),
-        address=_strip_default_country_suffix(body.get("address")),
-        city=body.get("city"),
-        province=body.get("province"),
-        zip_code=body.get("zipCode"),
-        country=DEFAULT_COUNTRY,
-        latitude=body.get("latitude"),
-        longitude=body.get("longitude"),
-        is_active=bool(body.get("isActive", True)),
-    )
-    return _ok({"success": True, "customer": _serialize_model(c, exclude={"password"})}, 201)
+    # Customer accounts are created through the verified self-registration flow.
+    # Staff must not provision credentials through this administrative endpoint.
+    return _err("Forbidden", 403)
 
 
 @csrf_exempt
@@ -7456,10 +7519,21 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         return _ok({"success": True, "customer": cust_data})
     if p.get("type") != "staff" and p.get("userId") != c.id:
         return _err("Forbidden", 403)
+    # Fix: delivery staff must not mutate customer accounts or security settings.
+    if p.get("type") == "staff" and p.get("role") not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        return _err("Only administrators can manage customer accounts", 403)
     if request.method == "DELETE":
         c.delete()
         return _ok({"success": True})
     body = _json_body(request)
+    if body.get("password"):
+        password_error = _validate_password_strength(str(body["password"]))
+        if password_error:
+            return _err(password_error)
+    if body.get("password") and not _is_email_verification_token_valid(
+        str(body.get("emailVerificationToken") or ""), c.email, "customer"
+    ):
+        return _err("Please verify OTP before changing the password", 400)
     if _submitted_person_name_has_number(body):
         return _err(PERSON_NAME_NUMBER_ERROR, 400)
     discount_keys = {
@@ -7581,6 +7655,8 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
             serialized["staffIds"] = [manager_id] if manager_id else []
             payload_rows.append(serialized)
         return _ok({"success": True, "warehouses": payload_rows, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+    if str(staff.get("role") or "").strip().upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        return _err("Only administrators can manage warehouses", 403)
     body = _json_body(request)
     required = ["name", "code", "address", "city", "province", "zipCode", "capacity"]
     for f in required:
@@ -7646,6 +7722,8 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
         manager_id = str(getattr(w, "manager_id", "") or "").strip()
         warehouse_data["staffIds"] = [manager_id] if manager_id else []
         return _ok({"success": True, "warehouse": warehouse_data})
+    if str(staff.get("role") or "").strip().upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        return _err("Only administrators can manage warehouses", 403)
     if request.method == "DELETE":
         w.is_active = False
         w.save(update_fields=["is_active", "updated_at"])
@@ -7867,7 +7945,15 @@ def products_collection(request: HttpRequest) -> JsonResponse:
     )
     if product_weight is None:
         return _err("A valid product size and quantity are required to calculate weight", 400)
-    initial_quantity = _int(body.get("availableQuantity"), _int(body.get("initialQuantity"), 0))
+    raw_initial_quantity = (
+        body.get("availableQuantity")
+        if "availableQuantity" in body
+        else body.get("initialQuantity", 0)
+    )
+    # Fix: int(1.5) silently becomes 1, which records stock that was never supplied.
+    if not _is_whole_number(raw_initial_quantity):
+        return _err("availableQuantity must be a non-negative integer", 400)
+    initial_quantity = _int(raw_initial_quantity, 0)
     if initial_quantity < 0:
         return _err("availableQuantity must be a non-negative integer", 400)
 
@@ -7903,8 +7989,9 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 is_active=bool(body.get("isActive", True)),
             )
 
-            # Create inventory record for the selected warehouse
-            Inventory.objects.create(
+            # Opening stock must have a source batch so availability, FEFO, and
+            # later stock-out history all agree on the same physical quantity.
+            inventory = Inventory.objects.create(
                 warehouse=warehouse,
                 product=prod,
                 quantity=initial_quantity,
@@ -7912,6 +7999,27 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                 threshold=max(1, int(initial_quantity * 0.15)) if initial_quantity > 0 else 0,
                 last_restocked_at=timezone.now(),
             )
+            if initial_quantity > 0:
+                opening_batch = StockBatch.objects.create(
+                    batch_number=f"OPENING-{prod.id}",
+                    inventory=inventory,
+                    quantity=initial_quantity,
+                    receipt_date=timezone.now(),
+                    status="ACTIVE",
+                )
+                InventoryTransaction.objects.create(
+                    warehouse=warehouse,
+                    product=prod,
+                    type="IN",
+                    quantity=initial_quantity,
+                    quantity_unit=InventoryQuantityUnit.CASE,
+                    stock_unit_label="Case",
+                    previous_stock=0,
+                    updated_stock=initial_quantity,
+                    reference_type="stock_batch",
+                    reference_id=opening_batch.id,
+                    notes="Opening stock recorded when the product was registered",
+                )
             actor_name = str(p.get("name") or "Staff").strip() or "Staff"
             _create_staff_notifications(
                 title="New product registered",
@@ -8025,6 +8133,15 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
     previous_name = str(prod.name or "").strip()
     previous_sku = str(prod.sku or "").strip()
     body = _json_body(request)
+    requested_warehouse_id = str(body.get("warehouseId") or "").strip()
+    if requested_warehouse_id:
+        # Products are global catalog records, but a supplied warehouse context
+        # must be real and belong to the acting warehouse operator.
+        if not Warehouse.objects.filter(id=requested_warehouse_id).exists():
+            return _err("Warehouse not found", 400)
+        allowed_warehouse_ids = _get_allowed_warehouse_ids_for_staff(str(p.get("userId") or ""))
+        if requested_warehouse_id not in allowed_warehouse_ids:
+            return _err("Access denied for this warehouse", 403)
     if "unit" in body:
         try:
             prod.unit = _normalize_product_unit(body.get("unit"))
@@ -8265,6 +8382,9 @@ def inventory_detail(request: HttpRequest, inventory_id: str) -> JsonResponse:
             return _err("Forbidden", 403)
 
     body = _json_body(request)
+    requested_warehouse_id = str(body.get("warehouseId") or "").strip()
+    if requested_warehouse_id and requested_warehouse_id != str(item.warehouse_id):
+        return _err("Inventory belongs to a different warehouse", 400)
     previous_quantity = max(0, _int(item.quantity, 0))
     if "quantity" in body:
         next_quantity = _int(body.get("quantity"), item.quantity)
@@ -8418,6 +8538,30 @@ def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTra
         )
         for row in rows
     ]
+    mixed_component_ids = {str(row.mixed_case_component_id) for row in rows if row.mixed_case_component_id}
+    if mixed_component_ids:
+        components_by_id = {
+            str(component.id): component
+            for component in MixedCaseComponent.objects.filter(id__in=mixed_component_ids).select_related("product")
+        }
+        sibling_components_by_item_id: dict[str, list[dict[str, Any]]] = {}
+        for component in components_by_id.values():
+            sibling_components_by_item_id.setdefault(
+                str(component.order_item_id),
+                [
+                    serialize_mixed_component(sibling)
+                    for sibling in MixedCaseComponent.objects.filter(order_item_id=component.order_item_id).select_related("product")
+                ],
+            )
+        for payload, row in zip(data, rows):
+            component = components_by_id.get(str(row.mixed_case_component_id or ""))
+            if component is not None:
+                # Transaction history needs the full mixed-case composition, not
+                # only the component whose stock movement is on this row.
+                payload["mixedCase"] = {
+                    "orderItemId": component.order_item_id,
+                    "components": sibling_components_by_item_id[str(component.order_item_id)],
+                }
     target_ids = {
         row.id
         for row in rows
@@ -8694,9 +8838,14 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 return _err("Access denied for this warehouse", 403)
 
         inv = batch.inventory
+        inventory_quantity_before = max(0, _int(getattr(inv, "quantity", 0), 0))
         previous_qty = max(0, _int(getattr(batch, "quantity", 0), 0))
         next_qty = max(0, quantity)
         delta = next_qty - previous_qty
+        if delta and batch.reservations.filter(status=ReservationStatus.RESERVED).exists():
+            # A reserved batch is an allocation anchor until its order releases
+            # or consumes it, so a manual edit cannot invalidate that promise.
+            return _err("Release or reassign this batch's active order reservations before changing quantity", 409)
 
         # Added: warehouse staff can update batch dates independently of quantity.
         manufactured_date = batch.receipt_date
@@ -8772,31 +8921,22 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 if should_update_threshold:
                     update_fields.insert(1, "threshold")
                 inv.save(update_fields=update_fields)
-
-                linked_transactions = InventoryTransaction.objects.filter(
-                    reference_type="stock_batch",
+                # Keep the original stock-in immutable and record this physical
+                # correction as a separate ledger event for audit history.
+                InventoryTransaction.objects.create(
+                    warehouse=inv.warehouse,
+                    product=inv.product,
+                    type="IN" if delta > 0 else "OUT",
+                    quantity=abs(delta),
+                    quantity_unit=InventoryQuantityUnit.CASE,
+                    stock_unit_label="Case",
+                    previous_stock=inventory_quantity_before,
+                    updated_stock=inv.quantity,
+                    reference_type="stock_batch_adjustment",
                     reference_id=batch_id,
-                    type="IN",
+                    performed_by=str(staff.get("userId") or "").strip() or None,
+                    notes="Stock batch quantity adjusted",
                 )
-                if next_qty == 0:
-                    # Fix: a depleted batch is deleted, so its zero-value stock-in history must also be removed.
-                    linked_transactions.delete()
-                else:
-                    tx = linked_transactions.order_by("created_at").first()
-                    if tx:
-                        tx.quantity = next_qty
-                        tx.notes = "Stock batch added (edited quantity)"
-                        tx.save(update_fields=["quantity", "notes"])
-                    else:
-                        InventoryTransaction.objects.create(
-                            warehouse=inv.warehouse,
-                            product=inv.product,
-                            type="IN",
-                            quantity=next_qty,
-                            reference_type="stock_batch",
-                            reference_id=batch_id,
-                            notes="Stock batch added (edited quantity)",
-                        )
 
         updated_batch = (
             StockBatch.objects.select_related("inventory", "inventory__warehouse", "inventory__product")
@@ -9147,7 +9287,10 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                     reference_id=batch.id,
                     notes="Bulk stock batch added",
                 )
-                # This stock-in does not change empty-container balances.
+                # Returnable stock may reuse delivered empties. The helper consumes
+                # only the cases actually available and leaves the rest as new stock.
+                from .deposit_lifecycle import record_stockin_empty_consumption
+                record_stockin_empty_consumption(inv, batch, qty)
 
                 created_stock_batches.append(batch)
 
@@ -9637,8 +9780,11 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
             return _err("Feedback already submitted for this order", 409)
         feedback_message = str(body.get("message") or "").strip()
         # Added: rated reviews must include feedback, even when the API is called directly.
-        if body.get("rating") is not None and not feedback_message:
-            return _err("Feedback is required when submitting a rating", 400)
+        if not feedback_message:
+            return _err("Feedback is required when submitting a rating" if body.get("rating") is not None else "Feedback is required", 400)
+        rating = body.get("rating")
+        if rating is not None and (isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5):
+            return _err("Rating must be an integer from 1 to 5", 400)
         f = Feedback.objects.create(
             customer=customer,
             order=order,
@@ -9944,11 +10090,21 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             "totalPages": (total + size - 1) // size if include_orders else 0,
         })
     if request.method == "POST":
+        # Fix: existing on-behalf flows belong to administration and warehouse staff.
+        if p.get("type") == "staff" and p.get("role") not in {RoleType.ADMIN, RoleType.SUPER_ADMIN, RoleType.WAREHOUSE_STAFF}:
+            return _err("Forbidden", 403)
         body = _json_body(request)
         if _person_name_has_number(body.get("shippingName")):
             # Fix: shipping contact names follow the same validation as customer profiles.
             return _err(PERSON_NAME_NUMBER_ERROR, 400)
-        customer_id = str(body.get("customerId") or (p.get("userId") if p.get("type") == "customer" else "") or "").strip()
+        customer_id = str(body.get("customerId") or "").strip()
+        if p.get("type") == "customer":
+            authenticated_customer_id = str(p.get("userId") or "").strip()
+            # Fix: reject an on-behalf customer ID instead of silently accepting
+            # a request that attempted to create an order for another account.
+            if customer_id and customer_id != authenticated_customer_id:
+                return _err("Forbidden", 403)
+            customer_id = authenticated_customer_id
         if not customer_id:
             return _err("customerId is required")
         try:
@@ -9956,6 +10112,10 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         except Customer.DoesNotExist:
             return _err("Customer not found", 404)
         request_id = str(body.get("requestId") or "").strip()
+        # Request IDs make a retry idempotent when a client supplies one. Older
+        # customer clients can still submit a purchase request without one.
+        if len(request_id) > 120:
+            return _err("requestId must be 120 characters or fewer", 400)
         if request_id:
             existing_order = (
                 Order.objects.select_related("customer", "timeline")
@@ -9994,16 +10154,18 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             # Mixed cases do not have a parent productId; use the component-aware server normalizer.
             normalized_items, normalized_subtotal = normalize_checkout_items(items)
             subtotal = float(normalized_subtotal)
-            total_cases = sum(max(0, _int(item.get("quantity"), 0)) for item in normalized_items)
+            # Only case-equivalent lines qualify; individual bottles are excluded.
+            total_cases = _count_discount_eligible_cases(normalized_items)
             discount_breakdown = _build_discount_breakdown_for_customer(
                 customer=customer,
                 subtotal=subtotal,
                 total_cases=total_cases,
             )
-            tax = float(body.get("tax") if body.get("tax") is not None else 0)
-            shipping_cost = float(body.get("shippingCost") or 0)
+            # Required: neither regular orders nor retail charge tax or shipping fees.
+            tax = 0.0
+            shipping_cost = 0.0
             discount = float(discount_breakdown.get("totalDiscount") or 0)
-            total = float(subtotal + tax + shipping_cost - discount)
+            total = float(subtotal - discount)
             with transaction.atomic():
                 order = _create_order_from_checkout_payload(
                     customer=customer,
@@ -10017,7 +10179,8 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                     selected_warehouse_id=selected_warehouse_id,
                     shipping_latitude=shipping_latitude,
                     shipping_longitude=shipping_longitude,
-                    payment_status=body.get("paymentStatus") or "pending",
+                    # Checkout has no payment workflow; ignore legacy client values.
+                    payment_status="pending",
                     performed_by=(p or {}).get("userId"),
                     discount_breakdown=discount_breakdown,
                 )
@@ -10311,6 +10474,11 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         o = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
         return _err("Order not found", 404)
+
+    # Dispatch is recorded only by the driver trip-start flow, which keeps the
+    # delivery status tied to a real assigned vehicle and active trip.
+    if next_status == OrderStatus.OUT_FOR_DELIVERY:
+        return _err("OUT_FOR_DELIVERY is set automatically when the trip starts", 400)
 
     current_status = _normalize_order_status(o.status)
     is_pending_request = str(o.request_status or "").strip().upper() == PurchaseRequestStatus.PENDING_APPROVAL
@@ -11525,7 +11693,8 @@ def customer_order_deposit_refund(request: HttpRequest, order_id: str) -> JsonRe
     p = _require_auth(request)
     if not p or p.get("type") != "customer":
         return _err("Unauthorized", 401)
-    body = requested_body
+    # Fix: parse the request before entering the existing locked refund workflow.
+    body = _json_body(request)
 
     try:
         with transaction.atomic():
@@ -11768,15 +11937,24 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
         if active_customer_replacement is None:
             active_customer_replacement = existing
     if active_customer_replacement is not None:
-        # Fix: a timed-out client may retry after the first request was already saved.
-        # Return that active case as success instead of creating a duplicate request.
-        return _ok(
-            {
+        # A bare retry cannot alter the saved claim, so return it safely. Any
+        # payload with a new claim remains blocked without an idempotency key.
+        replacement_claim_fields = {
+            "replacementLines",
+            "numberDamagedItems",
+            "damageType",
+            "reason",
+            "evidence",
+            "evidencePrimary",
+            "damagePhoto",
+        }
+        if not any(field in body for field in replacement_claim_fields):
+            return _ok({
                 "success": True,
                 "replacement": _serialize_replacement(active_customer_replacement),
                 "reused": True,
-            }
-        )
+            })
+        return _err("An active replacement request already exists for this order", 400)
 
     # Fix: calculate the deadline only from an actual delivery event. Order update
     # and creation timestamps are unrelated and caused valid production requests
@@ -11809,10 +11987,20 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     replacement_lines_input = body.get("replacementLines") if isinstance(body.get("replacementLines"), list) else []
     replacement_lines: list[dict[str, Any]] = []
     if replacement_lines_input:
-        merged_lines_by_item_id: dict[str, dict[str, Any]] = {}
+        merged_lines_by_source: dict[str, dict[str, Any]] = {}
         for raw_line in replacement_lines_input:
             if not isinstance(raw_line, dict):
                 continue
+            # Fix: reject decimal claims before _int can truncate them into a
+            # smaller, seemingly valid replacement request.
+            for quantity_field in (
+                "quantityToReplace",
+                "quantityToReplaceCases",
+                "quantityToReplaceUnits",
+                "quantityToReplaceBottles",
+            ):
+                if quantity_field in raw_line and not _is_whole_number(raw_line.get(quantity_field)):
+                    return _err("Replacement quantities must be whole numbers", 400)
             original_order_item_id = str(
                 raw_line.get("originalOrderItemId")
                 or raw_line.get("productId")
@@ -11823,15 +12011,20 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
             if not source_item:
                 return _err("Each replacement line must reference a valid product from the order", 400)
 
-            product = getattr(source_item, "product", None)
+            mixed_component_id = str(raw_line.get("mixedCaseComponentId") or "").strip()
+            mixed_component = None
+            if mixed_component_id:
+                mixed_component = source_item.mixed_case_components.select_related("product").filter(id=mixed_component_id).first()
+                if mixed_component is None:
+                    return _err("Each mixed-case replacement line must reference a component from its order item", 400)
+            product = mixed_component.product if mixed_component is not None else getattr(source_item, "product", None)
+            # Server-side product/component capacity is authoritative. Never allow
+            # replacement claims to inflate it with a client-supplied pack size.
             quantity_per_case = max(
                 1,
                 _int(
-                    raw_line.get("quantityPerCase"),
-                    _int(
-                        raw_line.get("qtyPerUnit"),
-                        _int(getattr(product, "quantity_per_unit", 0), 1),
-                    ),
+                    getattr(mixed_component, "quantity_per_case", 0) if mixed_component is not None else getattr(product, "quantity_per_unit", 0),
+                    1,
                 ),
             )
             input_mode = str(raw_line.get("inputMode") or raw_line.get("lineInputMode") or "").strip().lower()
@@ -11885,6 +12078,7 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
 
             next_line = {
                 "originalOrderItemId": source_item.id,
+                "mixedCaseComponentId": mixed_component.id if mixed_component is not None else None,
                 "originalProductId": str(getattr(source_item, "product_id", "") or "").strip() or None,
                 "originalProductName": original_product_name,
                 "originalProductSku": original_product_sku,
@@ -11910,7 +12104,8 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
             else:
                 next_line["quantityToReplaceBottles"] = quantity_to_replace_bottles
 
-            existing_line = merged_lines_by_item_id.get(source_item.id)
+            source_key = f"{source_item.id}:{mixed_component.id if mixed_component is not None else getattr(product, 'id', '')}"
+            existing_line = merged_lines_by_source.get(source_key)
             if existing_line:
                 existing_line["quantityToReplace"] = max(0, _int(existing_line.get("quantityToReplace"), 0)) + quantity_to_replace
                 existing_line["remainingQuantity"] = existing_line["quantityToReplace"]
@@ -11926,12 +12121,43 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
                     if description not in previous_description:
                         existing_line["description"] = f"{previous_description}; {description}".strip("; ")
             else:
-                merged_lines_by_item_id[source_item.id] = next_line
+                merged_lines_by_source[source_key] = next_line
 
-        replacement_lines = list(merged_lines_by_item_id.values())
+        replacement_lines = list(merged_lines_by_source.values())
         if not replacement_lines:
             return _err("At least one valid replacement line is required", 400)
 
+        for line in replacement_lines:
+            source_item = order_items_by_id[str(line["originalOrderItemId"])]
+            component_id = str(line.get("mixedCaseComponentId") or "").strip()
+            component = source_item.mixed_case_components.select_related("product").filter(id=component_id).first() if component_id else None
+            product = component.product if component is not None else source_item.product
+            if product is None:
+                return _err("Each replacement line must reference an available product", 400)
+            source_capacity = (
+                max(0, _int(component.total_base_units, 0))
+                if component is not None
+                else max(0, _int(source_item.quantity, 0)) * max(1, _int(product.quantity_per_unit, 0))
+            )
+            requested_units = max(0, _int(line.get("quantityToReplace"), 0))
+            active_claims = ReplacementLine.objects.filter(
+                original_order_item=source_item,
+                mixed_case_component=component,
+                product=product,
+                replacement__replacement_mode="CUSTOMER_SUBMITTED",
+            ).exclude(
+                replacement__status__in=[
+                    ReplacementStatus.CANCELLED,
+                    ReplacementStatus.REJECTED,
+                    ReplacementStatus.COMPLETED,
+                    ReplacementStatus.RESOLVED_ON_DELIVERY,
+                ]
+            ).aggregate(total=Sum("requested_base_units")).get("total") or 0
+            if requested_units + max(0, _int(active_claims, 0)) > source_capacity:
+                return _err("Replacement quantity exceeds the remaining delivered source allocation", 400)
+
+    if "numberDamagedItems" in body and not _is_whole_number(body.get("numberDamagedItems")):
+        return _err("numberDamagedItems must be a whole number", 400)
     number_damaged_items = max(
         0,
         _int(
@@ -12013,6 +12239,25 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
         damage_photo_urls=json.dumps(evidence_list),
         notes=f"Customer-submitted replacement request\nMeta: {json.dumps(meta)}",
     )
+    for line in replacement_lines:
+        source_item = order_items_by_id[str(line["originalOrderItemId"])]
+        component_id = str(line.get("mixedCaseComponentId") or "").strip()
+        component = source_item.mixed_case_components.select_related("product").filter(id=component_id).first() if component_id else None
+        product = component.product if component is not None else source_item.product
+        if product is None:  # Guarded above; keep the write safe if the row was removed concurrently.
+            raise ValueError("Replacement product is no longer available")
+        ReplacementLine.objects.create(
+            replacement=replacement,
+            product=product,
+            product_name=str(line.get("replacementProductName") or product.name),
+            product_sku=str(line.get("replacementProductSku") or product.sku or "") or None,
+            base_unit_label=str(line.get("lineInputMode") or "unit"),
+            requested_base_units=max(0, _int(line.get("quantityToReplace"), 0)),
+            reason=str(line.get("reason") or damage_type),
+            description=line.get("description"),
+            original_order_item=source_item,
+            mixed_case_component=component,
+        )
     customer_name = str(getattr(order.customer, "name", "") or "Customer").strip()
     if replacement_lines:
         product_names = list(
@@ -12029,51 +12274,66 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
         product_name_match = re.search(r"\[([^\]]+)\]", str(replacement.description or ""))
         product_hint = str(product_name_match.group(1) if product_name_match else "").strip() or "N/A"
     description_hint = str(replacement.description or "").strip() or "N/A"
-    _create_staff_notifications(
-        title="New replacement request",
-        message=(
-            f"{customer_name} submitted replacement request {replacement.replacement_number} for order {order.order_number}. "
-            f"Product: {product_hint}. Reason: {damage_type}. Details: {description_hint}."
-        ),
-        notification_type="REPLACEMENT",
-        reference_type="replacement",
-        reference_id=replacement.id,
-    )
-    _create_customer_notification(
-        customer=order.customer,
-        title="Replacement request submitted",
-        message=(
-            f"Replacement request {replacement.replacement_number} was submitted. "
-            f"Product: {product_hint}. Reason: {damage_type}. "
-            "You will be notified once admin reviews and approves/rejects it."
-        ),
-        notification_type="REPLACEMENT",
-        reference_type="replacement",
-        reference_id=replacement.id,
-    )
+    # Fix: the request is already saved; notification failures must not invite duplicate submissions.
+    try:
+        _create_staff_notifications(
+            title="New replacement request",
+            message=(
+                f"{customer_name} submitted replacement request {replacement.replacement_number} for order {order.order_number}. "
+                f"Product: {product_hint}. Reason: {damage_type}. Details: {description_hint}."
+            ),
+            notification_type="REPLACEMENT",
+            reference_type="replacement",
+            reference_id=replacement.id,
+        )
+        _create_customer_notification(
+            customer=order.customer,
+            title="Replacement request submitted",
+            message=(
+                f"Replacement request {replacement.replacement_number} was submitted. "
+                f"Product: {product_hint}. Reason: {damage_type}. "
+                "You will be notified once admin reviews and approves/rejects it."
+            ),
+            notification_type="REPLACEMENT",
+            reference_type="replacement",
+            reference_id=replacement.id,
+        )
+    except Exception:
+        logger.exception("Failed to create replacement submission notifications for %s", replacement.id)
     # Fix: email provider retries are best-effort and must not turn a saved request
     # into a client-side submission failure while the API waits on network I/O.
     def _send_replacement_submission_emails(replacement_id: str) -> None:
-        entry = (
-            Replacement.objects.select_related("order__customer")
-            .prefetch_related("lines__product")
-            .filter(id=replacement_id)
-            .first()
-        )
-        if entry is None:
-            return
         try:
+            entry = (
+                Replacement.objects.select_related("order__customer")
+                .prefetch_related("lines__product")
+                .filter(id=replacement_id)
+                .first()
+            )
+            if entry is None:
+                return
             _email_replacement_submitted_to_staff(entry)
             _email_replacement_submitted_to_customer(entry)
         except Exception:
             logger.exception("Failed to email the submitted replacement %s", replacement_id)
 
-    threading.Thread(
-        target=_send_replacement_submission_emails,
-        args=(replacement.id,),
-        name=f"replacement-email-{replacement.id}",
-        daemon=True,
-    ).start()
+    def _schedule_replacement_submission_emails() -> None:
+        try:
+            threading.Thread(
+                target=_send_replacement_submission_emails,
+                args=(replacement.id,),
+                name=f"replacement-email-{replacement.id}",
+                daemon=True,
+            ).start()
+        except Exception:
+            logger.exception("Failed to schedule replacement notification email for %s", replacement.id)
+
+    try:
+        # The worker opens its own connection, so start it only after the
+        # replacement commit. This also prevents SQLite test-table locks.
+        transaction.on_commit(_schedule_replacement_submission_emails)
+    except Exception:
+        logger.exception("Failed to register replacement notification email for %s", replacement.id)
     return _ok({"success": True, "replacement": _serialize_replacement(replacement)}, 201)
 
 
@@ -13222,16 +13482,40 @@ def trip_stop_update(request: HttpRequest, trip_id: str, stop_id: str) -> JsonRe
     return trip_drop_point_update(request, trip_id, stop_id)
 
 
+PUBLIC_UPLOAD_FOLDER = "products"
+
+
+def _normalized_upload_path(path: Any) -> str | None:
+    """Accept only storage-relative paths so media requests cannot escape their root."""
+    clean_path = str(path or "").replace("\\", "/").strip().lstrip("/")
+    if not clean_path or clean_path.startswith("/") or ".." in clean_path.split("/"):
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", clean_path):
+        return None
+    return clean_path
+
+
+def _private_media_url(path: str) -> str:
+    return f"/api/media/{path}"
+
+
 def _store_upload_bytes(data: bytes, folder: str, prefix: str, ext: str, content_type: str | None = None) -> str:
-    """Persist raw bytes and return the URL to record, bucket first, disk as fallback."""
-    name = f"{prefix}-{int(timezone.now().timestamp() * 1000)}{ext}"
+    """Persist catalog assets publicly and evidence behind the authorized media route."""
+    # Fix: timestamp-only names collide under concurrent uploads.
+    name = f"{prefix}-{uuid.uuid4().hex}{ext}"
+    object_path = f"{folder}/{name}"
     if object_storage.is_configured():
-        return object_storage.upload_bytes(f"{folder}/{name}", data, content_type=content_type)
-    # Same root the /uploads/ route serves from, so a locally stored file is reachable.
+        if folder == PUBLIC_UPLOAD_FOLDER:
+            return object_storage.upload_bytes(object_path, data, content_type=content_type)
+        # Private buckets never expose a direct Storage URL. The API authorizes each read.
+        object_storage.upload_private_bytes(object_path, data, content_type=content_type)
+        return _private_media_url(object_path)
+    # Local development uses the same disk layout, but non-catalog files still use
+    # the authenticated API route rather than the public static upload route.
     media_root = Path(settings.MEDIA_ROOT) / "uploads" / folder
     media_root.mkdir(parents=True, exist_ok=True)
     (media_root / name).write_bytes(data)
-    return f"/uploads/{folder}/{name}"
+    return f"/uploads/{object_path}" if folder == PUBLIC_UPLOAD_FOLDER else _private_media_url(object_path)
 
 
 def _store_upload(file_obj, folder: str, prefix: str, default_ext: str) -> str:
@@ -13244,7 +13528,12 @@ def _store_upload(file_obj, folder: str, prefix: str, default_ext: str) -> str:
     """
     ext = (Path(file_obj.name).suffix or default_ext).lower()
     content_type = str(file_obj.content_type or "") or None
-    data = file_obj.read()
+    limit = 10 * 1024 * 1024 if str(content_type or "").startswith("image/") else 50 * 1024 * 1024
+    if file_obj.size > limit:
+        raise ValueError("The uploaded file exceeds the size limit")
+    data = file_obj.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("The uploaded file exceeds the size limit")
     # Added: every image upload is optimized server-side, including clients that skip compression.
     if str(content_type or "").lower().startswith("image/"):
         data, ext, content_type = optimize_image_upload(
@@ -13270,6 +13559,8 @@ def _handle_image_upload(request: HttpRequest, folder: str, prefix: str) -> Json
         return _err("Only image files are allowed")
     try:
         url = _store_upload(file_obj, folder, prefix, ".png")
+    except ValueError as exc:
+        return _err(str(exc), 400)
     except object_storage.ObjectStorageError:
         logger.exception("Image upload to object storage failed folder=%s", folder)
         return _err("Could not store the image right now. Please try again.", 502)
@@ -13285,6 +13576,8 @@ def _handle_evidence_upload(request: HttpRequest, folder: str, prefix: str) -> J
         return _err("Only image or video files are allowed")
     try:
         url = _store_upload(file_obj, folder, prefix, ".bin")
+    except ValueError as exc:
+        return _err(str(exc), 400)
     except object_storage.ObjectStorageError:
         logger.exception("Evidence upload to object storage failed folder=%s", folder)
         return _err("Could not store the file right now. Please try again.", 502)
@@ -13323,6 +13616,8 @@ def upload_pod_image(request: HttpRequest) -> JsonResponse:
             return _err("Driver account not found", 404)
         try:
             # Added: native captures are stamped server-side with the authenticated driver's name.
+            if file_obj.size > 10 * 1024 * 1024:
+                return _err("Images must be 10 MB or smaller", 400)
             stamped, extension = burn_pod_overlay(file_obj.read(), overlay, build_driver_full_name(driver))
             # Keep the stamped proof within the POD profile without removing its readable overlay.
             stamped, extension, stamped_content_type = optimize_image_upload(
@@ -13377,6 +13672,147 @@ def upload_replacement_evidence(request: HttpRequest) -> JsonResponse:
     if not p or p.get("type") != "customer":
         return _err("Unauthorized", 401)
     return _handle_evidence_upload(request, "replacement-evidence", "replacement-evidence")
+
+
+def _media_url_candidates(path: str) -> set[str]:
+    """Match both new protected URLs and legacy locally/publicly stored values."""
+    candidates = {
+        _private_media_url(path),
+        f"/uploads/{path}",
+    }
+    if object_storage.is_configured():
+        candidates.add(object_storage.public_url(path))
+    return candidates
+
+
+def _matching_replacements(media_urls: set[str]):
+    """Return replacements that directly reference one of the requested evidence files."""
+    query = Q(damage_photo_url__in=media_urls)
+    # Legacy multi-file evidence is JSON text, so exact individual URL matching
+    # is unavailable at the database layer. The route still requires a matching
+    # replacement before any private file can be served.
+    for media_url in media_urls:
+        query |= Q(damage_photo_urls__contains=media_url)
+    return Replacement.objects.filter(query)
+
+
+def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str]) -> bool:
+    """Authorize media through the record that owns it, never by an opaque URL alone."""
+    account_id = str(payload.get("userId") or "").strip()
+    if not account_id:
+        return False
+
+    user_avatar = User.objects.filter(
+        id=account_id,
+    ).filter(Q(avatar__in=media_urls) | Q(license_photo_url__in=media_urls)).exists()
+    if user_avatar:
+        return True
+
+    account_type = str(payload.get("type") or "").strip().lower()
+    if account_type == "customer":
+        if Customer.objects.filter(id=account_id, avatar__in=media_urls).exists():
+            return True
+        if Order.objects.filter(customer_id=account_id, pod_photo_url__in=media_urls).exists():
+            return True
+        if TripDropPoint.objects.filter(
+            order__customer_id=account_id,
+            delivery_photo__in=media_urls,
+        ).exists():
+            return True
+        return _matching_replacements(media_urls).filter(customer_id=account_id).exists()
+
+    if account_type != "staff":
+        return False
+
+    role = str(payload.get("role") or "").strip().upper()
+    if role in {RoleType.SUPER_ADMIN, RoleType.ADMIN}:
+        return (
+            Order.objects.filter(pod_photo_url__in=media_urls).exists()
+            or TripDropPoint.objects.filter(delivery_photo__in=media_urls).exists()
+            or _matching_replacements(media_urls).exists()
+            or Customer.objects.filter(avatar__in=media_urls).exists()
+            or User.objects.filter(Q(avatar__in=media_urls) | Q(license_photo_url__in=media_urls)).exists()
+        )
+
+    if role == RoleType.DRIVER:
+        assigned_trip_ids = Trip.objects.filter(driver_id=account_id).values("id")
+        if TripDropPoint.objects.filter(
+            trip_id__in=assigned_trip_ids,
+            delivery_photo__in=media_urls,
+        ).exists():
+            return True
+        if Order.objects.filter(
+            pod_photo_url__in=media_urls,
+            drop_points__trip_id__in=assigned_trip_ids,
+        ).exists():
+            return True
+        return _matching_replacements(media_urls).filter(trip_id__in=assigned_trip_ids).exists()
+
+    if role == RoleType.WAREHOUSE_STAFF:
+        allowed_warehouse_ids = _get_allowed_warehouse_ids_for_staff(account_id)
+        if not allowed_warehouse_ids:
+            return False
+        if Order.objects.filter(
+            warehouse_id__in=allowed_warehouse_ids,
+            pod_photo_url__in=media_urls,
+        ).exists():
+            return True
+        if TripDropPoint.objects.filter(
+            trip__warehouse_id__in=allowed_warehouse_ids,
+            delivery_photo__in=media_urls,
+        ).exists():
+            return True
+        return _matching_replacements(media_urls).filter(
+            Q(order__warehouse_id__in=allowed_warehouse_ids)
+            | Q(trip_id__in=Trip.objects.filter(warehouse_id__in=allowed_warehouse_ids).values("id"))
+        ).exists()
+
+    return False
+
+
+def _private_media_response(path: str) -> JsonResponse | FileResponse | HttpResponse:
+    """Read a protected asset only after its caller has passed record-level access checks."""
+    local_root = (Path(settings.MEDIA_ROOT) / "uploads").resolve()
+    target = (local_root / path).resolve()
+    try:
+        target.relative_to(local_root)
+    except ValueError:
+        return _err("Private media not found", 404)
+
+    if target.is_file():
+        response: JsonResponse | FileResponse | HttpResponse = FileResponse(
+            target.open("rb"),
+            content_type=mimetypes.guess_type(str(target))[0] or "application/octet-stream",
+        )
+    elif object_storage.is_configured():
+        try:
+            data, content_type = object_storage.download_private_bytes(path)
+        except object_storage.ObjectStorageError:
+            logger.warning("Private media was unavailable path=%s", path)
+            return _err("Private media not found", 404)
+        response = HttpResponse(data, content_type=content_type)
+    else:
+        return _err("Private media not found", 404)
+
+    # Evidence must not be cached or interpreted as active same-origin content.
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Security-Policy"] = "default-src 'none'; sandbox"
+    return response
+
+
+@require_GET
+def private_media(request: HttpRequest, path: str) -> JsonResponse | FileResponse | HttpResponse:
+    """Serve a private upload after verifying the caller can view its owning record."""
+    normalized_path = _normalized_upload_path(path)
+    if not normalized_path or normalized_path.startswith(f"{PUBLIC_UPLOAD_FOLDER}/"):
+        return _err("Private media not found", 404)
+    payload = _require_auth(request)
+    if not payload:
+        return _err("Unauthorized", 401)
+    if not _private_media_access_allowed(payload, _media_url_candidates(normalized_path)):
+        return _err("Forbidden", 403)
+    return _private_media_response(normalized_path)
 
 
 RETAIL_QUOTE_SIGNING_SALT = "retail-pos-quote"

@@ -1,0 +1,75 @@
+.venv/Scripts/python.exe : Creating test database for alias 'default'...
+At line:2 char:1
++ .venv/Scripts/python.exe backend/manage.py test core.test_prelaunch_a ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Creating test d...as 'default'...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Found 58 test(s).
+System check identified no issues (0 silenced).
+.....................Supabase upload failed path=products/product-ed2aff9f9af1484a9df35ae3a4738f95.png status=403 
+body=denied
+Image upload to object storage failed folder=products
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13381, in _handle_image_upload
+    url = _store_upload(file_obj, folder, prefix, ".png")
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13365, in _store_upload
+    return _store_upload_bytes(
+        data,
+    ...<3 lines>...
+        content_type=content_type,
+    )
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13333, in _store_upload_bytes
+    return object_storage.upload_bytes(f"{folder}/{name}", data, content_type=content_type)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\object_storage.py", line 120, in upload_bytes
+    raise ObjectStorageError(f"Upload rejected by storage ({response.status_code})")
+core.object_storage.ObjectStorageError: Upload rejected by storage (403)
+..Supabase upload connection failed path=products/product-471c17437d0f42e7b783a44db3c06f89.png error=connection reset
+.Supabase upload failed path=products/product-8665a185536245f5a0bda988bcc12eb2.png status=400 body=headers must have 
+required property 'authorization'
+Falling back to persistent disk for upload path=products/product-8665a185536245f5a0bda988bcc12eb2.png
+.............................Failed to create replacement submission notifications for c1cceb91fae9b41c1a66be999
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12130, in customer_replacements
+    _create_staff_notifications(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        title="New replacement request",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+        reference_id=replacement.id,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1234, in _execute_mock_call
+    raise effect
+RuntimeError: staff notification failed
+Failed to schedule replacement notification email for c1cceb91fae9b41c1a66be999
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12177, in customer_replacements
+    ).start()
+      ~~~~~^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1234, in _execute_mock_call
+    raise effect
+RuntimeError: email thread failed
+...Invalid Google credential during customer auth: invalid test token
+..
+----------------------------------------------------------------------
+Ran 58 tests in 3.343s
+
+OK
+Destroying test database for alias 'default'...
+

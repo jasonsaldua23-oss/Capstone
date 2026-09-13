@@ -1,0 +1,2 @@
+Command: npx eslint src mobile/driver-app/src mobile/customer-app/src --format stylish
+Result: exit code 0; 0 errors; 0 warnings.

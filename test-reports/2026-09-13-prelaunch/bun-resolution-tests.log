@@ -1,0 +1,29 @@
+bun test v1.3.14 (0d9b296a)
+bun : 
+At line:2 char:1
++ bun test src/lib/driver-eligibility.test.ts src/lib/portal-scope.test ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+src\lib\driver-eligibility.test.ts:
+(pass) a truck requires Code C and a tricycle requires Code A1 [4.02ms]
+(pass) Code A does not cover a tricycle or a truck [0.70ms]
+(pass) Code C covers a truck, as does the trailer code CE [0.10ms]
+(pass) a truck code also covers the lighter tricycle [0.06ms]
+(pass) a Code A driver is rejected for a truck with the required message [0.25ms]
+(pass) a Code A driver is rejected for a tricycle, which names Code A1 [0.04ms]
+(pass) the code is read from a nested user record and normalised [0.06ms]
+(pass) a Code C driver passes for a truck and for the lighter tricycle [0.08ms]
+(pass) an A1 rider is still not qualified for the heavier truck [0.11ms]
+(pass) a missing vehicle is not judged here [0.04ms]
+(pass) legacy vehicle types stay unruled so existing assignments remain valid [0.09ms]
+
+src\lib\portal-scope.test.ts:
+(pass) Driver and Customer use separate canonical app paths [1.09ms]
+(pass) native portal path guards reject the other installable portal [0.84ms]
+(pass) PWA manifests have stable IDs and disjoint navigation scopes [0.27ms]
+
+ 14 pass
+ 0 fail
+Ran 14 tests across 2 files. [571.00ms]

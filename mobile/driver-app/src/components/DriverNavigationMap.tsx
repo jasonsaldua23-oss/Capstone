@@ -97,16 +97,23 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
 
   useEffect(() => {
     // Freeze the first GPS sample as the origin only when the trip has no warehouse/start coordinate.
-    setFallbackOrigin(currentLocation ? [currentLocation.longitude, currentLocation.latitude] : null);
     acceptedProjectionRef.current = null;
     previousRawLocationRef.current = null;
     previousTimestampRef.current = null;
     renderedProgressRef.current = 0;
-    setRenderedProgressMeters(0);
+    const reset = setTimeout(() => {
+      setFallbackOrigin(currentLocation ? [currentLocation.longitude, currentLocation.latitude] : null);
+      setRenderedProgressMeters(0);
+    }, 0);
+    return () => clearTimeout(reset);
   }, [trip.id]);
 
   useEffect(() => {
-    if (!fallbackOrigin && currentLocation) setFallbackOrigin([currentLocation.longitude, currentLocation.latitude]);
+    if (!fallbackOrigin && currentLocation) {
+      // GPS is an external input; synchronize it after the current render commits.
+      const syncOrigin = setTimeout(() => setFallbackOrigin([currentLocation.longitude, currentLocation.latitude]), 0);
+      return () => clearTimeout(syncOrigin);
+    }
   }, [currentLocation, fallbackOrigin]);
 
   const routeWaypoints = useMemo(() => {
@@ -128,8 +135,12 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
-    setLoading(true);
-    setRouteError(null);
+    const beginRequest = setTimeout(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setRouteError(null);
+      }
+    }, 0);
     const coordinates = routeWaypoints.map(([longitude, latitude]) => `${longitude},${latitude}`).join(";");
     fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true`, { signal: controller.signal })
       .then(async (response) => {
@@ -169,6 +180,7 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       .finally(() => clearTimeout(timeout));
     return () => {
       cancelled = true;
+      clearTimeout(beginRequest);
       clearTimeout(retryTimer);
       clearTimeout(timeout);
       controller.abort();

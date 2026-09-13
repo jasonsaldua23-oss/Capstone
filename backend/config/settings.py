@@ -86,6 +86,9 @@ def _parse_database_url(url: str) -> dict:
         "connect_timeout": int(query.get("connect_timeout", ["30"])[0]),
         "gssencmode": query.get("gssencmode", ["disable"])[0],
     }
+    if parsed.hostname and parsed.hostname.endswith(".pooler.supabase.com") and parsed.port == 6543:
+        # Fix: Supavisor transaction pooling cannot retain prepared statements between transactions.
+        options["prepare_threshold"] = None
     sslrootcert = _resolve_postgres_sslrootcert(query, sslmode)
     if sslrootcert:
         options["sslrootcert"] = sslrootcert
@@ -120,29 +123,42 @@ def _parse_database_url(url: str) -> dict:
 
 
 def _normalize_runtime_database_url(url: str) -> str:
-    raw = str(url or "").strip()
-    return raw
+    # Fix: honor the configured pooler mode instead of silently forcing the limited session pool.
+    return str(url or "").strip()
 
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-logistics-dev-key")
-DEBUG = _bool("DJANGO_DEBUG", True)
+# Fix: an unset or public signing key must stop startup rather than authenticate attackers.
+from django.core.exceptions import ImproperlyConfigured
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "").strip()
+if len(SECRET_KEY) < 32 or SECRET_KEY == "django-insecure-logistics-dev-key":
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY must be a private random secret of at least 32 characters")
+from core.auth import _jwt_secret
+_jwt_secret()
+# Production defaults to the restrictive branch; local development opts in explicitly.
+DEBUG = _bool("DJANGO_DEBUG", False)
 
 allowed_hosts = _csv("DJANGO_ALLOWED_HOSTS")
+render_external_hostname = str(os.getenv("RENDER_EXTERNAL_HOSTNAME", "")).strip()
+if render_external_hostname:
+    allowed_hosts.append(render_external_hostname)
 if not allowed_hosts:
-    allowed_hosts = ["*"]
-else:
-    if "*" not in allowed_hosts:
-        allowed_hosts.extend([".onrender.com", "localhost", "127.0.0.1"])
-        render_external_hostname = str(os.getenv("RENDER_EXTERNAL_HOSTNAME", "")).strip()
-        if render_external_hostname:
-            allowed_hosts.append(render_external_hostname)
+    if not DEBUG:
+        raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must list exact production hosts")
+    allowed_hosts = ["localhost", "127.0.0.1", "testserver"]
+if "*" in allowed_hosts and not DEBUG:
+    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS cannot include * when DJANGO_DEBUG is disabled")
 ALLOWED_HOSTS = sorted(set(allowed_hosts))
 
 csrf_trusted_origins = _csv("DJANGO_CSRF_TRUSTED_ORIGINS")
-render_external_hostname = str(os.getenv("RENDER_EXTERNAL_HOSTNAME", "")).strip()
-if render_external_hostname:
-    csrf_trusted_origins.append(f"https://{render_external_hostname}")
-csrf_trusted_origins.extend(["https://*.onrender.com", "http://localhost:3000", "http://127.0.0.1:3000"])
+cors_allowed_origins = _csv("DJANGO_CORS_ALLOWED_ORIGINS")
+if not DEBUG and (not csrf_trusted_origins or not cors_allowed_origins):
+    raise ImproperlyConfigured(
+        "DJANGO_CSRF_TRUSTED_ORIGINS and DJANGO_CORS_ALLOWED_ORIGINS must list exact production browser origins"
+    )
+if DEBUG:
+    local_origins = ["http://localhost:3000", "https://localhost:3000", "http://127.0.0.1:3000", "https://127.0.0.1:3000"]
+    csrf_trusted_origins.extend(local_origins)
+    cors_allowed_origins.extend(local_origins)
 CSRF_TRUSTED_ORIGINS = sorted(set(csrf_trusted_origins))
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -158,6 +174,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "core.auth_response_middleware.ApiInputSecurityMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.auth_response_middleware.StaffAuthFallbackNoStoreMiddleware",
@@ -217,10 +234,14 @@ MEDIA_ROOT = BASE_DIR / "media"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 SUPABASE_UPLOADS_BUCKET = os.getenv("SUPABASE_UPLOADS_BUCKET", "uploads").strip()
+# Private evidence uses a separate non-public bucket and is read only via /api/media.
+SUPABASE_PRIVATE_UPLOADS_BUCKET = os.getenv("SUPABASE_PRIVATE_UPLOADS_BUCKET", "uploads-private").strip()
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-CORS_ALLOW_ALL_ORIGINS = _bool("DJANGO_CORS_ALLOW_ALL", True)
+# Fix: credentialed browser access requires explicit trusted origins.
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = sorted(set(cors_allowed_origins))
 CORS_ALLOW_CREDENTIALS = True
 
 REST_FRAMEWORK = {

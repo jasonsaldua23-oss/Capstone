@@ -498,7 +498,6 @@ export function CustomerProfileView({
   useEffect(() => {
     fetchRealNotifications()
     onDidMount?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Inline OTP Error inside dialog

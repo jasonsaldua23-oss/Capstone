@@ -1,4 +1,4 @@
-// Keep portal loaders pending through outages; writes must never use this helper.
+// Retry transient read failures briefly, then let the caller show its existing error state.
 export async function retryingApiRead(
   fetchRead: (attemptSignal: AbortSignal) => Promise<Response>,
   signals: AbortSignal | AbortSignal[],
@@ -50,7 +50,9 @@ export async function retryingApiRead(
         signal.removeEventListener('abort', abortAttempt)
       }
 
-      // Retry indefinitely with capped backoff, and release timers when the request is cancelled.
+      // Fix: persistent outages must release loaders into the existing error/retry UI.
+      if (attempt >= 2) throw new Error('Could not load the latest data. Check your connection and try again.')
+      // Release backoff timers when the request is cancelled.
       const delay = Math.min(1000 * 2 ** Math.min(attempt++, 5), 30_000)
       await new Promise<void>((resolve, reject) => {
         const onAbort = () => {

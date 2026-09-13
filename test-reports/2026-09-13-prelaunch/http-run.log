@@ -1,0 +1,172 @@
+[
+  {
+    "route": "/admin",
+    "status": 200,
+    "location": null,
+    "bytes": 59000,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/customer/login/forgot-password",
+    "status": 200,
+    "location": null,
+    "bytes": 41660,
+    "title": [
+      "Forgot Password | AAB SHOP"
+    ]
+  },
+  {
+    "route": "/customer/login",
+    "status": 200,
+    "location": null,
+    "bytes": 33191,
+    "title": [
+      "AAB SHOP"
+    ]
+  },
+  {
+    "route": "/customer",
+    "status": 200,
+    "location": null,
+    "bytes": 58952,
+    "title": [
+      "AAB SHOP"
+    ]
+  },
+  {
+    "route": "/driver/login/forgot-password",
+    "status": 200,
+    "location": null,
+    "bytes": 41631,
+    "title": [
+      "Forgot Password | AAB DRIVER"
+    ]
+  },
+  {
+    "route": "/driver/login",
+    "status": 200,
+    "location": null,
+    "bytes": 32773,
+    "title": [
+      "AAB DRIVER"
+    ]
+  },
+  {
+    "route": "/driver",
+    "status": 200,
+    "location": null,
+    "bytes": 58956,
+    "title": [
+      "AAB DRIVER"
+    ]
+  },
+  {
+    "route": "/login/admin/forgot-password",
+    "status": 200,
+    "location": null,
+    "bytes": 41628,
+    "title": [
+      "Forgot Password | AAB TRADING"
+    ]
+  },
+  {
+    "route": "/login/admin",
+    "status": 200,
+    "location": null,
+    "bytes": 32768,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/login/customer/forgot-password",
+    "status": 307,
+    "location": "/customer/login/forgot-password",
+    "bytes": 29672,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/login/customer",
+    "status": 307,
+    "location": "/customer/login",
+    "bytes": 28024,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/login/driver/forgot-password",
+    "status": 307,
+    "location": "/driver/login/forgot-password",
+    "bytes": 29653,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/login/driver",
+    "status": 307,
+    "location": "/driver/login",
+    "bytes": 27995,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/login",
+    "status": 307,
+    "location": "/customer/login",
+    "bytes": 27481,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/login/warehouse/forgot-password",
+    "status": 200,
+    "location": null,
+    "bytes": 41680,
+    "title": [
+      "Forgot Password | AAB TRADING"
+    ]
+  },
+  {
+    "route": "/login/warehouse",
+    "status": 200,
+    "location": null,
+    "bytes": 32808,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/",
+    "status": 200,
+    "location": null,
+    "bytes": 55924,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  },
+  {
+    "route": "/restore-now",
+    "state": "NOT VERIFIED: rendering writes workspace files"
+  },
+  {
+    "route": "/restore",
+    "state": "NOT VERIFIED: rendering writes workspace files"
+  },
+  {
+    "route": "/warehouse",
+    "status": 200,
+    "location": null,
+    "bytes": 59010,
+    "title": [
+      "Ann Ann&#x27;s Beverages Trading"
+    ]
+  }
+]

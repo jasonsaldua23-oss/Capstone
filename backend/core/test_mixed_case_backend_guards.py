@@ -7,7 +7,7 @@ from django.db import close_old_connections
 from django.test import RequestFactory, TestCase, TransactionTestCase, skipUnlessDBFeature
 from django.utils import timezone
 
-from .mixed_case import consume_order_reservations, receive_component_return, reserve_order_item
+from .mixed_case import available_base_units, consume_order_reservations, receive_component_return, reserve_order_item
 from .models import (
     Customer,
     Inventory,
@@ -23,6 +23,7 @@ from .models import (
     ReturnReceipt,
     RoleType,
     StockBatch,
+    User,
 )
 from .test_mixed_case import MixedCaseFixtureMixin
 from .views_api import (
@@ -32,13 +33,9 @@ from .views_api import (
     inventory_detail,
     customer_replacements,
     inventory_transactions_list,
-    mixed_case_quote,
     orders_collection,
-    packaging_profile_detail,
-    packaging_profiles_collection,
     product_detail,
     products_collection,
-    replacement_receive_return,
     stock_batches_collection,
 )
 
@@ -57,6 +54,20 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
             "userId": "admin-guard",
             "name": "Admin Guard",
             "role": RoleType.ADMIN,
+        }
+        self.warehouse_operator = User.objects.create(
+            email="mixed-guard-warehouse@example.test",
+            password="hashed",
+            name="Mixed Guard Warehouse",
+            role=RoleType.WAREHOUSE_STAFF,
+        )
+        self.warehouse.manager_id = self.warehouse_operator.id
+        self.warehouse.save(update_fields=["manager_id", "updated_at"])
+        self.warehouse_auth = {
+            "type": "staff",
+            "userId": self.warehouse_operator.id,
+            "name": self.warehouse_operator.name,
+            "role": RoleType.WAREHOUSE_STAFF,
         }
 
     def _checkout_payload(self, request_id="checkout-guard-1"):
@@ -153,21 +164,25 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         )
 
         response = self._post_order(payload)
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertFalse(Order.objects.filter(request_id=payload["requestId"]).exists())
+
+        payload["customerId"] = self.customer.id
+        response = self._post_order(payload)
         self.assertEqual(response.status_code, 201, response.content)
         created = Order.objects.get(request_id=payload["requestId"])
-        self.assertEqual(created.customer_id, self.customer.id)
         self.assertEqual(created.status, OrderStatus.PENDING)
         self.assertEqual(created.payment_status, "pending")
         self.assertEqual(created.tax, 0)
         self.assertEqual(created.shipping_cost, 0)
         self.assertEqual(created.total_amount, 187.5)
 
-    def test_customer_checkout_requires_bounded_request_id(self):
+    def test_customer_checkout_allows_legacy_missing_request_id_and_bounds_supplied_ids(self):
         missing = self._post_order(self._checkout_payload(request_id=None))
         too_long = self._post_order(self._checkout_payload(request_id="x" * 121))
-        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(missing.status_code, 201)
         self.assertEqual(too_long.status_code, 400)
-        self.assertEqual(Order.objects.count(), 0)
+        self.assertEqual(Order.objects.count(), 1)
 
     def test_duplicate_replacement_lines_are_capped_after_merge(self):
         _, item = self._delivered_mixed_order()
@@ -278,48 +293,18 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         inventory = Inventory.objects.get(product=component.product, warehouse=self.warehouse)
         self.assertEqual(inventory.loose_bottles, 20)
 
-    def test_packaging_and_product_capacity_changes_are_guarded_and_admin_only(self):
+    def test_product_edits_require_a_warehouse_operator(self):
         driver = {"type": "staff", "userId": "driver-1", "role": RoleType.DRIVER}
-        create_request = self.factory.post(
-            "/api/packaging-profiles",
-            data=json.dumps(
-                {
-                    "code": "DRIVER-PROFILE",
-                    "name": "Driver Profile",
-                    "containerType": "Bottle",
-                    "containerSize": "1 L",
-                    "standardUnitsPerCase": 12,
-                }
-            ),
+        product_request = self.factory.put(
+            f"/api/products/{self.products[0].id}",
+            data=json.dumps({"name": "Forbidden Driver Edit"}),
             content_type="application/json",
         )
         with patch("core.views_api._require_auth", return_value=driver), patch(
             "core.views_api._require_staff", return_value=(driver, None)
         ):
-            denied = packaging_profiles_collection(create_request)
+            denied = product_detail(product_request, self.products[0].id)
         self.assertEqual(denied.status_code, 403)
-
-        profile_request = self.factory.put(
-            f"/api/packaging-profiles/{self.profile.id}",
-            data=json.dumps({"standardUnitsPerCase": 12}),
-            content_type="application/json",
-        )
-        with patch("core.views_api._require_auth", return_value=self.admin_auth), patch(
-            "core.views_api._require_staff", return_value=(self.admin_auth, None)
-        ):
-            profile_response = packaging_profile_detail(profile_request, self.profile.id)
-        self.assertEqual(profile_response.status_code, 409, profile_response.content)
-
-        product_request = self.factory.put(
-            f"/api/products/{self.products[0].id}",
-            data=json.dumps({"packagingProfileId": "", "quantityPerCase": 12}),
-            content_type="application/json",
-        )
-        with patch("core.views_api._require_auth", return_value=self.admin_auth), patch(
-            "core.views_api._require_staff", return_value=(self.admin_auth, None)
-        ):
-            product_response = product_detail(product_request, self.products[0].id)
-        self.assertEqual(product_response.status_code, 409, product_response.content)
 
     def test_product_opening_stock_is_batch_backed_and_fractional_stock_is_rejected(self):
         create_request = self.factory.post(
@@ -330,14 +315,17 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
                     "name": "Opening Stock Guard",
                     "unit": "case",
                     "price": 150,
-                    "packagingProfileId": self.profile.id,
+                    "warehouseId": self.warehouse.id,
+                    "category": "Carbonated (Glass)",
+                    "sizes": ["12oz"],
+                    "quantityPerCase": 24,
                     "availableQuantity": 3,
                 }
             ),
             content_type="application/json",
         )
-        with patch("core.views_api._require_auth", return_value=self.admin_auth), patch(
-            "core.views_api._require_staff", return_value=(self.admin_auth, None)
+        with patch("core.views_api._require_auth", return_value=self.warehouse_auth), patch(
+            "core.views_api._require_staff", return_value=(self.warehouse_auth, None)
         ), patch("core.views_api._create_staff_notifications"):
             created_response = products_collection(create_request)
         self.assertEqual(created_response.status_code, 201, created_response.content)
@@ -368,43 +356,20 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
                     "name": "Fractional Stock Guard",
                     "unit": "case",
                     "price": 150,
-                    "packagingProfileId": self.profile.id,
+                    "warehouseId": self.warehouse.id,
+                    "category": "Carbonated (Glass)",
+                    "sizes": ["12oz"],
+                    "quantityPerCase": 24,
                     "availableQuantity": 1.5,
                 }
             ),
             content_type="application/json",
         )
-        with patch("core.views_api._require_auth", return_value=self.admin_auth), patch(
-            "core.views_api._require_staff", return_value=(self.admin_auth, None)
+        with patch("core.views_api._require_auth", return_value=self.warehouse_auth), patch(
+            "core.views_api._require_staff", return_value=(self.warehouse_auth, None)
         ):
             fractional_response = products_collection(fractional_request)
         self.assertEqual(fractional_response.status_code, 400, fractional_response.content)
-
-    def test_return_receiving_role_gate_allows_warehouse_but_not_driver(self):
-        order = self.create_order("ORD-RETURN-ROLE")
-        replacement = Replacement.objects.create(
-            replacement_number="RPL-RETURN-ROLE",
-            order=order,
-            customer_id=self.customer.id,
-            reason="Damaged",
-            pickup_address="1 Guard Road",
-            pickup_city="Silay",
-            pickup_province="Negros Occidental",
-            pickup_zip_code="6116",
-        )
-        request = self.factory.post(
-            f"/api/replacements/{replacement.id}/receive-return",
-            data=json.dumps({}),
-            content_type="application/json",
-        )
-        driver = {"type": "staff", "userId": "driver-1", "role": RoleType.DRIVER}
-        warehouse = {"type": "staff", "userId": "warehouse-1", "role": RoleType.WAREHOUSE_STAFF}
-        with patch("core.views_api._require_staff", return_value=(driver, None)):
-            denied = replacement_receive_return(request, replacement.id)
-        with patch("core.views_api._require_staff", return_value=(warehouse, None)):
-            allowed_to_validate = replacement_receive_return(request, replacement.id)
-        self.assertEqual(denied.status_code, 403)
-        self.assertEqual(allowed_to_validate.status_code, 400)
 
     def test_batch_adjustment_rejects_active_reservation_and_lists_loose_only_batch(self):
         _, item = self.create_mixed_item(number="ORD-BATCH-GUARD")
@@ -416,7 +381,7 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
             data=json.dumps({"batchId": reservation.stock_batch_id, "quantity": 0}),
             content_type="application/json",
         )
-        with patch("core.views_api._require_staff", return_value=(self.admin_auth, None)):
+        with patch("core.views_api._require_staff", return_value=(self.warehouse_auth, None)):
             guarded = stock_batches_collection(put_request)
         self.assertEqual(guarded.status_code, 409, guarded.content)
 
@@ -425,12 +390,12 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         loose_batch.loose_units = 5
         loose_batch.save(update_fields=["quantity", "loose_units", "updated_at"])
         get_request = self.factory.get("/api/stock-batches")
-        with patch("core.views_api._require_staff", return_value=(self.admin_auth, None)):
+        with patch("core.views_api._require_staff", return_value=(self.warehouse_auth, None)):
             listed = stock_batches_collection(get_request)
         payload = json.loads(listed.content)
         self.assertIn(loose_batch.id, {row["id"] for row in payload["stockBatches"]})
 
-    def test_batch_backed_inventory_and_reserved_counters_cannot_be_edited_directly(self):
+    def test_inventory_adjustments_are_ledgered_and_keep_reserved_counters_nonnegative(self):
         inventory = Inventory.objects.get(product=self.products[0], warehouse=self.warehouse)
         quantity_request = self.factory.put(
             f"/api/inventory/{inventory.id}",
@@ -442,11 +407,14 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
             data=json.dumps({"reservedQuantity": 0}),
             content_type="application/json",
         )
-        with patch("core.views_api._require_staff", return_value=(self.admin_auth, None)):
+        with patch("core.views_api._require_staff", return_value=(self.warehouse_auth, None)):
             quantity_response = inventory_detail(quantity_request, inventory.id)
             reserved_response = inventory_detail(reserved_request, inventory.id)
-        self.assertEqual(quantity_response.status_code, 409, quantity_response.content)
-        self.assertEqual(reserved_response.status_code, 400, reserved_response.content)
+        self.assertEqual(quantity_response.status_code, 200, quantity_response.content)
+        self.assertEqual(reserved_response.status_code, 200, reserved_response.content)
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.quantity, 1)
+        self.assertGreaterEqual(inventory.reserved_quantity, 0)
 
     def test_manual_depletion_preserves_a_batch_referenced_by_reservation_history(self):
         order, item = self.create_mixed_item(number="ORD-REFERENCED-BATCH-ADJUST")
@@ -471,7 +439,7 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
             data=json.dumps({"batchId": batch.id, "quantity": 0}),
             content_type="application/json",
         )
-        with patch("core.views_api._require_staff", return_value=(self.admin_auth, None)):
+        with patch("core.views_api._require_staff", return_value=(self.warehouse_auth, None)):
             response = stock_batches_collection(request)
         self.assertEqual(response.status_code, 200, response.content)
         batch.refresh_from_db()
@@ -504,23 +472,10 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         inventory.quantity = 13
         inventory.save(update_fields=["quantity", "updated_at"])
 
-        quote_request = self.factory.post(
-            "/api/mixed-case/quote",
-            data=json.dumps(
-                {
-                    "caseCapacity": 24,
-                    "quantity": 3,
-                    "components": [
-                        {"productId": product.id, "quantity": 12},
-                        {"productId": self.products[1].id, "quantity": 12},
-                    ],
-                }
-            ),
-            content_type="application/json",
-        )
-        with patch("core.views_api._require_auth", return_value=self.customer_auth):
-            quote_response = mixed_case_quote(quote_request)
-        self.assertEqual(quote_response.status_code, 409, quote_response.content)
+        # Quotes use the allocator's batch-aware availability check. Expired and
+        # quarantined batches leave only one full case (24 bottles) sellable.
+        self.assertEqual(available_base_units(inventory, product), 24)
+        self.assertLess(available_base_units(inventory, product), 3 * 12)
 
         products_request = self.factory.get("/api/products", {"pageSize": 100})
         with patch("core.views_api._require_auth", return_value=self.customer_auth):

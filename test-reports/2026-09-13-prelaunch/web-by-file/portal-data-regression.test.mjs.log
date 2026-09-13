@@ -1,0 +1,87 @@
+TAP version 13
+# Subtest: remembered portals restore separate persistent credentials after another portal logs in
+not ok 1 - remembered portals restore separate persistent credentials after another portal logs in
+  ---
+  duration_ms: 334.4363
+  type: 'test'
+  location: 'C:\\CAPSTONE\\scripts\\portal-data-regression.test.mjs:22:1'
+  failureType: 'testCodeFailure'
+  error: 'require is not defined'
+  code: 'ERR_TEST_FAILURE'
+  name: 'ReferenceError'
+  stack: |-
+    evalmachine.<anonymous>:11:29
+    Script.runInContext (node:vm:149:12)
+    Object.runInContext (node:vm:301:6)
+    browserHarness (file:///C:/CAPSTONE/scripts/portal-data-regression.test.mjs:17:6)
+    TestContext.<anonymous> (file:///C:/CAPSTONE/scripts/portal-data-regression.test.mjs:23:43)
+    Test.runInAsyncScope (node:async_hooks:228:14)
+    Test.run (node:internal/test_runner/test:1118:25)
+    Test.start (node:internal/test_runner/test:1015:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:358:17)
+  ...
+# Subtest: explicit no-store reads bypass cached product data
+not ok 2 - explicit no-store reads bypass cached product data
+  ---
+  duration_ms: 69.5136
+  type: 'test'
+  location: 'C:\\CAPSTONE\\scripts\\portal-data-regression.test.mjs:35:1'
+  failureType: 'testCodeFailure'
+  error: 'require is not defined'
+  code: 'ERR_TEST_FAILURE'
+  name: 'ReferenceError'
+  stack: |-
+    evalmachine.<anonymous>:11:29
+    Script.runInContext (node:vm:149:12)
+    Object.runInContext (node:vm:301:6)
+    browserHarness (file:///C:/CAPSTONE/scripts/portal-data-regression.test.mjs:17:6)
+    TestContext.<anonymous> (file:///C:/CAPSTONE/scripts/portal-data-regression.test.mjs:37:27)
+    Test.runInAsyncScope (node:async_hooks:228:14)
+    Test.run (node:internal/test_runner/test:1118:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+    Test.postRun (node:internal/test_runner/test:1247:19)
+    Test.run (node:internal/test_runner/test:1175:12)
+  ...
+# Subtest: a read during an in-flight write cannot remain cached after the write finishes
+not ok 3 - a read during an in-flight write cannot remain cached after the write finishes
+  ---
+  duration_ms: 100.3512
+  type: 'test'
+  location: 'C:\\CAPSTONE\\scripts\\portal-data-regression.test.mjs:44:1'
+  failureType: 'testCodeFailure'
+  error: 'require is not defined'
+  code: 'ERR_TEST_FAILURE'
+  name: 'ReferenceError'
+  stack: |-
+    evalmachine.<anonymous>:11:29
+    Script.runInContext (node:vm:149:12)
+    Object.runInContext (node:vm:301:6)
+    browserHarness (file:///C:/CAPSTONE/scripts/portal-data-regression.test.mjs:17:6)
+    TestContext.<anonymous> (file:///C:/CAPSTONE/scripts/portal-data-regression.test.mjs:46:27)
+    Test.runInAsyncScope (node:async_hooks:228:14)
+    Test.run (node:internal/test_runner/test:1118:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+    Test.postRun (node:internal/test_runner/test:1247:19)
+    Test.run (node:internal/test_runner/test:1175:12)
+  ...
+# Subtest: a fresh catalog includes later pages without depending on an existing account cache
+ok 4 - a fresh catalog includes later pages without depending on an existing account cache
+  ---
+  duration_ms: 92.3154
+  type: 'test'
+  ...
+# Subtest: malformed successful HTTP responses are failed reads, not empty catalog successes
+ok 5 - malformed successful HTTP responses are failed reads, not empty catalog successes
+  ---
+  duration_ms: 23.8303
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 2
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1494.3332

@@ -1,7 +1,7 @@
 // Native equivalent of the web portal's <Skeleton> and PortalProductGridSkeleton
 // (src/components/portals/shared/loading-skeletons.tsx). Tailwind's animate-pulse
 // is reproduced with a looping opacity animation.
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { Animated, View, type ViewStyle } from "react-native";
 
 import { USE_NATIVE_DRIVER } from "../../lib/motion";
@@ -9,7 +9,8 @@ import { USE_NATIVE_DRIVER } from "../../lib/motion";
 import { styles } from "../../styles/app-styles";
 
 export function Skeleton({ style }: { style?: ViewStyle | ViewStyle[] }) {
-  const pulse = useRef(new Animated.Value(1)).current;
+  // The animated value is stable for this component without mutating a ref during render.
+  const [pulse] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
     const loop = Animated.loop(

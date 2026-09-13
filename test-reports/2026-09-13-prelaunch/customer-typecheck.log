@@ -1,0 +1,4 @@
+
+> logitrack-customer-app@1.0.0 typecheck
+> tsc --noEmit
+

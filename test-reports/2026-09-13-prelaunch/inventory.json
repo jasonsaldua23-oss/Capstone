@@ -1,0 +1,2052 @@
+{
+  "pages": [
+    "src/app/admin/page.tsx",
+    "src/app/customer/login/forgot-password/page.tsx",
+    "src/app/customer/login/page.tsx",
+    "src/app/customer/page.tsx",
+    "src/app/driver/login/forgot-password/page.tsx",
+    "src/app/driver/login/page.tsx",
+    "src/app/driver/page.tsx",
+    "src/app/login/admin/forgot-password/page.tsx",
+    "src/app/login/admin/page.tsx",
+    "src/app/login/customer/forgot-password/page.tsx",
+    "src/app/login/customer/page.tsx",
+    "src/app/login/driver/forgot-password/page.tsx",
+    "src/app/login/driver/page.tsx",
+    "src/app/login/page.tsx",
+    "src/app/login/warehouse/forgot-password/page.tsx",
+    "src/app/login/warehouse/page.tsx",
+    "src/app/page.tsx",
+    "src/app/restore-now/page.tsx",
+    "src/app/restore/page.tsx",
+    "src/app/warehouse/page.tsx"
+  ],
+  "forms": [
+    {
+      "file": "mobile\\customer-app\\src\\components\\ui\\rating-dialog.tsx",
+      "line": 68
+    },
+    {
+      "file": "mobile\\customer-app\\src\\portal\\portal-modals.tsx",
+      "line": 158
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 303
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 569
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 653
+    },
+    {
+      "file": "src\\components\\auth\\DriverLoginPage.tsx",
+      "line": 328
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 377
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 380
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 434
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 437
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 533
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 536
+    },
+    {
+      "file": "src\\components\\auth\\WarehouseLoginPage.tsx",
+      "line": 247
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\rating-dialog.tsx",
+      "line": 47
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\empty-bottles-view.tsx",
+      "line": 412
+    }
+  ],
+  "api_calls": [
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 200,
+      "url_pattern": "/api/auth/customer/login"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 234,
+      "url_pattern": "/api/auth/login/verify-otp"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 242,
+      "url_pattern": "/api/auth/email-verification/request"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 250,
+      "url_pattern": "/api/auth/email-verification/confirm"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 267,
+      "url_pattern": "/api/auth/register"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 276,
+      "url_pattern": "/api/auth/customer/google"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 286,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 314,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 327,
+      "url_pattern": "/api/customer/orders?page=1&pageSize=50"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 336,
+      "url_pattern": "/api/customer/tracking"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 345,
+      "url_pattern": "/api/feedback?page=1&limit=500"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 355,
+      "url_pattern": "/api/products?page=1&pageSize=100"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 364,
+      "url_pattern": "/api/customers/${userId}"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 379,
+      "url_pattern": "/api/customers/${userId}"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 391,
+      "url_pattern": "/api/customers/${userId}"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 416,
+      "url_pattern": "/api/auth/password-reset/request-otp"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 424,
+      "url_pattern": "/api/auth/password-reset/verify-otp"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 431,
+      "url_pattern": "/api/auth/password-reset/reset"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 439,
+      "url_pattern": "/api/customer/orders"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 467,
+      "url_pattern": "/api/mixed-cases/quote"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 483,
+      "url_pattern": "/api/feedback"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 492,
+      "url_pattern": "/api/customer/orders/${orderId}/cancel"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 502,
+      "url_pattern": "/api/notifications?limit=100"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 507,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 517,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 522,
+      "url_pattern": "/api/customer/replacements?page=1&pageSize=300"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 533,
+      "url_pattern": "/api/uploads/replacement-evidence"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 544,
+      "url_pattern": "/api/customer/replacements/${encodeURIComponent(replacementId)}/cancel"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 563,
+      "url_pattern": "/api/customer/replacements"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 573,
+      "url_pattern": "/api/customer/empty-bottles/eligible"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 582,
+      "url_pattern": "/api/customer/empty-bottles/record"
+    },
+    {
+      "file": "mobile\\customer-app\\src\\services\\auth.ts",
+      "line": 594,
+      "url_pattern": "/api/uploads/customer-avatar"
+    },
+    {
+      "file": "mobile\\driver-app\\App.tsx",
+      "line": 713,
+      "url_pattern": "/api/driver/location"
+    },
+    {
+      "file": "mobile\\driver-app\\App.tsx",
+      "line": 734,
+      "url_pattern": "/api/driver/location"
+    },
+    {
+      "file": "mobile\\driver-app\\App.tsx",
+      "line": 800,
+      "url_pattern": "/api/trips/${tripId}/start"
+    },
+    {
+      "file": "mobile\\driver-app\\App.tsx",
+      "line": 942,
+      "url_pattern": "/api/trips/${selectedTrip.id}/drop-points/${point.id}"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 117,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 134,
+      "url_pattern": "/api/auth/login/verify-otp"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 145,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 192,
+      "url_pattern": "/api/driver/trips?page=1&pageSize=1000"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 201,
+      "url_pattern": "/api/driver/profile"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 213,
+      "url_pattern": "/api/driver/profile"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 224,
+      "url_pattern": "/api/auth/password-reset/request-otp"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 231,
+      "url_pattern": "/api/auth/password-reset/verify-otp"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 238,
+      "url_pattern": "/api/auth/password-reset/reset"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 246,
+      "url_pattern": "/api/trips/${tripId}/start"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 268,
+      "url_pattern": "/api/driver/location"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 292,
+      "url_pattern": "/api/trips/${tripId}/drop-points/${dropPointId}"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 319,
+      "url_pattern": "/api/uploads/pod-image"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 336,
+      "url_pattern": "/api/uploads/customer-avatar"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 348,
+      "url_pattern": "/api/notifications?limit=100"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 353,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\auth.ts",
+      "line": 362,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "mobile\\driver-app\\src\\services\\background-location.ts",
+      "line": 50,
+      "url_pattern": "/api/driver/location"
+    },
+    {
+      "file": "src\\app\\page.tsx",
+      "line": 252,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\app\\page.tsx",
+      "line": 391,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 65,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 99,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 141,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 170,
+      "url_pattern": "/api/auth/login/verify-otp"
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 183,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 219,
+      "url_pattern": "/api/auth/login/verify-otp"
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 229,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\components\\auth\\AdminLoginPage.tsx",
+      "line": 243,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 115,
+      "url_pattern": "/api/auth/customer/google"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 152,
+      "url_pattern": "/api/auth/login/verify-otp"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 172,
+      "url_pattern": "/api/auth/customer/login"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 241,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 309,
+      "url_pattern": "/api/auth/customer/login"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 394,
+      "url_pattern": "/api/auth/register"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 445,
+      "url_pattern": "/api/auth/email-verification/request"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 466,
+      "url_pattern": "/api/auth/email-verification/confirm"
+    },
+    {
+      "file": "src\\components\\auth\\CustomerLoginPage.tsx",
+      "line": 492,
+      "url_pattern": "/api/auth/email-verification/request"
+    },
+    {
+      "file": "src\\components\\auth\\DriverLoginPage.tsx",
+      "line": 120,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\components\\auth\\DriverLoginPage.tsx",
+      "line": 156,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "src\\components\\auth\\DriverLoginPage.tsx",
+      "line": 196,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\components\\auth\\DriverLoginPage.tsx",
+      "line": 230,
+      "url_pattern": "/api/auth/login/verify-otp"
+    },
+    {
+      "file": "src\\components\\auth\\DriverLoginPage.tsx",
+      "line": 250,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 133,
+      "url_pattern": "/api/auth/password-reset/request-otp"
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 169,
+      "url_pattern": "/api/auth/password-reset/verify-otp"
+    },
+    {
+      "file": "src\\components\\auth\\ForgotPasswordScreen.tsx",
+      "line": 222,
+      "url_pattern": "/api/auth/password-reset/reset"
+    },
+    {
+      "file": "src\\components\\auth\\WarehouseLoginPage.tsx",
+      "line": 64,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\components\\auth\\WarehouseLoginPage.tsx",
+      "line": 102,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "src\\components\\auth\\WarehouseLoginPage.tsx",
+      "line": 143,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\components\\auth\\WarehouseLoginPage.tsx",
+      "line": 163,
+      "url_pattern": "/api/auth/login/verify-otp"
+    },
+    {
+      "file": "src\\components\\auth\\WarehouseLoginPage.tsx",
+      "line": 175,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\components\\auth\\WarehouseLoginPage.tsx",
+      "line": 189,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 462,
+      "url_pattern": "/api/warehouses?page=1&pageSize=2"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 533,
+      "url_pattern": "/api/orders?page=1&pageSize=200&includeItems=preview"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 534,
+      "url_pattern": "/api/customers?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 535,
+      "url_pattern": "/api/trips?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 536,
+      "url_pattern": "/api/warehouses?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 537,
+      "url_pattern": "/api/inventory?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 538,
+      "url_pattern": "/api/products?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 539,
+      "url_pattern": "/api/drivers?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 540,
+      "url_pattern": "/api/vehicles?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 541,
+      "url_pattern": "/api/replacements?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 542,
+      "url_pattern": "/api/feedback?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 543,
+      "url_pattern": "/api/users?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 708,
+      "url_pattern": "/api/dashboard/stats"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 728,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 756,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\AdminPortal.tsx",
+      "line": 770,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\customers-view.tsx",
+      "line": 86,
+      "url_pattern": "/api/customers?page=1&pageSize=500"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\customers-view.tsx",
+      "line": 88,
+      "url_pattern": "/api/orders?includeItems=none"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\customers-view.tsx",
+      "line": 93,
+      "url_pattern": "/api/feedback?page=1&pageSize=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\customers-view.tsx",
+      "line": 284,
+      "url_pattern": "/api/customers/${discountTarget.id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\dashboard-view.tsx",
+      "line": 40,
+      "url_pattern": "/api/orders?includeItems=none&summaryOnly=true"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\dashboard-view.tsx",
+      "line": 63,
+      "url_pattern": "/api/warehouses"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\drivers-view.tsx",
+      "line": 118,
+      "url_pattern": "/api/drivers"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\drivers-view.tsx",
+      "line": 119,
+      "url_pattern": "/api/vehicles?status=AVAILABLE"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\drivers-view.tsx",
+      "line": 120,
+      "url_pattern": "/api/users?pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\drivers-view.tsx",
+      "line": 121,
+      "url_pattern": "/api/roles"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\drivers-view.tsx",
+      "line": 218,
+      "url_pattern": "/api/users"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\drivers-view.tsx",
+      "line": 240,
+      "url_pattern": "/api/drivers"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\drivers-view.tsx",
+      "line": 310,
+      "url_pattern": "/api/drivers"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\feedback-view.tsx",
+      "line": 72,
+      "url_pattern": "/api/feedback"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\feedback-view.tsx",
+      "line": 78,
+      "url_pattern": "/api/orders?includeItems=none"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\inventory-transactions-view.tsx",
+      "line": 180,
+      "url_pattern": "/api/inventory-transactions?${params.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\inventory-view.tsx",
+      "line": 50,
+      "url_pattern": "/api/inventory?page=1&pageSize=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\inventory-view.tsx",
+      "line": 67,
+      "url_pattern": "/api/warehouses?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\inventory-view.tsx",
+      "line": 86,
+      "url_pattern": "/api/products?page=1&pageSize=500"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\inventory-view.tsx",
+      "line": 286,
+      "url_pattern": "/api/products?archived=true&pageSize=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 128,
+      "url_pattern": "/api/orders/${notificationReferenceId}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 253,
+      "url_pattern": "/api/orders?limit=1&pageSize=1&includeItems=none&sort=updated_at"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 267,
+      "url_pattern": "/api/warehouses?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 281,
+      "url_pattern": "/api/orders?includeItems=full&includeFulfillments=true&includeWarehouseAllocations=true"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 291,
+      "url_pattern": "/api/orders?page=1&pageSize=100&includeFulfillments=true&includeWarehouseAllocations=true"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 362,
+      "url_pattern": "/api/orders?${params.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 441,
+      "url_pattern": "/api/orders/${order.id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 735,
+      "url_pattern": "/api/orders/${id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\orders-view.tsx",
+      "line": 820,
+      "url_pattern": "/api/orders/${orderId}/status"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\replacements-view.tsx",
+      "line": 75,
+      "url_pattern": "/api/replacements?limit=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\replacements-view.tsx",
+      "line": 77,
+      "url_pattern": "/api/orders?includeReplacements=true&includeOrders=false&includeItems=none&limit=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\replacements-view.tsx",
+      "line": 91,
+      "url_pattern": "/api/orders?limit=500"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\replacements-view.tsx",
+      "line": 102,
+      "url_pattern": "/api/warehouses?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\replacements-view.tsx",
+      "line": 721,
+      "url_pattern": "/api/orders"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 135,
+      "url_pattern": "/api/orders"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 141,
+      "url_pattern": "/api/trips?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 142,
+      "url_pattern": "/api/drivers?limit=500&includeSample=true"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 143,
+      "url_pattern": "/api/warehouses?limit=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 144,
+      "url_pattern": "/api/inventory?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 145,
+      "url_pattern": "/api/inventory-transactions?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 146,
+      "url_pattern": "/api/replacements?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 147,
+      "url_pattern": "/api/feedback?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 148,
+      "url_pattern": "/api/stock-batches?page=1&pageSize=2000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 149,
+      "url_pattern": "/api/customers?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\reports-view.tsx",
+      "line": 150,
+      "url_pattern": "/api/retail/sales?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\retail-transactions-view.tsx",
+      "line": 109,
+      "url_pattern": "/api/retail/sales?warehouseId=${encodeURIComponent(warehouseFilter)}&pageSize=50"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\retail-transactions-view.tsx",
+      "line": 110,
+      "url_pattern": "/api/retail/sales?pageSize=50"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\retail-transactions-view.tsx",
+      "line": 128,
+      "url_pattern": "/api/warehouses?page=1&pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 151,
+      "url_pattern": "/api/uploads/customer-avatar"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 167,
+      "url_pattern": "/api/users/${userId}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 198,
+      "url_pattern": "/api/auth/password-reset/request-otp"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 198,
+      "url_pattern": "/api/auth/email-verification/request"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 243,
+      "url_pattern": "/api/auth/password-reset/verify-otp"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 243,
+      "url_pattern": "/api/auth/email-verification/confirm"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 297,
+      "url_pattern": "/api/users/${userId}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 379,
+      "url_pattern": "/api/auth/password-reset/reset"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\settings-view.tsx",
+      "line": 421,
+      "url_pattern": "/api/users/${userId}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\stocks-view.tsx",
+      "line": 47,
+      "url_pattern": "/api/stock-batches?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\stocks-view.tsx",
+      "line": 48,
+      "url_pattern": "/api/warehouses?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\tracking-view.tsx",
+      "line": 130,
+      "url_pattern": "/api/trips?${query.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\tracking-view.tsx",
+      "line": 136,
+      "url_pattern": "/api/orders?includeItems=none"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 148,
+      "url_pattern": "/api/vehicles?page=1&pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 149,
+      "url_pattern": "/api/drivers?includeSample=true"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 150,
+      "url_pattern": "/api/trips?page=1&pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 170,
+      "url_pattern": "/api/trips?page=1&pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 378,
+      "url_pattern": "/api/vehicles"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 484,
+      "url_pattern": "/api/users/${userId}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 503,
+      "url_pattern": "/api/drivers"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 543,
+      "url_pattern": "/api/vehicles/${vehicleToDelete.id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\transportation-view.tsx",
+      "line": 574,
+      "url_pattern": "/api/drivers"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 190,
+      "url_pattern": "/api/trips/saved-routes"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 216,
+      "url_pattern": "/api/trips?page=1&pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 217,
+      "url_pattern": "/api/warehouses"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 218,
+      "url_pattern": "/api/drivers"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 219,
+      "url_pattern": "/api/vehicles?status=AVAILABLE"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 301,
+      "url_pattern": "/api/trips?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 334,
+      "url_pattern": "/api/trips/route-plan?${query.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 387,
+      "url_pattern": "/api/trips/${trip.id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 480,
+      "url_pattern": "/api/trips"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\trips-view.tsx",
+      "line": 572,
+      "url_pattern": "/api/trips"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 172,
+      "url_pattern": "/api/users?pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 198,
+      "url_pattern": "/api/roles"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 330,
+      "url_pattern": "/api/users"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 330,
+      "url_pattern": "/api/users/${editingUser.id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 382,
+      "url_pattern": "/api/users/${editingUser.id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 418,
+      "url_pattern": "/api/auth/email-verification/request"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 443,
+      "url_pattern": "/api/auth/email-verification/confirm"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 464,
+      "url_pattern": "/api/auth/email-verification/request"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\users-view.tsx",
+      "line": 536,
+      "url_pattern": "/api/users/${resetPasswordUser.id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\vehicles-view.tsx",
+      "line": 51,
+      "url_pattern": "/api/vehicles"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\vehicles-view.tsx",
+      "line": 65,
+      "url_pattern": "/api/drivers?active=true"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\vehicles-view.tsx",
+      "line": 74,
+      "url_pattern": "/api/drivers"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\vehicles-view.tsx",
+      "line": 206,
+      "url_pattern": "/api/vehicles"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\warehouses-view.tsx",
+      "line": 121,
+      "url_pattern": "/api/warehouses/${warehouse.id}"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\warehouses-view.tsx",
+      "line": 122,
+      "url_pattern": "/api/inventory?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\warehouses-view.tsx",
+      "line": 123,
+      "url_pattern": "/api/stock-batches?page=1&pageSize=500"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\warehouses-view.tsx",
+      "line": 124,
+      "url_pattern": "/api/inventory-transactions?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\warehouses-view.tsx",
+      "line": 204,
+      "url_pattern": "/api/warehouses?page=1&pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\warehouses-view.tsx",
+      "line": 234,
+      "url_pattern": "/api/users?page=1&pageSize=500"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\warehouses-view.tsx",
+      "line": 415,
+      "url_pattern": "/api/warehouses"
+    },
+    {
+      "file": "src\\components\\portals\\admin\\sections\\warehouses-view.tsx",
+      "line": 415,
+      "url_pattern": "/api/warehouses/${selectedWarehouse?.id"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\CustomerPortal.tsx",
+      "line": 184,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\CustomerPortal.tsx",
+      "line": 724,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\CustomerPortal.tsx",
+      "line": 1899,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\feedback\\feedback-api.ts",
+      "line": 5,
+      "url_pattern": "/api/feedback?page=1&limit=500"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\feedback\\feedback-api.ts",
+      "line": 12,
+      "url_pattern": "/api/feedback"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 25,
+      "url_pattern": "/api/customer/orders?${params.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 67,
+      "url_pattern": "/api/replacements?limit=300"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 71,
+      "url_pattern": "/api/customer/replacements"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 77,
+      "url_pattern": "/api/uploads/replacement-evidence"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 116,
+      "url_pattern": "/api/customer/replacements"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 127,
+      "url_pattern": "/api/customer/replacements/${encodeURIComponent(replacementId)}/cancel"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 136,
+      "url_pattern": "/api/customer/tracking"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 142,
+      "url_pattern": "/api/customer/orders"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 157,
+      "url_pattern": "/api/mixed-cases/quote"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 174,
+      "url_pattern": "/api/replacements/${replacementId}/receive-return"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\orders\\orders-api.ts",
+      "line": 185,
+      "url_pattern": "/api/customer/orders/${orderId}/cancel"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-api.ts",
+      "line": 4,
+      "url_pattern": "/api/customers/${customerId}"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-api.ts",
+      "line": 11,
+      "url_pattern": "/api/customers/${customerId}"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-api.ts",
+      "line": 23,
+      "url_pattern": "/api/uploads/customer-avatar"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 230,
+      "url_pattern": "/api/customer/orders"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 273,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 298,
+      "url_pattern": "/api/customer/empty-bottles/eligible"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 334,
+      "url_pattern": "/api/customer/empty-bottles/record"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 404,
+      "url_pattern": "/api/customer/orders/${selectedRefundOrder.id}/deposit-refund"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 450,
+      "url_pattern": "/api/customers/${customerId}"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 482,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 567,
+      "url_pattern": "/api/auth/password-reset/request-otp"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 608,
+      "url_pattern": "/api/auth/password-reset/verify-otp"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 659,
+      "url_pattern": "/api/auth/password-reset/reset"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 758,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 781,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\profile\\profile-view.tsx",
+      "line": 858,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\shared\\products-api.ts",
+      "line": 8,
+      "url_pattern": "/api/products?page=1&pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\customer\\sections\\shared\\products-api.ts",
+      "line": 13,
+      "url_pattern": "/api/products?page=${page}&pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\DriverPortal.tsx",
+      "line": 53,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\layout\\portal-state.ts",
+      "line": 13,
+      "url_pattern": "/api/driver/trips"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\layout\\portal-state.ts",
+      "line": 283,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\layout\\portal-state.ts",
+      "line": 295,
+      "url_pattern": "/api/driver/profile"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\layout\\portal-state.ts",
+      "line": 312,
+      "url_pattern": "/api/trips?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\layout\\portal-state.ts",
+      "line": 327,
+      "url_pattern": "/api/driver/trips?page=1&pageSize=50"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\layout\\portal-state.ts",
+      "line": 543,
+      "url_pattern": "/api/driver/location"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 120,
+      "url_pattern": "/api/driver/profile"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 152,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 271,
+      "url_pattern": "/api/driver/profile"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 384,
+      "url_pattern": "/api/uploads/customer-avatar"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 388,
+      "url_pattern": "/api/driver/profile"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 465,
+      "url_pattern": "/api/uploads/customer-avatar"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 471,
+      "url_pattern": "/api/driver/profile"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 539,
+      "url_pattern": "/api/auth/password-reset/request-otp"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 580,
+      "url_pattern": "/api/auth/password-reset/verify-otp"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 630,
+      "url_pattern": "/api/auth/password-reset/reset"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 708,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 731,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\profile\\profile-view.tsx",
+      "line": 808,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\trips\\trip-detail-view.tsx",
+      "line": 767,
+      "url_pattern": "/api/trips/${trip.id}/start"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\trips\\trip-detail-view.tsx",
+      "line": 900,
+      "url_pattern": "/api/trips/${trip.id}/complete"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\trips\\trip-detail-view.tsx",
+      "line": 949,
+      "url_pattern": "/api/trips/${trip.id}/drop-points/${dropPointId}"
+    },
+    {
+      "file": "src\\components\\portals\\driver\\sections\\trips\\trip-detail-view.tsx",
+      "line": 1023,
+      "url_pattern": "/api/uploads/pod-image"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 861,
+      "url_pattern": "/api/auth/password-reset/request-otp"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 861,
+      "url_pattern": "/api/auth/email-verification/request"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 907,
+      "url_pattern": "/api/auth/password-reset/verify-otp"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 907,
+      "url_pattern": "/api/auth/email-verification/confirm"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 944,
+      "url_pattern": "/api/uploads/customer-avatar"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 948,
+      "url_pattern": "/api/users/${userId}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 994,
+      "url_pattern": "/api/uploads/customer-avatar"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 999,
+      "url_pattern": "/api/users/${userId}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 1078,
+      "url_pattern": "/api/auth/password-reset/reset"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 1173,
+      "url_pattern": "/api/users/${userId}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 1266,
+      "url_pattern": "/api/trips/saved-routes"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 1301,
+      "url_pattern": "/api/trips/${trip.id}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 1333,
+      "url_pattern": "/api/trips/${tripId}/unassign"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2429,
+      "url_pattern": "/api/inventory?${query.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2448,
+      "url_pattern": "/api/warehouses"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2480,
+      "url_pattern": "/api/products?page=1&pageSize=1000"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2505,
+      "url_pattern": "/api/stock-batches?page=1&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2582,
+      "url_pattern": "/api/orders?page=${page}&pageSize=${pageSize}&includeItems=none&summaryOnly=true"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2584,
+      "url_pattern": "/api/orders?page=${page}&pageSize=${pageSize}&includeItems=full&includeFulfillments=false&includeWarehouseAllocations=false"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2585,
+      "url_pattern": "/api/orders?page=${page}&pageSize=${pageSize}&includeItems=full&includeFulfillments=true&includeWarehouseAllocations=true"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2659,
+      "url_pattern": "/api/orders?${deltaParams.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2725,
+      "url_pattern": "/api/trips?${query.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2761,
+      "url_pattern": "/api/inventory-transactions?limit=1000"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2776,
+      "url_pattern": "/api/replacements?limit=300"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2778,
+      "url_pattern": "/api/orders?includeReplacements=true&includeOrders=false&includeItems=none&limit=300"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2792,
+      "url_pattern": "/api/drivers?includeSample=true&pageSize=200"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2802,
+      "url_pattern": "/api/drivers?includeSample=true&pageSize=200&page=${page}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 2827,
+      "url_pattern": "/api/vehicles?status=AVAILABLE"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 3028,
+      "url_pattern": "/api/trips/route-plan?${query.toString()}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 3124,
+      "url_pattern": "/api/trips/${trip.id}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 3195,
+      "url_pattern": "/api/trips"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 3305,
+      "url_pattern": "/api/trips"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 3708,
+      "url_pattern": "/api/orders/${order.id}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 3799,
+      "url_pattern": "/api/stock-batches"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 4001,
+      "url_pattern": "/api/stock-batches/bulk"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 4456,
+      "url_pattern": "/api/orders/${orderId}/status"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 4818,
+      "url_pattern": "/api/orders"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\WarehousePortal.tsx",
+      "line": 4883,
+      "url_pattern": "/api/replacements/${replacementId}/receive-return"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\bottle-returns\\bottle-returns-view.tsx",
+      "line": 46,
+      "url_pattern": "/api/bottle-returns"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\bottle-returns\\bottle-returns-view.tsx",
+      "line": 81,
+      "url_pattern": "/api/bottle-returns/${selectedReturn.id}/grade"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\empty-bottles-view.tsx",
+      "line": 75,
+      "url_pattern": "/api/inventory-transactions?${params}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\empty-bottles-view.tsx",
+      "line": 183,
+      "url_pattern": "/api/inventory/empty-cases${query"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\empty-bottles-view.tsx",
+      "line": 212,
+      "url_pattern": "/api/inventory/empty-returns"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\product-forms.tsx",
+      "line": 188,
+      "url_pattern": "/api/uploads/product-image"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\product-forms.tsx",
+      "line": 238,
+      "url_pattern": "/api/products/${editingItem.product.id}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\product-forms.tsx",
+      "line": 283,
+      "url_pattern": "/api/products/${editingItem.product.id}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\product-forms.tsx",
+      "line": 305,
+      "url_pattern": "/api/products?archived=true&pageSize=1000"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\product-forms.tsx",
+      "line": 321,
+      "url_pattern": "/api/products/${productId}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\inventory\\product-forms.tsx",
+      "line": 380,
+      "url_pattern": "/api/products"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\layout\\portal-state.ts",
+      "line": 45,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\layout\\portal-state.ts",
+      "line": 64,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\layout\\portal-state.ts",
+      "line": 78,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\retail-pos\\retail-pos-view.tsx",
+      "line": 144,
+      "url_pattern": "/api/retail/products?${warehouseParam}pageSize=100"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\retail-pos\\retail-pos-view.tsx",
+      "line": 157,
+      "url_pattern": "/api/retail/sales?${warehouseParam}pageSize=20"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\retail-pos\\retail-pos-view.tsx",
+      "line": 492,
+      "url_pattern": "/api/retail/quote"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\retail-pos\\retail-pos-view.tsx",
+      "line": 496,
+      "url_pattern": "/api/retail/sales"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\retail-pos\\retail-pos-view.tsx",
+      "line": 526,
+      "url_pattern": "/api/retail/sales/${receipt.id}/${path}"
+    },
+    {
+      "file": "src\\components\\portals\\warehouse\\sections\\stocks\\stocks-view.tsx",
+      "line": 37,
+      "url_pattern": "/api/stock-batches/expired-stock"
+    },
+    {
+      "file": "src\\components\\shared\\push-notification-manager.tsx",
+      "line": 64,
+      "url_pattern": "/api/push-subscriptions"
+    },
+    {
+      "file": "src\\components\\shared\\push-notification-manager.tsx",
+      "line": 137,
+      "url_pattern": "/api/push-subscriptions"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 45,
+      "url_pattern": "/api/auth/"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 46,
+      "url_pattern": "/api/notifications"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 47,
+      "url_pattern": "/api/customer/tracking"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 48,
+      "url_pattern": "/api/driver/location"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 52,
+      "url_pattern": "/api/products"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 53,
+      "url_pattern": "/api/warehouses"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 54,
+      "url_pattern": "/api/roles"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 55,
+      "url_pattern": "/api/vehicles"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 63,
+      "url_pattern": "/api/"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 171,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\lib\\client-auth.ts",
+      "line": 243,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\lib\\native\\notifications.ts",
+      "line": 6,
+      "url_pattern": "/api/push-subscriptions"
+    },
+    {
+      "file": "src\\lib\\native\\notifications.ts",
+      "line": 55,
+      "url_pattern": "/api/push-subscriptions"
+    },
+    {
+      "file": "src\\lib\\native\\notifications.ts",
+      "line": 171,
+      "url_pattern": "/api/push-subscriptions"
+    },
+    {
+      "file": "src\\lib\\native\\notifications.ts",
+      "line": 190,
+      "url_pattern": "/api/push-subscriptions"
+    },
+    {
+      "file": "src\\lib\\portal-scope.ts",
+      "line": 26,
+      "url_pattern": "/api/"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 109,
+      "url_pattern": "/api/auth/logout"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 109,
+      "url_pattern": "/api/auth/me"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 114,
+      "url_pattern": "/api/auth/email-verification/request"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 115,
+      "url_pattern": "/api/auth/email-verification/confirm"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 117,
+      "url_pattern": "/api/auth/password-reset/request-otp"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 118,
+      "url_pattern": "/api/auth/password-reset/verify-otp"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 119,
+      "url_pattern": "/api/auth/password-reset/reset"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 120,
+      "url_pattern": "/api/auth/staff/google"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 121,
+      "url_pattern": "/api/auth/login/verify-otp"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 127,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 131,
+      "url_pattern": "/api/auth/customer/login"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 131,
+      "url_pattern": "/api/auth/register"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 131,
+      "url_pattern": "/api/auth/customer/google"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 135,
+      "url_pattern": "/api/auth/login"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 177,
+      "url_pattern": "/api/auth/"
+    },
+    {
+      "file": "src\\middleware.ts",
+      "line": 187,
+      "url_pattern": "/api/"
+    }
+  ],
+  "models": [
+    {
+      "name": "User",
+      "line": 158
+    },
+    {
+      "name": "DriverServiceArea",
+      "line": 193
+    },
+    {
+      "name": "Customer",
+      "line": 204
+    },
+    {
+      "name": "AuthThrottleState",
+      "line": 239
+    },
+    {
+      "name": "Feedback",
+      "line": 261
+    },
+    {
+      "name": "Warehouse",
+      "line": 276
+    },
+    {
+      "name": "PackagingProfile",
+      "line": 297
+    },
+    {
+      "name": "Product",
+      "line": 317
+    },
+    {
+      "name": "Inventory",
+      "line": 344
+    },
+    {
+      "name": "InventoryTransaction",
+      "line": 362
+    },
+    {
+      "name": "StockBatch",
+      "line": 390
+    },
+    {
+      "name": "Order",
+      "line": 408
+    },
+    {
+      "name": "OrderTimeline",
+      "line": 485
+    },
+    {
+      "name": "OrderItem",
+      "line": 501
+    },
+    {
+      "name": "Vehicle",
+      "line": 535
+    },
+    {
+      "name": "Trip",
+      "line": 554
+    },
+    {
+      "name": "TripDropPoint",
+      "line": 577
+    },
+    {
+      "name": "LocationLog",
+      "line": 610
+    },
+    {
+      "name": "Replacement",
+      "line": 627
+    },
+    {
+      "name": "Notification",
+      "line": 659
+    },
+    {
+      "name": "PushSubscription",
+      "line": 676
+    },
+    {
+      "name": "MixedCaseComponent",
+      "line": 706
+    },
+    {
+      "name": "InventoryReservation",
+      "line": 734
+    },
+    {
+      "name": "ReplacementLine",
+      "line": 757
+    },
+    {
+      "name": "ReturnReceipt",
+      "line": 784
+    },
+    {
+      "name": "ReturnReceiptLine",
+      "line": 795
+    },
+    {
+      "name": "ContainerType",
+      "line": 807
+    },
+    {
+      "name": "ProductPackaging",
+      "line": 839
+    },
+    {
+      "name": "CustomerDepositLedger",
+      "line": 871
+    },
+    {
+      "name": "DepositTransaction",
+      "line": 886
+    },
+    {
+      "name": "CustomerBottleBalance",
+      "line": 920
+    },
+    {
+      "name": "OrderDepositRefundClaim",
+      "line": 941
+    },
+    {
+      "name": "BottleReturn",
+      "line": 978
+    },
+    {
+      "name": "BottleReturnLine",
+      "line": 1005
+    }
+  ],
+  "tests": [
+    "backend\\_mail_test_tmp.py",
+    "backend\\core\\test_auth_throttling.py",
+    "backend\\core\\test_beverage_categories.py",
+    "backend\\core\\test_discount_threshold.py",
+    "backend\\core\\test_driver_delivery_count.py",
+    "backend\\core\\test_driver_license_qualification.py",
+    "backend\\core\\test_driver_service_areas.py",
+    "backend\\core\\test_empty_case_inventory.py",
+    "backend\\core\\test_expired_stock.py",
+    "backend\\core\\test_glass_deposits.py",
+    "backend\\core\\test_google_oauth_audiences.py",
+    "backend\\core\\test_inventory_transaction_stock_changes.py",
+    "backend\\core\\test_mixed_case.py",
+    "backend\\core\\test_mixed_case_backend_guards.py",
+    "backend\\core\\test_mixed_case_logistics.py",
+    "backend\\core\\test_order_deposit_refund.py",
+    "backend\\core\\test_password_reset_portals.py",
+    "backend\\core\\test_pod_overlay.py",
+    "backend\\core\\test_product_weights.py",
+    "backend\\core\\test_push_notifications.py",
+    "backend\\core\\test_retail_pos.py",
+    "backend\\core\\test_settings.py",
+    "backend\\core\\test_single_warehouse.py",
+    "backend\\core\\test_staff_auth_fallback.py",
+    "backend\\core\\test_stock_batch_transaction_sync.py",
+    "backend\\core\\test_two_factor_login.py",
+    "backend\\core\\test_upload_storage.py",
+    "backend\\core\\test_user_name_fields.py",
+    "backend\\core\\tests.py",
+    "backend\\test_queries.py",
+    "mobile\\customer-app\\src\\lib\\customer-logic.test.ts",
+    "mobile\\customer-app\\src\\lib\\shadow.test.ts",
+    "mobile\\driver-app\\src\\lib\\driver-logic.test.ts",
+    "mobile\\driver-app\\src\\lib\\otp.test.ts",
+    "mobile\\driver-app\\src\\lib\\route-progress.test.ts",
+    "scripts\\api-write-retry.test.mjs",
+    "scripts\\driver-navigation-regression.test.mjs",
+    "scripts\\mobile-api-retry.test.mjs",
+    "scripts\\native-back-speech.test.mjs",
+    "scripts\\native-driver-auth-regression.test.mjs",
+    "scripts\\native-google-login.test.mjs",
+    "scripts\\native-offline-otp.test.mjs",
+    "scripts\\portal-data-regression.test.mjs",
+    "scripts\\portal-fetch-retry.test.mjs",
+    "scripts\\replacement-order-quantity.test.mjs",
+    "src\\lib\\driver-eligibility.test.ts",
+    "src\\lib\\driver-location-upload.test.ts",
+    "src\\lib\\map-navigation.test.ts",
+    "src\\lib\\person-name.test.ts",
+    "src\\lib\\portal-scope.test.ts",
+    "src\\lib\\report-metrics.test.ts",
+    "src\\lib\\retrying-api-read.test.ts",
+    "src\\lib\\warehouse-search.test.ts",
+    "src\\lib\\warehouse-setup.test.ts"
+  ]
+}

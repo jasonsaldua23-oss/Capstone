@@ -1,0 +1,483 @@
+.venv/Scripts/python.exe : Creating test database for alias 'default' 
+('file:memorydb_default?mode=memory&cache=shared')...
+At line:6 char:1
++ .venv/Scripts/python.exe test-reports/2026-09-13-prelaunch/run_backen ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Creating test d...che=shared')...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Found 35 test(s).
+Skipping setup of unused database(s): supabase.
+Operations to perform:
+  Synchronize unmigrated apps: core, corsheaders, rest_framework, staticfiles
+  Apply all migrations: (none)
+Synchronizing apps without migrations:
+  Creating tables...
+    Creating table User
+    Creating table core_driverservicearea
+    Creating table Customer
+    Creating table ConsumedAuthProof
+    Creating table AuthThrottleState
+    Creating table Feedback
+    Creating table Warehouse
+    Creating table PackagingProfile
+    Creating table Product
+    Creating table Inventory
+    Creating table InventoryTransaction
+    Creating table StockBatch
+    Creating table Order
+    Creating table OrderTimeline
+    Creating table OrderItem
+    Creating table Vehicle
+    Creating table Trip
+    Creating table TripDropPoint
+    Creating table LocationLog
+    Creating table Replacement
+    Creating table Notification
+    Creating table PushSubscription
+    Creating table MixedCaseComponent
+    Creating table InventoryReservation
+    Creating table ReplacementLine
+    Creating table ReturnReceipt
+    Creating table ReturnReceiptLine
+    Creating table ContainerType
+    Creating table ProductPackaging
+    Creating table CustomerDepositLedger
+    Creating table DepositTransaction
+    Creating table CustomerBottleBalance
+    Creating table OrderDepositRefundClaim
+    Creating table BottleReturn
+    Creating table BottleReturnLine
+    Running deferred SQL...
+Running migrations:
+  No migrations to apply.
+System check identified no issues (0 silenced).
+test_customer_restore_returns_existing_verified_token_without_cache 
+(core.tests.AuthMeTabSessionTests.test_customer_restore_returns_existing_verified_token_without_cache) ... ok
+test_staff_restore_returns_existing_verified_token_without_cache 
+(core.tests.AuthMeTabSessionTests.test_staff_restore_returns_existing_verified_token_without_cache) ... ok
+test_unauthenticated_restore_never_returns_a_token 
+(core.tests.AuthMeTabSessionTests.test_unauthenticated_restore_never_returns_a_token) ... ok
+test_four_cookie_sessions_restore_and_logout_independently 
+(core.tests.ConcurrentPortalCookieTests.test_four_cookie_sessions_restore_and_logout_independently) ... ok
+test_warehouse_legacy_cookie_cannot_restore_or_authorize_admin 
+(core.tests.ConcurrentPortalCookieTests.test_warehouse_legacy_cookie_cannot_restore_or_authorize_admin) ... ok
+test_upload_customer_avatar_accepts_authenticated_customer_with_image 
+(core.tests.UploadEndpointsAuthContractTests.test_upload_customer_avatar_accepts_authenticated_customer_with_image) 
+... ok
+test_upload_customer_avatar_accepts_authenticated_driver_with_image 
+(core.tests.UploadEndpointsAuthContractTests.test_upload_customer_avatar_accepts_authenticated_driver_with_image) ... 
+ok
+test_upload_customer_avatar_requires_authenticated_user 
+(core.tests.UploadEndpointsAuthContractTests.test_upload_customer_avatar_requires_authenticated_user) ... ok
+test_upload_endpoints_validate_missing_and_non_image_files 
+(core.tests.UploadEndpointsAuthContractTests.test_upload_endpoints_validate_missing_and_non_image_files) ... ok
+test_upload_pod_image_requires_driver_role 
+(core.tests.UploadEndpointsAuthContractTests.test_upload_pod_image_requires_driver_role) ... ok
+test_upload_product_image_requires_staff_auth 
+(core.tests.UploadEndpointsAuthContractTests.test_upload_product_image_requires_staff_auth) ... ok
+test_customer_reset_still_uses_the_customer_account_table (core.test_password_reset_portals.PasswordResetPortalValidati
+onTests.test_customer_reset_still_uses_the_customer_account_table) ... ok
+test_each_portal_accepts_only_its_registered_account (core.test_password_reset_portals.PasswordResetPortalValidationTes
+ts.test_each_portal_accepts_only_its_registered_account) ... ok
+test_staff_otp_cannot_be_reused_across_portals 
+(core.test_password_reset_portals.PasswordResetPortalValidationTests.test_staff_otp_cannot_be_reused_across_portals) 
+... ok
+test_staff_reset_requires_a_portal 
+(core.test_password_reset_portals.PasswordResetPortalValidationTests.test_staff_reset_requires_a_portal) ... ok
+test_deactivated_customer_cannot_sign_in 
+(core.test_google_oauth_audiences.CustomerGoogleSessionTests.test_deactivated_customer_cannot_sign_in) ... ok
+test_new_customer_receives_working_cookie_and_bearer_sessions (core.test_google_oauth_audiences.CustomerGoogleSessionTe
+sts.test_new_customer_receives_working_cookie_and_bearer_sessions) ... ok
+test_repeat_sign_in_reuses_customer 
+(core.test_google_oauth_audiences.CustomerGoogleSessionTests.test_repeat_sign_in_reuses_customer) ... ok
+test_cancelled_replacement_does_not_block_a_new_request 
+(core.tests.CustomerReplacementRequestContractTests.test_cancelled_replacement_does_not_block_a_new_request) ... 
+Exception in thread replacement-email-c35545c949cb24255876a6464:
+ok
+test_completed_replacement_serializes_linked_order_pod 
+(core.tests.CustomerReplacementRequestContractTests.test_completed_replacement_serializes_linked_order_pod) ... ok
+test_customer_can_cancel_pending_replacement_before_review 
+(core.tests.CustomerReplacementRequestContractTests.test_customer_can_cancel_pending_replacement_before_review) ... 
+Traceback (most recent call last):
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: database table is locked: Replacement
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+ok
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12154, in _send_replacement_submission_emails
+    .first()
+     ~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1059, in first
+    for obj in queryset[:1]:
+               ~~~~~~~~^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 400, in __iter__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1886, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 93, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1562, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+test_customer_cannot_cancel_replacement_that_is_under_review 
+(core.tests.CustomerReplacementRequestContractTests.test_customer_cannot_cancel_replacement_that_is_under_review) ...  
+ File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: database table is locked: Replacement
+ok
+test_customer_replacement_request_combines_multiple_order_lines_into_one_case (core.tests.CustomerReplacementRequestCon
+tractTests.test_customer_replacement_request_combines_multiple_order_lines_into_one_case) ... Exception in thread 
+replacement-email-cbabd2053af2043fc90b542e1:
+ok
+test_customer_replacement_request_does_not_use_order_timestamp_as_delivery_time (core.tests.CustomerReplacementRequestC
+ontractTests.test_customer_replacement_request_does_not_use_order_timestamp_as_delivery_time) ... Traceback (most 
+recent call last):
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: database table is locked: Replacement
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12154, in _send_replacement_submission_emails
+    .first()
+     ~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1059, in first
+    for obj in queryset[:1]:
+               ~~~~~~~~^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 400, in __iter__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1886, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 93, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1562, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: database table is locked: Replacement
+Exception in thread replacement-email-c7f5da1478b99486ebf838f3b:
+ok
+Traceback (most recent call last):
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: database table is locked: Replacement
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+test_customer_replacement_request_rejects_if_previous_replacement_was_completed (core.tests.CustomerReplacementRequestC
+ontractTests.test_customer_replacement_request_rejects_if_previous_replacement_was_completed) ...   File 
+"C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12154, in _send_replacement_submission_emails
+    .first()
+     ~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1059, in first
+    for obj in queryset[:1]:
+               ~~~~~~~~^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 400, in __iter__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1886, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 93, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1562, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: database table is locked: Replacement
+ok
+test_customer_replacement_request_rejects_if_previous_replacement_was_rejected (core.tests.CustomerReplacementRequestCo
+ntractTests.test_customer_replacement_request_rejects_if_previous_replacement_was_rejected) ... ok
+test_customer_replacement_request_rejects_order_delivered_more_than_3_days_ago (core.tests.CustomerReplacementRequestCo
+ntractTests.test_customer_replacement_request_rejects_order_delivered_more_than_3_days_ago) ... ok
+test_customer_replacement_retry_reuses_active_request 
+(core.tests.CustomerReplacementRequestContractTests.test_customer_replacement_retry_reuses_active_request) ... ok
+test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock (core.tests.CustomerReplacementRequestCont
+ractTests.test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock) ... FAIL
+test_saved_replacement_succeeds_when_notifications_fail 
+(core.tests.CustomerReplacementRequestContractTests.test_saved_replacement_succeeds_when_notifications_fail) ... 
+Failed to create replacement submission notifications for c4ef11a20984f43c6b449ad3d
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12123, in customer_replacements
+    _create_staff_notifications(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        title="New replacement request",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+        reference_id=replacement.id,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1234, in _execute_mock_call
+    raise effect
+RuntimeError: staff notification failed
+API failure reference=24fb193724d84dbf9084c791bd5190e7 method=POST path=/api/customer/replacements
+Traceback (most recent call last):
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 56, in wrapper_view
+    return view_func(*args, **kwargs)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\views\decorators\http.py", line 43, in inner
+    return func(request, *args, **kwargs)
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12169, in customer_replacements
+    ).start()
+      ~~~~~^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1234, in _execute_mock_call
+    raise effect
+RuntimeError: email thread failed
+ERROR
+test_scheduled_bottle_replacement_prices_only_requested_bottles 
+(core.tests.CustomerReplacementRequestContractTests.test_scheduled_bottle_replacement_prices_only_requested_bottles) 
+... FAIL
+test_additional_production_web_client_is_accepted 
+(core.test_google_oauth_audiences.GoogleOAuthAudienceTests.test_additional_production_web_client_is_accepted) ... ok
+test_customer_endpoint_still_rejects_missing_configuration 
+(core.test_google_oauth_audiences.GoogleOAuthAudienceTests.test_customer_endpoint_still_rejects_missing_configuration) 
+... ok
+test_customer_endpoint_uses_the_configured_audience_list 
+(core.test_google_oauth_audiences.GoogleOAuthAudienceTests.test_customer_endpoint_uses_the_configured_audience_list) 
+... Invalid Google credential during customer auth: invalid test token
+ok
+test_unconfigured_client_is_rejected 
+(core.test_google_oauth_audiences.GoogleOAuthAudienceTests.test_unconfigured_client_is_rejected) ... ok
+
+======================================================================
+ERROR: test_saved_replacement_succeeds_when_notifications_fail 
+(core.tests.CustomerReplacementRequestContractTests.test_saved_replacement_succeeds_when_notifications_fail)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 5412, in test_saved_replacement_succeeds_when_notifications_fail
+    response = self.client.post(
+        "/api/customer/replacements",
+    ...<16 lines>...
+        HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\test\client.py", line 951, in post
+    response = super().post(
+        path,
+    ...<4 lines>...
+        **extra,
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\test\client.py", line 482, in post
+    return self.generic(
+           ~~~~~~~~~~~~^
+        "POST",
+        ^^^^^^^
+    ...<5 lines>...
+        **extra,
+        ^^^^^^^^
+    )
+    ^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\test\client.py", line 609, in generic
+    return self.request(**r)
+           ~~~~~~~~~~~~^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\test\client.py", line 889, in request
+    response = self.handler(environ)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\test\client.py", line 176, in __call__
+    response = self.get_response(request)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\core\handlers\base.py", line 143, in get_response
+    log_response(
+    ~~~~~~~~~~~~^
+        "%s: %s",
+        ^^^^^^^^^
+    ...<3 lines>...
+        request=request,
+        ^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\utils\log.py", line 246, in log_response
+    getattr(logger, level)(
+    ~~~~~~~~~~~~~~~~~~~~~~^
+        message,
+        ^^^^^^^^
+    ...<5 lines>...
+        exc_info=exception,
+        ^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\logging\__init__.py", line 1549, in error
+    self._log(ERROR, msg, args, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\logging\__init__.py", line 1665, in _log
+    self.handle(record)
+    ~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\logging\__init__.py", line 1681, in handle
+    self.callHandlers(record)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\logging\__init__.py", line 1737, in callHandlers
+    hdlr.handle(record)
+    ~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\logging\__init__.py", line 1027, in handle
+    self.emit(record)
+    ~~~~~~~~~^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\utils\log.py", line 125, in emit
+    reporter.get_traceback_text(),
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\views\debug.py", line 418, in get_traceback_text
+    return t.render(c)
+           ~~~~~~~~^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\template\base.py", line 175, in render
+    return self._render(context)
+           ~~~~~~~~~~~~^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\test\utils.py", line 111, in instrumented_test_render
+    template_rendered.send(sender=self, template=self, context=context)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\dispatch\dispatcher.py", line 177, in send
+    (receiver, receiver(signal=self, sender=sender, **named))
+               ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\test\client.py", line 267, in store_rendered_templates
+    store["context"].append(copy(context))
+                            ~~~~^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\copy.py", line 82, in copy
+    return copier(x)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\template\context.py", line 158, in __copy__
+    duplicate = super().__copy__()
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\template\context.py", line 39, in __copy__
+    duplicate.dicts = self.dicts[:]
+    ^^^^^^^^^^^^^^^
+AttributeError: 'super' object has no attribute 'dicts' and no __dict__ for setting new attributes
+
+======================================================================
+FAIL: test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock (core.tests.CustomerReplacementReque
+stContractTests.test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 5764, in 
+test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock
+    self.assertIn("ReplacementUnitMode=BOTTLE", bottle_item.notes)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'ReplacementUnitMode=BOTTLE' not found in 'Replacement line from 
+RPL-MIXED-REPL-001\nReplacementUnitMode=UNIT\nReplacementRequestedBottles=3'
+
+======================================================================
+FAIL: test_scheduled_bottle_replacement_prices_only_requested_bottles 
+(core.tests.CustomerReplacementRequestContractTests.test_scheduled_bottle_replacement_prices_only_requested_bottles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 5663, in 
+test_scheduled_bottle_replacement_prices_only_requested_bottles
+    self.assertAlmostEqual(item.total_price, 5.0)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 20.0 != 5.0 within 7 places (15.0 difference)
+
+----------------------------------------------------------------------
+Ran 35 tests in 2.277s
+
+FAILED (failures=2, errors=1)
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+

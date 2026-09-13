@@ -198,18 +198,11 @@ class MixedCaseValidationTests(MixedCaseFixtureMixin, TestCase):
                     {"productId": self.products[0].id, "quantity": 12},
                 ],
             }])
-        other_profile = PackagingProfile.objects.create(
-            code="CAN-12OZ-24",
-            name="12 oz can",
-            container_type="Can",
-            container_size="12 oz",
-            standard_units_per_case=24,
-            allowed_mixed_case_capacities=[24],
-            compatibility_key="can|12oz|24",
-        )
-        self.products[1].packaging_profile = other_profile
-        self.products[1].save(update_fields=["packaging_profile"])
-        with self.assertRaisesMessage(ValueError, "same packaging compatibility"):
+        # Mixed-case compatibility is derived from the product size/category,
+        # not the legacy packaging-profile record.
+        self.products[1].sizes = ["1 Liter"]
+        self.products[1].save(update_fields=["sizes"])
+        with self.assertRaisesMessage(ValueError, "same bottle size"):
             normalize_checkout_items([{
                 "itemType": "MIXED_CASE",
                 "caseCapacity": 24,

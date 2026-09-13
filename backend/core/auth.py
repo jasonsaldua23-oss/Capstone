@@ -1,10 +1,14 @@
 import os
+import hashlib
+import hmac
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import jwt
 from django.contrib.auth.hashers import check_password, make_password
 from django.http import HttpRequest
+from django.core.exceptions import ImproperlyConfigured
 
 TOKEN_NAME = "auth_token"
 STAFF_TOKEN_NAME = "auth_token_staff"
@@ -41,14 +45,61 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 def _jwt_secret() -> str:
-    return os.getenv("JWT_SECRET", "logistics-management-secret-key-2024")
+    secret = os.getenv("JWT_SECRET", "").strip()
+    # Fix: public defaults must never sign sessions or email-verification proofs.
+    if len(secret) < 32 or secret == "logistics-management-secret-key-2024":
+        raise ImproperlyConfigured("JWT_SECRET must be a private random secret of at least 32 characters")
+    return secret
+
+
+def _session_account(payload):
+    from .models import Customer, User
+    model = {"staff": User, "customer": Customer}.get(payload.get("type"))
+    return model.objects.filter(id=payload.get("userId"), is_active=True).first() if model and payload.get("userId") else None
+
+
+def _account_fingerprint(account) -> str:
+    # A password/email/role/2FA change invalidates old sessions without storing password material in JWTs.
+    state = f"{account.pk}|{account.password}|{account.email}|{getattr(account, 'role', 'CUSTOMER')}|{account.two_factor_enabled}"
+    return hmac.new(_jwt_secret().encode(), state.encode(), hashlib.sha256).hexdigest()
 
 
 def create_token(payload: dict[str, Any], exp_hours: int = TOKEN_EXP_HOURS) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(hours=exp_hours)
     token_payload = {**payload, "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
+    if payload.get("type") in {"staff", "customer"}:
+        account = _session_account(payload)
+        if account:
+            token_payload["accountState"] = _account_fingerprint(account)
+        # Independent logins in the same second must remain independently revocable.
+        token_payload["jti"] = secrets.token_urlsafe(24)
     return jwt.encode(token_payload, _jwt_secret(), algorithm="HS256")
+
+
+def decode_session(token: str) -> dict[str, Any] | None:
+    from .models import ConsumedAuthProof
+    payload = decode_token(token)
+    if not payload or payload.get("type") not in {"staff", "customer"}:
+        return None
+    account = _session_account(payload)
+    if not account or not hmac.compare_digest(str(payload.get("accountState") or ""), _account_fingerprint(account)):
+        return None
+    if ConsumedAuthProof.objects.filter(digest=hashlib.sha256(token.encode()).hexdigest()).exists():
+        return None
+    if payload["type"] == "staff":
+        payload["role"] = account.role
+    return payload
+
+
+def revoke_session(token: str) -> None:
+    from .models import ConsumedAuthProof
+    payload = decode_token(token)
+    if payload and payload.get("type") in {"staff", "customer"} and payload.get("exp"):
+        ConsumedAuthProof.objects.get_or_create(
+            digest=hashlib.sha256(token.encode()).hexdigest(),
+            defaults={"purpose": "session", "expires_at": datetime.fromtimestamp(payload["exp"], timezone.utc)},
+        )
 
 
 def decode_token(token: str) -> dict[str, Any] | None:

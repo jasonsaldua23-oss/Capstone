@@ -85,15 +85,7 @@ class PasswordResetPortalValidationTests(TestCase):
         self.assertEqual(response.json()["error"], "A valid staff portal is required")
 
     def test_staff_otp_cannot_be_reused_across_portals(self) -> None:
-        # User.email is not unique, so cover the edge case where the same address
-        # exists under two staff roles and account lookup alone cannot distinguish it.
-        User.objects.create(
-            email=self.admin.email,
-            password="hashed",
-            name="Duplicate Warehouse Address",
-            role=RoleType.WAREHOUSE_STAFF,
-            is_active=True,
-        )
+        # Duplicate staff emails are forbidden; portal purpose still binds the proof.
         otp = _stateless_otp_for_bucket(
             self.admin.email,
             "staff:admin",
@@ -101,19 +93,19 @@ class PasswordResetPortalValidationTests(TestCase):
             _otp_bucket(timezone.now()),
         )
 
-        wrong_portal = self.client.post(
-            "/api/auth/password-reset/verify-otp",
-            data={"email": self.admin.email, "accountType": "staff", "portal": "warehouse", "otp": otp},
-            content_type="application/json",
-        )
         correct_portal = self.client.post(
             "/api/auth/password-reset/verify-otp",
             data={"email": self.admin.email, "accountType": "staff", "portal": "admin", "otp": otp},
             content_type="application/json",
         )
 
-        self.assertEqual(wrong_portal.status_code, 400)
-        self.assertEqual(wrong_portal.json()["error"], "Invalid or expired OTP")
+        wrong_portal = self.client.post(
+            "/api/auth/password-reset/verify-otp",
+            data={"email": self.admin.email, "accountType": "staff", "portal": "warehouse", "otp": otp},
+            content_type="application/json",
+        )
+        self.assertEqual(wrong_portal.status_code, 404)
+        self.assertEqual(wrong_portal.json()["error"], "Email is not registered for this portal")
         self.assertEqual(correct_portal.status_code, 200)
 
     @patch("core.views_api._send_reset_otp_email")

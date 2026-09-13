@@ -34,12 +34,24 @@ class DatabaseUrlParsingTests(SimpleTestCase):
 
         self.assertEqual(config["OPTIONS"]["sslrootcert"], sslrootcert)
 
-    def test_pooler_runtime_url_is_normalized_to_5432(self) -> None:
+    def test_transaction_pooler_runtime_url_preserves_port_and_disables_preparation(self) -> None:
+        # Regression: configuring transaction mode must not reconnect to the exhausted session pool.
         normalized = project_settings._normalize_runtime_database_url(
             "postgresql://user:pass@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres"
         )
 
         self.assertEqual(
             normalized,
-            "postgresql://user:pass@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres",
+            "postgresql://user:pass@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres",
         )
+        config = project_settings._parse_database_url(normalized)
+        self.assertEqual(config["PORT"], "6543")
+        self.assertIn("prepare_threshold", config["OPTIONS"])
+        self.assertIsNone(config["OPTIONS"]["prepare_threshold"])
+        self.assertTrue(config["DISABLE_SERVER_SIDE_CURSORS"])
+
+    def test_session_pooler_remains_unchanged(self) -> None:
+        # Explicit session connections retain their port and driver preparation behavior.
+        url = "postgresql://user:pass@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres"
+        self.assertEqual(project_settings._normalize_runtime_database_url(url), url)
+        self.assertNotIn("prepare_threshold", project_settings._parse_database_url(url)["OPTIONS"])

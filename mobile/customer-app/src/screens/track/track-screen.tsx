@@ -206,6 +206,7 @@ export function TrackScreen() {
                 <Image
                   source={{ uri: resolveImageUrl(trackingItem.driverAvatar) }}
                   style={styles.trackDriverAvatarImage}
+                  alt={`${trackingItem.driverName || "Driver"} profile photo`}
                 />
               ) : (
                 <Text style={styles.trackDriverInitials}>

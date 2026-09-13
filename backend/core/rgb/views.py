@@ -9,7 +9,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
-from ..auth import decode_token, extract_token
+from ..auth import decode_session, extract_token
 from ..models import (
     BottleReturn,
     ContainerType,
@@ -61,8 +61,8 @@ def _resolve_customer(request: HttpRequest) -> tuple[Customer | None, JsonRespon
     token = extract_token(request)
     if not token:
         return None, _err("Authentication required", 401)
-    payload = decode_token(token)
-    if not payload:
+    payload = decode_session(token)
+    if not payload or payload.get("type") != "customer":
         return None, _err("Invalid or expired token", 401)
     customer_id = str(payload.get("userId") or payload.get("id") or "").strip()
     if not customer_id:
@@ -336,9 +336,9 @@ def admin_create_product_packaging(request: HttpRequest) -> JsonResponse:
         containers_per_case=int(body.get("containersPerCase", 24)),
     )
 
-    # Update product packaging_type if returnable
-    if is_returnable and product.packaging_type == Product.PackagingType.NON_RETURNABLE:
-        product.packaging_type = Product.PackagingType.RETURNABLE
+    # Keep the legacy string field in sync; Product does not expose enum members.
+    if is_returnable and product.packaging_type != "RETURNABLE":
+        product.packaging_type = "RETURNABLE"
         product.save(update_fields=["packaging_type", "updated_at"])
 
     return _ok({

@@ -73,7 +73,7 @@ class StockBatchTransactionSyncTests(TestCase):
             HTTP_AUTHORIZATION=f"Bearer {self.token}",
         )
 
-    def test_edit_syncs_transaction_and_zero_deletes_both_records(self):
+    def test_edit_preserves_stock_in_transaction_and_appends_adjustments(self):
         self.inventory.threshold = 4
         self.inventory.save(update_fields=["threshold", "updated_at"])
 
@@ -82,7 +82,16 @@ class StockBatchTransactionSyncTests(TestCase):
 
         self.transaction.refresh_from_db()
         self.inventory.refresh_from_db()
-        self.assertEqual(self.transaction.quantity, 6)
+        # Stock-in is immutable; a later physical correction has its own ledger row.
+        self.assertEqual(self.transaction.quantity, 10)
+        reduction = InventoryTransaction.objects.get(
+            reference_type="stock_batch_adjustment",
+            reference_id=self.batch.id,
+            updated_stock=6,
+        )
+        self.assertEqual(reduction.type, "OUT")
+        self.assertEqual(reduction.quantity, 4)
+        self.assertEqual(reduction.previous_stock, 10)
         self.assertEqual(self.inventory.quantity, 6)
         # A deduction changes stock, but the restock threshold remains fixed.
         self.assertEqual(self.inventory.threshold, 4)
@@ -90,7 +99,15 @@ class StockBatchTransactionSyncTests(TestCase):
         depleted_response = self.update_batch(0)
         self.assertEqual(depleted_response.status_code, 200, depleted_response.content)
         self.assertFalse(StockBatch.objects.filter(id=self.batch.id).exists())
-        self.assertFalse(InventoryTransaction.objects.filter(id=self.transaction.id).exists())
+        self.transaction.refresh_from_db()
+        depletion = InventoryTransaction.objects.get(
+            reference_type="stock_batch_adjustment",
+            reference_id=self.batch.id,
+            updated_stock=0,
+        )
+        self.assertEqual(depletion.type, "OUT")
+        self.assertEqual(depletion.quantity, 6)
+        self.assertEqual(depletion.previous_stock, 6)
 
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 0)

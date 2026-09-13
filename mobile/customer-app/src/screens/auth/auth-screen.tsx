@@ -1,8 +1,10 @@
 // Extracted from App.tsx during the Phase 0 split.
 // Customer login and registration.
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Check, Eye, EyeOff, Leaf, Lock, Mail } from "lucide-react-native";
 import { ActivityIndicator, Image, ImageBackground, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import loginBackground from "../../../../../public/customer-login-bg.png";
+import shopLogo from "../../../../../public/aab-trading-shop.png";
 import { ModalShell } from "../../components/ui/modal-shell";
 import { OtpVerificationScreen } from "./otp-verification-screen";
 import { GoogleSignInButton } from "../../components/ui/google-sign-in-button";
@@ -83,14 +85,10 @@ export function AuthScreen() {
     await handleVerifyRegistrationOtp();
   }
 
-  // A verified address means the page is done; fall back to the form.
-  useEffect(() => {
-    if (emailVerificationToken) setOtpPageVisible(false);
-  }, [emailVerificationToken]);
-
   if (loginOtpVisible) {
     return (
       <OtpVerificationScreen
+        key={loginOtpSentAt}
         email={email.trim().toLowerCase()}
         value={loginOtp}
         onChange={setLoginOtp}
@@ -104,7 +102,6 @@ export function AuthScreen() {
         verifying={verifyingLoginOtp}
         resending={resendingLoginOtp}
         error={error}
-        sentAt={loginOtpSentAt}
         backLabel="Cancel"
       />
     );
@@ -112,9 +109,12 @@ export function AuthScreen() {
 
 
   // A page, not a modal: it takes over the screen and Back returns to the form.
-  if (otpPageVisible) {
+  // Verification is the source of truth: a verified address returns to the form
+  // without a second state update after rendering this screen.
+  if (otpPageVisible && !emailVerificationToken) {
     return (
       <OtpVerificationScreen
+        key={otpSentAt}
         email={email.trim().toLowerCase()}
         value={emailOtp}
         onChange={setEmailOtp}
@@ -124,7 +124,6 @@ export function AuthScreen() {
         verifying={verifyingEmailOtp}
         resending={sendingEmailOtp}
         error={error}
-        sentAt={otpSentAt}
       />
     );
   }
@@ -132,7 +131,7 @@ export function AuthScreen() {
   return (
     <>
       <ImageBackground
-        source={require("../../../../../public/customer-login-bg.png")}
+        source={loginBackground}
         resizeMode="cover"
         style={styles.authBackground}
       >
@@ -143,7 +142,7 @@ export function AuthScreen() {
         >
         <View style={[styles.authCard, { width: Math.min(Math.max(width - 56, 280), 448) }]}>
           <View style={styles.authBrandHeader}>
-            <Image source={require("../../../../../public/aab-trading-shop.png")} style={styles.authLogo} resizeMode="contain" />
+            <Image source={shopLogo} style={styles.authLogo} resizeMode="contain" alt="AAB Trading Shop" />
             <Text style={styles.authEyebrow}>ANN ANN'S BEVERAGES TRADING</Text>
             <Text style={styles.authTitleBlue}>AAB TRADING</Text>
             <Text style={styles.authTitleGreen}>SHOP</Text>

@@ -230,7 +230,7 @@ export function ReplacementRequestForm({
         <View style={styles.evidenceRow}>
           {evidence.map((url) => (
             <Pressable key={url} onPress={() => onRemoveEvidence(url)} accessibilityRole="button">
-              <Image source={{ uri: resolveImageUrl(url) }} style={styles.evidenceImage} />
+              <Image source={{ uri: resolveImageUrl(url) }} style={styles.evidenceImage} alt="Replacement evidence" />
             </Pressable>
           ))}
         </View>

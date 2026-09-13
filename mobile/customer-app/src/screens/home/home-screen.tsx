@@ -218,6 +218,7 @@ export function HomeScreen() {
                               source={{ uri: resolveImageUrl(imageUrl) }}
                               style={styles.productImage}
                               resizeMode="cover"
+                              alt={product.name || "Product"}
                               // Fix: a stored path can outlive its uploaded file; show the
                               // existing product placeholder instead of an empty image box.
                               onError={() => {

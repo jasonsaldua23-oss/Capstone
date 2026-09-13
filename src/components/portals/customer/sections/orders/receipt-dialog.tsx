@@ -70,6 +70,7 @@ export function CustomerReceiptDialog(props: any) {
   const orderDiscount = Number(selectedOrder?.discountDetails?.totalDiscount || selectedOrder?.discount || 0)
   // Added: show delivery empties charges in both the preview and downloaded receipt.
   const orderTotal = getOrderTotalWithEmpties(selectedOrder)
+  // Removed fee rows; retain historical residual accounting without relabeling old fees.
   const orderTax = Number(selectedOrder?.tax || 0)
   const orderShipping = Number(selectedOrder?.shippingCost || 0)
   const recordedDeposit = (selectedOrder?.items || []).reduce(
@@ -257,8 +258,6 @@ export function CustomerReceiptDialog(props: any) {
                     {/* Added: itemize the amounts that explain the increase over the subtotal. */}
                     {[
                       ['Container deposit', orderDeposit],
-                      ['Tax', orderTax],
-                      ['Delivery fee', orderShipping],
                       ['Other charges', otherCharges],
                     ].map(([label, amount]) => Math.abs(Number(amount)) >= 0.01 ? (
                       <div key={String(label)} className="pt-2 text-[#0f2347]">

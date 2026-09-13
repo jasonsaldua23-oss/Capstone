@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -60,7 +60,7 @@ export function HistoryView({
   onOpenTrip?: (trip: Trip) => void
 }) {
   const [search, setSearch] = useState('')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSelection, setPageSelection] = useState({ scope: '', page: 1 })
   const pageSize = 10
 
   // 3-Level navigation state:
@@ -110,20 +110,16 @@ export function HistoryView({
   }, [completedTrips, search])
 
   const totalPages = Math.max(1, Math.ceil(visibleTrips.length / pageSize))
-  const paginatedTrips = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return visibleTrips.slice(start, start + pageSize)
-  }, [visibleTrips, currentPage])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [search])
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages)
-    }
-  }, [currentPage, totalPages])
+  // Search changes derive page one without synchronizing pagination in an effect.
+  const currentPage = pageSelection.scope === search ? Math.min(pageSelection.page, totalPages) : 1
+  const setCurrentPage = (next: number | ((page: number) => number)) => {
+    setPageSelection((current) => {
+      const page = current.scope === search ? Math.min(current.page, totalPages) : 1
+      const requested = typeof next === 'function' ? next(page) : next
+      return { scope: search, page: Math.min(totalPages, Math.max(1, requested)) }
+    })
+  }
+  const paginatedTrips = visibleTrips.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const formatDate = (value?: string | null) => {
     if (!value) return 'N/A'
@@ -296,7 +292,6 @@ export function HistoryView({
                       {/* Product Image Thumbnail */}
                       <div className="relative h-12 w-12 sm:h-14 sm:w-14 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50 flex items-center justify-center">
                         {itemImage ? (
-                          // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={itemImage}
                             alt={productName}
@@ -415,6 +410,12 @@ export function HistoryView({
           </p>
         </div>
 
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          {/* Added: retain the final collected amount in the driver's completed-trip history. */}
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total cash collected</p>
+          <p className="mt-1 text-xl font-bold text-emerald-900">{formatCurrency(selectedTrip.cashCollectedTotal)}</p>
+        </div>
+
         {/* Purchase Orders List */}
         <div className="space-y-2.5 pt-1">
           <div className="flex items-center justify-between px-0.5">
@@ -476,7 +477,6 @@ export function HistoryView({
                                 className="inline-block h-6 w-6 rounded-full ring-2 ring-white overflow-hidden bg-slate-100 border border-slate-200"
                               >
                                 {itImg ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
                                   <img src={itImg} alt="" className="h-full w-full object-cover" />
                                 ) : (
                                   <div className="flex h-full w-full items-center justify-center text-slate-400">
@@ -568,7 +568,7 @@ export function HistoryView({
                 </div>
 
                 <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs">
-                  <span className="text-slate-500 font-medium">Inspect Purchase Orders</span>
+                  <span className="text-slate-500 font-medium">Cash collected: {formatCurrency(trip.cashCollectedTotal)}</span>
                   <span className="inline-flex items-center gap-1 font-semibold text-slate-900 group-hover:text-blue-600 transition">
                     View Details
                     <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" />

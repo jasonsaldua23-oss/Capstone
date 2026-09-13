@@ -6,6 +6,7 @@ import { MapPin } from "lucide-react-native";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 
+import serviceAreaGeoJson from "../../../../../public/geo/negros-occidental-municipal-maritime.json";
 import {
   SERVICE_AREA_BOUNDS,
   SERVICE_AREA_MESSAGE,
@@ -21,7 +22,7 @@ const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
 // Bundled through Metro's watchFolders, so the app checks the same municipal
 // boundaries the web fetches from /geo.
-const SERVICE_AREA_GEOJSON = require("../../../../../public/geo/negros-occidental-municipal-maritime.json");
+const SERVICE_AREA_GEOJSON = serviceAreaGeoJson;
 
 export function AddressMapPicker({
   latitude,

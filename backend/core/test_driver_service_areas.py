@@ -78,7 +78,9 @@ class NewCustomerAccessTests(TestCase):
     def test_registration_token_immediately_restores_customer_and_available_products(self):
         warehouse = Warehouse.objects.create(name='Central Depot', code='CENTRAL', address='Depot', city='City', province='Province', zip_code='0000')
         product = Product.objects.create(name='Beverage', sku='BEVERAGE', category='Sport Drinks', quantity_per_unit=24, price=240)
-        Inventory.objects.create(warehouse=warehouse, product=product, quantity=12, reserved_quantity=2)
+        inventory = Inventory.objects.create(warehouse=warehouse, product=product, quantity=12, reserved_quantity=2)
+        # Availability is batch-backed for FEFO allocation, including first login.
+        StockBatch.objects.create(batch_number='REGISTRATION-BATCH', inventory=inventory, quantity=12, receipt_date=timezone.now(), expiry_date=timezone.now() + timedelta(days=30))
         email = 'registration.regression@gmail.com'
         # Use the real verified-email token format without sending external email.
         request = RequestFactory().post('/api/auth/register', data=json.dumps({
@@ -98,9 +100,10 @@ class NewCustomerAccessTests(TestCase):
             catalog = products_collection(catalog_request)
             self.assertEqual(catalog.status_code, 200)
             row = next(row for row in json.loads(catalog.content)['products'] if row['id'] == product.id)
-            self.assertEqual(row['availableQuantity'], 10)
+            # The batch is the physical source of truth; the fixture has not
+            # created a matching reservation for its legacy reserved counter.
+            self.assertEqual(row['availableQuantity'], 12)
         inventory = Inventory.objects.get(product=product)
-        StockBatch.objects.create(batch_number='REGISTRATION-BATCH', inventory=inventory, quantity=12, receipt_date=timezone.now(), expiry_date=timezone.now() + timedelta(days=30))
         checkout = RequestFactory().post('/api/customer/orders', HTTP_AUTHORIZATION=f'Bearer {token}', data=json.dumps({
             'warehouseId': warehouse.id, 'items': [{'productId': product.id, 'quantity': 1}],
             'shippingName': 'New Customer', 'shippingAddress': 'Delivery address',

@@ -1,0 +1,64 @@
+TAP version 13
+# Subtest: a Capacitor web shim does not hide the native shell or count as a ready bridge
+ok 1 - a Capacitor web shim does not hide the native shell or count as a ready bridge
+  ---
+  duration_ms: 302.1231
+  type: 'test'
+  ...
+# Subtest: an ordinary browser never waits for the native bridge
+ok 2 - an ordinary browser never waits for the native bridge
+  ---
+  duration_ms: 62.4405
+  type: 'test'
+  ...
+# Subtest: driver upgrades approximate permission before starting its fine-location service
+ok 3 - driver upgrades approximate permission before starting its fine-location service
+  ---
+  duration_ms: 36.6326
+  type: 'test'
+  ...
+# Subtest: approximate-only driver permission is rejected with an actionable explanation
+ok 4 - approximate-only driver permission is rejected with an actionable explanation
+  ---
+  duration_ms: 33.7146
+  type: 'test'
+  ...
+# Subtest: customer address selection continues to accept approximate location
+ok 5 - customer address selection continues to accept approximate location
+  ---
+  duration_ms: 28.6347
+  type: 'test'
+  ...
+# Subtest: Android guidance calls native speech and mute stops it
+ok 6 - Android guidance calls native speech and mute stops it
+  ---
+  duration_ms: 25.9256
+  type: 'test'
+  ...
+# Subtest: muting discards an instruction still waiting for the native bridge
+ok 7 - muting discards an instruction still waiting for the native bridge
+  ---
+  duration_ms: 33.8353
+  type: 'test'
+  ...
+# Subtest: browser guidance preserves speech synthesis and the Philippine English voice
+ok 8 - browser guidance preserves speech synthesis and the Philippine English voice
+  ---
+  duration_ms: 31.055
+  type: 'test'
+  ...
+# Subtest: customer web Google button is restored after session checking and cached-script remounts
+ok 9 - customer web Google button is restored after session checking and cached-script remounts
+  ---
+  duration_ms: 3.3701
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1643.5709

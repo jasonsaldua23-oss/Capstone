@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Boxes,
   CalendarDays,
@@ -73,7 +73,7 @@ export function CustomerOrdersView(props: any) {
       setSelectedOrder(o)
     }
   }
-  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSelection, setPageSelection] = useState({ scope: '', page: 1 })
   const [selectedReplacementRecord, setSelectedReplacementRecord] = useState<any | null>(null)
   const formatOrderDateTime = (order: any, normalizedStatus: string): { date: string; time: string | null } => {
     const delivered = normalizedStatus === 'DELIVERED'
@@ -456,14 +456,9 @@ export function CustomerOrdersView(props: any) {
         String(order?.orderNumber || '').trim().toUpperCase() === String(record?.orderNumber || '').trim().toUpperCase()
     ) || null
 
-  const replacementTabRecords = useMemo(
-    () => (Array.isArray(visibleReplacementRecords) ? visibleReplacementRecords : []),
-    [visibleReplacementRecords]
-  )
+  const replacementTabRecords = Array.isArray(visibleReplacementRecords) ? visibleReplacementRecords : []
 
-  const replacementTabOrders = useMemo(
-    () =>
-      replacementTabRecords.map((record: any, index: number) => {
+  const replacementTabOrders = replacementTabRecords.map((record: any, index: number) => {
         const linkedOrder = getLinkedOrderForReplacementRecord(record)
         const replacementNumber = getReplacementNumberFromRecord(record, linkedOrder)
         const displayReplacementNumber = replacementNumber.replace(/^RET-/i, 'RPL-')
@@ -497,33 +492,25 @@ export function CustomerOrdersView(props: any) {
           isScheduledReplacement: true,
           __replacementRecord: record,
         }
-      }),
-    [replacementTabRecords, orders]
-  )
+      })
 
-  const activeOrders = useMemo(
-    () => (ordersTab === 'REPLACEMENT' ? replacementTabOrders : visibleOrders),
-    [ordersTab, replacementTabOrders, visibleOrders]
-  )
+  const activeOrders = ordersTab === 'REPLACEMENT' ? replacementTabOrders : visibleOrders
 
   const totalPages = Math.max(1, Math.ceil(activeOrders.length / PAGE_SIZE))
-  const pagedOrders = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE
-    return activeOrders.slice(start, start + PAGE_SIZE)
-  }, [activeOrders, currentPage])
+  // Derive page one for a changed filter scope instead of synchronizing state in an effect.
+  const pageScope = [ordersSearch, ordersTab, activeOrders.length].join('\u0000')
+  const currentPage = pageSelection.scope === pageScope ? Math.min(pageSelection.page, totalPages) : 1
+  const setCurrentPage = (next: number | ((page: number) => number)) => {
+    setPageSelection((current) => {
+      const currentPage = current.scope === pageScope ? Math.min(current.page, totalPages) : 1
+      const requestedPage = typeof next === 'function' ? next(currentPage) : next
+      return { scope: pageScope, page: Math.min(totalPages, Math.max(1, requestedPage)) }
+    })
+  }
+  const pagedOrders = activeOrders.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const startIndex = activeOrders.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
   const endIndex = Math.min(currentPage * PAGE_SIZE, activeOrders.length)
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [ordersSearch, ordersTab, activeOrders.length])
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages)
-    }
-  }, [currentPage, totalPages])
 
   return (
     <section className="-mx-4 min-h-[calc(100dvh-7rem)] bg-[#f8fafc] pb-5 md:mx-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white">

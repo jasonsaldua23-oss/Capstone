@@ -39,10 +39,18 @@ def optimize_image_upload(
     original_extension: str,
     original_content_type: str | None,
 ) -> tuple[bytes, str, str | None]:
-    """Resize and compress a static raster image, preserving unsupported inputs unchanged."""
+    """Validate the raster format before resizing; never preserve undecodable content."""
     profile = IMAGE_COMPRESSION_PROFILES.get(folder, DEFAULT_IMAGE_PROFILE)
+    if len(data) > 10 * 1024 * 1024:
+        raise ValueError("Images must be 10 MB or smaller")
     try:
         with Image.open(BytesIO(data)) as source:
+            formats = {"PNG": (".png", "image/png"), "JPEG": (".jpg", "image/jpeg"), "WEBP": (".webp", "image/webp"), "GIF": (".gif", "image/gif")}
+            if source.format not in formats or source.width * source.height > 24_000_000:
+                raise ValueError("Unsupported image format or image dimensions")
+            # Fix: extensions and serving types come from decoded bytes, never the submitted filename.
+            original_extension, original_content_type = formats[source.format]
+            source.load()
             # Animated images must not silently lose frames during optimization.
             if bool(getattr(source, "is_animated", False)):
                 return data, original_extension, original_content_type
@@ -52,9 +60,8 @@ def optimize_image_upload(
                 working = working.convert("RGBA")
             else:
                 working = working.convert("RGB")
-    except (UnidentifiedImageError, OSError, ValueError):
-        # Keep compatibility for formats Pillow cannot decode; endpoint MIME checks still apply.
-        return data, original_extension, original_content_type
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
+        raise ValueError("Upload a valid PNG, JPEG, WebP or GIF image within the size limits") from exc
 
     requires_resize = max(working.size) > profile.max_dimension
     working.thumbnail((profile.max_dimension, profile.max_dimension), Image.Resampling.LANCZOS)

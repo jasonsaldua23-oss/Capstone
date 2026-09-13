@@ -5,6 +5,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
+import vanBackAsset from "../../assets/aab-van-back.png";
+import vanIsoAsset from "../../assets/aab-van-iso.png";
 import { getAssignedVehicleSymbol, haversineMeters, normalizeStatus } from "../lib/driver-logic";
 import {
   bearingDegrees,
@@ -110,10 +112,10 @@ function routeGeoJson(coordinates: RouteCoordinate[]) {
 }
 
 // The same branded van the web driver portal puts on its map (/icons/aab-van-iso.png).
-// Asset.fromModule resolves on web and native alike; react-native-web has no
-// Image.resolveAssetSource, so that route throws at module load.
-const VAN_ISO_URI = Asset.fromModule(require("../../assets/aab-van-iso.png")).uri;
-const VAN_BACK_URI = Asset.fromModule(require("../../assets/aab-van-back.png")).uri;
+// The web bundler exposes static images as objects; Expo Asset needs their URL
+// string. react-native-web has no Image.resolveAssetSource at module load.
+const VAN_ISO_URI = Asset.fromModule(vanIsoAsset.src).uri;
+const VAN_BACK_URI = Asset.fromModule(vanBackAsset.src).uri;
 
 // A teardrop map pin, drawn inline so it is crisp at any density and needs no network
 // request — the web portal pulls its pins from a GitHub raw URL, which an app on a
@@ -201,16 +203,24 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
 
   useEffect(() => {
     // Added: reset navigation progress only when changing trips, matching the web portal route lifecycle.
-    setFallbackOrigin(currentLocation ? [currentLocation.longitude, currentLocation.latitude] : null);
     acceptedProjectionRef.current = null;
     previousRawLocationRef.current = null;
     previousTimestampRef.current = null;
     renderedProgressRef.current = 0;
-    setRenderedProgressMeters(0);
+    // Commit the visible reset after React has accepted the new trip props.
+    const reset = setTimeout(() => {
+      setFallbackOrigin(currentLocation ? [currentLocation.longitude, currentLocation.latitude] : null);
+      setRenderedProgressMeters(0);
+    }, 0);
+    return () => clearTimeout(reset);
   }, [trip.id]);
 
   useEffect(() => {
-    if (!fallbackOrigin && currentLocation) setFallbackOrigin([currentLocation.longitude, currentLocation.latitude]);
+    if (!fallbackOrigin && currentLocation) {
+      // GPS is external input; defer state synchronization until after this render.
+      const syncOrigin = setTimeout(() => setFallbackOrigin([currentLocation.longitude, currentLocation.latitude]), 0);
+      return () => clearTimeout(syncOrigin);
+    }
   }, [currentLocation, fallbackOrigin]);
 
   const routeWaypoints = useMemo(() => {
@@ -231,8 +241,14 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
-    setLoading(true);
-    setRouteError(null);
+    // The route request is asynchronous. Set its visible pending state after the
+    // current render instead of synchronously cascading from the effect body.
+    const beginRequest = setTimeout(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setRouteError(null);
+      }
+    }, 0);
     // Added: use the same OSRM driving geometry and turn steps as the native navigation map.
     fetch(`https://router.project-osrm.org/route/v1/driving/${routeWaypointKey}?overview=full&geometries=geojson&steps=true`, { signal: controller.signal })
       .then(async (response) => {
@@ -272,6 +288,7 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       .finally(() => clearTimeout(timeout));
     return () => {
       cancelled = true;
+      clearTimeout(beginRequest);
       clearTimeout(retryTimer);
       clearTimeout(timeout);
       controller.abort();
@@ -284,7 +301,7 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       ? [currentLocation.longitude, currentLocation.latitude] as RouteCoordinate
       : routeWaypoints[0];
     if (!initialCenter) {
-      setMapError("No route or GPS position yet, so the map has nothing to centre on.");
+      queueMicrotask(() => setMapError("No route or GPS position yet, so the map has nothing to centre on."));
       return;
     }
 
@@ -301,12 +318,15 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       });
     } catch (error) {
       // MapLibre needs WebGL; when it is unavailable the constructor throws.
-      setMapRecovering(false);
-      setMapError(`Map could not start: ${error instanceof Error ? error.message : String(error)}`);
+      const message = `Map could not start: ${error instanceof Error ? error.message : String(error)}`;
+      queueMicrotask(() => {
+        setMapRecovering(false);
+        setMapError(message);
+      });
       return;
     }
     mapRef.current = map;
-    setMapError(null);
+    queueMicrotask(() => setMapError(null));
     map.on("error", () => {
       setMapRecovering(true);
       if (retryTimer === undefined) retryTimer = setTimeout(() => setMapRetry((value) => value + 1), 5000);
@@ -527,7 +547,6 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
     const map = mapRef.current;
     if (!map || !mapReady) return;
     const nextZoom = navigation3D ? NAVIGATION_3D_ZOOM : NAVIGATION_2D_ZOOM;
-    setZoom(nextZoom);
     map.easeTo({
       // The 3D zoom is tight enough that zooming without re-centring drops the
       // vehicle out of frame, so the camera follows it the way the portal's does.
@@ -537,6 +556,8 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
       zoom: nextZoom,
       duration: 420,
     });
+    // Let MapLibre finish its external camera transition before reflecting its zoom in UI state.
+    map.once("moveend", () => setZoom(nextZoom));
     // renderedHeading is read from the ref so a moving vehicle does not re-run this.
   }, [mapReady, navigation3D]);
 

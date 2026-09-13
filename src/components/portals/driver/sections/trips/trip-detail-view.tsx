@@ -2543,6 +2543,8 @@ export function TripDetailView({
                 <h2 className="text-lg font-bold leading-tight md:text-xl">{trip.tripNumber}</h2>
                 <p className="text-slate-300 text-xs md:text-sm">{trip.vehicle?.licensePlate}</p>
                 <p className="text-slate-300 text-xs md:text-sm">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                {/* Added: show the running total from successfully delivered stops. */}
+                <p className="text-slate-200 text-xs md:text-sm">Cash collected: {formatCurrency(Number(trip.cashCollectedTotal || 0))}</p>
               </div>
               <Badge className="border border-slate-300/20 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-900 md:px-2.5 md:py-1 md:text-xs">
                 {effectiveCompletedDropPoints}/{trip.totalDropPoints} Completed
@@ -3005,6 +3007,8 @@ export function TripDetailView({
                         <div>
                           <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
                           <p className="text-[11px] text-slate-500">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                          {/* Added: keep the running trip cash visible on the mobile driver view. */}
+                          <p className="text-[11px] font-semibold text-emerald-700">Cash collected: {formatCurrency(Number(trip.cashCollectedTotal || 0))}</p>
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           <p className="text-xs font-black text-slate-900">

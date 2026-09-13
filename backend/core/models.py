@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -188,6 +189,8 @@ class User(models.Model):
 
     class Meta:
         db_table = "User"
+        # Fix: case-insensitive duplicate staff emails must also fail under concurrent writes.
+        constraints = [models.UniqueConstraint(Lower("email"), name="unique_staff_email_normalized")]
 
 
 class DriverServiceArea(models.Model):
@@ -234,6 +237,17 @@ class Customer(models.Model):
 
     class Meta:
         db_table = "Customer"
+
+
+class ConsumedAuthProof(models.Model):
+    """Durable, digest-only revocations shared by every API worker."""
+
+    digest = models.CharField(primary_key=True, max_length=64)
+    purpose = models.CharField(max_length=30)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = "ConsumedAuthProof"
 
 
 class AuthThrottleState(models.Model):

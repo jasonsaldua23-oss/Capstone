@@ -21,7 +21,7 @@ function loadEnvFile(filePath) {
 }
 
 async function main() {
-  const bucketName = process.argv[2] || process.env.SUPABASE_UPLOADS_BUCKET || 'uploads'
+  const publicBucket = process.argv[2] || process.env.SUPABASE_UPLOADS_BUCKET || 'uploads'
   const envPath = resolve(process.cwd(), '.env')
   const env = loadEnvFile(envPath)
 
@@ -36,30 +36,29 @@ async function main() {
     throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env')
   }
 
-  const response = await fetch(`${url}/storage/v1/bucket`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: bucketName,
-      public: true,
-    }),
-  })
+  const privateBucket = process.env.SUPABASE_PRIVATE_UPLOADS_BUCKET || env.SUPABASE_PRIVATE_UPLOADS_BUCKET || 'uploads-private'
+  for (const [bucketName, isPublic] of [[publicBucket, true], [privateBucket, false]]) {
+    const response = await fetch(`${url}/storage/v1/bucket`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        'Content-Type': 'application/json',
+      },
+      // Catalog assets are public; evidence is read only through the authorized API route.
+      body: JSON.stringify({ name: bucketName, public: isPublic }),
+    })
 
-  const text = await response.text()
-  if (!response.ok) {
-    if (response.status === 409 || /already exists/i.test(text)) {
-      console.log(`Bucket ${bucketName} already exists.`)
-      return
+    const text = await response.text()
+    if (!response.ok) {
+      if (response.status === 409 || /already exists/i.test(text)) {
+        console.log(`Bucket ${bucketName} already exists.`)
+        continue
+      }
+      throw new Error(`Failed to create bucket: ${response.status} ${text}`)
     }
-
-    throw new Error(`Failed to create bucket: ${response.status} ${text}`)
+    console.log(`Created ${isPublic ? 'public' : 'private'} Supabase bucket ${bucketName}.`)
   }
-
-  console.log(`Created Supabase bucket ${bucketName}.`)
 }
 
 main().catch((error) => {

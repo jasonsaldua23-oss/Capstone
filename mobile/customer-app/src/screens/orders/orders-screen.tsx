@@ -1,6 +1,6 @@
 // Mirrors src/components/portals/customer/sections/orders/orders-view.tsx.
 import { CalendarDays, ChevronRight, Filter, MapPin, Package2, Search, Star, Truck } from "lucide-react-native";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Image, Pressable, Text, TextInput, View } from "react-native";
 
 import { Badge } from "../../components/ui/badge";
@@ -65,7 +65,7 @@ export function OrdersScreen() {
     pushRoute,
   } = useCustomerPortal();
 
-  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSelection, setPageSelection] = useState({ scope: "", page: 1 });
 
   // The Replacement tab lists replacement records, not orders: each row is a
   // synthetic order built from the record, matching the web's replacementTabOrders.
@@ -103,14 +103,13 @@ export function OrdersScreen() {
   }, [orders, replacementTabOrders, ordersTab, orderSearch, orderFilterStatus, orderFilterDateFrom, orderFilterDateTo]);
 
   const totalPages = Math.max(1, Math.ceil(visibleOrders.length / PAGE_SIZE));
-  const activePage = Math.min(currentPage, totalPages);
+  // A changed filter scope naturally shows page one without a follow-up effect.
+  const pageScope = [orderSearch, ordersTab, orderFilterStatus, orderFilterDateFrom, orderFilterDateTo].join("\u0000");
+  const activePage = pageSelection.scope === pageScope ? Math.min(pageSelection.page, totalPages) : 1;
+  const setCurrentPage = (page: number) => setPageSelection({ scope: pageScope, page: Math.min(totalPages, Math.max(1, page)) });
   const pagedOrders = visibleOrders.slice((activePage - 1) * PAGE_SIZE, activePage * PAGE_SIZE);
   const startIndex = visibleOrders.length === 0 ? 0 : (activePage - 1) * PAGE_SIZE + 1;
   const endIndex = Math.min(activePage * PAGE_SIZE, visibleOrders.length);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [orderSearch, ordersTab, orderFilterStatus, orderFilterDateFrom, orderFilterDateTo]);
 
   const openDetails = (order: any) => {
     // The web opens the replacement record when the row has one, and the order
@@ -264,6 +263,7 @@ export function OrdersScreen() {
                             source={{ uri: resolveImageUrl(item.imageUrl) }}
                             style={styles.listCardItemImage}
                             resizeMode="cover"
+                            alt={item.name || "Replacement product"}
                           />
                           <View style={styles.flex}>
                             <Text style={styles.listCardItemName}>{item.name}</Text>
@@ -298,6 +298,7 @@ export function OrdersScreen() {
                             source={{ uri: resolveImageUrl(item?.product?.imageUrl) }}
                             style={styles.listCardItemImage}
                             resizeMode="cover"
+                            alt={getOrderItemDisplayName(item)}
                           />
                           <View style={styles.flex}>
                             <Text style={styles.listCardItemName}>{getOrderItemDisplayName(item)}</Text>

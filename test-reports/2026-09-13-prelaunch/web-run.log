@@ -1,0 +1,116 @@
+[
+  {
+    "file": "src\\lib\\driver-eligibility.test.ts",
+    "result": "failed",
+    "exit_code": 1,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\driver-eligibility.test.ts.log"
+  },
+  {
+    "file": "src\\lib\\driver-location-upload.test.ts",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\driver-location-upload.test.ts.log"
+  },
+  {
+    "file": "src\\lib\\map-navigation.test.ts",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\map-navigation.test.ts.log"
+  },
+  {
+    "file": "src\\lib\\person-name.test.ts",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\person-name.test.ts.log"
+  },
+  {
+    "file": "src\\lib\\portal-scope.test.ts",
+    "result": "failed",
+    "exit_code": 1,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\portal-scope.test.ts.log"
+  },
+  {
+    "file": "src\\lib\\report-metrics.test.ts",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\report-metrics.test.ts.log"
+  },
+  {
+    "file": "src\\lib\\retrying-api-read.test.ts",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\retrying-api-read.test.ts.log"
+  },
+  {
+    "file": "src\\lib\\warehouse-search.test.ts",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\warehouse-search.test.ts.log"
+  },
+  {
+    "file": "src\\lib\\warehouse-setup.test.ts",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\warehouse-setup.test.ts.log"
+  },
+  {
+    "file": "scripts\\api-write-retry.test.mjs",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\api-write-retry.test.mjs.log"
+  },
+  {
+    "file": "scripts\\driver-navigation-regression.test.mjs",
+    "result": "failed",
+    "exit_code": 1,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\driver-navigation-regression.test.mjs.log"
+  },
+  {
+    "file": "scripts\\mobile-api-retry.test.mjs",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\mobile-api-retry.test.mjs.log"
+  },
+  {
+    "file": "scripts\\native-back-speech.test.mjs",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\native-back-speech.test.mjs.log"
+  },
+  {
+    "file": "scripts\\native-driver-auth-regression.test.mjs",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\native-driver-auth-regression.test.mjs.log"
+  },
+  {
+    "file": "scripts\\native-google-login.test.mjs",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\native-google-login.test.mjs.log"
+  },
+  {
+    "file": "scripts\\native-offline-otp.test.mjs",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\native-offline-otp.test.mjs.log"
+  },
+  {
+    "file": "scripts\\portal-data-regression.test.mjs",
+    "result": "failed",
+    "exit_code": 1,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\portal-data-regression.test.mjs.log"
+  },
+  {
+    "file": "scripts\\portal-fetch-retry.test.mjs",
+    "result": "timeout",
+    "exit_code": null,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\portal-fetch-retry.test.mjs.log"
+  },
+  {
+    "file": "scripts\\replacement-order-quantity.test.mjs",
+    "result": "passed",
+    "exit_code": 0,
+    "log": "test-reports\\2026-09-13-prelaunch\\web-by-file\\replacement-order-quantity.test.mjs.log"
+  }
+]

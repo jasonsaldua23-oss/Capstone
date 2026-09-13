@@ -22,6 +22,12 @@ export async function GET(
   const resolvedParams = await params
   const filePathSegments = resolvedParams.path || []
   const relativePath = filePathSegments.join('/')
+  // Fix: fallback serving must preserve the backend's no-store and active-content protections.
+  const uploadHeaders = {
+    'Cache-Control': relativePath.startsWith('products/') ? 'public, max-age=31536000, immutable' : 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+  }
 
   // Prevent directory traversal
   if (relativePath.includes('..')) {
@@ -40,7 +46,7 @@ export async function GET(
     return new NextResponse(fileBuffer, {
       headers: {
         'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=31536000, immutable',
+        ...uploadHeaders,
       },
     })
   } catch {
@@ -56,7 +62,7 @@ export async function GET(
       return new NextResponse(fileBuffer, {
         headers: {
           'Content-Type': contentType,
-          'Cache-Control': 'public, max-age=31536000, immutable',
+          ...uploadHeaders,
         },
       })
     } catch {
@@ -71,7 +77,7 @@ export async function GET(
           return new NextResponse(upstreamBuffer, {
             headers: {
               'Content-Type': contentType,
-              'Cache-Control': 'public, max-age=31536000, immutable',
+              ...uploadHeaders,
             },
           })
         }

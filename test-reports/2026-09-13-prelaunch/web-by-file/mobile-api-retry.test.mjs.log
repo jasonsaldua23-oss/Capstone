@@ -1,0 +1,70 @@
+TAP version 13
+# Subtest: customer: repeated read failures stay pending until real data arrives
+ok 1 - customer: repeated read failures stay pending until real data arrives
+  ---
+  duration_ms: 376.9799
+  type: 'test'
+  ...
+# Subtest: customer: access errors and submissions are never replayed
+ok 2 - customer: access errors and submissions are never replayed
+  ---
+  duration_ms: 331.3885
+  type: 'test'
+  ...
+# Subtest: customer: cancellation stops retries and pre-cancelled requests never start
+ok 3 - customer: cancellation stops retries and pre-cancelled requests never start
+  ---
+  duration_ms: 46.6463
+  type: 'test'
+  ...
+# Subtest: driver: repeated read failures stay pending until real data arrives
+ok 4 - driver: repeated read failures stay pending until real data arrives
+  ---
+  duration_ms: 80.1591
+  type: 'test'
+  ...
+# Subtest: driver: access errors and submissions are never replayed
+ok 5 - driver: access errors and submissions are never replayed
+  ---
+  duration_ms: 138.8734
+  type: 'test'
+  ...
+# Subtest: driver: cancellation stops retries and pre-cancelled requests never start
+ok 6 - driver: cancellation stops retries and pre-cancelled requests never start
+  ---
+  duration_ms: 25.7478
+  type: 'test'
+  ...
+# Subtest: customer: unconfirmed saves reject once and retain server errors
+ok 7 - customer: unconfirmed saves reject once and retain server errors
+  ---
+  duration_ms: 161.2324
+  type: 'test'
+  ...
+# Subtest: customer: successful and intentional no-content saves remain valid
+ok 8 - customer: successful and intentional no-content saves remain valid
+  ---
+  duration_ms: 51.5668
+  type: 'test'
+  ...
+# Subtest: driver: unconfirmed saves reject once and retain server errors
+ok 9 - driver: unconfirmed saves reject once and retain server errors
+  ---
+  duration_ms: 145.5867
+  type: 'test'
+  ...
+# Subtest: driver: successful and intentional no-content saves remain valid
+ok 10 - driver: successful and intentional no-content saves remain valid
+  ---
+  duration_ms: 50.1204
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2376.6526

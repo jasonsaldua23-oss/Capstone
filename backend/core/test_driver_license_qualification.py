@@ -51,7 +51,9 @@ class DriverLicenseRuleTests(TestCase):
 class DriverVehicleAssignmentApiTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
-        self.admin_auth = {"type": "staff", "role": "ADMIN", "userId": "admin-1", "name": "Admin"}
+        # Fleet assignments are warehouse operations; exercise the policy's
+        # authorized actor rather than an administrator-only fixture.
+        self.admin_auth = {"type": "staff", "role": RoleType.WAREHOUSE_STAFF, "userId": "warehouse-1", "name": "Warehouse Operator"}
         self.driver_a = User.objects.create(
             email="code-a@example.com",
             password="x",

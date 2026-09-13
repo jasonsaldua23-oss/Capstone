@@ -1,0 +1,135 @@
+.venv/Scripts/python.exe : Creating test database for alias 'default' 
+('file:memorydb_default?mode=memory&cache=shared')...
+At line:2 char:1
++ .venv/Scripts/python.exe test-reports/2026-09-13-prelaunch/run_backen ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Creating test d...che=shared')...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Found 22 test(s).
+Skipping setup of unused database(s): supabase.
+Operations to perform:
+  Synchronize unmigrated apps: core, corsheaders, rest_framework, staticfiles
+  Apply all migrations: (none)
+Synchronizing apps without migrations:
+  Creating tables...
+    Creating table User
+    Creating table core_driverservicearea
+    Creating table Customer
+    Creating table ConsumedAuthProof
+    Creating table AuthThrottleState
+    Creating table Feedback
+    Creating table Warehouse
+    Creating table PackagingProfile
+    Creating table Product
+    Creating table Inventory
+    Creating table InventoryTransaction
+    Creating table StockBatch
+    Creating table Order
+    Creating table OrderTimeline
+    Creating table OrderItem
+    Creating table Vehicle
+    Creating table Trip
+    Creating table TripDropPoint
+    Creating table LocationLog
+    Creating table Replacement
+    Creating table Notification
+    Creating table PushSubscription
+    Creating table MixedCaseComponent
+    Creating table InventoryReservation
+    Creating table ReplacementLine
+    Creating table ReturnReceipt
+    Creating table ReturnReceiptLine
+    Creating table ContainerType
+    Creating table ProductPackaging
+    Creating table CustomerDepositLedger
+    Creating table DepositTransaction
+    Creating table CustomerBottleBalance
+    Creating table OrderDepositRefundClaim
+    Creating table BottleReturn
+    Creating table BottleReturnLine
+    Running deferred SQL...
+Running migrations:
+  No migrations to apply.
+System check identified no issues (0 silenced).
+test_configured_when_url_and_key_are_present 
+(core.test_upload_storage.ObjectStorageConfigTests.test_configured_when_url_and_key_are_present) ... ok
+test_not_configured_without_credentials 
+(core.test_upload_storage.ObjectStorageConfigTests.test_not_configured_without_credentials) ... ok
+test_public_url_points_at_the_bucket 
+(core.test_upload_storage.ObjectStorageConfigTests.test_public_url_points_at_the_bucket) ... ok
+test_a_rejected_upload_is_reported_rather_than_silently_lost 
+(core.test_upload_storage.ProductImageUploadTests.test_a_rejected_upload_is_reported_rather_than_silently_lost) ... 
+Supabase upload failed path=products/product-2c0fa64373564bcc9ad52de5bec62c1c.png status=403 body=denied
+Image upload to object storage failed folder=products
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13363, in _handle_image_upload
+    url = _store_upload(file_obj, folder, prefix, ".png")
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13347, in _store_upload
+    return _store_upload_bytes(
+        data,
+    ...<3 lines>...
+        content_type=content_type,
+    )
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13315, in _store_upload_bytes
+    return object_storage.upload_bytes(f"{folder}/{name}", data, content_type=content_type)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\object_storage.py", line 120, in upload_bytes
+    raise ObjectStorageError(f"Upload rejected by storage ({response.status_code})")
+core.object_storage.ObjectStorageError: Upload rejected by storage (403)
+ok
+test_legacy_service_role_key_remains_a_bearer_token 
+(core.test_upload_storage.ProductImageUploadTests.test_legacy_service_role_key_remains_a_bearer_token) ... ok
+test_new_secret_key_falls_back_to_persistent_disk_on_connection_reset (core.test_upload_storage.ProductImageUploadTests
+.test_new_secret_key_falls_back_to_persistent_disk_on_connection_reset) ... Supabase upload connection failed 
+path=products/product-735f1b1bb864436a9353b392b58df950.png error=connection reset
+ok
+test_new_secret_key_falls_back_to_persistent_disk_when_storage_requires_a_jwt (core.test_upload_storage.ProductImageUpl
+oadTests.test_new_secret_key_falls_back_to_persistent_disk_when_storage_requires_a_jwt) ... Supabase upload failed 
+path=products/product-acf86d891b3e49289ca1494aa12cec6a.png status=400 body=headers must have required property 
+'authorization'
+Falling back to persistent disk for upload path=products/product-acf86d891b3e49289ca1494aa12cec6a.png
+ok
+test_new_secret_key_is_not_sent_as_a_bearer_jwt 
+(core.test_upload_storage.ProductImageUploadTests.test_new_secret_key_is_not_sent_as_a_bearer_jwt) ... ok
+test_non_image_uploads_are_still_rejected 
+(core.test_upload_storage.ProductImageUploadTests.test_non_image_uploads_are_still_rejected) ... ok
+test_real_product_images_are_resized_and_compressed_before_storage 
+(core.test_upload_storage.ProductImageUploadTests.test_real_product_images_are_resized_and_compressed_before_storage) 
+... ok
+test_the_file_bytes_are_sent_to_the_bucket 
+(core.test_upload_storage.ProductImageUploadTests.test_the_file_bytes_are_sent_to_the_bucket) ... ok
+test_the_stored_url_is_the_bucket_url 
+(core.test_upload_storage.ProductImageUploadTests.test_the_stored_url_is_the_bucket_url) ... ok
+test_without_credentials_it_falls_back_to_local_disk_for_development (core.test_upload_storage.ProductImageUploadTests.
+test_without_credentials_it_falls_back_to_local_disk_for_development) ... ok
+test_customer_email_verification_request_and_confirm_issue_token (core.test_auth_trip_feedback_flows.AuthenticationFlow
+Tests.test_customer_email_verification_request_and_confirm_issue_token) ... ok
+test_customer_google_auth_creates_verified_account_and_session (core.test_auth_trip_feedback_flows.AuthenticationFlowTe
+sts.test_customer_google_auth_creates_verified_account_and_session) ... ok
+test_customer_google_auth_rejects_unverified_email 
+(core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_customer_google_auth_rejects_unverified_email) ... ok
+test_invalid_staff_password_is_rejected_without_updating_last_login (core.test_auth_trip_feedback_flows.AuthenticationF
+lowTests.test_invalid_staff_password_is_rejected_without_updating_last_login) ... Authentication failure portal=admin 
+account_hash=6481bd74fb1c source_ip=127.0.0.1 count=1
+ok
+test_login_two_factor_challenge_and_valid_otp_issue_session (core.test_auth_trip_feedback_flows.AuthenticationFlowTests
+.test_login_two_factor_challenge_and_valid_otp_issue_session) ... ok
+test_login_two_factor_rejects_invalid_otp 
+(core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_login_two_factor_rejects_invalid_otp) ... Login OTP 
+failure account_hash=6481bd74fb1c source_ip=127.0.0.1 count=1
+ok
+test_password_reset_otp_updates_customer_password 
+(core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_password_reset_otp_updates_customer_password) ... ok
+test_staff_google_auth_is_explicitly_disabled 
+(core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_staff_google_auth_is_explicitly_disabled) ... ok
+test_valid_staff_credentials_create_token_and_update_last_login (core.test_auth_trip_feedback_flows.AuthenticationFlowT
+ests.test_valid_staff_credentials_create_token_and_update_last_login) ... ok
+
+----------------------------------------------------------------------
+Ran 22 tests in 23.921s
+
+OK
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+

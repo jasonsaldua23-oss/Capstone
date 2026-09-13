@@ -26,7 +26,8 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   typescript: {
-    ignoreBuildErrors: true,
+    // Fix: builds must fail when application types do not check.
+    ignoreBuildErrors: false,
   },
   reactStrictMode: false,
   async headers() {

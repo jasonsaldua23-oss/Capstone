@@ -1,0 +1,95 @@
+.venv/Scripts/python.exe : Creating test database for alias 'default' 
+('file:memorydb_default?mode=memory&cache=shared')...
+At line:114 char:1
++ .venv/Scripts/python.exe test-reports/2026-09-13-prelaunch/run_backen ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Creating test d...che=shared')...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Found 15 test(s).
+Skipping setup of unused database(s): supabase.
+Operations to perform:
+  Synchronize unmigrated apps: core, corsheaders, rest_framework, staticfiles
+  Apply all migrations: (none)
+Synchronizing apps without migrations:
+  Creating tables...
+    Creating table User
+    Creating table core_driverservicearea
+    Creating table Customer
+    Creating table ConsumedAuthProof
+    Creating table AuthThrottleState
+    Creating table Feedback
+    Creating table Warehouse
+    Creating table PackagingProfile
+    Creating table Product
+    Creating table Inventory
+    Creating table InventoryTransaction
+    Creating table StockBatch
+    Creating table Order
+    Creating table OrderTimeline
+    Creating table OrderItem
+    Creating table Vehicle
+    Creating table Trip
+    Creating table TripDropPoint
+    Creating table LocationLog
+    Creating table Replacement
+    Creating table Notification
+    Creating table PushSubscription
+    Creating table MixedCaseComponent
+    Creating table InventoryReservation
+    Creating table ReplacementLine
+    Creating table ReturnReceipt
+    Creating table ReturnReceiptLine
+    Creating table ContainerType
+    Creating table ProductPackaging
+    Creating table CustomerDepositLedger
+    Creating table DepositTransaction
+    Creating table CustomerBottleBalance
+    Creating table OrderDepositRefundClaim
+    Creating table BottleReturn
+    Creating table BottleReturnLine
+    Running deferred SQL...
+Running migrations:
+  No migrations to apply.
+System check identified no issues (0 silenced).
+test_customer_directory_is_scoped_to_self 
+(core.test_prelaunch_access_guards.PrelaunchAccessGuardTests.test_customer_directory_is_scoped_to_self) ... ok
+test_email_proof_still_validates_for_its_original_purpose (core.test_prelaunch_access_guards.PrelaunchAccessGuardTests.
+test_email_proof_still_validates_for_its_original_purpose) ... ok
+test_non_session_tokens_cannot_read_shared_data 
+(core.test_prelaunch_access_guards.PrelaunchAccessGuardTests.test_non_session_tokens_cannot_read_shared_data) ... ok
+test_own_checkout_starts_pending_even_when_delivered_is_requested (core.test_prelaunch_access_guards.PrelaunchAccessGua
+rdTests.test_own_checkout_starts_pending_even_when_delivered_is_requested) ... ok
+test_shared_checkout_rejects_other_customer_without_creating_order (core.test_prelaunch_access_guards.PrelaunchAccessGu
+ardTests.test_shared_checkout_rejects_other_customer_without_creating_order) ... ok
+test_admin_cannot_modify_owner_but_can_edit_own_profile (core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTe
+sts.test_admin_cannot_modify_owner_but_can_edit_own_profile) ... ok
+test_cookie_write_requires_trusted_origin 
+(core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTests.test_cookie_write_requires_trusted_origin) ... ok
+test_database_rejects_case_insensitive_staff_duplicate (core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTes
+ts.test_database_rejects_case_insensitive_staff_duplicate) ... ok
+test_driver_cannot_change_customer_password 
+(core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTests.test_driver_cannot_change_customer_password) ... ok
+test_driver_cannot_promote_disable_create_or_delete_accounts (core.test_prelaunch_access_guards.PrelaunchRemainingSecur
+ityTests.test_driver_cannot_promote_disable_create_or_delete_accounts) ... ok
+test_inactive_demoted_and_password_changed_sessions_fail (core.test_prelaunch_access_guards.PrelaunchRemainingSecurityT
+ests.test_inactive_demoted_and_password_changed_sessions_fail) ... ok
+test_invalid_images_rejected_and_upload_names_do_not_collide (core.test_prelaunch_access_guards.PrelaunchRemainingSecur
+ityTests.test_invalid_images_rejected_and_upload_names_do_not_collide) ... ok
+test_json_shapes_and_feedback_ranges_are_rejected 
+(core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTests.test_json_shapes_and_feedback_ranges_are_rejected) 
+... ok
+test_logout_revokes_only_the_selected_session 
+(core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTests.test_logout_revokes_only_the_selected_session) ... 
+ok
+test_reset_consumes_otp_and_revokes_old_session 
+(core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTests.test_reset_consumes_otp_and_revokes_old_session) 
+... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 1.092s
+
+OK
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+

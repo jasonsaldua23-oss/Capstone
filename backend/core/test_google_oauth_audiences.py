@@ -65,7 +65,7 @@ class CustomerGoogleSessionTests(TestCase):
     def sign_in(self):
         with patch("core.views_api._verify_google_token", return_value=self.claims):
             return self.client.post("/api/auth/customer/google", {"credential": "verified-by-mock", "rememberMe": True},
-                                    content_type="application/json")
+                                    content_type="application/json", HTTP_ORIGIN="http://testserver")
 
     def test_new_customer_receives_working_cookie_and_bearer_sessions(self):
         response = self.sign_in()

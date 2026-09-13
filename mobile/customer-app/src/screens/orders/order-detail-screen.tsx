@@ -187,6 +187,7 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
                   source={{ uri: resolveImageUrl(item?.product?.imageUrl) }}
                   style={styles.detailProductImage}
                   resizeMode="cover"
+                  alt={getOrderItemDisplayName(item)}
                 />
                 <View style={styles.flex}>
                   <Text style={styles.detailTableCell}>{getOrderItemDisplayName(item)}</Text>

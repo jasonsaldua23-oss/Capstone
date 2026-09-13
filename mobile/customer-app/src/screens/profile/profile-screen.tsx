@@ -52,7 +52,12 @@ export function ProfileScreen() {
         <View>
           <View style={styles.profileAvatar}>
             {avatarUrl ? (
-              <Image source={{ uri: resolveImageUrl(avatarUrl) }} style={styles.profileAvatarImage} resizeMode="cover" />
+              <Image
+                source={{ uri: resolveImageUrl(avatarUrl) }}
+                style={styles.profileAvatarImage}
+                resizeMode="cover"
+                alt={`${fullName || "Customer"} profile photo`}
+              />
             ) : (
               <Text style={styles.profileAvatarInitials}>{getInitials(fullName || "Customer")}</Text>
             )}

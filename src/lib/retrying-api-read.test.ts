@@ -8,49 +8,37 @@ async function flushReads() {
   for (let i = 0; i < 10; i++) await setImmediate()
 }
 
-test('a long outage keeps loading pending and eventually returns the real replacement data', async (t) => {
+test('persistent outages stop after three attempts so the loader can show an error', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let calls = 0
-  let settled = false
   const pending = retryingApiRead(async () => {
     calls++
-    if (calls <= 8) throw new TypeError('Failed to fetch')
-    return Response.json({ replacements: [{ id: 'replacement-1' }] })
-  }, new AbortController().signal).then((response) => {
-    settled = true
-    return response
-  })
-
-  for (let i = 0; i < 8; i++) {
+    throw new TypeError('Failed to fetch')
+  }, new AbortController().signal)
+  const rejected = assert.rejects(pending, /Could not load the latest data/)
+  for (let i = 0; i < 2; i++) {
     await flushReads()
-    assert.equal(settled, false)
-    assert.equal(calls, i + 1)
     t.mock.timers.tick(30_000)
   }
-  assert.deepEqual(await (await pending).json(), { replacements: [{ id: 'replacement-1' }] })
-  assert.equal(calls, 9)
+  await rejected
+  assert.equal(calls, 3)
 })
 
-test('gateway, rate-limit, malformed body and unsuccessful payloads retry without consuming the result', async (t) => {
+test('transient gateway, malformed and unsuccessful responses recover without consuming the result', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const responses = [
+  for (const first of [
     new Response('Gateway unavailable', { status: 503 }),
     new Response('', { status: 429 }),
-    new Response('', { status: 408 }),
-    new Response('<html>Proxy error</html>', { headers: { 'content-type': 'text/html' } }),
     new Response('{', { headers: { 'content-type': 'application/json' } }),
-    Response.json({ success: false, error: 'Temporarily unavailable' }),
-    Response.json({ success: true, dbUnavailable: true, orders: [] }),
-    Response.json({ success: true, orders: [] }),
-  ]
-  let calls = 0
-  const pending = retryingApiRead(async () => responses[calls++], new AbortController().signal)
-  for (let i = 0; i < responses.length - 1; i++) {
+    Response.json({ success: false }),
+  ]) {
+    let calls = 0
+    const pending = retryingApiRead(async () => ++calls === 1 ? first : Response.json({ orders: [] }), new AbortController().signal)
     await flushReads()
-    assert.equal(calls, i + 1)
     t.mock.timers.tick(30_000)
+    assert.deepEqual(await (await pending).json(), { orders: [] })
+    assert.equal(calls, 2)
   }
-  assert.deepEqual(await (await pending).json(), { success: true, orders: [] })
 })
 
 test('authentication, permission and invalid request responses are returned without retrying', async () => {

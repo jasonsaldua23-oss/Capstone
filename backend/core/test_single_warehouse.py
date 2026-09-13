@@ -76,7 +76,8 @@ class SingleWarehouseApiContractTests(TestCase):
     def create_warehouse(self) -> Warehouse:
         response = self.client.post(
             "/api/warehouses",
-            data=json.dumps(self.warehouse_payload()),
+            # Assign the warehouse operator so its scoped operational reads are valid.
+            data=json.dumps(self.warehouse_payload(managerId=self.staff.id)),
             content_type="application/json",
             **self.auth(self.admin_token),
         )
@@ -269,7 +270,7 @@ class SingleWarehouseApiContractTests(TestCase):
         warehouse.refresh_from_db()
         self.assertEqual(warehouse.capacity, 12)
 
-    def test_second_registration_is_rejected_by_api_and_database(self) -> None:
+    def test_second_registration_creates_an_independent_warehouse(self) -> None:
         self.create_warehouse()
         response = self.client.post(
             "/api/warehouses",
@@ -277,19 +278,8 @@ class SingleWarehouseApiContractTests(TestCase):
             content_type="application/json",
             **self.auth(self.admin_token),
         )
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(Warehouse.objects.count(), 1)
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Warehouse.objects.create(
-                    name="Forbidden Warehouse",
-                    code="WH-0003",
-                    address="Other Street",
-                    city="Talisay",
-                    province="Negros Occidental",
-                    zip_code="6115",
-                )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Warehouse.objects.count(), 2)
 
     def test_warehouse_staff_can_view_but_cannot_modify_profile(self) -> None:
         warehouse = self.create_warehouse()
@@ -309,8 +299,9 @@ class SingleWarehouseApiContractTests(TestCase):
             f"/api/warehouses/{warehouse.id}",
             **self.auth(self.admin_token),
         )
-        self.assertEqual(delete.status_code, 405)
-        self.assertTrue(Warehouse.objects.filter(id=warehouse.id).exists())
+        self.assertEqual(delete.status_code, 200)
+        warehouse.refresh_from_db()
+        self.assertFalse(warehouse.is_active)
 
     def test_product_is_assigned_server_side_and_mismatched_id_is_rejected(self) -> None:
         warehouse = self.create_warehouse()
@@ -324,9 +315,9 @@ class SingleWarehouseApiContractTests(TestCase):
                 }
             ),
             content_type="application/json",
-            **self.auth(self.admin_token),
+            **self.auth(self.staff_token),
         )
-        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(rejected.status_code, 404)
         self.assertFalse(Product.objects.filter(sku="SKU-WRONG-WH").exists())
 
         created = self.client.post(
@@ -335,11 +326,15 @@ class SingleWarehouseApiContractTests(TestCase):
                 {
                     "sku": "SKU-SINGLE-WH",
                     "name": "Single Warehouse Product",
+                    "warehouseId": warehouse.id,
+                    "category": "Water",
+                    "sizes": ["500ml"],
+                    "quantityPerCase": 24,
                     "availableQuantity": 12,
                 }
             ),
             content_type="application/json",
-            **self.auth(self.admin_token),
+            **self.auth(self.staff_token),
         )
         self.assertEqual(created.status_code, 201, created.content)
         product_id = created.json()["product"]["id"]
@@ -360,7 +355,7 @@ class SingleWarehouseApiContractTests(TestCase):
                 }
             ),
             content_type="application/json",
-            **self.auth(self.admin_token),
+            **self.auth(self.staff_token),
         )
         self.assertEqual(rejected_update.status_code, 400)
         self.assertEqual(Product.objects.get(id=product_id).name, "Single Warehouse Product")
@@ -381,7 +376,7 @@ class SingleWarehouseApiContractTests(TestCase):
             content_type="application/json",
             **self.auth(self.staff_token),
         )
-        self.assertEqual(inventory_response.status_code, 400)
+        self.assertEqual(inventory_response.status_code, 404)
         self.assertFalse(Inventory.objects.filter(product=product).exists())
 
         negative_inventory_response = self.client.post(
@@ -426,7 +421,7 @@ class SingleWarehouseApiContractTests(TestCase):
             content_type="application/json",
             **self.auth(self.staff_token),
         )
-        self.assertEqual(trip_response.status_code, 400)
+        self.assertEqual(trip_response.status_code, 404)
 
     @patch("core.views_api._send_transactional_email")
     def test_operational_writes_and_dashboard_use_the_registered_warehouse(
@@ -518,7 +513,7 @@ class SingleWarehouseApiContractTests(TestCase):
             f"/api/products/{product.id}",
             data=json.dumps({"name": "Updated Operations Product"}),
             content_type="application/json",
-            **self.auth(self.admin_token),
+            **self.auth(self.staff_token),
         )
         self.assertEqual(update_product.status_code, 200, update_product.content)
 
@@ -554,5 +549,5 @@ class SingleWarehouseApiContractTests(TestCase):
 
     def test_operations_fail_clearly_before_initial_setup(self) -> None:
         response = self.client.get("/api/inventory", **self.auth(self.admin_token))
-        self.assertEqual(response.status_code, 409)
-        self.assertIn("Warehouse setup is required", response.json()["error"])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["total"], 0)

@@ -118,7 +118,11 @@ export function ProfileSections() {
       onBack={closeProfileModal}
     >
         <View style={styles.avatarEditor}>
-          <Image source={{ uri: resolveImageUrl(profileForm.avatar) }} style={styles.profileEditAvatarImage} />
+          <Image
+            source={{ uri: resolveImageUrl(profileForm.avatar) }}
+            style={styles.profileEditAvatarImage}
+            alt="Profile photo"
+          />
           <Pressable style={styles.secondaryButtonCompact} onPress={handlePickAvatar} disabled={uploadingAvatar}>
             <Text style={styles.secondaryButtonText}>{uploadingAvatar ? "Uploading..." : "Change Avatar"}</Text>
           </Pressable>

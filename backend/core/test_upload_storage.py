@@ -17,7 +17,10 @@ from django.test import RequestFactory, TestCase, override_settings
 from . import object_storage
 from .views_api import upload_product_image
 
-PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+# Fix: successful-upload fixtures must be decodable images, not just a PNG header.
+_source = BytesIO()
+Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(_source, format="PNG")
+PNG_BYTES = _source.getvalue()
 BUCKET_SETTINGS = dict(
     SUPABASE_URL="https://project.supabase.co",
     SUPABASE_SERVICE_ROLE_KEY="service-role-key",

@@ -102,6 +102,7 @@ export function CheckoutScreen() {
                           source={{ uri: resolveImageUrl(component.product?.imageUrl) }}
                           style={styles.checkoutItemThumbGridImage}
                           resizeMode="cover"
+                          alt={component.product?.name || "Mixed-case product"}
                         />
                       ))}
                     </View>
@@ -110,6 +111,7 @@ export function CheckoutScreen() {
                       source={{ uri: resolveImageUrl(item.imageUrl) }}
                       style={styles.checkoutItemThumb}
                       resizeMode="cover"
+                      alt={item.name || "Product"}
                     />
                   )}
 

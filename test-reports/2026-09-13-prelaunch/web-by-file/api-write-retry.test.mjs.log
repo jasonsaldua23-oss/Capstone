@@ -1,0 +1,38 @@
+TAP version 13
+# (node:28432) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/src/lib/api-write.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to C:\\CAPSTONE\\package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: write remains pending through connection and temporary server failures until success
+ok 1 - write remains pending through connection and temporary server failures until success
+  ---
+  duration_ms: 75.0696
+  type: 'test'
+  ...
+# Subtest: write returns real validation and permission errors without retrying
+ok 2 - write returns real validation and permission errors without retrying
+  ---
+  duration_ms: 10.3099
+  type: 'test'
+  ...
+# Subtest: write accepts a two-factor challenge as a confirmed login step
+ok 3 - write accepts a two-factor challenge as a confirmed login step
+  ---
+  duration_ms: 1.0518
+  type: 'test'
+  ...
+# Subtest: write can preserve a detail-free client error without inventing generic copy
+ok 4 - write can preserve a detail-free client error without inventing generic copy
+  ---
+  duration_ms: 2.9215
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 465.455

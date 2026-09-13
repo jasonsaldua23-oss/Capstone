@@ -1,0 +1,74 @@
+(node:28732) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/src/lib/api-write.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\CAPSTONE\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ write reports an ambiguous connection failure without replaying a committed write (1.9851ms)
+✔ temporary server errors and malformed success never replay writes (66.2169ms)
+✔ write returns real validation and permission errors without retrying (4.7317ms)
+✔ write accepts a two-factor challenge as a confirmed login step (0.7725ms)
+✔ write can preserve a detail-free client error without inventing generic copy (2.9162ms)
+✔ admin browser: no-store data loads retry until successful (617.4655ms)
+✔ admin Capacitor context: no-store data loads retry until successful (90.2415ms)
+✔ warehouse browser: no-store data loads retry until successful (69.069ms)
+✔ warehouse Capacitor context: no-store data loads retry until successful (64.9508ms)
+✔ driver browser: no-store data loads retry until successful (37.0855ms)
+✔ driver Capacitor context: no-store data loads retry until successful (40.3994ms)
+✔ customer browser: no-store data loads retry until successful (42.4087ms)
+✔ customer Capacitor context: no-store data loads retry until successful (36.2755ms)
+✔ web interceptor preserves one-shot writes and cancels outstanding reads on logout (47.8358ms)
+✔ logout clears local credentials immediately but waits for server cookie cleanup (34.0551ms)
+✔ address search retries without forwarding portal credentials (48.4344ms)
+✔ API read URLs throughout src use recovery, including cached and uncached sections (1584.8762ms)
+ℹ Verified recovery for 63 distinct source API read URLs in both cache modes.
+✔ admin: malformed and rejected saves never become success (185.152ms)
+✔ admin: valid save responses retain their status, body and headers (86.9198ms)
+✔ warehouse: malformed and rejected saves never become success (193.4294ms)
+✔ warehouse: valid save responses retain their status, body and headers (68.1132ms)
+✔ driver: malformed and rejected saves never become success (129.4163ms)
+✔ driver: valid save responses retain their status, body and headers (54.3257ms)
+✔ customer: malformed and rejected saves never become success (118.8671ms)
+✔ customer: valid save responses retain their status, body and headers (59.637ms)
+✔ switching Admin and Warehouse keeps each portal credential and clears only the logged-out portal (63.8341ms)
+✔ switching portals cannot reuse another account API cache (41.6475ms)
+✔ Admin refresh rejects a Warehouse cookie instead of switching portals or logging out another tab (16.4278ms)
+✔ Admin refresh restores its own token even after another tab logs into Warehouse (12.7759ms)
+✔ Admin login ignores another portal cookie without logging that account out (7.5836ms)
+✔ Warehouse login ignores another portal cookie without logging that account out (7.9122ms)
+✔ Driver login ignores another portal cookie without logging that account out (7.9008ms)
+✔ Customer login ignores another portal cookie without logging that account out (11.3391ms)
+✔ Admin cookie restoration pins the verified token to its tab (9.9684ms)
+✔ Admin login with admin session restores only a matching account (8.1099ms)
+✔ Admin login with warehouse session restores only a matching account (9.5776ms)
+✔ Admin login with driver session restores only a matching account (6.9514ms)
+✔ Admin login with customer session restores only a matching account (8.4653ms)
+✔ Warehouse login with admin session restores only a matching account (6.9234ms)
+✔ Warehouse login with warehouse session restores only a matching account (10.1515ms)
+✔ Warehouse login with driver session restores only a matching account (10.078ms)
+✔ Warehouse login with customer session restores only a matching account (12.4256ms)
+✔ Driver login with admin session restores only a matching account (15.1684ms)
+✔ Driver login with warehouse session restores only a matching account (12.6658ms)
+✔ Driver login with driver session restores only a matching account (7.058ms)
+✔ Driver login with customer session restores only a matching account (6.7292ms)
+✔ Customer login with admin session restores only a matching account (36.3781ms)
+✔ Customer login with warehouse session restores only a matching account (40.6098ms)
+✔ Customer login with driver session restores only a matching account (12.0534ms)
+✔ Customer login with customer session restores only a matching account (13.7053ms)
+✔ successful Admin login replaces inherited Warehouse routing and navigates directly to Admin (42.4904ms)
+(node:13240) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/src/lib/retrying-api-read.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\CAPSTONE\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ persistent outages stop after three attempts so the loader can show an error (15.4694ms)
+✔ transient gateway, malformed and unsuccessful responses recover without consuming the result (81.5584ms)
+✔ authentication, permission and invalid request responses are returned without retrying (3.2449ms)
+✔ cancelling during backoff stops retries (3.8676ms)
+✔ cancelling in flight reaches the underlying request (0.8347ms)
+✔ successful downloads and programming errors keep their original behavior (1.0154ms)
+ℹ tests 57
+ℹ suites 0
+ℹ pass 57
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4961.6838

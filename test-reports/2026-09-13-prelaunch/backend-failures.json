@@ -1,0 +1,284 @@
+[
+  {
+    "kind": "ERROR",
+    "test": "core.test_discount_threshold (unittest.loader._FailedTest.core.test_discount_threshold)",
+    "diagnostic": "ImportError: cannot import name '_count_discount_eligible_cases' from 'core.views_api' ",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "ERROR",
+    "test": "core.test_glass_deposits (unittest.loader._FailedTest.core.test_glass_deposits)",
+    "diagnostic": "ImportError: cannot import name '_calculate_glass_checkout_deposit' from 'core.views_api' ",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "ERROR",
+    "test": "core.test_mixed_case_backend_guards (unittest.loader._FailedTest.core.test_mixed_case_backend_guards)",
+    "diagnostic": "ImportError: cannot import name 'mixed_case_quote' from 'core.views_api' (C:\\CAPSTONE\\backend\\core\\views_api.py)",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "ERROR",
+    "test": "test_customer_can_apply_empty_refund_to_an_existing_paid_but_undelivered_po (core.test_order_deposit_refund.Cust omerOrderDepositRefundTests.test_customer_can_apply_empty_refund_to_an_existing_paid_but_undelivered_po)",
+    "diagnostic": "AttributeError: 'super' object has no attribute 'dicts' and no __dict__ for setting new attributes",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "ERROR",
+    "test": "test_warehouse_staff_can_view_but_cannot_modify_profile (core.test_single_warehouse.SingleWarehouseApiContractTests.test_warehouse_staff_can_view_but_cannot_modify_profile)",
+    "diagnostic": "IndexError: list index out of range",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "ERROR",
+    "test": "test_returnable_product_stock_in_consumes_available_empties_without_requiring_full_amount (core.tests.BulkStockI nExistingProductContractTests.test_returnable_product_stock_in_consumes_available_empties_without_requiring_full_amount )",
+    "diagnostic": "core.models.InventoryTransaction.DoesNotExist: InventoryTransaction matching query does not exist.",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "ERROR",
+    "test": "test_saved_replacement_succeeds_when_notifications_fail (core.tests.CustomerReplacementRequestContractTests.test_saved_replacement_succeeds_when_notifications_fail)",
+    "diagnostic": "AttributeError: 'super' object has no attribute 'dicts' and no __dict__ for setting new attributes",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_assigning_code_a_driver_to_tricycle_is_rejected (core.test_driver_license_qualification.DriverVehicleAssignm entApiTests.test_assigning_code_a_driver_to_tricycle_is_rejected)",
+    "diagnostic": "AssertionError: 403 != 400",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_assigning_code_a_driver_to_truck_is_rejected (core.test_driver_license_qualification.DriverVehicleAssignment ApiTests.test_assigning_code_a_driver_to_truck_is_rejected)",
+    "diagnostic": "AssertionError: 403 != 400",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_assigning_code_c_driver_to_truck_succeeds (core.test_driver_license_qualification.DriverVehicleAssignmentApiTests.test_assigning_code_c_driver_to_truck_succeeds)",
+    "diagnostic": "AssertionError: 403 != 200",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_assigning_vehicle_from_the_driver_side_is_rejected_too (core.test_driver_license_qualification.DriverVehicle AssignmentApiTests.test_assigning_vehicle_from_the_driver_side_is_rejected_too)",
+    "diagnostic": "AssertionError: 403 != 400",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_downgrading_the_code_of_an_assigned_driver_is_rejected (core.test_driver_license_qualification.DriverVehicle AssignmentApiTests.test_downgrading_the_code_of_an_assigned_driver_is_rejected)",
+    "diagnostic": "AssertionError: 403 != 400",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_registration_token_immediately_restores_customer_and_available_products (core.test_driver_service_areas.NewC ustomerAccessTests.test_registration_token_immediately_restores_customer_and_available_products)",
+    "diagnostic": "AssertionError: 0 != 10",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_incomplete_duplicate_and_incompatible_mixes_are_rejected (core.test_mixed_case.MixedCaseValidationTests.test_incomplete_duplicate_and_incompatible_mixes_are_rejected)",
+    "diagnostic": "AssertionError: ValueError not raised",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_staff_otp_cannot_be_reused_across_portals (core.test_password_reset_portals.PasswordResetPortalValidationTests.test_staff_otp_cannot_be_reused_across_portals)",
+    "diagnostic": "AssertionError: 429 != 200",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_admin_can_reset_selected_user_password_without_user_otp (core.test_single_warehouse.SingleWarehouseApiContra ctTests.test_admin_can_reset_selected_user_password_without_user_otp)",
+    "diagnostic": "AssertionError: 400 != 200 : b'{\"success\": false, \"error\": \"Select Silay or Talisay as the driver\\'s service area\"}'",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_duplicate_email_is_rejected_across_account_types (core.test_single_warehouse.SingleWarehouseApiContractTests.test_duplicate_email_is_rejected_across_account_types)",
+    "diagnostic": "AssertionError: 400 != 409 : b'{\"success\": false, \"error\": \"Select Silay or Talisay as the driver\\'s service area\"}'",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_inventory_and_trip_requests_reject_another_warehouse_id (core.test_single_warehouse.SingleWarehouseApiContra ctTests.test_inventory_and_trip_requests_reject_another_warehouse_id)",
+    "diagnostic": "AssertionError: 404 != 400",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_operational_writes_and_dashboard_use_the_registered_warehouse (core.test_single_warehouse.SingleWarehouseApi ContractTests.test_operational_writes_and_dashboard_use_the_registered_warehouse)",
+    "diagnostic": "AssertionError: 403 != 200 : b'{\"success\": false, \"error\": \"Only warehouse staff can perform warehouse operations\"}'",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_operations_fail_clearly_before_initial_setup (core.test_single_warehouse.SingleWarehouseApiContractTests.test_operations_fail_clearly_before_initial_setup)",
+    "diagnostic": "AssertionError: 200 != 409",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_product_is_assigned_server_side_and_mismatched_id_is_rejected (core.test_single_warehouse.SingleWarehouseApi ContractTests.test_product_is_assigned_server_side_and_mismatched_id_is_rejected)",
+    "diagnostic": "AssertionError: 403 != 400",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_second_registration_is_rejected_by_api_and_database (core.test_single_warehouse.SingleWarehouseApiContractTests.test_second_registration_is_rejected_by_api_and_database)",
+    "diagnostic": "AssertionError: 201 != 409",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_super_admin_cannot_create_customer_account (core.tests.CustomerCreationPermissionContractTests.test_super_admin_cannot_create_customer_account)",
+    "diagnostic": "AssertionError: 201 != 403",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided (core.tests.CustomerOrders PostApiContractTests.test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided)",
+    "diagnostic": "AssertionError: 400 != 201",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_customer_orders_post_leaves_warehouse_unassigned_when_no_single_warehouse_can_fulfill (core.tests.CustomerOr dersPostApiContractTests.test_customer_orders_post_leaves_warehouse_unassigned_when_no_single_warehouse_can_fulfill)",
+    "diagnostic": "AssertionError: 400 != 201",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock (core.tests.CustomerReplacementReque stContractTests.test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock)",
+    "diagnostic": "AssertionError: 'ReplacementUnitMode=BOTTLE' not found in 'Replacement line from ",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_scheduled_bottle_replacement_prices_only_requested_bottles (core.tests.CustomerReplacementRequestContractTests.test_scheduled_bottle_replacement_prices_only_requested_bottles)",
+    "diagnostic": "AssertionError: 20.0 != 5.0 within 7 places (15.0 difference)",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_delivery_lifecycle_end_to_end (core.tests.DeliveryLifecycleFlowContractTests.test_delivery_lifecycle_end_to_end)",
+    "diagnostic": "AssertionError: 400 != 200",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_driver_profile_put_updates_driver_and_user_fields (core.tests.DriverProfileApiContractTests.test_driver_profile_put_updates_driver_and_user_fields)",
+    "diagnostic": "AssertionError: 400 != 200",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_driver_status_update_persists_and_is_returned (core.tests.DriverVehicleActiveTripValidationTests.test_driver_status_update_persists_and_is_returned)",
+    "diagnostic": "AssertionError: 403 != 200 : b'{\"success\": false, \"error\": \"Only warehouse staff can perform warehouse operations\"}'",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_driver_update_allows_unassignment_after_trip_is_closed (core.tests.DriverVehicleActiveTripValidationTests.test_driver_update_allows_unassignment_after_trip_is_closed)",
+    "diagnostic": "AssertionError: 403 != 200 : b'{\"success\": false, \"error\": \"Only warehouse staff can perform warehouse operations\"}'",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_vehicle_update_rejects_unassignment_during_active_trip (core.tests.DriverVehicleActiveTripValidationTests.test_vehicle_update_rejects_unassignment_during_active_trip)",
+    "diagnostic": "AssertionError: 403 != 400",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_dispatched_status_is_automatic_when_trip_starts (core.tests.OrderStatusTransitionApiContractTests.test_dispatched_status_is_automatic_when_trip_starts)",
+    "diagnostic": "AssertionError: 'Purchase request must be approved before processing' != 'OUT_FOR_DELIVERY is set automatically when ",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_out_for_delivery_status_is_automatic_when_trip_starts (core.tests.OrderStatusTransitionApiContractTests.test_out_for_delivery_status_is_automatic_when_trip_starts)",
+    "diagnostic": "AssertionError: 'Purchase request must be approved before processing' != 'OUT_FOR_DELIVERY is set automatically when ",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_preparing_status_updates_order_and_timeline (core.tests.OrderStatusTransitionApiContractTests.test_preparing_status_updates_order_and_timeline)",
+    "diagnostic": "AssertionError: 400 != 200",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_users_collection_rejects_weak_password (core.tests.PasswordPolicyContractTests.test_users_collection_rejects_weak_password)",
+    "diagnostic": "AssertionError: 'Password must be at least 8 characters' not found in 'Please enter a valid Philippine mobile number'",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_route_plan_hides_order_assigned_to_trip_until_trip_deleted (core.tests.RoutePlanStructureContractTests.test_route_plan_hides_order_assigned_to_trip_until_trip_deleted)",
+    "diagnostic": "AssertionError: 403 != 200",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_trip_delete_rejects_non_planned_trip (core.tests.RoutePlanStructureContractTests.test_trip_delete_rejects_non_planned_trip)",
+    "diagnostic": "AssertionError: 403 != 409",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_drop_point_completion_updates_trip_completion_fields (core.tests.TripExecutionApiContractTests.test_drop_point_completion_updates_trip_completion_fields)",
+    "diagnostic": "AssertionError: 400 != 200",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it (core.tests.TripExecutionApiC ontractTests.test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it)",
+    "diagnostic": "AssertionError: 'RESCHEDULED' != OrderStatus.PREPARING",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_drop_point_failed_reschedule_other_date_requeues_order_to_route_pool (core.tests.TripExecutionApiContractTests.test_drop_point_failed_reschedule_other_date_requeues_order_to_route_pool)",
+    "diagnostic": "AssertionError: 'RESCHEDULED' != OrderStatus.PREPARING",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_single_failed_drop_point_completes_trip (core.tests.TripExecutionApiContractTests.test_single_failed_drop_point_completes_trip)",
+    "diagnostic": "AssertionError: 'IN_PROGRESS' != TripStatus.COMPLETED",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_trip_completes_when_remaining_drop_point_is_skipped (core.tests.TripExecutionApiContractTests.test_trip_completes_when_remaining_drop_point_is_skipped)",
+    "diagnostic": "AssertionError: 400 != 200",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_trips_post_allows_load_up_to_full_rated_capacity (core.tests.TripsPostCreationContractTests.test_trips_post_allows_load_up_to_full_rated_capacity)",
+    "diagnostic": "AssertionError: 400 != 201 : {\"success\": false, \"error\": \"Driver is not assigned to delivery area(s): Bacolod\"}",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_trips_post_creates_trip_with_drop_points_and_total_count (core.tests.TripsPostCreationContractTests.test_trips_post_creates_trip_with_drop_points_and_total_count)",
+    "diagnostic": "AssertionError: 400 != 201 : {\"success\": false, \"error\": \"Driver is not assigned to delivery area(s): Bacolod\"}",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_every_supported_category_has_the_required_container (core.test_beverage_categories.BeverageCategorySpecifica tionTests.test_every_supported_category_has_the_required_container)",
+    "diagnostic": "AssertionError: 'Plastic Bottle' != 'PET/Plastic Bottle'",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  },
+  {
+    "kind": "FAIL",
+    "test": "test_pooler_runtime_url_is_normalized_to_5432 (core.test_settings.DatabaseUrlParsingTests.test_pooler_runtime_url_is_normalized_to_5432)",
+    "diagnostic": "AssertionError: 'postgresql://user:pass@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres' != ",
+    "triage_status": "Unresolved; compare fixture/expectation to current intended behavior"
+  }
+]

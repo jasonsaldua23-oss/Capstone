@@ -25,8 +25,6 @@ type OtpVerificationScreenProps = {
   verifying?: boolean;
   resending?: boolean;
   error?: string | null;
-  /** Bumped by the caller each time a code is sent, to restart both countdowns. */
-  sentAt?: number;
   backLabel?: string;
 };
 
@@ -40,18 +38,11 @@ export function OtpVerificationScreen({
   verifying = false,
   resending = false,
   error,
-  sentAt = 0,
   backLabel = "Back to sign up",
 }: OtpVerificationScreenProps) {
   const [expiresIn, setExpiresIn] = useState(OTP_EXPIRY_SECONDS);
   const [resendIn, setResendIn] = useState(OTP_RESEND_COOLDOWN_SECONDS);
   const inputs = useRef<Array<TextInput | null>>([]);
-
-  // Mounting means a code was just sent; resending restarts both clocks.
-  useEffect(() => {
-    setExpiresIn(OTP_EXPIRY_SECONDS);
-    setResendIn(OTP_RESEND_COOLDOWN_SECONDS);
-  }, [sentAt]);
 
   useEffect(() => {
     const timer = setInterval(() => {

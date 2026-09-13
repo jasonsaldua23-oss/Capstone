@@ -1,0 +1,40 @@
+
+> logitrack-customer-app@1.0.0 test
+> node --test --experimental-strip-types src/lib/*.test.ts && node ../../scripts/check-customer-copy-parity.mjs
+
+(node:27164) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/mobile/customer-app/src/lib/customer-logic.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\CAPSTONE\mobile\customer-app\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ available inventory excludes reserved stock (2.6664ms)
+✔ status normalization matches the web portal for every backend OrderStatus (2.1419ms)
+✔ a purchase request awaiting approval reads as pending regardless of order status (0.3709ms)
+✔ delivery stage index matches the web portal (0.4744ms)
+✔ an order assigned to a delivery trip can no longer be cancelled (9.0874ms)
+✔ tracking opens once the warehouse starts preparing (1.0087ms)
+✔ password policy requires every configured character class (1.1166ms)
+✔ address coordinates are restricted to Negros Occidental (0.4402ms)
+✔ checkout accepts only supported Philippine mobile formats (1.0127ms)
+✔ person-name validation rejects numbers in any name part (1.1636ms)
+(node:16892) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/CAPSTONE/mobile/customer-app/src/lib/shadow.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\CAPSTONE\mobile\customer-app\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ boxShadow renders the authCard shadow with an alpha channel (4.4223ms)
+✔ boxShadow keeps the 1:1 radius mapping react-native-web used internally (0.6548ms)
+✔ boxShadow expands three-digit hex (0.442ms)
+✔ boxShadow falls back to the authored colour when it is not hex (0.3521ms)
+✔ boxShadow honours a horizontal offset when one is given (0.4515ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1176.8367
+web strings:   771
+app strings:   415
+known drift:   0 (scheduled)
+new drift:     0
+

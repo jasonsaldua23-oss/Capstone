@@ -5,7 +5,10 @@ import { useEffect, useRef } from 'react'
 // Nested screens consume Back before their parent portal changes its main view.
 export function useNativeBack(handler: () => boolean, priority = 0) {
   const latest = useRef(handler)
-  latest.current = handler
+  useEffect(() => {
+    // Keep the registered back action current after React commits the render.
+    latest.current = handler
+  }, [handler])
   useEffect(() => {
     const entry = { priority, handle: () => latest.current() }
     handlers.add(entry)

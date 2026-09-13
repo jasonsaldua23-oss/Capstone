@@ -11,7 +11,7 @@ import {
   Truck,
   XCircle,
 } from "lucide-react-native";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Image, Pressable, Text, TextInput, View } from "react-native";
 
 import { Badge } from "../../components/ui/badge";
@@ -63,7 +63,7 @@ export function PurchaseRequestsScreen() {
 
   const [search, setSearch] = useState("");
   const [prTab, setPrTab] = useState<"ALL" | PRStatus>("ALL");
-  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSelection, setPageSelection] = useState({ scope: "", page: 1 });
 
   const nonReplacementOrders = useMemo(
     () =>
@@ -95,14 +95,13 @@ export function PurchaseRequestsScreen() {
   }, [nonReplacementOrders, prTab, search]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
-  const activePage = Math.min(currentPage, totalPages);
+  // Filter changes derive page one without scheduling a second render.
+  const pageScope = [search, prTab].join("\u0000");
+  const activePage = pageSelection.scope === pageScope ? Math.min(pageSelection.page, totalPages) : 1;
+  const setCurrentPage = (page: number) => setPageSelection({ scope: pageScope, page: Math.min(totalPages, Math.max(1, page)) });
   const pagedOrders = filteredOrders.slice((activePage - 1) * PAGE_SIZE, activePage * PAGE_SIZE);
   const startIndex = filteredOrders.length === 0 ? 0 : (activePage - 1) * PAGE_SIZE + 1;
   const endIndex = Math.min(activePage * PAGE_SIZE, filteredOrders.length);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [search, prTab]);
 
   const openDetails = (orderId: string) => {
     setSelectedOrderId(orderId);
@@ -223,6 +222,7 @@ export function PurchaseRequestsScreen() {
                         source={{ uri: resolveImageUrl(item?.product?.imageUrl) }}
                         style={styles.listCardItemImage}
                         resizeMode="cover"
+                        alt={getRequestItemDisplayName(item)}
                       />
                       <View style={styles.flex}>
                         <Text style={styles.listCardItemName} numberOfLines={1}>

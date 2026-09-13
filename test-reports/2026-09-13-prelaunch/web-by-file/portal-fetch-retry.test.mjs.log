@@ -1,0 +1,49 @@
+TAP version 13
+# Subtest: admin browser: no-store data loads retry until successful
+ok 1 - admin browser: no-store data loads retry until successful
+  ---
+  duration_ms: 531.5204
+  type: 'test'
+  ...
+# Subtest: admin Capacitor context: no-store data loads retry until successful
+ok 2 - admin Capacitor context: no-store data loads retry until successful
+  ---
+  duration_ms: 70.8411
+  type: 'test'
+  ...
+# Subtest: warehouse browser: no-store data loads retry until successful
+ok 3 - warehouse browser: no-store data loads retry until successful
+  ---
+  duration_ms: 49.8708
+  type: 'test'
+  ...
+# Subtest: warehouse Capacitor context: no-store data loads retry until successful
+ok 4 - warehouse Capacitor context: no-store data loads retry until successful
+  ---
+  duration_ms: 51.3744
+  type: 'test'
+  ...
+# Subtest: driver browser: no-store data loads retry until successful
+ok 5 - driver browser: no-store data loads retry until successful
+  ---
+  duration_ms: 33.1225
+  type: 'test'
+  ...
+# Subtest: driver Capacitor context: no-store data loads retry until successful
+ok 6 - driver Capacitor context: no-store data loads retry until successful
+  ---
+  duration_ms: 44.5344
+  type: 'test'
+  ...
+# Subtest: customer browser: no-store data loads retry until successful
+ok 7 - customer browser: no-store data loads retry until successful
+  ---
+  duration_ms: 52.8187
+  type: 'test'
+  ...
+# Subtest: customer Capacitor context: no-store data loads retry until successful
+ok 8 - customer Capacitor context: no-store data loads retry until successful
+  ---
+  duration_ms: 41.0636
+  type: 'test'
+  ...

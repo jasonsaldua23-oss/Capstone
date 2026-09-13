@@ -1,13 +1,17 @@
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, TestCase
 
 from .auth import STAFF_TOKEN_NAME, create_token
 from .auth_response_middleware import StaffAuthFallbackNoStoreMiddleware
 from .views_api import _require_staff
+from .models import Customer, User
 
 
-class StaffCookieAuthFallbackTests(SimpleTestCase):
+class StaffCookieAuthFallbackTests(TestCase):
     def setUp(self):
+        # Session validation now checks live account state as well as JWT signatures.
+        Customer.objects.create(id="customer-1", email="customer@audit.invalid", name="Customer")
+        User.objects.create(id="staff-1", email="staff@audit.invalid", name="Staff", role="ADMIN")
         self.factory = RequestFactory()
         self.customer_token = create_token({"type": "customer", "userId": "customer-1"})
         self.staff_token = create_token({"type": "staff", "userId": "staff-1", "role": "ADMIN"})

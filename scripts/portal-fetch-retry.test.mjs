@@ -61,8 +61,8 @@ for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
         calls++
         assert.equal(init.headers.get('X-Portal'), portal)
         assert.equal(init.headers.get('Authorization'), `Bearer ${portalToken(portal)}`)
-        if (calls <= 2) throw new TypeError('Failed to fetch')
-        if (calls === 3) return new Response('Unavailable', { status: 503 })
+        if (calls === 1) throw new TypeError('Failed to fetch')
+        if (calls === 2) return new Response('Unavailable', { status: 503 })
         return Response.json({ replacements: [{ id: 'real-record' }] })
       })
       const pending = window.fetch('/api/replacements', { cache: 'no-store' }).then(async (response) => {
@@ -70,7 +70,7 @@ for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
         loading = false
         return data
       })
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         await flush()
         assert.equal(loading, true)
         assert.equal(calls, i + 1)
@@ -90,7 +90,7 @@ test('web interceptor preserves one-shot writes and cancels outstanding reads on
     calls++
     throw new TypeError('Failed to fetch')
   })
-  await assert.rejects(window.fetch('/api/customer/replacements', { method: 'POST' }), /Check the latest record/)
+  await assert.rejects(window.fetch('/api/customer/replacements', { method: 'POST' }), /Refresh the record/)
   assert.equal(calls, 1)
   const pending = window.fetch('https://annannsbeveragestrading.com/api/customer/orders')
   const rejected = assert.rejects(pending, { name: 'AbortError' })
@@ -215,12 +215,16 @@ for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
         calls++
         return makeResponse()
       })
-      const response = await window.fetch('/api/orders', { method: 'PATCH' })
-      assert.equal(response.ok, false)
-      const payload = await response.json()
-      assert.equal(payload.success, false)
-      assert.ok(payload.error.length > 0)
-      if (payload.available === 2) assert.equal(payload.error, 'Insufficient stock')
+      // Malformed 2xx responses reject; real non-2xx responses retain server details.
+      if (makeResponse().ok) {
+        await assert.rejects(window.fetch('/api/orders', { method: 'PATCH' }), /Refresh the record/)
+      } else {
+        const response = await window.fetch('/api/orders', { method: 'PATCH' })
+        assert.equal(response.ok, false)
+        const payload = await response.json()
+        assert.equal(payload.success, false)
+        assert.ok(payload.error.length > 0)
+      }
       assert.equal(calls, 1)
       uninstall()
     }

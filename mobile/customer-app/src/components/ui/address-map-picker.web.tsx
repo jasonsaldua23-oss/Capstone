@@ -19,6 +19,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 
+import serviceAreaGeoJson from "../../../../../public/geo/negros-occidental-municipal-maritime.json";
 import {
   SERVICE_AREA_BOUNDS,
   SERVICE_AREA_MESSAGE,
@@ -31,7 +32,7 @@ import { styles } from "../../styles/app-styles";
 
 const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
-const SERVICE_AREA_GEOJSON = require("../../../../../public/geo/negros-occidental-municipal-maritime.json");
+const SERVICE_AREA_GEOJSON = serviceAreaGeoJson;
 
 export function AddressMapPicker({
   latitude,
@@ -52,7 +53,9 @@ export function AddressMapPicker({
   // Kept in a ref so the click handler, registered once, always sees the current
   // polygons and callbacks without tearing the map down and rebuilding it.
   const handlersRef = useRef({ geometries, onPick, onOutsideServiceArea });
-  handlersRef.current = { geometries, onPick, onOutsideServiceArea };
+  useEffect(() => {
+    handlersRef.current = { geometries, onPick, onOutsideServiceArea };
+  }, [geometries, onOutsideServiceArea, onPick]);
 
   useEffect(() => {
     // Parsing 500KB of GeoJSON is deferred so it never blocks first paint.

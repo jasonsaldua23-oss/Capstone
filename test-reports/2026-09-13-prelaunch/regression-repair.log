@@ -1,0 +1,813 @@
+.venv/Scripts/python.exe : Creating test database for alias 'default'...
+At line:2 char:1
++ .venv/Scripts/python.exe backend/manage.py test core --settings=confi ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Creating test d...as 'default'...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Found 372 test(s).
+System check identified no issues (0 silenced).
+EEEAuthentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=1
+Authentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=2
+Authentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=3
+Authentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=4
+Authentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=5
+.Authentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=1
+...Authentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=1
+Authentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=2
+Authentication failure portal=admin account_hash=4f4a96e3aaa1 source_ip=203.0.113.10 count=3
+.Login OTP failure account_hash=4f4a96e3aaa1 source_ip=203.0.113.40 count=1
+Login OTP failure account_hash=4f4a96e3aaa1 source_ip=203.0.113.40 count=2
+Login OTP failure account_hash=4f4a96e3aaa1 source_ip=203.0.113.40 count=3
+....Authentication failure portal=admin account_hash=6481bd74fb1c source_ip=127.0.0.1 count=1
+..Login OTP failure account_hash=6481bd74fb1c source_ip=127.0.0.1 count=1
+....................FFFFF......F...............................................F.......................................
+....................FFFFF.E.............Supabase upload failed 
+path=products/product-b47e6ce1ea034c57bc7eb9a14801adb4.png status=403 body=denied
+Image upload to object storage failed folder=products
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13380, in _handle_image_upload
+    url = _store_upload(file_obj, folder, prefix, ".png")
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13364, in _store_upload
+    return _store_upload_bytes(
+        data,
+    ...<3 lines>...
+        content_type=content_type,
+    )
+  File "C:\CAPSTONE\backend\core\views_api.py", line 13332, in _store_upload_bytes
+    return object_storage.upload_bytes(f"{folder}/{name}", data, content_type=content_type)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\object_storage.py", line 120, in upload_bytes
+    raise ObjectStorageError(f"Upload rejected by storage ({response.status_code})")
+core.object_storage.ObjectStorageError: Upload rejected by storage (403)
+..Supabase upload connection failed path=products/product-a8ba1fc20af249e28962386ce4394882.png error=connection reset
+.Supabase upload failed path=products/product-25d9e48839c5451683773837ad06fe4b.png status=400 body=headers must have 
+required property 'authorization'
+Falling back to persistent disk for upload path=products/product-25d9e48839c5451683773837ad06fe4b.png
+.............................E....F........F.F.Failed to email warehouse staff for committed order 
+ca92f3c205f644485a018cb96
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 10126, in orders_collection
+    _email_new_order_to_warehouse_staff(order)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1234, in _execute_mock_call
+    raise effect
+RuntimeError: email unavailable
+Failed to notify staff for committed order ca92f3c205f644485a018cb96
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 10142, in orders_collection
+    _create_staff_notifications(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        title="New order received" if p.get("type") == "customer" else "Order created",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        reference_id=order.id,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1234, in _execute_mock_call
+    raise effect
+RuntimeError: notification unavailable
+..Exception in thread replacement-email-c811b0bddcead4ec6ba989674:
+..Traceback (most recent call last):
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: database table is locked: Replacement
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12160, in _send_replacement_submission_emails
+    .first()
+     ~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1059, in first
+    for obj in queryset[:1]:
+               ~~~~~~~~^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 400, in __iter__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1886, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 93, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1562, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: database table is locked: Replacement
+..Exception in thread replacement-email-c6571bf68a52c4071a487356e:
+.Traceback (most recent call last):
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: database table is locked: Replacement
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12160, in _send_replacement_submission_emails
+    .first()
+     ~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1059, in first
+    for obj in queryset[:1]:
+               ~~~~~~~~^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 400, in __iter__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1886, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 93, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1562, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: database table is locked: Replacement
+.Exception in thread replacement-email-c8fc854e8cceb40829a09d121:
+Traceback (most recent call last):
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: database table is locked: Replacement
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12160, in _send_replacement_submission_emails
+    .first()
+     ~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1059, in first
+    for obj in queryset[:1]:
+               ~~~~~~~~^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 400, in __iter__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 1886, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 93, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1562, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 328, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: database table is locked: Replacement
+....FFailed to create replacement submission notifications for c658b7d3ed6414d20a270046d
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12129, in customer_replacements
+    _create_staff_notifications(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        title="New replacement request",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+        reference_id=replacement.id,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1234, in _execute_mock_call
+    raise effect
+RuntimeError: staff notification failed
+Failed to schedule replacement notification email for c658b7d3ed6414d20a270046d
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\views_api.py", line 12176, in customer_replacements
+    ).start()
+      ~~~~~^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1234, in _execute_mock_call
+    raise effect
+RuntimeError: email thread failed
+.F..F.......F.......FFF........F.FF...........F........F.F....FFF.....F..F............FF.......................F....Inv
+alid Google credential during customer auth: invalid test token
+..s............F....
+======================================================================
+ERROR: core.test_discount_threshold (unittest.loader._FailedTest.core.test_discount_threshold)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: core.test_discount_threshold
+Traceback (most recent call last):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\loader.py", line 426, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\loader.py", line 367, in 
+_get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "C:\CAPSTONE\backend\core\test_discount_threshold.py", line 6, in <module>
+    from .views_api import _build_discount_breakdown_for_customer, _count_discount_eligible_cases
+ImportError: cannot import name '_count_discount_eligible_cases' from 'core.views_api' 
+(C:\CAPSTONE\backend\core\views_api.py)
+
+
+======================================================================
+ERROR: core.test_glass_deposits (unittest.loader._FailedTest.core.test_glass_deposits)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: core.test_glass_deposits
+Traceback (most recent call last):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\loader.py", line 426, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\loader.py", line 367, in 
+_get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "C:\CAPSTONE\backend\core\test_glass_deposits.py", line 16, in <module>
+    from .views_api import (
+    ...<6 lines>...
+    )
+ImportError: cannot import name '_calculate_glass_checkout_deposit' from 'core.views_api' 
+(C:\CAPSTONE\backend\core\views_api.py)
+
+
+======================================================================
+ERROR: core.test_mixed_case_backend_guards (unittest.loader._FailedTest.core.test_mixed_case_backend_guards)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: core.test_mixed_case_backend_guards
+Traceback (most recent call last):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\loader.py", line 426, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\loader.py", line 367, in 
+_get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "C:\CAPSTONE\backend\core\test_mixed_case_backend_guards.py", line 28, in <module>
+    from .views_api import (
+    ...<14 lines>...
+    )
+ImportError: cannot import name 'mixed_case_quote' from 'core.views_api' (C:\CAPSTONE\backend\core\views_api.py)
+
+
+======================================================================
+ERROR: test_warehouse_staff_can_view_but_cannot_modify_profile 
+(core.test_single_warehouse.SingleWarehouseApiContractTests.test_warehouse_staff_can_view_but_cannot_modify_profile)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_single_warehouse.py", line 298, in 
+test_warehouse_staff_can_view_but_cannot_modify_profile
+    self.assertEqual(listing.json()["warehouses"][0]["id"], warehouse.id)
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^
+IndexError: list index out of range
+
+======================================================================
+ERROR: test_returnable_product_stock_in_consumes_available_empties_without_requiring_full_amount (core.tests.BulkStockI
+nExistingProductContractTests.test_returnable_product_stock_in_consumes_available_empties_without_requiring_full_amount
+)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 4593, in 
+test_returnable_product_stock_in_consumes_available_empties_without_requiring_full_amount
+    consumption = InventoryTransaction.objects.get(
+        type="CONSUME_EMPTY",
+        reference_type="stock_batch_empty_consumed",
+    )
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\db\models\query.py", line 639, in get
+    raise self.model.DoesNotExist(
+        "%s matching query does not exist." % self.model._meta.object_name
+    )
+core.models.InventoryTransaction.DoesNotExist: InventoryTransaction matching query does not exist.
+
+======================================================================
+FAIL: test_assigning_code_a_driver_to_tricycle_is_rejected (core.test_driver_license_qualification.DriverVehicleAssignm
+entApiTests.test_assigning_code_a_driver_to_tricycle_is_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_driver_license_qualification.py", line 119, in 
+test_assigning_code_a_driver_to_tricycle_is_rejected
+    self.assertEqual(response.status_code, 400)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 400
+
+======================================================================
+FAIL: test_assigning_code_a_driver_to_truck_is_rejected (core.test_driver_license_qualification.DriverVehicleAssignment
+ApiTests.test_assigning_code_a_driver_to_truck_is_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_driver_license_qualification.py", line 112, in 
+test_assigning_code_a_driver_to_truck_is_rejected
+    self.assertEqual(response.status_code, 400)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 400
+
+======================================================================
+FAIL: test_assigning_code_c_driver_to_truck_succeeds 
+(core.test_driver_license_qualification.DriverVehicleAssignmentApiTests.test_assigning_code_c_driver_to_truck_succeeds)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_driver_license_qualification.py", line 126, in 
+test_assigning_code_c_driver_to_truck_succeeds
+    self.assertEqual(response.status_code, 200)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 200
+
+======================================================================
+FAIL: test_assigning_vehicle_from_the_driver_side_is_rejected_too (core.test_driver_license_qualification.DriverVehicle
+AssignmentApiTests.test_assigning_vehicle_from_the_driver_side_is_rejected_too)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_driver_license_qualification.py", line 132, in 
+test_assigning_vehicle_from_the_driver_side_is_rejected_too
+    self.assertEqual(response.status_code, 400)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 400
+
+======================================================================
+FAIL: test_downgrading_the_code_of_an_assigned_driver_is_rejected (core.test_driver_license_qualification.DriverVehicle
+AssignmentApiTests.test_downgrading_the_code_of_an_assigned_driver_is_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_driver_license_qualification.py", line 141, in 
+test_downgrading_the_code_of_an_assigned_driver_is_rejected
+    self.assertEqual(response.status_code, 400)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 400
+
+======================================================================
+FAIL: test_registration_token_immediately_restores_customer_and_available_products (core.test_driver_service_areas.NewC
+ustomerAccessTests.test_registration_token_immediately_restores_customer_and_available_products)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_driver_service_areas.py", line 101, in 
+test_registration_token_immediately_restores_customer_and_available_products
+    self.assertEqual(row['availableQuantity'], 10)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 10
+
+======================================================================
+FAIL: test_incomplete_duplicate_and_incompatible_mixes_are_rejected 
+(core.test_mixed_case.MixedCaseValidationTests.test_incomplete_duplicate_and_incompatible_mixes_are_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_mixed_case.py", line 212, in 
+test_incomplete_duplicate_and_incompatible_mixes_are_rejected
+    with self.assertRaisesMessage(ValueError, "same packaging compatibility"):
+         ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\contextlib.py", line 148, in __exit__
+    next(self.gen)
+    ~~~~^^^^^^^^^^
+  File "C:\CAPSTONE\.venv\Lib\site-packages\django\test\testcases.py", line 887, in _assert_raises_or_warns_cm
+    with func(expected_exception) as cm:
+         ~~~~^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_inventory_and_trip_requests_reject_another_warehouse_id (core.test_single_warehouse.SingleWarehouseApiContra
+ctTests.test_inventory_and_trip_requests_reject_another_warehouse_id)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_single_warehouse.py", line 384, in 
+test_inventory_and_trip_requests_reject_another_warehouse_id
+    self.assertEqual(inventory_response.status_code, 400)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 404 != 400
+
+======================================================================
+FAIL: test_operational_writes_and_dashboard_use_the_registered_warehouse (core.test_single_warehouse.SingleWarehouseApi
+ContractTests.test_operational_writes_and_dashboard_use_the_registered_warehouse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\unittest\mock.py", line 1432, in patched
+    return func(*newargs, **newkeywargs)
+  File "C:\CAPSTONE\backend\core\test_single_warehouse.py", line 523, in 
+test_operational_writes_and_dashboard_use_the_registered_warehouse
+    self.assertEqual(update_product.status_code, 200, update_product.content)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 200 : b'{"success": false, "error": "Only warehouse staff can perform warehouse operations"}'
+
+======================================================================
+FAIL: test_operations_fail_clearly_before_initial_setup 
+(core.test_single_warehouse.SingleWarehouseApiContractTests.test_operations_fail_clearly_before_initial_setup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_single_warehouse.py", line 557, in 
+test_operations_fail_clearly_before_initial_setup
+    self.assertEqual(response.status_code, 409)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 200 != 409
+
+======================================================================
+FAIL: test_product_is_assigned_server_side_and_mismatched_id_is_rejected (core.test_single_warehouse.SingleWarehouseApi
+ContractTests.test_product_is_assigned_server_side_and_mismatched_id_is_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_single_warehouse.py", line 329, in 
+test_product_is_assigned_server_side_and_mismatched_id_is_rejected
+    self.assertEqual(rejected.status_code, 400)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 400
+
+======================================================================
+FAIL: test_second_registration_is_rejected_by_api_and_database 
+(core.test_single_warehouse.SingleWarehouseApiContractTests.test_second_registration_is_rejected_by_api_and_database)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_single_warehouse.py", line 280, in 
+test_second_registration_is_rejected_by_api_and_database
+    self.assertEqual(response.status_code, 409)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 201 != 409
+
+======================================================================
+FAIL: test_super_admin_cannot_create_customer_account 
+(core.tests.CustomerCreationPermissionContractTests.test_super_admin_cannot_create_customer_account)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 5915, in test_super_admin_cannot_create_customer_account
+    self.assertEqual(response.status_code, 403)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 201 != 403
+
+======================================================================
+FAIL: test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided (core.tests.CustomerOrders
+PostApiContractTests.test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 1770, in 
+test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided
+    self.assertEqual(response.status_code, 201)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 201
+
+======================================================================
+FAIL: test_customer_orders_post_leaves_warehouse_unassigned_when_no_single_warehouse_can_fulfill (core.tests.CustomerOr
+dersPostApiContractTests.test_customer_orders_post_leaves_warehouse_unassigned_when_no_single_warehouse_can_fulfill)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 1834, in 
+test_customer_orders_post_leaves_warehouse_unassigned_when_no_single_warehouse_can_fulfill
+    self.assertEqual(response.status_code, 201)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 201
+
+======================================================================
+FAIL: test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock (core.tests.CustomerReplacementReque
+stContractTests.test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 5764, in 
+test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock
+    self.assertIn("ReplacementUnitMode=BOTTLE", bottle_item.notes)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'ReplacementUnitMode=BOTTLE' not found in 'Replacement line from 
+RPL-MIXED-REPL-001\nReplacementUnitMode=UNIT\nReplacementRequestedBottles=3'
+
+======================================================================
+FAIL: test_scheduled_bottle_replacement_prices_only_requested_bottles 
+(core.tests.CustomerReplacementRequestContractTests.test_scheduled_bottle_replacement_prices_only_requested_bottles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 5663, in 
+test_scheduled_bottle_replacement_prices_only_requested_bottles
+    self.assertAlmostEqual(item.total_price, 5.0)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 20.0 != 5.0 within 7 places (15.0 difference)
+
+======================================================================
+FAIL: test_delivery_lifecycle_end_to_end 
+(core.tests.DeliveryLifecycleFlowContractTests.test_delivery_lifecycle_end_to_end)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 4340, in test_delivery_lifecycle_end_to_end
+    self.assertEqual(completed.status_code, 200)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 200
+
+======================================================================
+FAIL: test_driver_profile_put_updates_driver_and_user_fields 
+(core.tests.DriverProfileApiContractTests.test_driver_profile_put_updates_driver_and_user_fields)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 1949, in test_driver_profile_put_updates_driver_and_user_fields
+    self.assertEqual(response.status_code, 200)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 200
+
+======================================================================
+FAIL: test_driver_status_update_persists_and_is_returned 
+(core.tests.DriverVehicleActiveTripValidationTests.test_driver_status_update_persists_and_is_returned)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 712, in test_driver_status_update_persists_and_is_returned
+    self.assertEqual(response.status_code, 200, response.content)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 200 : b'{"success": false, "error": "Only warehouse staff can perform warehouse operations"}'
+
+======================================================================
+FAIL: test_driver_update_allows_unassignment_after_trip_is_closed 
+(core.tests.DriverVehicleActiveTripValidationTests.test_driver_update_allows_unassignment_after_trip_is_closed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 700, in test_driver_update_allows_unassignment_after_trip_is_closed
+    self.assertEqual(response.status_code, 200, response.content)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 200 : b'{"success": false, "error": "Only warehouse staff can perform warehouse operations"}'
+
+======================================================================
+FAIL: test_vehicle_update_rejects_unassignment_during_active_trip 
+(core.tests.DriverVehicleActiveTripValidationTests.test_vehicle_update_rejects_unassignment_during_active_trip)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 682, in test_vehicle_update_rejects_unassignment_during_active_trip
+    self.assertEqual(response.status_code, 400)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 400
+
+======================================================================
+FAIL: test_dispatched_status_is_automatic_when_trip_starts 
+(core.tests.OrderStatusTransitionApiContractTests.test_dispatched_status_is_automatic_when_trip_starts)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 2154, in test_dispatched_status_is_automatic_when_trip_starts
+    self.assertEqual(payload["error"], "OUT_FOR_DELIVERY is set automatically when the trip starts")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'Purchase request must be approved before processing' != 'OUT_FOR_DELIVERY is set automatically when 
+the trip starts'
+- Purchase request must be approved before processing
++ OUT_FOR_DELIVERY is set automatically when the trip starts
+
+
+======================================================================
+FAIL: test_out_for_delivery_status_is_automatic_when_trip_starts 
+(core.tests.OrderStatusTransitionApiContractTests.test_out_for_delivery_status_is_automatic_when_trip_starts)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 2163, in test_out_for_delivery_status_is_automatic_when_trip_starts
+    self.assertEqual(payload["error"], "OUT_FOR_DELIVERY is set automatically when the trip starts")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'Purchase request must be approved before processing' != 'OUT_FOR_DELIVERY is set automatically when 
+the trip starts'
+- Purchase request must be approved before processing
++ OUT_FOR_DELIVERY is set automatically when the trip starts
+
+
+======================================================================
+FAIL: test_preparing_status_updates_order_and_timeline 
+(core.tests.OrderStatusTransitionApiContractTests.test_preparing_status_updates_order_and_timeline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 2169, in test_preparing_status_updates_order_and_timeline
+    self.assertEqual(response.status_code, 200)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 200
+
+======================================================================
+FAIL: test_users_collection_rejects_weak_password 
+(core.tests.PasswordPolicyContractTests.test_users_collection_rejects_weak_password)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 5201, in test_users_collection_rejects_weak_password
+    self.assertIn("Password must be at least 8 characters", payload["error"])
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'Password must be at least 8 characters' not found in 'Please enter a valid Philippine mobile number'
+
+======================================================================
+FAIL: test_route_plan_hides_order_assigned_to_trip_until_trip_deleted 
+(core.tests.RoutePlanStructureContractTests.test_route_plan_hides_order_assigned_to_trip_until_trip_deleted)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 3731, in 
+test_route_plan_hides_order_assigned_to_trip_until_trip_deleted
+    self.assertEqual(delete_response.status_code, 200)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 200
+
+======================================================================
+FAIL: test_trip_delete_rejects_non_planned_trip 
+(core.tests.RoutePlanStructureContractTests.test_trip_delete_rejects_non_planned_trip)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 3758, in test_trip_delete_rejects_non_planned_trip
+    self.assertEqual(response.status_code, 409)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 403 != 409
+
+======================================================================
+FAIL: test_drop_point_completion_updates_trip_completion_fields 
+(core.tests.TripExecutionApiContractTests.test_drop_point_completion_updates_trip_completion_fields)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 2566, in test_drop_point_completion_updates_trip_completion_fields
+    self.assertEqual(response_first.status_code, 200)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 200
+
+======================================================================
+FAIL: test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it (core.tests.TripExecutionApiC
+ontractTests.test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 2874, in 
+test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it
+    self.assertEqual(order.status, OrderStatus.PREPARING)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'RESCHEDULED' != OrderStatus.PREPARING
+
+======================================================================
+FAIL: test_drop_point_failed_reschedule_other_date_requeues_order_to_route_pool 
+(core.tests.TripExecutionApiContractTests.test_drop_point_failed_reschedule_other_date_requeues_order_to_route_pool)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 2769, in 
+test_drop_point_failed_reschedule_other_date_requeues_order_to_route_pool
+    self.assertEqual(order.status, OrderStatus.PREPARING)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'RESCHEDULED' != OrderStatus.PREPARING
+
+======================================================================
+FAIL: test_single_failed_drop_point_completes_trip 
+(core.tests.TripExecutionApiContractTests.test_single_failed_drop_point_completes_trip)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 3039, in test_single_failed_drop_point_completes_trip
+    self.assertEqual(single_trip.status, TripStatus.COMPLETED)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'IN_PROGRESS' != TripStatus.COMPLETED
+
+======================================================================
+FAIL: test_trip_completes_when_remaining_drop_point_is_skipped 
+(core.tests.TripExecutionApiContractTests.test_trip_completes_when_remaining_drop_point_is_skipped)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 2648, in test_trip_completes_when_remaining_drop_point_is_skipped
+    self.assertEqual(response_first.status_code, 200)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 200
+
+======================================================================
+FAIL: test_trips_post_allows_load_up_to_full_rated_capacity 
+(core.tests.TripsPostCreationContractTests.test_trips_post_allows_load_up_to_full_rated_capacity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 3993, in test_trips_post_allows_load_up_to_full_rated_capacity
+    self.assertEqual(response.status_code, 201, response.content.decode())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 201 : {"success": false, "error": "Driver is not assigned to delivery area(s): Bacolod"}
+
+======================================================================
+FAIL: test_trips_post_creates_trip_with_drop_points_and_total_count 
+(core.tests.TripsPostCreationContractTests.test_trips_post_creates_trip_with_drop_points_and_total_count)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\tests.py", line 3900, in test_trips_post_creates_trip_with_drop_points_and_total_count
+    self.assertEqual(response.status_code, 201, response.content.decode())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 400 != 201 : {"success": false, "error": "Driver is not assigned to delivery area(s): Bacolod"}
+
+======================================================================
+FAIL: test_every_supported_category_has_the_required_container (core.test_beverage_categories.BeverageCategorySpecifica
+tionTests.test_every_supported_category_has_the_required_container)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_beverage_categories.py", line 19, in 
+test_every_supported_category_has_the_required_container
+    self.assertEqual(spec["packagingType"], packaging_type)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'Plastic Bottle' != 'PET/Plastic Bottle'
+- Plastic Bottle
++ PET/Plastic Bottle
+? ++++
+
+
+======================================================================
+FAIL: test_pooler_runtime_url_is_normalized_to_5432 
+(core.test_settings.DatabaseUrlParsingTests.test_pooler_runtime_url_is_normalized_to_5432)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\CAPSTONE\backend\core\test_settings.py", line 42, in test_pooler_runtime_url_is_normalized_to_5432
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        normalized,
+        ^^^^^^^^^^^
+        "postgresql://user:[redacted-email]:5432/postgres",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: 'postgresql://user:[redacted-email]:6543/postgres' != 
+'postgresql://user:[redacted-email]:5432/postgres'
+- postgresql://user:[redacted-email]:6543/postgres
+?                                                                 -
++ postgresql://user:[redacted-email]:5432/postgres
+?                                                                    +
+
+
+----------------------------------------------------------------------
+Ran 372 tests in 39.362s
+
+FAILED (failures=37, errors=5, skipped=1)
+Destroying test database for alias 'default'...
+

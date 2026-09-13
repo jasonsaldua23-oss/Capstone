@@ -59,10 +59,11 @@ def forwards(apps, schema_editor):
     # The backfill reconstructs reservations from several legacy tables. Hold a
     # short transactional lock so checkout/delivery/cancellation cannot change
     # those rows between validation and creation.
-    schema_editor.execute(
-        'LOCK TABLE "Product", "Inventory", "InventoryTransaction", '
-        '"Order", "OrderItem", "StockBatch" IN ACCESS EXCLUSIVE MODE'
-    )
+    if schema_editor.connection.vendor == "postgresql":
+        schema_editor.execute(
+            'LOCK TABLE "Product", "Inventory", "InventoryTransaction", '
+            '"Order", "OrderItem", "StockBatch" IN ACCESS EXCLUSIVE MODE'
+        )
     Product = apps.get_model("core", "Product")
     PackagingProfile = apps.get_model("core", "PackagingProfile")
     Inventory = apps.get_model("core", "Inventory")

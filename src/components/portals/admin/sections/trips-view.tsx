@@ -863,6 +863,13 @@ export function TripsView() {
                           </div>
                         </div>
                       </div>
+                      {normalizedTripStatus === 'COMPLETED' && (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                          {/* Added: admins can reconcile the driver's completed-trip cash. */}
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total cash collected</p>
+                          <p className="mt-1 text-xl font-bold text-emerald-900">{formatPeso(Number(selectedTrip.cashCollectedTotal || 0))}</p>
+                        </div>
+                      )}
                       <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
                         <p className="mb-3 flex items-center gap-2 text-[14px] font-bold leading-none text-[#0f172f]">
                           <MapPin className="h-4 w-4 text-blue-600" />

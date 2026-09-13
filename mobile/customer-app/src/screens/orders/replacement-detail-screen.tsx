@@ -111,6 +111,122 @@ export function ReplacementDetailScreen({ replacementId }: { replacementId: stri
           {claimNote ? <DetailRow Icon={NotebookPen} label="Notes" value={claimNote} /> : null}
         </View>
 
+        {/* ── Claim Progress tracker (mirrors the order Delivery Journey stepper) ── */}
+        {(() => {
+          const rawStatus = String((record as any).status || "").toUpperCase();
+          // Map the replacement status to a 0-based stage index (matches the 4 steps below).
+          const stageIndex =
+            rawStatus === "COMPLETED" || rawStatus === "RESOLVED_ON_DELIVERY"
+              ? 3
+              : rawStatus === "APPROVED" || rawStatus === "IN_PROGRESS"
+                ? 2
+                : rawStatus === "UNDER_REVIEW"
+                  ? 1
+                  : rawStatus === "PENDING" || rawStatus === "REPORTED"
+                    ? 0
+                    : -1; // Cancelled / Rejected: do not highlight any forward step
+
+          // Build a lookup: status → earliest timestamp from the raw statusTimeline.
+          const rawTimeline: any[] = Array.isArray(meta?.statusTimeline) ? meta.statusTimeline : [];
+          const timestampByStatus: Record<string, string> = {};
+          for (const entry of rawTimeline) {
+            const entryStatus = String(entry?.status || "").toUpperCase();
+            if (entryStatus && !timestampByStatus[entryStatus]) {
+              const ts = entry?.at || entry?.timestamp;
+              if (ts) timestampByStatus[entryStatus] = new Date(ts).toLocaleString();
+            }
+          }
+
+          const trackerSteps = [
+            {
+              key: "submitted",
+              label: "Claim Submitted",
+              description: "Your replacement request was received.",
+              matchStatuses: ["PENDING", "REPORTED"],
+              active: stageIndex >= 0,
+            },
+            {
+              key: "review",
+              label: "Under Review",
+              description: "Our team is reviewing your claim.",
+              matchStatuses: ["UNDER_REVIEW"],
+              active: stageIndex >= 1,
+            },
+            {
+              key: "approved",
+              label: "Approved / Scheduled",
+              description: "Claim approved. Replacement delivery is being arranged.",
+              matchStatuses: ["APPROVED", "IN_PROGRESS"],
+              active: stageIndex >= 2,
+            },
+            {
+              key: "completed",
+              label: "Completed",
+              description: "Your replacement has been delivered.",
+              matchStatuses: ["COMPLETED", "RESOLVED_ON_DELIVERY"],
+              active: stageIndex >= 3,
+            },
+          ];
+
+          // Resolve per-step timestamp: first matching status found in the timeline.
+          const getStepTimestamp = (step: typeof trackerSteps[0]): string => {
+            for (const s of step.matchStatuses) {
+              if (timestampByStatus[s]) return timestampByStatus[s];
+            }
+            return "";
+          };
+
+          return (
+            <View style={styles.trackCard}>
+              <View style={styles.trackCardHeader}>
+                <Text style={styles.trackCardTitle}>Claim Progress</Text>
+              </View>
+              <View style={styles.trackTimeline}>
+                {trackerSteps.map((step, idx) => {
+                  const timestamp = getStepTimestamp(step);
+                  return (
+                    <View key={step.key} style={styles.trackTimelineRow}>
+                      <View style={styles.trackTimelineRail}>
+                        <View
+                          style={[
+                            styles.trackTimelineDot,
+                            step.active ? styles.trackTimelineDotActive : null,
+                          ]}
+                        />
+                        {idx < trackerSteps.length - 1 ? (
+                          <View
+                            style={[
+                              styles.trackTimelineLine,
+                              step.active ? styles.trackTimelineLineActive : null,
+                            ]}
+                          />
+                        ) : null}
+                      </View>
+                      <View style={styles.flex}>
+                        <Text
+                          style={
+                            step.active
+                              ? styles.trackTimelineLabelActive
+                              : styles.trackTimelineLabel
+                          }
+                        >
+                          {step.label}
+                        </Text>
+                        <Text style={styles.trackTimelineDescription}>
+                          {step.description}
+                        </Text>
+                      </View>
+                      <Text style={styles.trackTimelineTime}>
+                        {timestamp || "--"}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          );
+        })()}
+
         {claimTimeline.length > 0 ? (
           <View style={styles.replacementDetailCard}>
             <Text style={styles.replacementDetailHeading}>Claim Timeline</Text>

@@ -5,6 +5,7 @@ import { CalendarDays, ClipboardList, MapPin, Package, Phone, Store, User } from
 import React from "react";
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 
+import receiptLogo from "../../../../../public/aab-trading-shop.png";
 import { formatPeso } from "../../lib/customer-logic";
 import { formatDate, resolveImageUrl } from "../../lib/format";
 import { formatDiscountLabel, getEffectiveDiscountPercent, getOrderItemDisplayName } from "../../lib/shared";
@@ -46,9 +47,10 @@ export function ReceiptDialog() {
             <View style={styles.receiptSheet}>
               <View style={styles.receiptHeaderRow}>
                 <Image
-                  source={require("../../../../../public/aab-trading-shop.png")}
+                  source={receiptLogo}
                   style={styles.receiptLogo}
                   resizeMode="cover"
+                  alt="AAB Trading Shop"
                 />
                 <View style={styles.flex}>
                   <Text style={styles.receiptBusiness}>{RECEIPT_BUSINESS_NAME}</Text>
