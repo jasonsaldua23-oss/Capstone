@@ -14308,6 +14308,8 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
     # Group purchased containers by product. Mixed-case components have no product
     # on the parent order item, so include each component's actual bottle quantity.
     purchased_bottles_by_product: dict[str, int] = {}
+    mixed_component_product_ids: set[str] = set()
+    standard_product_ids: set[str] = set()
     for item in order_items:
         if item.item_type == OrderItemType.MIXED_CASE:
             for component in item.mixed_case_components.select_related("product").all():
@@ -14318,6 +14320,7 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
                     purchased_bottles_by_product.get(product.id, 0)
                     + max(0, _int(component.total_base_units, 0))
                 )
+                mixed_component_product_ids.add(str(product.id))
             continue
         prod = item.product
         if not prod or not prod.is_active or not _is_returnable_product(prod):
@@ -14327,6 +14330,7 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
         item_unit = str(getattr(item, "product_unit", "") or getattr(item, "unit", "") or getattr(prod, "unit", "") or "").strip().lower()
         quantity_bottles = item.quantity * containers_per_case if item_unit == "case" else item.quantity
         purchased_bottles_by_product[prod.id] = purchased_bottles_by_product.get(prod.id, 0) + max(0, quantity_bottles)
+        standard_product_ids.add(str(prod.id))
 
     recorded_by_product = {
         str(row["reference_id"]): max(0, _int(row["total"], 0))
@@ -14358,6 +14362,13 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
             eligible_items.append({
                 "productId": product.id,
                 "productName": product.name,
+                # Mixed-case components are individual bottles, even when the
+                # catalog product is normally sold as a full case.
+                "unit": (
+                    "bottle"
+                    if str(prod_id) in mixed_component_product_ids and str(prod_id) not in standard_product_ids
+                    else _normalize_product_unit(getattr(product, "unit", None))
+                ),
                 "imageUrl": product.image_url,
                 "category": product.category,
                 "containerTypeId": container_type.id,

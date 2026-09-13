@@ -89,6 +89,7 @@ def declared_empties_by_container(
     order: Order | None,
     *,
     packaging_cache: dict[str, ProductPackaging] | None = None,
+    group_by_product: bool = False,
 ) -> dict[str, dict[str, Any]]:
     """What the customer said they would hand over, per container type.
 
@@ -107,6 +108,7 @@ def declared_empties_by_container(
         deposit_value: Decimal,
         name: str,
         *,
+        product_id: str = "",
         product_name: str = "",
         by_case: bool = False,
         containers_per_case: int = 1,
@@ -123,9 +125,14 @@ def declared_empties_by_container(
         loose_bottles = max(0, _int(declared_loose_bottles, 0)) if declared_loose_bottles is not None else (
             quantity % per_case if by_case and per_case > 1 else quantity
         )
+        # Driver counters must keep products separate even when they use the same
+        # physical container; settlement callers retain container-level grouping.
+        product_key = str(product_id or product_name or "unknown").strip().lower()
+        declaration_id = f"{container_type_id}:{product_key}" if group_by_product else container_type_id
         entry = declared.setdefault(
-            container_type_id,
+            declaration_id,
             {
+                "declarationId": declaration_id,
                 "containerTypeId": container_type_id,
                 "containerTypeName": name,
                 "productNames": [],
@@ -181,6 +188,7 @@ def declared_empties_by_container(
             quantity,
             Decimal(str(getattr(item, "deposit_refunded", 0) or 0)),
             str(getattr(item, "container_type_name", "") or "").strip(),
+            product_id=str(getattr(item, "product_id", "") or "").strip(),
             product_name=str(getattr(item, "product_name", "") or "").strip(),
             by_case=_sold_by_case(item) and per_case > 1 and quantity % per_case == 0,
             containers_per_case=per_case,
@@ -216,6 +224,7 @@ def declared_empties_by_container(
             quantity,
             Decimal(str(getattr(component, "deposit_total", 0) or 0)),
             str(getattr(component, "container_type_name", "") or "").strip(),
+            product_id=str(getattr(component, "product_id", "") or "").strip(),
             product_name=str(getattr(component, "product_name", "") or "").strip(),
             by_case=False,
             containers_per_case=per_case,
@@ -244,6 +253,7 @@ def declared_empties_by_container(
             max(0, _int(claim.requested_quantity, 0)),
             Decimal(str(claim.requested_amount or 0)),
             str(claim.container_type.name or "Container"),
+            product_id=str(getattr(claim, "product_id", "") or "").strip(),
             product_name=str(claim.product_name or "").strip(),
             by_case=counts_by_case,
             containers_per_case=containers_per_case,
@@ -256,19 +266,15 @@ def declared_empties_by_container(
             is_refund_claim=True,
         )
 
-    missing_name_ids = [
-        container_type_id
-        for container_type_id, entry in declared.items()
-        if not entry["containerTypeName"]
-    ]
+    missing_name_ids = [entry["containerTypeId"] for entry in declared.values() if not entry["containerTypeName"]]
     container_names = {
         str(container_type.id): str(container_type.name or "Container")
         for container_type in ContainerType.objects.filter(id__in=missing_name_ids)
     } if missing_name_ids else {}
 
-    for container_type_id, entry in declared.items():
+    for entry in declared.values():
         if not entry["containerTypeName"]:
-            entry["containerTypeName"] = container_names.get(container_type_id, "Container")
+            entry["containerTypeName"] = container_names.get(entry["containerTypeId"], "Container")
         declared_qty = max(1, entry["declared"])
         entry["depositPerContainer"] = _money(entry["depositValue"] / Decimal(declared_qty))
 
@@ -292,6 +298,7 @@ def serialize_declared_empties(
     """The declared empties in the shape the driver apps consume."""
     return [
         {
+            "declarationId": entry["declarationId"],
             "containerTypeId": entry["containerTypeId"],
             "containerTypeName": entry["containerTypeName"],
             "productName": ", ".join(entry["productNames"]) if entry["productNames"] else None,
@@ -310,8 +317,12 @@ def serialize_declared_empties(
             "depositValue": float(entry["depositValue"]),
         }
         for entry in sorted(
-            declared_empties_by_container(order, packaging_cache=packaging_cache).values(),
-            key=lambda item: item["containerTypeName"],
+            declared_empties_by_container(
+                order,
+                packaging_cache=packaging_cache,
+                group_by_product=True,
+            ).values(),
+            key=lambda item: (item["containerTypeName"], item["productNames"]),
         )
     ]
 

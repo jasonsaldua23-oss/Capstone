@@ -152,6 +152,16 @@ class CustomerOrderDepositRefundTests(TestCase):
             sum(claim.requested_amount for claim in order.deposit_refund_claims.all()),
             Decimal("132.00"),
         )
+        # Driver verification keeps each selected product on its own counter even
+        # though both products settle into the same physical container ledger.
+        declared = serialize_declared_empties(order)
+        self.assertEqual(len(declared), 2)
+        self.assertEqual(
+            {row["productName"]: row["declaredCases"] for row in declared},
+            {"Mountain Dew": 2, "Pepsi": 1},
+        )
+        self.assertEqual(len({row["declarationId"] for row in declared}), 2)
+        self.assertEqual({row["containerTypeId"] for row in declared}, {container_type.id})
 
     def test_refund_reduces_the_selected_order_and_available_credit_once(self) -> None:
         customer = Customer.objects.create(
