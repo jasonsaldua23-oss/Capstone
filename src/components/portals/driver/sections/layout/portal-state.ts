@@ -255,6 +255,7 @@ export function useDriverPortalState() {
   const lastLocationUploadAtRef = useRef<number>(0)
   const lastUploadedLocationRef = useRef<DriverGpsLocation | null>(null)
   const lastAcceptedFixAtRef = useRef<number>(0)
+  const trackingSessionStartedAtRef = useRef<number>(0)
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoTrackingTripIdRef = useRef<string | null>(null)
   const trackingLifecycleLockRef = useRef(false)
@@ -510,8 +511,13 @@ export function useDriverPortalState() {
     // to the last server-side location and the icon appeared to teleport. The
     // map draws an accuracy halo around these, so the downgrade stays visible.
     const hasStaleAcceptedFix =
-      lastAcceptedFixAtRef.current > 0 &&
-      Date.now() - lastAcceptedFixAtRef.current >= DRIVER_GPS_DEGRADED_ACCEPT_AFTER_MS
+      (lastAcceptedFixAtRef.current > 0 &&
+        Date.now() - lastAcceptedFixAtRef.current >= DRIVER_GPS_DEGRADED_ACCEPT_AFTER_MS) ||
+      // Native GPS can begin with a usable but coarse fix. Do not wait forever
+      // for a non-existent precise sample before drawing the driver's vehicle.
+      (lastAcceptedFixAtRef.current === 0 &&
+        trackingSessionStartedAtRef.current > 0 &&
+        Date.now() - trackingSessionStartedAtRef.current >= DRIVER_GPS_DEGRADED_ACCEPT_AFTER_MS)
     const accuracyCeiling = hasStaleAcceptedFix
       ? DRIVER_GPS_DEGRADED_ACCURACY_METERS
       : DRIVER_GPS_MAX_USABLE_ACCURACY_METERS
@@ -556,9 +562,14 @@ export function useDriverPortalState() {
           recordedAt: location.recordedAt ?? Date.now(),
         }),
       })
-      if ([400, 401, 403].includes(response.status)) {
-        if (response.status !== 400) toast.error('Sign in again to continue sharing your location.', { id: 'driver-location-auth' })
-        throw new LocationUploadRejected(`Location upload rejected (${response.status})`)
+      if (response.status === 400) {
+        throw new LocationUploadRejected('Location upload rejected (400)')
+      }
+      if (response.status === 401 || response.status === 403) {
+        // Keep the newest position queued while the portal/native bridge refreshes
+        // its scoped credential instead of forcing the driver to restart tracking.
+        toast.error('Location connection is refreshing. Retrying automatically.', { id: 'driver-location-auth' })
+        throw new Error(`Location authorization refresh required (${response.status})`)
       }
       if (!response.ok) throw new Error(`Location upload failed (${response.status})`)
     })
@@ -708,6 +719,7 @@ export function useDriverPortalState() {
   // Starts live location tracking session with guardrails for platform/permissions.
   const startLocationTrackingSession = async (): Promise<boolean> => {
     const generation = trackingGenerationRef.current
+    if (trackingSessionStartedAtRef.current === 0) trackingSessionStartedAtRef.current = Date.now()
     if (!isSecureWebContext && !isNativeCapacitorApp()) {
       toast.error('Location requires HTTPS on browser. Open this app over HTTPS or use the native app.')
       return false
@@ -743,8 +755,18 @@ export function useDriverPortalState() {
               if (generation !== trackingGenerationRef.current) return
               nativeTrackingRunningRef.current = status.running
               setIsTracking(status.running)
-              if (status.error) toast.error(status.error, { id: 'driver-native-tracking' })
-              else toast.dismiss('driver-native-tracking')
+              if (status.error) {
+                toast.error(status.error, { id: 'driver-native-tracking' })
+                // The foreground service cannot read refreshed WebView credentials itself.
+                // Re-send the current scoped session immediately instead of waiting for app focus.
+                if (/connection is refreshing/i.test(status.error)) {
+                  void nativeTrackingRef.current?.refresh().catch((error) => {
+                    toast.error(error instanceof Error ? error.message : 'Location connection could not refresh.')
+                  })
+                }
+              } else {
+                toast.dismiss('driver-native-tracking')
+              }
             },
           )
           if (generation !== trackingGenerationRef.current) { await watch.clear(); return false }
@@ -884,6 +906,7 @@ export function useDriverPortalState() {
       clearInterval(heartbeatIntervalRef.current)
       heartbeatIntervalRef.current = null
     }
+    trackingSessionStartedAtRef.current = 0
     setIsTracking(false)
   }, [])
 

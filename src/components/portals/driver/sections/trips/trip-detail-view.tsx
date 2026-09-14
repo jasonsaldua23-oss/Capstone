@@ -72,6 +72,15 @@ const NAVIGATION_OFF_ROUTE_METERS = 60
 // jitter around a junction cannot flip the instruction back and forth.
 const NAVIGATION_MANEUVER_PASSED_MARGIN_METERS = 8
 
+// Mobile radios can briefly lose a response after the server has accepted it.
+// Only retry transport, timeout, throttling, and server failures automatically.
+const waitForDriverWriteRetry = (attempt: number) => new Promise<void>((resolve) => {
+  window.setTimeout(resolve, Math.min(15_000, 1_000 * 2 ** Math.min(attempt, 4)))
+})
+
+const isAutomaticallyRetryableWriteStatus = (status: number) =>
+  status === 408 || status === 429 || status >= 500
+
 // Main driver trip detail screen: controls stop workflow, map state, and proof-of-delivery capture.
 export function TripDetailView({
   trip,
@@ -735,13 +744,13 @@ export function TripDetailView({
   }
 
   // Starts a trip after location tracking is available and trip is still in a startable state.
-  const handleStartTrip = async () => {
+  const handleStartTrip = async (): Promise<boolean> => {
     const latestTrip = trip
     const currentStatus = String(latestTrip.status || '').toUpperCase()
     if (currentStatus !== 'PLANNED') {
       toast.error(`Trip cannot be started because status is ${currentStatus.replace(/_/g, ' ')}`)
       refreshTripsInBackground()
-      return
+      return false
     }
     const scheduledDate = latestTrip.tripSchedule || latestTrip.plannedStartAt
     // Added: block before location tracking starts; the API repeats this rule server-side.
@@ -751,59 +760,66 @@ export function TripDetailView({
           ? `Trip can only be started on its scheduled date: ${formatTripSchedule(scheduledDate)}`
           : 'Trip cannot be started because its scheduled date is not set'
       )
-      return
+      return false
     }
     if (!loadConfirmed) {
       toast.error('Confirm Load before starting the trip')
-      return
+      return false
     }
 
 
 
-    // Start tracking in the background so trip start is immediate after confirmation.
-    void onStartTracking().catch(() => {
-      // Tracking retry can continue independently; do not block trip start.
-    })
-
     setIsUpdating(true)
     try {
-      const response = await fetch(`/api/trips/${trip.id}/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          confirmLoad: true,
-          latitude: currentLocation?.lat ?? null,
-          longitude: currentLocation?.lng ?? null,
-        }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (response.ok && payload?.success !== false) {
-        const startedAt = payload?.trip?.actualStartAt || new Date().toISOString()
-        onApplyTripUpdate((currentTrip) => ({
-          ...currentTrip,
-          ...payload?.trip,
-          status: 'IN_PROGRESS',
-          actualStartAt: startedAt,
-          dropPoints: (currentTrip.dropPoints || []).map((point) => ({
-            ...point,
-            order: point.order
-              ? {
-                ...point.order,
-                status: 'OUT_FOR_DELIVERY',
-              }
-              : point.order,
-          })),
-        }))
-        toast.success(payload?.message || 'Trip started')
-        emitDataSync(['orders', 'trips'])
-        refreshTripsInBackground()
-      } else {
-        toast.error(payload?.error || 'Failed to start trip')
-        refreshTripsInBackground()
+      // Do not mark the route active until its location session is running.
+      if (!await onStartTracking()) {
+        toast.error('Location tracking must be active before the trip can start.')
+        return false
       }
-    } catch (error) {
-      toast.error('An error occurred')
-      refreshTripsInBackground()
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const response = await fetch(`/api/trips/${trip.id}/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              confirmLoad: true,
+              latitude: currentLocation?.lat ?? null,
+              longitude: currentLocation?.lng ?? null,
+            }),
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (response.ok && payload?.success !== false) {
+            const startedAt = payload?.trip?.actualStartAt || new Date().toISOString()
+            onApplyTripUpdate((currentTrip) => ({
+              ...currentTrip,
+              ...payload?.trip,
+              status: 'IN_PROGRESS',
+              actualStartAt: startedAt,
+              dropPoints: (currentTrip.dropPoints || []).map((point) => ({
+                ...point,
+                order: point.order
+                  ? {
+                    ...point.order,
+                    status: 'OUT_FOR_DELIVERY',
+                  }
+                  : point.order,
+              })),
+            }))
+            toast.success(payload?.alreadyStarted ? 'Trip session is already open.' : (payload?.message || 'Trip started'))
+            emitDataSync(['orders', 'trips'])
+            refreshTripsInBackground()
+            return true
+          }
+          if (!isAutomaticallyRetryableWriteStatus(response.status)) {
+            toast.error(payload?.error || 'Failed to start trip')
+            refreshTripsInBackground()
+            return false
+          }
+        } catch {
+          // Keep the start dialog open while a temporary mobile-network failure recovers.
+        }
+        await waitForDriverWriteRetry(attempt)
+      }
     } finally {
       setIsUpdating(false)
     }
@@ -816,6 +832,7 @@ export function TripDetailView({
   }
 
   const openDeliveredWarning = (dropPoint: DropPoint) => {
+    setDeliveryError(null)
     setDeliveredTargetDropPointId(String(dropPoint.id || ''))
     setDeliveredTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
     setIsDeliveredWarningOpen(true)
@@ -889,7 +906,7 @@ export function TripDetailView({
       }
       return completed
     } catch (error: any) {
-      setDeliveryError(error?.message || 'POD upload failed. Please retry.')
+      setDeliveryError(error?.message || 'POD upload failed.')
       toast.error(error?.message || 'Failed to upload POD image')
       return false
     }
@@ -950,57 +967,65 @@ export function TripDetailView({
   ): Promise<boolean> => {
     setIsUpdating(true)
     try {
-      const response = await fetch(`/api/trips/${trip.id}/drop-points/${dropPointId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status,
-          notes,
-          recipientName: pod?.recipientName,
-          deliveryPhoto: pod?.deliveryPhoto,
-          releaseInventory: options?.releaseInventory,
-          rescheduleRequested: options?.rescheduleRequested,
-          rescheduleWindow: options?.rescheduleWindow,
-          rescheduleDate: options?.rescheduleDate,
-          returnedEmpties: options?.returnedEmpties,
-        }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (response.ok && payload?.success !== false) {
-        const actualStatus = String(payload?.dropPoint?.status || status).toUpperCase()
-        const deferredLaterToday = status === 'FAILED' && options?.rescheduleWindow === 'today' && actualStatus === 'PENDING'
-        const dropPointPatch: Partial<DropPoint> = {
-          ...(payload?.dropPoint || {}),
-          id: dropPointId,
-          status: actualStatus,
-          deliveryPhoto: pod?.deliveryPhoto ?? payload?.dropPoint?.deliveryPhoto,
-          order:
-            payload?.order && (trip.dropPoints || []).find((point) => point.id === dropPointId)?.order
-              ? {
-                ...(trip.dropPoints || []).find((point) => point.id === dropPointId)!.order!,
-                ...payload.order,
-              }
-              : undefined,
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const response = await fetch(`/api/trips/${trip.id}/drop-points/${dropPointId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status,
+              notes,
+              recipientName: pod?.recipientName,
+              deliveryPhoto: pod?.deliveryPhoto,
+              releaseInventory: options?.releaseInventory,
+              rescheduleRequested: options?.rescheduleRequested,
+              rescheduleWindow: options?.rescheduleWindow,
+              rescheduleDate: options?.rescheduleDate,
+              returnedEmpties: options?.returnedEmpties,
+            }),
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (response.ok && payload?.success !== false) {
+            const actualStatus = String(payload?.dropPoint?.status || status).toUpperCase()
+            const deferredLaterToday = status === 'FAILED' && options?.rescheduleWindow === 'today' && actualStatus === 'PENDING'
+            const dropPointPatch: Partial<DropPoint> = {
+              ...(payload?.dropPoint || {}),
+              id: dropPointId,
+              status: actualStatus,
+              deliveryPhoto: pod?.deliveryPhoto ?? payload?.dropPoint?.deliveryPhoto,
+              order:
+                payload?.order && (trip.dropPoints || []).find((point) => point.id === dropPointId)?.order
+                  ? {
+                    ...(trip.dropPoints || []).find((point) => point.id === dropPointId)!.order!,
+                    ...payload.order,
+                  }
+                  : undefined,
+            }
+            onApplyTripUpdate((currentTrip) => mergeDropPointIntoTrip(currentTrip, dropPointId, dropPointPatch))
+            if (deferredLaterToday) {
+              toast.success('Order moved to the end of this route for later today')
+            } else {
+              toast.success(`Drop point marked as ${actualStatus.toLowerCase()}`)
+            }
+            emitDataSync(['orders', 'trips'])
+            refreshTripsInBackground()
+            return true
+          }
+          if (status !== 'COMPLETED' || !isAutomaticallyRetryableWriteStatus(response.status)) {
+            toast.error(payload?.error || 'Failed to update drop point')
+            // Preserve the form and captured POD when validation fails.
+            if (status === 'COMPLETED') setDeliveryError(payload?.error || 'Delivery confirmation could not be saved.')
+            return false
+          }
+        } catch {
+          if (status !== 'COMPLETED') {
+            toast.error('Unable to save the delivery update. Check your connection and try again.')
+            return false
+          }
+          // Keep the confirmation screen visible while an offline/weak connection recovers.
         }
-        onApplyTripUpdate((currentTrip) => mergeDropPointIntoTrip(currentTrip, dropPointId, dropPointPatch))
-        if (deferredLaterToday) {
-          toast.success('Order moved to the end of this route for later today')
-        } else {
-          toast.success(`Drop point marked as ${actualStatus.toLowerCase()}`)
-        }
-        emitDataSync(['orders', 'trips'])
-        refreshTripsInBackground()
-        return true
-      } else {
-        toast.error(payload?.error || 'Failed to update drop point')
-        // Preserve the form and captured POD when validation fails.
-        if (status === 'COMPLETED') setDeliveryError(payload?.error || 'Delivery confirmation failed. Please retry.')
-        return false
+        await waitForDriverWriteRetry(attempt)
       }
-    } catch (error) {
-      toast.error('Unable to save the delivery update. Check your connection and retry.')
-      if (status === 'COMPLETED') setDeliveryError('Delivery confirmation failed. Check your connection and retry.')
-      return false
     } finally {
       setIsUpdating(false)
     }
@@ -1022,23 +1047,31 @@ export function TripDetailView({
 
   const uploadPodImage = async (file: File) => {
     const preparedFile = await prepareImageForUpload(file)
-    const formData = new FormData()
-    formData.append('file', preparedFile)
-    const response = await fetch('/api/uploads/pod-image', {
-      method: 'POST',
-      body: formData,
-    })
-    const payload = await response.json().catch(() => ({}))
-    if (response.ok && payload?.success !== false && payload?.imageUrl) {
-      return String(payload.imageUrl)
-    }
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const formData = new FormData()
+        formData.append('file', preparedFile)
+        const response = await fetch('/api/uploads/pod-image', {
+          method: 'POST',
+          body: formData,
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (response.ok && payload?.success !== false && payload?.imageUrl) {
+          return String(payload.imageUrl)
+        }
 
-    const errorMessage = String(payload?.error || 'Failed to upload POD image')
-    if (/upload storage is unavailable/i.test(errorMessage)) {
-      toast('Storage is not configured on this deployment. The image will be saved inline for this record.')
-      return toDataUrl(preparedFile)
+        const errorMessage = String(payload?.error || 'Failed to upload POD image')
+        if (/upload storage is unavailable/i.test(errorMessage)) {
+          toast('Storage is not configured on this deployment. The image will be saved inline for this record.')
+          return toDataUrl(preparedFile)
+        }
+        if (!isAutomaticallyRetryableWriteStatus(response.status)) throw new Error(errorMessage)
+      } catch (error) {
+        if (error instanceof Error && error.message && !/failed to fetch|networkerror|load failed|network request failed/i.test(error.message)) throw error
+      }
+      // Keep the delivery confirmation loader active until a temporary POD upload succeeds.
+      await waitForDriverWriteRetry(attempt)
     }
-    throw new Error(errorMessage)
   }
 
   // POD image input handler with per-drop-point preview generation.
@@ -2578,50 +2611,62 @@ export function TripDetailView({
             </div>
           )}
 
-          <Dialog open={isStartTripConfirmOpen} onOpenChange={setIsStartTripConfirmOpen}>
+          <Dialog
+            open={isStartTripConfirmOpen}
+            onOpenChange={(open) => {
+              if (isUpdating) return
+              setIsStartTripConfirmOpen(open)
+            }}
+          >
             <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
               <DialogHeader className="px-5 pt-5">
-                <DialogTitle className="text-[#123a67]">Start Trip?</DialogTitle>
+                <DialogTitle className="text-[#123a67]">{isUpdating ? 'Opening trip session...' : 'Start Trip?'}</DialogTitle>
                 <DialogDescription className="text-slate-600">
-                  This will mark the trip as <span className="font-semibold">IN PROGRESS</span>.
+                  {isUpdating
+                    ? 'Please keep the Driver app open while the session is confirmed.'
+                    : <>This will mark the trip as <span className="font-semibold">IN PROGRESS</span>.</>}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
-                <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
-                  <p className="font-medium text-slate-900">{trip.tripNumber || 'Selected Trip'}</p>
-                  <p>Make sure all assigned orders are loaded before continuing.</p>
-                </div>
-                <label className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-800">
-                  <input
-                    type="checkbox"
-                    checked={loadConfirmed}
-                    onChange={(event) => setLoadConfirmed(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
-                  />
-                  Confirm Load
-                </label>
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsStartTripConfirmOpen(false)}
-                    disabled={isUpdating}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    className="bg-emerald-600 text-white hover:bg-emerald-700"
-                    onClick={async () => {
-                      setIsStartTripConfirmOpen(false)
-                      await handleStartTrip()
-                    }}
-                    disabled={isUpdating || !loadConfirmed}
-                  >
-                    {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-                    Start Trip
-                  </Button>
-                </div>
+                {isUpdating ? (
+                  <div role="status" className="flex min-h-32 flex-col items-center justify-center rounded-md border border-sky-200 bg-sky-50 px-4 py-6 text-center">
+                    <Loader2 className="mb-3 h-7 w-7 animate-spin text-emerald-600" />
+                    <p className="font-semibold text-slate-900">Opening delivery session</p>
+                    <p className="mt-1 text-slate-600">Waiting for the server to confirm this trip.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
+                      <p className="font-medium text-slate-900">{trip.tripNumber || 'Selected Trip'}</p>
+                      <p>Make sure all assigned orders are loaded before continuing.</p>
+                    </div>
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-800">
+                      <input
+                        type="checkbox"
+                        checked={loadConfirmed}
+                        onChange={(event) => setLoadConfirmed(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
+                      />
+                      Confirm Load
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <Button type="button" variant="outline" onClick={() => setIsStartTripConfirmOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        className="bg-emerald-600 text-white hover:bg-emerald-700"
+                        onClick={async () => {
+                          if (await handleStartTrip()) setIsStartTripConfirmOpen(false)
+                        }}
+                        disabled={!loadConfirmed}
+                      >
+                        <Play className="mr-2 h-4 w-4" />
+                        Start Trip
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </DialogContent>
           </Dialog>
@@ -2681,52 +2726,57 @@ export function TripDetailView({
           >
             <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
               <DialogHeader className="px-5 pt-5">
-                <DialogTitle className="text-[#0f3d72]">Confirm Mark as Delivered</DialogTitle>
+                <DialogTitle className="text-[#0f3d72]">{isConfirmDeliveredSubmitting ? 'Confirming delivery...' : 'Confirm Mark as Delivered'}</DialogTitle>
                 <DialogDescription className="text-slate-600">
-                  You are about to complete this stop and set the order status to delivered.
+                  {isConfirmDeliveredSubmitting
+                    ? 'Please keep the Driver app open while the delivery is saved.'
+                    : 'You are about to complete this stop and set the order status to delivered.'}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
-                <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
-                  <p>Please confirm POD photo and delivery details are correct.</p>
-                </div>
-                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                  <p className="font-medium text-slate-900">{deliveredTargetDropPointName || 'Drop Point'}</p>
-                </div>
-                {deliveryError && <p role="alert" className="text-sm text-red-600">{deliveryError}</p>}
-                <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsDeliveredWarningOpen(false)}
-                    disabled={isUpdating || isConfirmDeliveredSubmitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    className="bg-emerald-600 text-white hover:bg-emerald-700"
-                    onClick={async () => {
-                      const targetId = String(deliveredTargetDropPointId || '').trim()
-                      if (!targetId) return
-                      const targetDropPoint = sortedDropPoints.find((point) => String(point.id) === targetId)
-                      if (!targetDropPoint) return
-                      setIsConfirmDeliveredSubmitting(true)
-                      try {
-                        const completed = await submitDeliveredForDropPoint(targetDropPoint)
-                        if (completed) {
-                          setIsDeliveredWarningOpen(false)
-                        }
-                      } finally {
-                        setIsConfirmDeliveredSubmitting(false)
-                      }
-                    }}
-                    disabled={isUpdating || isConfirmDeliveredSubmitting || !deliveredTargetDropPointId}
-                  >
-                    {isUpdating || isConfirmDeliveredSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                    Confirm Delivered
-                  </Button>
-                </div>
+                {isConfirmDeliveredSubmitting ? (
+                  <div role="status" className="flex min-h-32 flex-col items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-4 py-6 text-center">
+                    <Loader2 className="mb-3 h-7 w-7 animate-spin text-emerald-600" />
+                    <p className="font-semibold text-slate-900">Confirming delivery</p>
+                    <p className="mt-1 text-slate-600">Uploading the POD and saving this completed stop.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
+                      <p>Please confirm POD photo and delivery details are correct.</p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                      <p className="font-medium text-slate-900">{deliveredTargetDropPointName || 'Drop Point'}</p>
+                    </div>
+                    {deliveryError && <p role="alert" className="text-sm text-red-600">{deliveryError}</p>}
+                    <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
+                      <Button type="button" variant="outline" onClick={() => setIsDeliveredWarningOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        className="bg-emerald-600 text-white hover:bg-emerald-700"
+                        onClick={async () => {
+                          const targetId = String(deliveredTargetDropPointId || '').trim()
+                          if (!targetId) return
+                          const targetDropPoint = sortedDropPoints.find((point) => String(point.id) === targetId)
+                          if (!targetDropPoint) return
+                          setIsConfirmDeliveredSubmitting(true)
+                          try {
+                            const completed = await submitDeliveredForDropPoint(targetDropPoint)
+                            if (completed) setIsDeliveredWarningOpen(false)
+                          } finally {
+                            setIsConfirmDeliveredSubmitting(false)
+                          }
+                        }}
+                        disabled={isUpdating || !deliveredTargetDropPointId}
+                      >
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Confirm Delivered
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </DialogContent>
           </Dialog>

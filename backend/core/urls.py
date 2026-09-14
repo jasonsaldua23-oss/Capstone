@@ -10,6 +10,9 @@ urlpatterns = [
     path("health/ready", v.health_ready),
     path("auth/login", v.auth_login),
     path("auth/login/verify-otp", v.auth_login_verify_otp),
+    # Neutral sign-in detects the existing Customer or permitted staff account.
+    path("auth/unified/login", v.auth_unified_login),
+    path("auth/unified/google", v.auth_unified_google),
     path("auth/staff/google", v.auth_staff_google),
     path("auth/customer/login", v.auth_customer_login),
     path("auth/customer/google", v.auth_customer_google),

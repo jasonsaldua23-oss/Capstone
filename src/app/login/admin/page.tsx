@@ -1,5 +1,5 @@
 ﻿import { redirect } from 'next/navigation'
-import { AdminLoginPage as AdminLoginScreen } from '@/components/auth/AdminLoginPage'
+import { SystemLoginPage } from '@/components/auth/StaffLoginPage'
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
 
 export default function AdminLoginRoute() {
@@ -8,5 +8,6 @@ export default function AdminLoginRoute() {
     redirect(getDefaultLoginPathForVariant(variant))
   }
 
-  return <AdminLoginScreen />
+  // The URL stays scoped for session isolation; the shared page routes by actual account type.
+  return <SystemLoginPage entryPortal="admin" />
 }

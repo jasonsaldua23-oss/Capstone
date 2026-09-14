@@ -469,6 +469,21 @@ class DriverLocationAccuracyContractTests(TestCase):
         self.assertEqual(latest.longitude, 122.9509)
         self.assertEqual(latest.accuracy, 15)
 
+    def test_degraded_but_usable_gps_sample_updates_the_driver_location(self) -> None:
+        # After the client grace period, 100–300m GPS estimates keep the vehicle moving.
+        response = self.client.post(
+            "/api/driver/location",
+            data={"latitude": 10.6800, "longitude": 122.9600, "accuracy": 250},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        latest = LocationLog.objects.get(driver=self.driver)
+        self.assertEqual(latest.latitude, 10.6800)
+        self.assertEqual(latest.longitude, 122.9600)
+        self.assertEqual(latest.accuracy, 250)
+
     def test_each_driver_account_keeps_its_own_latest_location(self) -> None:
         other_driver = User.objects.create(
             email="other.location.driver@example.com",
@@ -2612,6 +2627,32 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(order.status, OrderStatus.OUT_FOR_DELIVERY)
         self.assertIsNotNone(order.warehouse_dispatched_at)
 
+    def test_trip_start_retry_acknowledges_the_existing_session(self) -> None:
+        # A lost mobile response must not make the driver reopen a session manually.
+        first_response = self.client.post(
+            f"/api/trips/{self.trip.id}/start",
+            data={"confirmLoad": True},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(first_response.status_code, 200)
+        self.trip.refresh_from_db()
+        first_started_at = self.trip.actual_start_at
+
+        retry_response = self.client.post(
+            f"/api/trips/{self.trip.id}/start",
+            data={"confirmLoad": True},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(retry_response.status_code, 200)
+        self.assertTrue(retry_response.json()["success"])
+        self.assertTrue(retry_response.json()["alreadyStarted"])
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
+        self.assertEqual(self.trip.actual_start_at, first_started_at)
+
     def test_drop_point_update_requires_staff_auth(self) -> None:
         response = self.client.patch(
             f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
@@ -2744,6 +2785,37 @@ class TripExecutionApiContractTests(TestCase):
             ).values_list("reference_id", flat=True)
         )
         self.assertEqual(notified_order_ids, delivered_order_ids)
+
+    def test_drop_point_completion_retry_acknowledges_the_existing_delivery(self) -> None:
+        # A delivery confirmation can be retried after a lost response without duplicating it.
+        self.trip.status = TripStatus.IN_PROGRESS
+        self.trip.actual_start_at = timezone.now()
+        self.trip.save(update_fields=["status", "actual_start_at", "updated_at"])
+        first_response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={"status": "COMPLETED", "deliveryPhoto": "/uploads/pod/retry-safe.jpg"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(first_response.status_code, 200)
+        self.dp_1.refresh_from_db()
+        first_departure = self.dp_1.actual_departure
+
+        retry_response = self.client.patch(
+            f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+            data={"status": "COMPLETED", "deliveryPhoto": "/uploads/pod/retry-safe.jpg"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(retry_response.status_code, 200)
+        self.assertTrue(retry_response.json()["success"])
+        self.assertTrue(retry_response.json()["alreadyCompleted"])
+        self.dp_1.refresh_from_db()
+        self.trip.refresh_from_db()
+        self.assertEqual(self.dp_1.status, "COMPLETED")
+        self.assertEqual(self.dp_1.actual_departure, first_departure)
+        self.assertEqual(self.trip.completed_drop_points, 1)
 
     @patch("core.views_api._create_staff_notifications")
     def test_trip_complete_with_cancelled_delivery(self, notify_staff) -> None:

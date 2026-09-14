@@ -12,18 +12,25 @@ const getDriverSpeech = () => driverSpeech ??= registerPlugin<DriverSpeechPlugin
 
 let promptGeneration = 0
 
+const pause = (milliseconds: number) => new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
+
 export async function speakDriverNavigation(message: string): Promise<void> {
   const text = String(message || '').trim()
   if (!text || typeof window === 'undefined') return
   const generation = ++promptGeneration
   if (getPlatform() === 'android') {
-    // Fix: use native speech in Android; WebView's speechSynthesis can be absent or silent.
-    const ready = await waitForNativeBridge()
-    if (generation !== promptGeneration) return
-    if (!ready) throw new Error('Voice guidance is still connecting to the device. Please try again.')
-    if (!isPluginAvailable('DriverSpeech')) throw new Error('Update the Driver app to enable native voice guidance.')
-    await getDriverSpeech().speak({ text })
-    return
+    // The remote portal can render before Capacitor finishes registering plugins.
+    // Retry that short bridge-start window so the first navigation prompt is not lost.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const ready = await waitForNativeBridge(4_000)
+      if (generation !== promptGeneration) return
+      if (ready && isPluginAvailable('DriverSpeech')) {
+        await getDriverSpeech().speak({ text })
+        return
+      }
+      if (attempt < 2) await pause(500)
+    }
+    throw new Error('Voice guidance is still connecting to the device.')
   }
 
   // Preserve the existing browser voice choice and playback behavior.

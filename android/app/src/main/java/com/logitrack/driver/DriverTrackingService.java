@@ -33,6 +33,9 @@ import java.util.concurrent.TimeUnit;
 /** Foreground location service: GPS acquisition and uploads never depend on JavaScript timers. */
 public class DriverTrackingService extends Service implements LocationListener {
     private static final String CHANNEL = "driver-live-location";
+    private static final float MAX_PRECISE_ACCURACY_METERS = 100f;
+    private static final float MAX_DEGRADED_ACCURACY_METERS = 300f;
+    private static final long DEGRADED_FIX_GRACE_MS = 20_000L;
     private static volatile boolean running;
     private static volatile JSObject latest;
     private static volatile String driverId = "";
@@ -54,6 +57,8 @@ public class DriverTrackingService extends Service implements LocationListener {
     private volatile boolean stopped;
     private volatile long configurationVersion;
     private long lastFixTime;
+    private long trackingStartedAt;
+    private long lastAcceptedFixElapsedAt;
     private long retryAt;
     private int failures;
 
@@ -130,7 +135,14 @@ public class DriverTrackingService extends Service implements LocationListener {
         String account = intent.getStringExtra("driverId");
         // Never carry a location or an upload into another driver's session.
         if (account == null || account.isEmpty()) { stopSelf(); return START_NOT_STICKY; }
-        if (!account.equals(driverId)) { pending = null; latest = null; lastFixTime = 0; }
+        if (!account.equals(driverId)) {
+            // A new driver must not inherit the prior driver's accuracy grace window.
+            pending = null;
+            latest = null;
+            lastFixTime = 0;
+            lastAcceptedFixElapsedAt = 0;
+            trackingStartedAt = SystemClock.elapsedRealtime();
+        }
         driverId = account;
         session = new Session(intent, account);
         configurationVersion++;
@@ -150,6 +162,9 @@ public class DriverTrackingService extends Service implements LocationListener {
                 if (manager.getAllProviders().contains(LocationManager.NETWORK_PROVIDER)) {
                     manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000, 0, this, Looper.getMainLooper());
                 }
+                // Match the portal's graceful GPS policy: after a short wait, a
+                // usable-but-less-precise fix is better than leaving the vehicle frozen.
+                trackingStartedAt = SystemClock.elapsedRealtime();
                 running = true;
             } catch (Exception error) {
                 fail("Location tracking could not start. Check GPS and location permission.");
@@ -162,9 +177,16 @@ public class DriverTrackingService extends Service implements LocationListener {
     }
 
     @Override public void onLocationChanged(Location location) {
-        if (stopped || !location.hasAccuracy() || location.getAccuracy() > 100 || location.getAccuracy() < 0) return;
+        if (stopped || !location.hasAccuracy() || location.getAccuracy() < 0) return;
+        long nowElapsedAt = SystemClock.elapsedRealtime();
+        boolean canUseDegradedFix = lastAcceptedFixElapsedAt > 0
+            ? nowElapsedAt - lastAcceptedFixElapsedAt >= DEGRADED_FIX_GRACE_MS
+            : trackingStartedAt > 0 && nowElapsedAt - trackingStartedAt >= DEGRADED_FIX_GRACE_MS;
+        float accuracyCeiling = canUseDegradedFix ? MAX_DEGRADED_ACCURACY_METERS : MAX_PRECISE_ACCURACY_METERS;
+        if (location.getAccuracy() > accuracyCeiling) return;
         if (location.getTime() <= lastFixTime || System.currentTimeMillis() - location.getTime() > 30000) return;
         lastFixTime = location.getTime();
+        lastAcceptedFixElapsedAt = nowElapsedAt;
         JSObject fix = new JSObject();
         fix.put("driverId", driverId);
         fix.put("lat", location.getLatitude());
@@ -201,6 +223,9 @@ public class DriverTrackingService extends Service implements LocationListener {
             connection.setUseCaches(false);
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
+            // The native service bypasses the WebView fetch interceptor, so it
+            // must include the driver's portal scope for cookie-session fallback.
+            connection.setRequestProperty("X-Portal", "driver");
             if (sendingSession.token != null && !sendingSession.token.isEmpty()) connection.setRequestProperty("Authorization", "Bearer " + sendingSession.token);
             if (sendingSession.cookie != null && !sendingSession.cookie.isEmpty()) connection.setRequestProperty("Cookie", sendingSession.cookie);
             JSObject body = new JSObject();
@@ -238,8 +263,10 @@ public class DriverTrackingService extends Service implements LocationListener {
                 lastError = null;
                 if (recovered) DriverTrackingPlugin.publish("status", status());
             } else if (code == 401 || code == 403) {
-                fail("Sign in again to continue sharing your location.");
-                stopSelf();
+                // A WebView token/cookie can refresh after this service was started.
+                // Keep collecting GPS and let the resumed bridge provide fresh credentials.
+                retryAt = System.currentTimeMillis() + Math.min(30000, 1000L << Math.min(++failures, 5));
+                fail("Location connection is refreshing. Retrying automatically.");
             } else {
                 String detail = responseDetail(readResponse(connection.getErrorStream()));
                 // A malformed sample cannot be fixed by retrying the same payload. Drop

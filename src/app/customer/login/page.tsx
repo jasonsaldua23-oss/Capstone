@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 
-import { CustomerLoginPage as CustomerLoginScreen } from '@/components/auth/CustomerLoginPage'
+import { CustomerLoginPage as CustomerRegistrationScreen } from '@/components/auth/CustomerLoginPage'
+import { SystemLoginPage } from '@/components/auth/StaffLoginPage'
 import { getAllowedPortals, getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
 
 export const metadata: Metadata = {
@@ -14,11 +15,21 @@ export const metadata: Metadata = {
   },
 }
 
-export default function CustomerLoginRoute() {
+type CustomerLoginRouteProps = {
+  searchParams: Promise<{ mode?: string }>
+}
+
+export default async function CustomerLoginRoute({ searchParams }: CustomerLoginRouteProps) {
   const variant = resolveAppVariant()
   if (!getAllowedPortals(variant).includes('customer')) {
     redirect(getDefaultLoginPathForVariant(variant))
   }
 
-  return <CustomerLoginScreen />
+  const { mode } = await searchParams
+  if (mode === 'register') {
+    // Keep registration separate so normal sign-in stays a single neutral task.
+    return <CustomerRegistrationScreen initialAuthMode="register" />
+  }
+
+  return <SystemLoginPage entryPortal="customer" />
 }

@@ -40,7 +40,16 @@ declare global {
   }
 }
 
-export function CustomerLoginPage() {
+type CustomerLoginPageProps = {
+  /** Lets the registration route open the existing form without changing normal customer sign-in. */
+  initialAuthMode?: 'login' | 'register'
+  /** Lets alternate generic entry routes keep the return-to-login link in their own scope. */
+  loginHref?: string
+}
+
+type CustomerLoginMethod = 'password' | 'google'
+
+export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/customer/login' }: CustomerLoginPageProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [loginSucceeded, setLoginSucceeded] = useState(false)
@@ -53,13 +62,15 @@ export function CustomerLoginPage() {
   const [middleName, setMiddleName] = useState('')
   const [lastName, setLastName] = useState('')
   const [suffix, setSuffix] = useState('')
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [authMode, setAuthMode] = useState<'login' | 'register'>(initialAuthMode)
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [isVerificationSending, setIsVerificationSending] = useState(false)
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false)
   const [isLoginOtpOpen, setIsLoginOtpOpen] = useState(false)
   const [loginChallengeToken, setLoginChallengeToken] = useState('')
+  const [loginMethod, setLoginMethod] = useState<CustomerLoginMethod>('password')
+  const [googleCredential, setGoogleCredential] = useState('')
   const [emailVerificationToken, setEmailVerificationToken] = useState('')
   const [emailVerified, setEmailVerified] = useState(false)
   const loginGoogleButtonRef = useRef<HTMLDivElement | null>(null)
@@ -104,12 +115,13 @@ export function CustomerLoginPage() {
     }
   }
 
-  const handleGoogleCredential = async (credential: string) => {
+  const handleGoogleCredential = async (credential: string, isResend = false): Promise<boolean> => {
     if (!credential) {
       toast.error('Google authentication failed. Please try again.')
-      return
+      return false
     }
 
+    setLoginMethod('google')
     setIsLoading(true)
     try {
       const requestBody = JSON.stringify({ credential, rememberMe: true })
@@ -141,13 +153,25 @@ export function CustomerLoginPage() {
         data = null
       }
 
+      if (response.status === 202 && data?.requiresTwoFactor && data?.challengeToken) {
+        setLoginChallengeToken(String(data.challengeToken))
+        setGoogleCredential(credential)
+        // Google does not provide the email to this form, so use the verified API response for the OTP screen.
+        if (data?.email) setEmail(String(data.email))
+        // The Google endpoint intentionally creates a persistent customer session after OTP verification too.
+        setRememberMe(true)
+        setIsLoginOtpOpen(true)
+        if (!isResend) toast.success(data?.message || 'Verification code sent')
+        return true
+      }
+
       if (!response.ok || !data?.success || !data?.user) {
         const apiError = String(data?.error || data?.message || '').trim()
         const fallbackError = response.status >= 500
           ? 'Google service is temporarily unavailable. Please use email/password for now.'
           : 'Google authentication failed'
         toast.error(apiError || fallbackError)
-        return
+        return false
       }
 
       persistCustomerWelcomeState(data?.created ? 'new' : 'existing', String(data?.user?.name || '').trim())
@@ -157,8 +181,10 @@ export function CustomerLoginPage() {
       setLoginSucceeded(true)
       sessionStorage.setItem('login-success-pending', 'customer')
       router.replace(CUSTOMER_HOME_PATH)
+      return true
     } catch {
       toast.error('Unable to reach authentication service. Please check your connection and try again.')
+      return false
     } finally {
       setIsLoading(false)
     }
@@ -185,6 +211,9 @@ export function CustomerLoginPage() {
   }
 
   const resendLoginOtp = async () => {
+    // A Google two-factor challenge has no password to replay; verify the retained credential again instead.
+    if (loginMethod === 'google') return handleGoogleCredential(googleCredential, true)
+
     const response = await fetch('/api/auth/customer/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, rememberMe }),
@@ -318,6 +347,7 @@ export function CustomerLoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginError('')
+    setLoginMethod('password')
     setIsLoading(true)
 
     try {
@@ -556,9 +586,13 @@ export function CustomerLoginPage() {
     )
   }
 
+  // Registration is a longer task, so it uses the neutral system-auth card and
+  // becomes scrollable on short screens without changing any form behavior.
+  const isRegistrationMode = authMode === 'register'
+
   return (
     <div
-      className={`${poppins.className} relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#eaf1f2] bg-cover bg-center bg-no-repeat px-2 py-3 sm:min-h-screen sm:px-4 sm:py-8`}
+      className={`${poppins.className} relative flex min-h-dvh justify-center overflow-hidden bg-[#eaf1f2] bg-cover bg-center bg-no-repeat ${isRegistrationMode ? 'items-start px-4 py-5 sm:items-center sm:px-4 sm:py-8' : 'items-center px-2 py-3 sm:px-4 sm:py-8'} sm:min-h-screen`}
       style={{ backgroundImage: "url('/customer-login-bg.png')" }}
     >
       {googleSignInAvailable ? (
@@ -566,21 +600,41 @@ export function CustomerLoginPage() {
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onReady={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
-      <div className="relative z-[1] mx-auto flex w-full max-w-md items-center justify-center">
-        <Card className="w-full overflow-hidden rounded-[20px] border border-[#d9e4e5] bg-white py-0 shadow-[0_18px_46px_rgba(15,67,94,0.12)] backdrop-blur-md sm:rounded-[30px]">
-          <div className="border-b border-[#e7eded] bg-white px-4 pb-1 pt-2 text-center sm:px-7 sm:pb-2.5 sm:pt-3.5">
-            <div className="flex items-center justify-center">
-              <div className="inline-flex h-[84px] w-[84px] items-center justify-center overflow-hidden">
-                <img src="/aab-trading-shop.png" alt="AAB TRADING SHOP" className="h-full w-full scale-100 object-contain" />
+      <div className={`relative z-[1] mx-auto flex w-full items-center justify-center ${isRegistrationMode ? 'max-w-[420px]' : 'max-w-md'}`}>
+        <Card className={isRegistrationMode
+          ? 'w-full max-h-[calc(100dvh-2.5rem)] overflow-y-auto rounded-[24px] border border-[#dce3ec] bg-white/95 py-0 shadow-[0_16px_42px_rgba(15,23,42,0.14)] backdrop-blur-sm sm:max-h-[calc(100dvh-4rem)]'
+          : 'w-full overflow-hidden rounded-[20px] border border-[#d9e4e5] bg-white py-0 shadow-[0_18px_46px_rgba(15,67,94,0.12)] backdrop-blur-md sm:rounded-[30px]'}
+        >
+          {isRegistrationMode ? (
+            <CardHeader className="space-y-2 pb-0 pt-6">
+              <div className="mx-auto flex h-[112px] w-[112px] items-center justify-center overflow-hidden">
+                <img src="/ann-anns-logo.png" alt="Ann Ann's Beverages Trading logo" className="h-full w-full object-contain" />
               </div>
+              <CardTitle className="text-center text-2xl font-extrabold leading-tight text-[#112b60]">
+                Ann Ann&apos;s Beverages Trading
+              </CardTitle>
+              <CardDescription className="text-center text-[15px] text-[#7a89a6]">
+                Create your account.
+              </CardDescription>
+            </CardHeader>
+          ) : (
+            <div className="border-b border-[#e7eded] bg-white px-4 pb-1 pt-2 text-center sm:px-7 sm:pb-2.5 sm:pt-3.5">
+              <div className="flex items-center justify-center">
+                <div className="inline-flex h-[84px] w-[84px] items-center justify-center overflow-hidden">
+                  <img src="/aab-trading-shop.png" alt="AAB TRADING SHOP" className="h-full w-full scale-100 object-contain" />
+                </div>
+              </div>
+              <p className="mt-1.5 text-[8px] font-semibold uppercase tracking-[0.18em] text-[#3e9a35] sm:mt-2 sm:text-[10px]">ANN ANN'S BEVERAGES TRADING</p>
+              <h1 className="mt-0.5 text-[1.4rem] font-black leading-none tracking-[-0.02em] sm:mt-1 sm:text-[1.7rem]">
+                <span className="block text-[#1452a1]">AAB TRADING</span>
+                <span className="mt-0 block text-[#3f9a35]">SHOP</span>
+              </h1>
             </div>
-            <p className="mt-1.5 text-[8px] font-semibold uppercase tracking-[0.18em] text-[#3e9a35] sm:mt-2 sm:text-[10px]">ANN ANN'S BEVERAGES TRADING</p>
-            <h1 className="mt-0.5 text-[1.4rem] font-black leading-none tracking-[-0.02em] sm:mt-1 sm:text-[1.7rem]">
-              <span className="block text-[#1452a1]">AAB TRADING</span>
-              <span className="mt-0 block text-[#3f9a35]">SHOP</span>
-            </h1>
-          </div>
-          <CardContent className="w-full px-4 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-0 sm:px-7 sm:pb-4 sm:pt-0">
+          )}
+          <CardContent className={isRegistrationMode
+            ? 'w-full px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-0 sm:px-7 sm:pb-6'
+            : 'w-full px-4 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-0 sm:px-7 sm:pb-4 sm:pt-0'}
+          >
             {authMode === 'login' ? (
               <form key="customer-login-form" onSubmit={handleLogin} autoComplete="off" className="space-y-1.5 sm:space-y-2">
                 <div className="flex items-center gap-3 px-1 pt-0">
@@ -644,7 +698,7 @@ export function CustomerLoginPage() {
                   <div className="my-1.5 flex w-full justify-center">
                     <NativeGoogleButton
                       disabled={isLoading}
-                      onCredential={handleGoogleCredential}
+                      onCredential={(credential) => { void handleGoogleCredential(credential) }}
                       onError={(message) => toast.error(message)}
                     />
                   </div>
@@ -666,11 +720,11 @@ export function CustomerLoginPage() {
                 </p>
               </form>
             ) : (
-              <form key="customer-register-form" onSubmit={handleRegister} autoComplete="off" className="space-y-2.5 sm:space-y-4">
-                {/* Updated: neutral, flat input surfaces keep registration formal and reserve green for focus states. */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
-                  <div className="space-y-1 sm:space-y-1.5">
-                    <Label htmlFor="reg-first-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+              <form key="customer-register-form" onSubmit={handleRegister} autoComplete="off" className="space-y-3">
+                {/* Keep the longer registration task visually aligned with the neutral system sign-in card. */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="reg-first-name" className="text-sm font-semibold text-[#1f3566]">
                       First Name <span className="text-red-500">*</span>
                     </Label>
                     <Input
@@ -680,11 +734,11 @@ export function CustomerLoginPage() {
                       onChange={(e) => setFirstName(e.target.value)}
                       placeholder="e.g. Juan"
                       required
-                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11"
+                      className="h-11 rounded-xl border-[#d6deea] bg-white px-3 text-sm text-slate-900 shadow-none placeholder:text-[#9aa8bf] focus-visible:border-[#0f4fd3] focus-visible:ring-2 focus-visible:ring-[#dce9ff]"
                     />
                   </div>
-                  <div className="space-y-1 sm:space-y-1.5">
-                    <Label htmlFor="reg-last-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                  <div className="space-y-2">
+                    <Label htmlFor="reg-last-name" className="text-sm font-semibold text-[#1f3566]">
                       Last Name <span className="text-red-500">*</span>
                     </Label>
                     <Input
@@ -694,14 +748,14 @@ export function CustomerLoginPage() {
                       onChange={(e) => setLastName(e.target.value)}
                       placeholder="e.g. Dela Cruz"
                       required
-                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11"
+                      className="h-11 rounded-xl border-[#d6deea] bg-white px-3 text-sm text-slate-900 shadow-none placeholder:text-[#9aa8bf] focus-visible:border-[#0f4fd3] focus-visible:ring-2 focus-visible:ring-[#dce9ff]"
                     />
                   </div>
                 </div>
                 {/* Updated: middle name is required; suffix remains an optional structured name part. */}
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2.5">
-                  <div className="space-y-1 sm:space-y-1.5">
-                    <Label htmlFor="reg-middle-name" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="reg-middle-name" className="text-sm font-semibold text-[#1f3566]">
                       Middle Name <span className="text-red-500">*</span>
                     </Label>
                     <Input
@@ -711,15 +765,15 @@ export function CustomerLoginPage() {
                       onChange={(e) => setMiddleName(e.target.value)}
                       placeholder="e.g. Santos"
                       required
-                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11"
+                      className="h-11 rounded-xl border-[#d6deea] bg-white px-3 text-sm text-slate-900 shadow-none placeholder:text-[#9aa8bf] focus-visible:border-[#0f4fd3] focus-visible:ring-2 focus-visible:ring-[#dce9ff]"
                     />
                   </div>
-                  <div className="space-y-1 sm:space-y-1.5">
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label htmlFor="reg-suffix" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                      <Label htmlFor="reg-suffix" className="text-sm font-semibold text-[#1f3566]">
                         Suffix
                       </Label>
-                      <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
+                      <span className="text-xs font-normal text-[#7a89a6]">(Optional)</span>
                     </div>
                     <Input
                       id="reg-suffix"
@@ -727,17 +781,17 @@ export function CustomerLoginPage() {
                       value={suffix}
                       onChange={(e) => setSuffix(e.target.value)}
                       placeholder="e.g. Jr., Sr., III"
-                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11"
+                      className="h-11 rounded-xl border-[#d6deea] bg-white px-3 text-sm text-slate-900 shadow-none placeholder:text-[#9aa8bf] focus-visible:border-[#0f4fd3] focus-visible:ring-2 focus-visible:ring-[#dce9ff]"
                     />
                   </div>
                 </div>
-                <div className="space-y-1.5 sm:space-y-2">
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="reg-email" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">
+                    <Label htmlFor="reg-email" className="text-sm font-semibold text-[#1f3566]">
                       Email <span className="text-red-500">*</span>
                     </Label>
                     {emailVerified ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
                         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Email Verified
                       </span>
                     ) : null}
@@ -756,14 +810,14 @@ export function CustomerLoginPage() {
                       }}
                       placeholder="Enter email address"
                       required
-                      className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[14px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-11 sm:text-base disabled:bg-slate-100 disabled:text-slate-600"
+                      className="h-11 min-w-0 rounded-xl border-[#d6deea] bg-white px-3 text-sm text-slate-900 shadow-none placeholder:text-[#9aa8bf] focus-visible:border-[#0f4fd3] focus-visible:ring-2 focus-visible:ring-[#dce9ff] disabled:bg-slate-100 disabled:text-slate-600"
                     />
                     {!emailVerified && (
                       <Button
                         type="button"
                         onClick={requestEmailVerification}
                         disabled={isVerificationSending || isLoading}
-                        className="h-10 shrink-0 rounded-xl bg-emerald-700 px-3.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-600 sm:h-11"
+                        className="h-11 shrink-0 rounded-[10px] bg-[#0f4fd3] px-3.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(15,79,211,0.18)] hover:bg-[#0b45bf]"
                       >
                         {isVerificationSending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                         Send OTP
@@ -771,18 +825,18 @@ export function CustomerLoginPage() {
                     )}
                   </div>
                 </div>
-                <div className="space-y-1.5 sm:space-y-2">
-                  <Label htmlFor="reg-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Password</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="reg-password" className="text-sm font-semibold text-[#1f3566]">Password</Label>
                   <div className="relative">
-                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-10 rounded-xl border-slate-300 bg-white pr-10 text-[15px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-12 sm:pr-11 sm:text-base" />
+                    <Input id="reg-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" required className="h-11 rounded-xl border-[#d6deea] bg-white pr-10 text-sm text-slate-900 shadow-none placeholder:text-[#9aa8bf] focus-visible:border-[#0f4fd3] focus-visible:ring-2 focus-visible:ring-[#dce9ff]" />
                     <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-700" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
-                  <p className="text-[11px] text-slate-500 sm:text-xs">{PASSWORD_POLICY_MESSAGE}</p>
+                  <p className="text-xs text-[#7a89a6]">{PASSWORD_POLICY_MESSAGE}</p>
                 </div>
-                <div className="space-y-1.5 sm:space-y-2">
-                  <Label htmlFor="reg-confirm-password" className="text-[12px] font-semibold tracking-[0.01em] text-slate-700 sm:text-[13px]">Confirm Password</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="reg-confirm-password" className="text-sm font-semibold text-[#1f3566]">Confirm Password</Label>
                   <Input
                     id="reg-confirm-password"
                     type={showPassword ? 'text' : 'password'}
@@ -791,24 +845,21 @@ export function CustomerLoginPage() {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm password"
                     required
-                    className="h-10 rounded-xl border-slate-300 bg-white px-3 text-[15px] text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-100 sm:h-12 sm:text-base"
+                    className="h-11 rounded-xl border-[#d6deea] bg-white px-3 text-sm text-slate-900 shadow-none placeholder:text-[#9aa8bf] focus-visible:border-[#0f4fd3] focus-visible:ring-2 focus-visible:ring-[#dce9ff]"
                   />
                   {confirmPassword && password !== confirmPassword ? (
-                    <p className="text-[12px] text-red-600 sm:text-sm">Passwords do not match</p>
+                    <p className="text-sm text-rose-600">Passwords do not match</p>
                   ) : null}
                 </div>
-                <Button type="submit" className="h-10 w-full rounded-xl bg-emerald-600 text-sm font-bold tracking-[0.01em] text-white shadow-[0_10px_20px_rgba(5,150,105,0.2)] hover:bg-emerald-500 sm:h-12 sm:text-base sm:shadow-[0_12px_24px_rgba(5,150,105,0.26)]" disabled={isLoading}>
+                <Button type="submit" className="h-11 w-full rounded-[10px] bg-[#0f4fd3] text-sm font-semibold text-white shadow-[0_10px_20px_rgba(15,79,211,0.24)] hover:bg-[#0b45bf]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
                 </Button>
-                <div key="register-divider" className="my-2.5 sm:my-3">
+                <div key="register-divider" className="my-3">
                   <div className="relative flex items-center justify-center">
                     <div className="absolute inset-0 flex items-center">
                       <span className="w-full border-t border-[#dce5e6]" />
                     </div>
-                    <div className="relative flex items-center gap-1.5 bg-white px-3 text-[10px] uppercase font-semibold tracking-wider text-[#7f8fa5] sm:text-xs">
-                      <Leaf className="h-3.5 w-3.5 text-[#4aa13d]" />
-                      <span>OR CONTINUE WITH</span>
-                    </div>
+                    <span className="relative bg-white px-3 text-xs font-semibold tracking-wide text-[#7f8fa5]">OR CONTINUE WITH</span>
                   </div>
                 </div>
                 {googleSignInAvailable ? (
@@ -819,23 +870,28 @@ export function CustomerLoginPage() {
                   <div className="my-1.5 flex w-full justify-center">
                     <NativeGoogleButton
                       disabled={isLoading}
-                      onCredential={handleGoogleCredential}
+                      onCredential={(credential) => { void handleGoogleCredential(credential) }}
                       onError={(message) => toast.error(message)}
                     />
                   </div>
                 ) : (
                   <p className="text-center text-xs text-slate-500 my-2">Google sign-in is not configured yet.</p>
                 )}
-                <p className="text-center text-[12px] text-slate-600 sm:text-sm">
+                <p className="text-center text-sm text-[#445877]">
                   Already have an account?{' '}
                   <button
                     type="button"
                     onClick={() => {
+                      // Registration opens from the neutral screen, so return there for account-aware sign-in.
+                      if (initialAuthMode === 'register') {
+                        router.replace(loginHref)
+                        return
+                      }
                       setLoginError('')
                       setAuthMode('login')
                       setConfirmPassword('')
                     }}
-                    className="font-medium text-sky-700 hover:text-sky-600"
+                    className="font-semibold text-[#16984e] hover:text-[#107e41]"
                   >
                     Login
                   </button>

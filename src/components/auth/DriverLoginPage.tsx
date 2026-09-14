@@ -113,27 +113,47 @@ export function DriverLoginPage() {
 
     // Session reads precede the portal interceptor, so apply the same loading recovery here.
     const controller = new AbortController()
+    const waitForSessionRetry = () => new Promise<void>((resolve) => {
+      const finish = () => {
+        window.clearTimeout(timeoutId)
+        controller.signal.removeEventListener('abort', finish)
+        resolve()
+      }
+      const timeoutId = window.setTimeout(finish, 2_000)
+      controller.signal.addEventListener('abort', finish, { once: true })
+    })
+
     async function checkSession() {
       try {
-        const response = await retryingApiRead(
-          // Fix: restore this Driver tab independently of other signed-in portals.
-          (signal) => fetch('/api/auth/me', { signal, cache: 'no-store', credentials: 'include', headers: {
-            'X-Portal': 'driver',
-            ...(getTabAuthToken() ? { Authorization: `Bearer ${getTabAuthToken()}` } : {}),
-          } }),
-          controller.signal,
-        )
-        if (cancelled) return
-        if (!response.ok) return
-        const data = await response.json()
-        if (!data?.user) return
-        if (resolvePortalFromUser(data.user) === 'driver') {
-          // Pin a matching cookie session before another tab changes the shared cookie.
-          if (data.token) setTabAuthToken(data.token, { persistent: Boolean(data.user.rememberMe) })
-          router.replace(DRIVER_HOME_PATH)
+        for (;;) {
+          try {
+            const response = await retryingApiRead(
+              // Fix: restore this Driver tab independently of other signed-in portals.
+              (signal) => fetch('/api/auth/me', { signal, cache: 'no-store', credentials: 'include', headers: {
+                'X-Portal': 'driver',
+                ...(getTabAuthToken() ? { Authorization: `Bearer ${getTabAuthToken()}` } : {}),
+              } }),
+              controller.signal,
+            )
+            if (cancelled) return
+            // An explicit unauthenticated response is final; only connection/server
+            // failures stay on the loading screen and recover automatically.
+            if (!response.ok) return
+            const data = await response.json()
+            if (!data?.user) return
+            if (resolvePortalFromUser(data.user) === 'driver') {
+              // Pin a matching cookie session before another tab changes the shared cookie.
+              if (data.token) setTabAuthToken(data.token, { persistent: Boolean(data.user.rememberMe) })
+              router.replace(DRIVER_HOME_PATH)
+            }
+            return
+          } catch (error) {
+            if (cancelled || controller.signal.aborted) return
+            console.warn('Driver session check failed; keeping the session loader open:', error)
+            await waitForSessionRetry()
+            if (cancelled || controller.signal.aborted) return
+          }
         }
-      } catch (error) {
-        console.warn('Driver session check timed out or failed:', error)
       } finally {
         if (!cancelled) setIsCheckingSession(false)
       }

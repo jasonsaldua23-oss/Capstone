@@ -29,21 +29,33 @@ import { validatePasswordPolicy } from '@/lib/password-policy'
 import { cn } from '@/lib/utils'
 
 type Portal = 'admin' | 'driver' | 'warehouse' | 'customer'
+type ResetTheme = Portal | 'system'
 
-type ForgotPasswordScreenProps = {
-  accountType: 'staff' | 'customer'
-  portal: Portal
-}
+type ForgotPasswordScreenProps =
+  | {
+      /** Existing portal routes remain strictly bound to their account type and portal. */
+      accountType: 'staff' | 'customer'
+      portal: Portal
+      resetMode?: 'scoped'
+      loginHref?: string
+    }
+  | {
+      /** The shared browser entry resolves one existing account without exposing its role. */
+      resetMode: 'unified'
+      loginHref: string
+    }
 
 /**
  * One accent and one deep brand tone per portal, both flat. Everything else on the
  * page - ink, muted text, hairlines - is shared, so a single hue carries emphasis.
  */
-const portalThemes: Record<Portal, { name: string; accent: string; accentTint: string; rail: string }> = {
+const portalThemes: Record<ResetTheme, { name: string; accent: string; accentTint: string; rail: string }> = {
   admin: { name: 'Administrator Portal', accent: '#0E6FE0', accentTint: '#EAF2FC', rail: '#12377F' },
   warehouse: { name: 'Warehouse Staff Portal', accent: '#0F4FD3', accentTint: '#E9F0FF', rail: '#0B3AA8' },
   driver: { name: 'Driver Portal', accent: '#12874A', accentTint: '#E8F5EE', rail: '#0F5C33' },
   customer: { name: 'Customer Shop', accent: '#3B8F31', accentTint: '#EDF6EA', rail: '#14532D' },
+  // The shared browser page uses neutral wording because the account type is private until sign-in.
+  system: { name: 'System Access', accent: '#0F4FD3', accentTint: '#E9F0FF', rail: '#112B60' },
 }
 
 type Step = 'email' | 'otp' | 'password' | 'done'
@@ -63,10 +75,19 @@ const fieldInput =
 const primaryButton =
   'h-12 w-full rounded-xl bg-[var(--accent)] text-sm font-semibold text-white transition-colors hover:brightness-[0.94] disabled:opacity-60 motion-reduce:transition-none'
 
-export function ForgotPasswordScreen({ accountType, portal }: ForgotPasswordScreenProps) {
-  const theme = portalThemes[portal]
+export function ForgotPasswordScreen(props: ForgotPasswordScreenProps) {
+  const isUnified = props.resetMode === 'unified'
+  const theme = portalThemes[isUnified ? 'system' : props.portal]
   const searchParams = useSearchParams()
-  const loginPath = loginPathForPortal(portal)
+  const loginPath = isUnified ? props.loginHref : (props.loginHref || loginPathForPortal(props.portal))
+
+  const resetPayload = (email: string, extra: Record<string, string> = {}) => {
+    if (props.resetMode === 'unified') {
+      // The backend selects exactly one matching account and rejects ambiguous legacy emails.
+      return { email, accountType: 'unified', ...extra }
+    }
+    return { email, accountType: props.accountType, portal: props.portal, ...extra }
+  }
 
   const [step, setStep] = useState<Step>('email')
   const [email, setEmail] = useState('')
@@ -133,8 +154,8 @@ export function ForgotPasswordScreen({ accountType, portal }: ForgotPasswordScre
       const response = await fetch('/api/auth/password-reset/request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // The backend validates that this address belongs to this exact portal.
-        body: JSON.stringify({ email: normalizedEmail, accountType, portal }),
+        // Scoped requests retain their portal restriction; the neutral entry resolves the account safely.
+        body: JSON.stringify(resetPayload(normalizedEmail)),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
@@ -169,7 +190,7 @@ export function ForgotPasswordScreen({ accountType, portal }: ForgotPasswordScre
       const response = await fetch('/api/auth/password-reset/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail, accountType, portal, otp: otp.trim() }),
+        body: JSON.stringify(resetPayload(normalizedEmail, { otp: otp.trim() })),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
@@ -222,13 +243,10 @@ export function ForgotPasswordScreen({ accountType, portal }: ForgotPasswordScre
       const response = await fetch('/api/auth/password-reset/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          accountType,
-          portal,
+        body: JSON.stringify(resetPayload(email.trim().toLowerCase(), {
           otp: otp.trim(),
           newPassword,
-        }),
+        })),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {

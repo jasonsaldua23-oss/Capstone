@@ -5558,7 +5558,37 @@ _PASSWORD_RESET_PORTAL_ROLES = {
 }
 
 
+def _password_reset_staff_portal(role: str) -> str | None:
+    """Return the one scoped portal that is permitted for a staff role."""
+    normalized_role = str(role or "").strip().upper()
+    for portal, allowed_roles in _PASSWORD_RESET_PORTAL_ROLES.items():
+        if normalized_role in allowed_roles:
+            return portal
+    return None
+
+
+def _get_unified_reset_account(email: str) -> User | Customer | None:
+    """Resolve one active reset account without disclosing a legacy collision."""
+    # Security: historical records can predate the global email check. Do not
+    # choose an account when the address occurs in either table more than once.
+    user_count = User.objects.filter(email__iexact=email).count()
+    customer_count = Customer.objects.filter(email__iexact=email).count()
+    if user_count + customer_count != 1:
+        return None
+
+    staff, customer, is_ambiguous = _resolve_unified_login_accounts(email)
+    if is_ambiguous:
+        return None
+    if staff and staff.is_active and _password_reset_staff_portal(staff.role):
+        return staff
+    if customer and customer.is_active:
+        return customer
+    return None
+
+
 def _get_reset_account(account_type: str, email: str, portal: str = "") -> User | Customer | None:
+    if account_type == "unified" and not portal:
+        return _get_unified_reset_account(email)
     if account_type == "staff":
         allowed_roles = _PASSWORD_RESET_PORTAL_ROLES.get(portal)
         if not allowed_roles:
@@ -5573,10 +5603,15 @@ def _get_reset_account(account_type: str, email: str, portal: str = "") -> User 
 
 def _password_reset_otp_scope(account_type: str, portal: str) -> str:
     """Bind staff reset codes to one portal while preserving the customer scope."""
+    # A neutral-login OTP must never validate in a portal-bound reset flow.
+    if account_type == "unified":
+        return "unified"
     return f"staff:{portal}" if account_type == "staff" else "customer"
 
 
 def _password_reset_portal_error(account_type: str, portal: str) -> str | None:
+    if account_type == "unified" and portal:
+        return "A portal is not allowed for a unified password reset"
     if account_type == "staff" and portal not in _PASSWORD_RESET_PORTAL_ROLES:
         return "A valid staff portal is required"
     if account_type == "customer" and portal not in {"", "customer"}:
@@ -6850,6 +6885,171 @@ def health_ready(_request: HttpRequest) -> JsonResponse:
     )
 
 
+STAFF_LOGIN_ROLE_SCOPE = {
+    RoleType.SUPER_ADMIN,
+    RoleType.ADMIN,
+    RoleType.WAREHOUSE_STAFF,
+    RoleType.DRIVER,
+}
+
+
+def _start_staff_login_two_factor(
+    request: HttpRequest,
+    user: User,
+    portal: str,
+    remember_me: bool,
+    *,
+    include_email: bool = False,
+) -> JsonResponse:
+    """Send the shared staff login challenge after a primary factor succeeds."""
+    if not _otp_mail_ready():
+        return _err("2FA is enabled but OTP email service is not configured", 500)
+
+    email = _normalize_email(user.email)
+    ip_address = get_client_ip(request)
+    retry_after = consume_event("login_otp_send", email, ip_address, OTP_SEND_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
+
+    now = timezone.now()
+    code = _stateless_otp_for_bucket(email, "staff", "login_2fa", _otp_bucket(now))
+    try:
+        _send_login_otp_email(email, code)
+    except Exception:
+        logger.exception("Failed to send login 2FA OTP")
+        return _err("Failed to send login verification code", 500)
+
+    challenge_token = create_token(
+        {
+            "type": "login_2fa",
+            # Fix: verification can now resolve staff and customer challenges safely.
+            "accountType": "staff",
+            "userId": user.id,
+            "email": email,
+            "portal": portal or "",
+            "rememberMe": bool(remember_me),
+        },
+        exp_hours=1,
+    )
+    response_payload = {
+        "success": False,
+        "requiresTwoFactor": True,
+        "message": "Verification code sent to your email",
+        "challengeToken": challenge_token,
+    }
+    # Google Identity Services does not reveal an address to the page. It is safe
+    # to return the verified account address only after Google's primary factor.
+    if include_email:
+        response_payload["email"] = email
+    return _ok(response_payload, 202)
+
+
+def _start_customer_login_two_factor(
+    request: HttpRequest,
+    customer: Customer,
+    remember_me: bool,
+    *,
+    include_email: bool = False,
+) -> JsonResponse:
+    """Send the same shared login challenge for a Customer primary factor."""
+    if not _otp_mail_ready():
+        return _err("2FA is enabled but OTP email service is not configured", 500)
+
+    email = _normalize_email(customer.email)
+    ip_address = get_client_ip(request)
+    retry_after = consume_event("login_otp_send", email, ip_address, OTP_SEND_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
+
+    now = timezone.now()
+    code = _stateless_otp_for_bucket(email, "customer", "login_2fa", _otp_bucket(now))
+    try:
+        _send_login_otp_email(email, code)
+    except Exception:
+        logger.exception("Failed to send customer login 2FA OTP")
+        return _err("Failed to send login verification code", 500)
+
+    challenge_token = create_token(
+        {
+            "type": "login_2fa",
+            "accountType": "customer",
+            "userId": customer.id,
+            "email": email,
+            "portal": "customer",
+            "rememberMe": bool(remember_me),
+        },
+        exp_hours=1,
+    )
+    response_payload = {
+        "success": False,
+        "requiresTwoFactor": True,
+        "message": "Verification code sent to your email",
+        "challengeToken": challenge_token,
+    }
+    # Google does not disclose the verified address to the browser, so the OTP
+    # screen receives it only after Google has completed the primary factor.
+    if include_email:
+        response_payload["email"] = email
+    return _ok(response_payload, 202)
+
+
+def _issue_staff_login_response(user: User, remember_me: bool) -> JsonResponse:
+    """Create the normal staff session after all required factors have passed."""
+    user.last_login_at = timezone.now()
+    user.save(update_fields=["last_login_at", "updated_at"])
+    payload = _user_payload(user)
+    token = create_token(
+        {**payload, "rememberMe": remember_me},
+        REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
+    )
+    resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
+    _set_auth_cookie(resp, token, remember_me)
+    if bool(getattr(user, "login_alerts_enabled", True)):
+        try:
+            _email_login_alert(user)
+        except Exception:
+            logger.exception("Failed to send login alert email for user=%s", user.id)
+    return resp
+
+
+def _issue_customer_login_response(
+    customer: Customer,
+    remember_me: bool,
+    *,
+    message: str = "Login successful",
+    status: int = 200,
+    created: bool | None = None,
+) -> JsonResponse:
+    """Create the normal Customer session while retaining Google registration metadata."""
+    payload = _customer_payload(customer)
+    token = create_token(
+        {**payload, "rememberMe": remember_me},
+        REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
+    )
+    response_payload: dict[str, Any] = {
+        "success": True,
+        "user": payload,
+        "token": token,
+        "message": message,
+    }
+    if created is not None:
+        response_payload["created"] = created
+    resp = _ok(response_payload, status)
+    _set_auth_cookie(resp, token, remember_me)
+    return resp
+
+
+def _resolve_unified_login_accounts(email: str) -> tuple[User | None, Customer | None, bool]:
+    """Resolve one account type, failing closed when legacy records conflict."""
+    matching_users = User.objects.filter(email__iexact=email)
+    staff = matching_users.filter(role__in=STAFF_LOGIN_ROLE_SCOPE).first()
+    customer = Customer.objects.filter(email__iexact=email).first()
+    # Registration prevents these combinations now, but historical data can still
+    # contain them. Never choose a session type from an ambiguous email address.
+    has_legacy_non_staff_user = matching_users.exclude(role__in=STAFF_LOGIN_ROLE_SCOPE).exists()
+    return staff, customer, bool(has_legacy_non_staff_user or (staff and customer))
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def auth_login(request: HttpRequest) -> JsonResponse:
@@ -6868,8 +7068,13 @@ def auth_login(request: HttpRequest) -> JsonResponse:
         "admin": {"SUPER_ADMIN", "ADMIN"},
         "driver": {"DRIVER"},
         "warehouse": {"WAREHOUSE_STAFF"},
+        # Added: the neutral staff sign-in accepts every permitted staff role,
+        # then the UI routes from the signed account's actual role.
+        "staff": STAFF_LOGIN_ROLE_SCOPE,
     }.get(portal)
-    users_qs = User.objects.filter(email=email)
+    # A generic or unknown portal must never authenticate an obsolete
+    # User(role=CUSTOMER) record as a staff session.
+    users_qs = User.objects.filter(email__iexact=email, role__in=STAFF_LOGIN_ROLE_SCOPE)
     if role_scope:
         users_qs = users_qs.filter(role__in=role_scope)
     user = users_qs.first()
@@ -6883,59 +7088,9 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     # one source cannot evade credential-stuffing detection across many accounts.
     clear_account_failures("password_login", email)
     if bool(getattr(user, "two_factor_enabled", False)):
-        if not _otp_mail_ready():
-            return _err("2FA is enabled but OTP email service is not configured", 500)
-        retry_after = consume_event("login_otp_send", email, ip_address, OTP_SEND_POLICY)
-        if retry_after:
-            return throttle_response(retry_after)
-        now = timezone.now()
-        code = _stateless_otp_for_bucket(user.email, "staff", "login_2fa", _otp_bucket(now))
-        try:
-            _send_login_otp_email(user.email, code)
-        except Exception:
-            logger.exception("Failed to send login 2FA OTP")
-            return _err("Failed to send login verification code", 500)
+        return _start_staff_login_two_factor(request, user, portal, remember_me)
 
-        challenge_token = create_token(
-            {
-                "type": "login_2fa",
-                # Fix: verification can now resolve staff and customer challenges safely.
-                "accountType": "staff",
-                "userId": user.id,
-                "email": user.email,
-                "portal": portal or "",
-                "rememberMe": bool(remember_me),
-            },
-            exp_hours=1,
-        )
-        return _ok(
-            {
-                "success": False,
-                "requiresTwoFactor": True,
-                "message": "Verification code sent to your email",
-                "challengeToken": challenge_token,
-            },
-            202,
-        )
-
-    user.last_login_at = timezone.now()
-    user.save(update_fields=["last_login_at", "updated_at"])
-    payload = _user_payload(user)
-    # Keep auth token lifetime independent from UI inactivity timeout.
-    # Inactivity is enforced client-side via session timer; short absolute JWT lifetimes
-    # cause active users to get unexpected 401s mid-session.
-    token_exp_hours = REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS
-    # Preserve the signed remember-me choice so restored sessions can reliably
-    # skip inactivity logout for the full (and only the full) 30-day lifetime.
-    token = create_token({**payload, "rememberMe": remember_me}, token_exp_hours)
-    resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
-    _set_auth_cookie(resp, token, remember_me)
-    if bool(getattr(user, "login_alerts_enabled", True)):
-        try:
-            _email_login_alert(user)
-        except Exception:
-            logger.exception("Failed to send login alert email for user=%s", user.id)
-    return resp
+    return _issue_staff_login_response(user, remember_me)
 
 
 @csrf_exempt
@@ -6965,9 +7120,9 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
     # Challenges issued before accountType was added are staff challenges.
     account_type = str(challenge_payload.get("accountType") or "staff").strip().lower()
     if account_type == "customer":
-        account = Customer.objects.filter(id=user_id, email=email, is_active=True).first()
+        account = Customer.objects.filter(id=user_id, email__iexact=email, is_active=True).first()
     elif account_type == "staff":
-        account = User.objects.filter(id=user_id, email=email, is_active=True).first()
+        account = User.objects.filter(id=user_id, email__iexact=email, is_active=True).first()
     else:
         return _err("Invalid login challenge", 401)
     if not account:
@@ -7022,9 +7177,8 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
     retry_after = check_limit("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
     if retry_after:
         return throttle_response(retry_after)
-    try:
-        customer = Customer.objects.get(email=email)
-    except Customer.DoesNotExist:
+    customer = Customer.objects.filter(email__iexact=email).first()
+    if not customer:
         record_failure("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
         return _err("Invalid email or password", 401)
     if not customer.is_active or not verify_password(password, customer.password):
@@ -7032,48 +7186,8 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
         return _err("Invalid email or password", 401)
     clear_account_failures("password_login", email)
     if bool(getattr(customer, "two_factor_enabled", False)):
-        if not _otp_mail_ready():
-            return _err("2FA is enabled but OTP email service is not configured", 500)
-        retry_after = consume_event("login_otp_send", email, ip_address, OTP_SEND_POLICY)
-        if retry_after:
-            return throttle_response(retry_after)
-        now = timezone.now()
-        code = _stateless_otp_for_bucket(customer.email, "customer", "login_2fa", _otp_bucket(now))
-        try:
-            _send_login_otp_email(customer.email, code)
-        except Exception:
-            logger.exception("Failed to send customer login 2FA OTP")
-            return _err("Failed to send login verification code", 500)
-
-        # Fix: customer login now pauses until the emailed OTP is verified.
-        challenge_token = create_token(
-            {
-                "type": "login_2fa",
-                "accountType": "customer",
-                "userId": customer.id,
-                "email": customer.email,
-                "portal": "customer",
-                "rememberMe": bool(remember_me),
-            },
-            exp_hours=1,
-        )
-        return _ok(
-            {
-                "success": False,
-                "requiresTwoFactor": True,
-                "message": "Verification code sent to your email",
-                "challengeToken": challenge_token,
-            },
-            202,
-        )
-    payload = _customer_payload(customer)
-    token = create_token(
-        {**payload, "rememberMe": remember_me},
-        REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
-    )
-    resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
-    _set_auth_cookie(resp, token, remember_me)
-    return resp
+        return _start_customer_login_two_factor(request, customer, remember_me)
+    return _issue_customer_login_response(customer, remember_me)
 
 
 @csrf_exempt
@@ -7104,7 +7218,7 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
         email = _normalize_email(claims.get("email"))
         if not email:
             return _err("Google account email is unavailable")
-        if not bool(claims.get("email_verified")):
+        if claims.get("email_verified") is not True:
             return _err("Google email is not verified", 401)
         if not _is_gmail_email(email):
             return _err("Invalid email format (example@domain.com)")
@@ -7123,7 +7237,11 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
             middle_name = None
 
         with transaction.atomic():
-            customer = Customer.objects.filter(email=email).first()
+            # Keep Google registration subject to the same one-email/one-account
+            # rule as password registration, including historical staff records.
+            if User.objects.filter(email__iexact=email).exists():
+                return _err("Google account is not authorized for customer access", 401)
+            customer = Customer.objects.filter(email__iexact=email).first()
             if not customer:
                 # Create a new active Customer for Google OAuth registration
                 random_secret = secrets.token_urlsafe(32)
@@ -7160,23 +7278,16 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
                     customer.save(update_fields=changed_fields)
                 created = False
 
-        payload = _customer_payload(customer)
-        token = create_token(
-            {**payload, "rememberMe": remember_me},
-            REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
+        if bool(getattr(customer, "two_factor_enabled", False)):
+            # Fix: Google is a primary factor, not a bypass for Customer 2FA.
+            return _start_customer_login_two_factor(request, customer, remember_me, include_email=True)
+        return _issue_customer_login_response(
+            customer,
+            remember_me,
+            message="Registration successful" if created else "Login successful",
+            status=201 if created else 200,
+            created=created,
         )
-        resp = _ok(
-            {
-                "success": True,
-                "user": payload,
-                "token": token,
-                "message": "Registration successful" if created else "Login successful",
-                "created": created,
-            },
-            201 if created else 200,
-        )
-        _set_auth_cookie(resp, token, remember_me)
-        return resp
     except Exception as exc:
         logger.exception("Google customer auth post-verification failed: %s", str(exc))
         if getattr(settings, "DEBUG", False):
@@ -7187,7 +7298,139 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["POST"])
 def auth_staff_google(request: HttpRequest) -> JsonResponse:
-    return _err("Google sign-in is disabled for warehouse staff and drivers", 403)
+    body = _json_body(request)
+    credential = str(body.get("credential") or body.get("idToken") or "").strip()
+    remember_me = bool(body.get("rememberMe", False))
+    if not credential:
+        return _err("Google credential is required")
+
+    if not (getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "") or getattr(settings, "GOOGLE_OAUTH_CLIENT_IDS", [])):
+        return _err("Google OAuth is not configured on the server", 500)
+
+    try:
+        claims = _verify_google_token(credential)
+    except ValueError as exc:
+        logger.warning("Invalid Google credential during staff auth: %s", str(exc))
+        return _err(f"Invalid Google credential: {str(exc)}", 401)
+    except Exception as exc:
+        logger.exception("Google staff token verification failed: %s", str(exc))
+        if getattr(settings, "DEBUG", False):
+            return _err(f"Google authentication failed: {str(exc)}", 503)
+        return _err("Google authentication service is temporarily unavailable", 503)
+
+    email = _normalize_email(claims.get("email"))
+    if not email:
+        return _err("Google account email is unavailable")
+    if claims.get("email_verified") is not True:
+        return _err("Google email is not verified", 401)
+    if not _is_gmail_email(email):
+        return _err("Invalid email format (example@domain.com)")
+
+    # Security: Google proves possession of an email, not authorization to create
+    # a privileged account. Only an existing active staff record may sign in.
+    user = User.objects.filter(
+        email__iexact=email,
+        role__in=STAFF_LOGIN_ROLE_SCOPE,
+        is_active=True,
+    ).first()
+    if not user:
+        return _err("Google account is not authorized for staff access", 401)
+
+    if bool(getattr(user, "two_factor_enabled", False)):
+        # Keep the same second factor as password login; Google is the primary factor.
+        return _start_staff_login_two_factor(request, user, "staff", remember_me, include_email=True)
+
+    return _issue_staff_login_response(user, remember_me)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_unified_login(request: HttpRequest) -> JsonResponse:
+    """Authenticate one existing Customer or permitted staff account by email."""
+    body = _json_body(request)
+    email = _normalize_email(body.get("email"))
+    password = str(body.get("password", ""))
+    remember_me = bool(body.get("rememberMe", False))
+    if not email or not password:
+        return _err("Email and password are required")
+
+    ip_address = get_client_ip(request)
+    retry_after = check_limit("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
+    if retry_after:
+        return throttle_response(retry_after)
+
+    staff, customer, is_ambiguous = _resolve_unified_login_accounts(email)
+    if is_ambiguous:
+        # Do not let a historical duplicate pick a potentially privileged account.
+        _record_login_failure(request, email, "unified", staff)
+        return _err("Invalid email or password", 401)
+
+    account = staff or customer
+    if not account or not account.is_active or not verify_password(password, account.password):
+        _record_login_failure(request, email, "unified", staff)
+        return _err("Invalid email or password", 401)
+
+    clear_account_failures("password_login", email)
+    if staff:
+        if bool(getattr(staff, "two_factor_enabled", False)):
+            return _start_staff_login_two_factor(request, staff, "unified", remember_me)
+        return _issue_staff_login_response(staff, remember_me)
+
+    # At this point the resolver guarantees that customer is the one valid account.
+    if bool(getattr(customer, "two_factor_enabled", False)):
+        return _start_customer_login_two_factor(request, customer, remember_me)
+    return _issue_customer_login_response(customer, remember_me)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def auth_unified_google(request: HttpRequest) -> JsonResponse:
+    """Route a verified Google identity to its existing account type without provisioning."""
+    body = _json_body(request)
+    credential = str(body.get("credential") or body.get("idToken") or "").strip()
+    remember_me = bool(body.get("rememberMe", False))
+    if not credential:
+        return _err("Google credential is required")
+    if not (getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "") or getattr(settings, "GOOGLE_OAUTH_CLIENT_IDS", [])):
+        return _err("Google OAuth is not configured on the server", 500)
+
+    try:
+        claims = _verify_google_token(credential)
+    except ValueError as exc:
+        logger.warning("Invalid Google credential during unified auth: %s", str(exc))
+        return _err(f"Invalid Google credential: {str(exc)}", 401)
+    except Exception as exc:
+        logger.exception("Google unified token verification failed: %s", str(exc))
+        if getattr(settings, "DEBUG", False):
+            return _err(f"Google authentication failed: {str(exc)}", 503)
+        return _err("Google authentication service is temporarily unavailable", 503)
+
+    email = _normalize_email(claims.get("email"))
+    if not email:
+        return _err("Google account email is unavailable")
+    if claims.get("email_verified") is not True:
+        return _err("Google email is not verified", 401)
+    if not _is_gmail_email(email):
+        return _err("Invalid email format (example@domain.com)")
+
+    staff, customer, is_ambiguous = _resolve_unified_login_accounts(email)
+    if is_ambiguous or not (staff or customer):
+        # This endpoint is sign-in only. New customer creation remains on the
+        # dedicated Customer registration flow, never the neutral staff page.
+        return _err("Google account is not authorized for this system", 401)
+
+    if staff:
+        if not staff.is_active:
+            return _err("Google account is not authorized for this system", 401)
+        if bool(getattr(staff, "two_factor_enabled", False)):
+            return _start_staff_login_two_factor(request, staff, "unified", remember_me, include_email=True)
+        return _issue_staff_login_response(staff, remember_me)
+
+    if not customer.is_active:
+        return _err("Google account is not authorized for this system", 401)
+    if bool(getattr(customer, "two_factor_enabled", False)):
+        return _start_customer_login_two_factor(request, customer, remember_me, include_email=True)
+    return _issue_customer_login_response(customer, remember_me)
 
 
 @csrf_exempt
@@ -7333,8 +7576,8 @@ def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
         validate_email(email)
     except ValidationError:
         return _err("Please enter a valid email address")
-    if account_type not in {"staff", "customer"}:
-        return _err("accountType must be 'staff' or 'customer'")
+    if account_type not in {"staff", "customer", "unified"}:
+        return _err("accountType must be 'staff', 'customer', or 'unified'")
     portal_error = _password_reset_portal_error(account_type, portal)
     if portal_error:
         return _err(portal_error)
@@ -7376,8 +7619,8 @@ def auth_password_reset_reset(request: HttpRequest) -> JsonResponse:
 
     if not email:
         return _err("Email is required")
-    if account_type not in {"staff", "customer"}:
-        return _err("accountType must be 'staff' or 'customer'")
+    if account_type not in {"staff", "customer", "unified"}:
+        return _err("accountType must be 'staff', 'customer', or 'unified'")
     portal_error = _password_reset_portal_error(account_type, portal)
     if portal_error:
         return _err(portal_error)
@@ -7438,8 +7681,8 @@ def auth_password_reset_verify_otp(request: HttpRequest) -> JsonResponse:
 
     if not email:
         return _err("Email is required")
-    if account_type not in {"staff", "customer"}:
-        return _err("accountType must be 'staff' or 'customer'")
+    if account_type not in {"staff", "customer", "unified"}:
+        return _err("accountType must be 'staff', 'customer', or 'unified'")
     portal_error = _password_reset_portal_error(account_type, portal)
     if portal_error:
         return _err(portal_error)
@@ -13165,9 +13408,9 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     if lat is None or lng is None or not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
         return _err("Invalid coordinates")
     accuracy = _to_float_or_none(body.get("accuracy"))
-    # Fix: reject weak network/cell estimates before they can replace the
-    # driver's last reliable GPS fix used by live tracking.
-    if accuracy is not None and (accuracy < 0 or accuracy > 100):
+    # Keep this ceiling aligned with the native/web client grace period. A 100–300m
+    # estimate is visibly less precise but still lets a weak-signal driver's vehicle move.
+    if accuracy is not None and (accuracy < 0 or accuracy > 300):
         return _err("Location accuracy is too low for live tracking", 400)
     heading = _to_float_or_none(body.get("heading"))
     altitude = _to_float_or_none(body.get("altitude"))
@@ -13672,7 +13915,12 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
         return _err("Trip not found", 404)
     if p.get("role") == "DRIVER" and p.get("userId") != t.driver_id:
         return _err("Forbidden", 403)
-    if str(t.status or "").strip().upper() != TripStatus.PLANNED:
+    current_trip_status = str(t.status or "").strip().upper()
+    # A mobile connection can lose the first successful response. Starting again
+    # must confirm the existing trip instead of making the driver tap Start again.
+    if current_trip_status == TripStatus.IN_PROGRESS:
+        return _ok({"success": True, "alreadyStarted": True, "trip": _serialize_model(t)})
+    if current_trip_status != TripStatus.PLANNED:
         return _err("Only planned trips can be started", 409)
 
     # Added: enforce the same schedule shown to the driver. Order delivery dates
@@ -13869,6 +14117,23 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
     next_status = requested_status
     if next_status == "COMPLETED" and not str(body.get("deliveryPhoto") or dp.delivery_photo or "").strip():
         return _err("A POD photo is required to confirm delivery", 400)
+    if requested_status == "COMPLETED" and str(dp.status or "").upper() == "COMPLETED":
+        # The first request may have committed while its response was lost. This
+        # acknowledgement makes the driver's automatic confirmation retry safe.
+        existing_order_payload = None
+        if dp.order_id:
+            existing_order_payload = _serialize_order(
+                Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=dp.order_id),
+                include_items=False,
+            )
+        return _ok({
+            "success": True,
+            "alreadyCompleted": True,
+            "dropPoint": _serialize_model(dp),
+            "order": existing_order_payload,
+            "requeuedToRoutePool": False,
+            "empties": None,
+        })
     cancellation_reason = str(body.get("notes") or body.get("failureReason") or "").strip()
     # Required: driver delivery cancellations must include the selected reason.
     if requested_status == "CANCELLED" and not cancellation_reason:

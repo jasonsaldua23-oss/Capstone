@@ -29,6 +29,7 @@ test('native portal path guards reject the other installable portal', () => {
   assert.equal(isPathAllowedForPortal('/customer/login', 'driver'), false)
 
   assert.equal(isPathAllowedForPortal('/customer', 'customer'), true)
+  assert.equal(isPathAllowedForPortal('/customer/login?mode=register', 'customer'), true)
   assert.equal(isPathAllowedForPortal('/driver', 'customer'), false)
 })
 

@@ -16,7 +16,7 @@ function load(file, globals) {
   return exports
 }
 
-test('both Capacitor shells can send, verify, and reset OTP without opening unrelated auth routes', async () => {
+test('both Capacitor shells can use neutral sign-in and OTP without opening unrelated auth routes', async () => {
   const scope = load('src/lib/portal-scope.ts', {})
   for (const variant of ['all', 'driver', 'customer']) {
     const { middleware } = load('src/middleware.ts', {
@@ -34,12 +34,53 @@ test('both Capacitor shells can send, verify, and reset OTP without opening unre
         const response = await middleware(new NextRequest(`https://example.test/api/auth/password-reset/${action}`, { method: 'POST', headers }))
         assert.equal(response.headers.get('x-middleware-next'), '1', `${portal}: ${action}`)
       }
+      for (const endpoint of ['/api/auth/unified/login', '/api/auth/unified/google']) {
+        const response = await middleware(new NextRequest(`https://example.test${endpoint}`, { method: 'POST', headers }))
+        assert.equal(response.headers.get('x-middleware-next'), '1', `${portal}: ${endpoint}`)
+      }
       const denied = await middleware(new NextRequest('https://example.test/api/auth/unknown-action', { headers }))
       assert.equal(denied.status, 403)
       const otherLogin = portal === 'driver' ? '/api/auth/customer/login' : '/api/auth/login'
       assert.equal((await middleware(new NextRequest(`https://example.test${otherLogin}`, { headers }))).status, 403)
     }
   }
+})
+
+test('shared browser sign-in stays neutral while the Shop shell keeps its scoped login', async () => {
+  const scope = load('src/lib/portal-scope.ts', {})
+  const { middleware } = load('src/middleware.ts', {
+    TextEncoder, URL, process: { env: { NEXT_PUBLIC_APP_VARIANT: 'all' } },
+    require(name) {
+      if (name === 'next/server') return { NextResponse }
+      if (name === 'jose') return { jwtVerify: async () => { throw new Error('No token expected') } }
+      assert.equal(name, '@/lib/portal-scope')
+      return scope
+    },
+  })
+
+  // Browser bookmarks are normalized without losing the registration intent.
+  const browserRedirect = await middleware(new NextRequest('https://example.test/customer/login?mode=register'))
+  assert.equal(browserRedirect.status, 307)
+  assert.equal(browserRedirect.headers.get('location'), 'https://example.test/login?mode=register')
+  const neutralBrowser = await middleware(new NextRequest('https://example.test/login?mode=register'))
+  assert.equal(neutralBrowser.headers.get('x-middleware-next'), '1')
+
+  // Password recovery follows the same neutral browser rule without losing a typed email.
+  const browserRecoveryRedirect = await middleware(new NextRequest('https://example.test/customer/login/forgot-password?email=shopper%40example.test'))
+  assert.equal(browserRecoveryRedirect.status, 307)
+  assert.equal(browserRecoveryRedirect.headers.get('location'), 'https://example.test/login/forgot-password?email=shopper%40example.test')
+  const neutralRecovery = await middleware(new NextRequest('https://example.test/login/forgot-password?email=shopper%40example.test'))
+  assert.equal(neutralRecovery.headers.get('x-middleware-next'), '1')
+
+  // Capacitor remains on the Shop URL so its PWA/native scope cannot escape.
+  const shopHeaders = { 'user-agent': 'AABTradingApp AABPortal/customer' }
+  const scopedShop = await middleware(new NextRequest('https://example.test/customer/login?mode=register', { headers: shopHeaders }))
+  assert.equal(scopedShop.headers.get('x-middleware-next'), '1')
+  const scopedRecovery = await middleware(new NextRequest('https://example.test/customer/login/forgot-password', { headers: shopHeaders }))
+  assert.equal(scopedRecovery.headers.get('x-middleware-next'), '1')
+  const escapedShop = await middleware(new NextRequest('https://example.test/login', { headers: shopHeaders }))
+  assert.equal(escapedShop.status, 307)
+  assert.equal(escapedShop.headers.get('location'), 'https://example.test/customer/login')
 })
 
 test('offline detection handles airplane mode, Wi-Fi without internet, reconnection, and listener cleanup', async () => {

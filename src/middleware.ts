@@ -117,6 +117,10 @@ function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): bo
     pathname === '/api/auth/password-reset/request-otp' ||
     pathname === '/api/auth/password-reset/verify-otp' ||
     pathname === '/api/auth/password-reset/reset' ||
+    // The neutral sign-in must be reachable from every portal-scoped shell;
+    // the client still rejects a completed session outside that shell's portal.
+    pathname === '/api/auth/unified/login' ||
+    pathname === '/api/auth/unified/google' ||
     pathname === '/api/auth/staff/google' ||
     pathname === '/api/auth/login/verify-otp'
   ) {
@@ -157,13 +161,26 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname === '/login') {
-    // Valid sessions return to their role-resolved portal. Signed-out users may
-    // continue to the page-level redirect for the public Customer login.
+    // Shared-browser visitors use the neutral entry page. A native shell was
+    // redirected to its canonical scoped login above, before it can reach this branch.
     if (variant === 'all') {
-      // A server-side cookie cannot identify the intended tab. Let the login page choose its portal.
+      // A server-side cookie cannot identify the intended tab. Let the shared page restore it.
       return NextResponse.next()
     }
     return NextResponse.redirect(new URL(defaultLoginPath, request.url))
+  }
+
+  if (
+    variant === 'all' &&
+    !shellPortal &&
+    (pathname === '/customer/login' || pathname === '/customer/login/forgot-password')
+  ) {
+    // Keep browser authentication and recovery on neutral addresses. Do not apply
+    // this to the Shop shell: its Capacitor/PWA scope must retain Customer routes.
+    const neutralPath = pathname === '/customer/login/forgot-password' ? '/login/forgot-password' : '/login'
+    const neutralLogin = new URL(neutralPath, request.url)
+    neutralLogin.search = request.nextUrl.search
+    return NextResponse.redirect(neutralLogin)
   }
 
   const targetPortal = extractPortalFromLoginPath(pathname)
