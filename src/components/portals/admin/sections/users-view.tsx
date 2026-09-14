@@ -33,6 +33,7 @@ import {
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { validatePasswordPolicy } from '@/lib/password-policy'
 import { validatePersonName } from '@/lib/person-name'
+import { emitDataSync } from '@/lib/data-sync'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { safeFetchJson } from './shared'
 
@@ -363,6 +364,8 @@ export function UsersView() {
       setSaveConfirmOpen(false)
       resetForm()
       await fetchUsers()
+      // Fix: driver account edits include service-area changes; refresh open trip planners.
+      emitDataSync(['users', 'drivers'])
     } catch (error: any) {
       if (/already registered|already exists/i.test(String(error?.message || ''))) {
         // Fix: show the duplicate validation beside the email field, not only in a toast.
@@ -391,6 +394,8 @@ export function UsersView() {
       setEditOpen(false)
       resetForm()
       await fetchUsers()
+      // Fix: remove deleted drivers from any open Create Trip driver lists.
+      emitDataSync(['users', 'drivers'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to delete user')
     } finally {

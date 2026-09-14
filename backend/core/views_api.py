@@ -4506,6 +4506,15 @@ def _reconcile_replacement_bottle_remainder_on_delivery(order: Order, performed_
         if "ReplacementUnitMode=BOTTLE" not in item_notes:
             continue
         if InventoryTransaction.objects.filter(
+            reference_type="order_item",
+            reference_id=order_item.id,
+            type="OUT",
+            quantity_unit=InventoryQuantityUnit.BASE_UNIT,
+        ).exists():
+            # New bottle-mode allocations retain an opened case's unused bottles
+            # during deduction, so a follow-up stock-in entry would double count.
+            continue
+        if InventoryTransaction.objects.filter(
             reference_type="replacement_bottle_remainder",
             reference_id=order_item.id,
         ).exists():
@@ -4591,11 +4600,18 @@ def _allocate_inventory_for_order_item(
     effective_requested_qty = requested_qty
     replacement_notes = str(getattr(order_item, "notes", "") or "")
     replacement_unit_mode = str(getattr(order, "order_number", "") or "").strip().upper().startswith("RPL-") and "ReplacementUnitMode=BOTTLE" in replacement_notes
+    replacement_bottles_from_cases = 0
+    replacement_qty_per_case = 1
+    replacement_bottle_case_deduction = False
+    replacement_bottle_direct_deduction = replacement_unit_mode and _normalize_product_unit(getattr(product, "unit", None)) == "bottle"
+    remaining_bottles = 0
     if replacement_unit_mode and _normalize_product_unit(getattr(product, "unit", None)) != "bottle":
         requested_bottles_match = re.search(r"ReplacementRequestedBottles=(\d+)", replacement_notes)
         requested_bottles = _int(requested_bottles_match.group(1), 0) if requested_bottles_match else 0
         qty_per_case = max(1, _int(getattr(product, "quantity_per_unit", 0), 1))
+        replacement_qty_per_case = qty_per_case
         if requested_bottles > 0:
+            replacement_bottle_case_deduction = True
             remaining_bottles = requested_bottles
             inventories_sorted = sorted(
                 inventories,
@@ -4694,9 +4710,30 @@ def _allocate_inventory_for_order_item(
             reason=f"Order allocation for {order.order_number}",
         )
 
-        movement = movements.setdefault(inventory.id, {"inventory": inventory, "previous": previous_qty, "quantity": 0, "batches": []})
+        movement = movements.setdefault(
+            inventory.id,
+            {
+                "inventory": inventory,
+                "previous": previous_qty,
+                "previous_bottles": (previous_qty * replacement_qty_per_case) + max(0, int(inventory.loose_bottles or 0)),
+                "quantity": 0,
+                "batches": [],
+            },
+        )
         movement["quantity"] += take_qty
         movement["batches"].append(batch.batch_number)
+
+        if replacement_bottle_case_deduction and replacement_bottles_from_cases < remaining_bottles:
+            # Fix: opening a case for a bottle replacement only removes the
+            # requested bottles. The unused containers remain as loose stock.
+            case_bottles = take_qty * replacement_qty_per_case
+            deducted_bottles = min(case_bottles, remaining_bottles - replacement_bottles_from_cases)
+            opened_case_remainder = case_bottles - deducted_bottles
+            if opened_case_remainder > 0:
+                inventory.loose_bottles = max(0, int(inventory.loose_bottles or 0)) + opened_case_remainder
+                inventory.save(update_fields=["loose_bottles", "updated_at"])
+            movement["bottle_quantity"] = movement.get("bottle_quantity", 0) + deducted_bottles
+            replacement_bottles_from_cases += deducted_bottles
 
         allocation_rows.append(
             {
@@ -4712,6 +4749,29 @@ def _allocate_inventory_for_order_item(
 
     for movement in movements.values():
         inventory = movement["inventory"]
+        if replacement_bottle_case_deduction:
+            updated_bottles = (max(0, int(inventory.quantity or 0)) * replacement_qty_per_case) + max(0, int(inventory.loose_bottles or 0))
+            InventoryTransaction.objects.create(
+                warehouse=inventory.warehouse, product=product, type="OUT",
+                quantity=max(0, int(movement.get("bottle_quantity", 0))), quantity_unit=InventoryQuantityUnit.BASE_UNIT,
+                stock_unit_label="Bottle", previous_stock=movement["previous_bottles"], updated_stock=updated_bottles,
+                reference_type="order_item", reference_id=order_item.id, order_item=order_item,
+                performed_by=performed_by,
+                notes=f"{allocation_policy} bottle allocation for replacement order {order.order_number}; batches {', '.join(movement['batches'])}",
+            )
+            continue
+        if replacement_bottle_direct_deduction:
+            # Fix: products stocked directly by the bottle must not inherit the
+            # default case label used by normal order allocations.
+            InventoryTransaction.objects.create(
+                warehouse=inventory.warehouse, product=product, type="OUT",
+                quantity=movement["quantity"], quantity_unit=InventoryQuantityUnit.BASE_UNIT,
+                stock_unit_label="Bottle", previous_stock=movement["previous"], updated_stock=inventory.quantity,
+                reference_type="order_item", reference_id=order_item.id, order_item=order_item,
+                performed_by=performed_by,
+                notes=f"{allocation_policy} bottle allocation for replacement order {order.order_number}; batches {', '.join(movement['batches'])}",
+            )
+            continue
         InventoryTransaction.objects.create(
             warehouse=inventory.warehouse, product=product, type="OUT",
             quantity=movement["quantity"], quantity_unit=InventoryQuantityUnit.CASE,
@@ -13185,6 +13245,10 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
                     if str((allocation or {}).get("warehouseId") or "").strip() == warehouse_id
                 )
             total_order_qty = sum(max(_int(item.quantity, 0), 0) for item in order_items)
+            if str(getattr(o, "warehouse_id", "") or "").strip() == warehouse_id and not order_allocations:
+                # Fix: directly assigned orders may not have reserve transactions yet.
+                # They still belong to this warehouse leg and must remain selectable for trip planning.
+                allocated_qty_for_selected_warehouse = total_order_qty
             selected_load_cases = 0
             selected_load_weight = 0.0
             product_allocations: list[dict[str, Any]] = []

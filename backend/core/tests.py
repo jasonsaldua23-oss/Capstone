@@ -3677,6 +3677,10 @@ class RoutePlanStructureContractTests(TestCase):
         self.assertGreaterEqual(len(payload["vehicles"]), 1)
         self.assertGreaterEqual(len(payload["orders"]), 1)
         self.assertGreaterEqual(len(payload["routePlans"]), 1)
+        route_order = next(row for row in payload["orders"] if row["id"] == order.id)
+        # A direct warehouse order has no reservation rows, but must still pass the
+        # selected-warehouse quantity filter used by the Create Trip screen.
+        self.assertEqual(route_order["allocatedQtyForSelectedWarehouse"], 2)
 
         plan = payload["routePlans"][0]
         self.assertIn("city", plan)
@@ -5854,7 +5858,7 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertAlmostEqual(item.total_price, 5.0)
         self.assertAlmostEqual(scheduled_order.total_amount, 5.0)
 
-    def test_mixed_case_and_bottle_replacement_returns_unused_bottles_to_loose_stock(self) -> None:
+    def test_mixed_case_and_bottle_replacement_deducts_requested_bottles(self) -> None:
         # This scenario requests loose bottles from a product stocked by the case.
         self.product_b.unit = "case"
         self.product_b.save(update_fields=["unit", "updated_at"])
@@ -5966,15 +5970,69 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(inventory_a.loose_bottles, 0)
         self.assertEqual(inventory_b.quantity, 1)
         self.assertEqual(inventory_b.loose_bottles, 9)
-        self.assertTrue(
+        bottle_deduction = InventoryTransaction.objects.get(
+            type="OUT",
+            reference_type="order_item",
+            reference_id=bottle_item.id,
+        )
+        self.assertEqual(bottle_deduction.quantity_unit, "BASE_UNIT")
+        self.assertEqual(bottle_deduction.stock_unit_label, "Bottle")
+        self.assertEqual(bottle_deduction.quantity, 3)
+        self.assertEqual((bottle_deduction.previous_stock, bottle_deduction.updated_stock), (24, 21))
+        self.assertFalse(
             InventoryTransaction.objects.filter(
-                type="IN",
-                quantity_unit="BASE_UNIT",
                 reference_type="replacement_bottle_remainder",
                 reference_id=bottle_item.id,
-                quantity=9,
             ).exists()
         )
+
+    def test_bottle_stocked_replacement_records_a_bottle_deduction(self) -> None:
+        warehouse = Warehouse.objects.create(
+            name="Bottle Replacement Warehouse",
+            code="WH-BOTTLE-REPL-001",
+            address="Replacement Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        inventory = Inventory.objects.create(
+            warehouse=warehouse,
+            product=self.product_b,
+            quantity=5,
+            reserved_quantity=0,
+            threshold=1,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-BOTTLE-STOCKED-REPL",
+            inventory=inventory,
+            quantity=5,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        replacement_order = Order.objects.create(
+            order_number="RPL-BOTTLE-STOCKED-001",
+            customer=self.customer,
+            warehouse_id=warehouse.id,
+            subtotal=0,
+            total_amount=0,
+        )
+        item = OrderItem.objects.create(
+            order=replacement_order,
+            product=self.product_b,
+            quantity=3,
+            unit_price=0,
+            total_price=0,
+            notes="ReplacementUnitMode=BOTTLE\nReplacementRequestedBottles=3",
+        )
+
+        _mark_order_delivered(replacement_order, performed_by="warehouse-test")
+
+        inventory.refresh_from_db()
+        deduction = InventoryTransaction.objects.get(type="OUT", reference_id=item.id)
+        self.assertEqual(inventory.quantity, 2)
+        self.assertEqual((deduction.quantity_unit, deduction.stock_unit_label, deduction.quantity), ("BASE_UNIT", "Bottle", 3))
+        self.assertEqual((deduction.previous_stock, deduction.updated_stock), (5, 2))
 
     def test_customer_replacement_request_rejects_order_delivered_more_than_3_days_ago(self) -> None:
         OrderTimeline.objects.create(
