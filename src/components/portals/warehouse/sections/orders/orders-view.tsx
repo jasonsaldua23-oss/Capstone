@@ -295,10 +295,11 @@ export function WarehouseOrdersView({
                     const stage = getOrderStage(order)
                     // Rescheduling is offered only after Start Processing confirms the date has passed.
                     const needsReschedule = Boolean(order?.showRescheduleAction)
+                    // Fix: the dialog action can be cleared while an order update is still in progress.
                     const isProcessingOrder = Boolean(
                       updatingOrderId === order.id
                       && actionState?.order?.id === order.id
-                      && actionState.action === 'processing'
+                      && actionState?.action === 'processing'
                     )
                     const isAssignedToDelivery = Boolean(
                       order?.assignedTripId ||
