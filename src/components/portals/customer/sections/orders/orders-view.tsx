@@ -477,10 +477,19 @@ export function CustomerOrdersView(props: any) {
           record?.orderId ||
           ''
         ).trim()
+        // Restore replacement tracking after delivery too, but only when the
+        // claim is linked to an actual scheduled replacement order.
+        const canTrackReplacement = Boolean(
+          trackingOrderId &&
+          (Array.isArray(orders) ? orders : []).some(
+            (order: any) => String(order?.id || '').trim() === trackingOrderId && isReplacementOrder(order)
+          )
+        )
         return {
           ...(linkedOrder || {}),
           id: String(record?.id || linkedOrder?.id || `replacement-${index + 1}`),
           trackingOrderId,
+          canTrackReplacement,
           orderNumber: displayReplacementNumber || `Replacement ${index + 1}`,
           customerName:
             linkedOrder?.customerName ||
@@ -718,7 +727,7 @@ export function CustomerOrdersView(props: any) {
                         View Details
                         <ChevronRight className="ml-1 h-3.5 w-3.5" />
                       </Button>
-                      {isOrderTrackable(o.status) && !isDelivered ? (
+                      {o.canTrackReplacement ? (
                         <Button
                           className="h-8 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
                           onClick={() => {
