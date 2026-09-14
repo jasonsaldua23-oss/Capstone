@@ -246,8 +246,10 @@ export function installTabAuthFetchInterceptor() {
         return originalFetch(input, requestInit).finally(clearApiResponseCache)
       }
       // Reads made while the write is pending may contain the old server state.
-      // Fix: all portals reject unconfirmed saves instead of accepting an empty response.
-      return apiWrite(() => originalFetch(input, requestInit)).finally(clearApiResponseCache)
+      // Keep every portal action loading while the shared writer retries transient failures.
+      return apiWrite(() => originalFetch(input, requestInit), {
+        signal: requestInit.signal,
+      }).finally(clearApiResponseCache)
     }
 
     const apiUrl = getApiUrl(input)

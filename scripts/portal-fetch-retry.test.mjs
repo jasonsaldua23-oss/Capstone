@@ -83,15 +83,20 @@ for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
   }
 }
 
-test('web interceptor preserves one-shot writes and cancels outstanding reads on logout', async (t) => {
+test('web interceptor retries writes and cancellation stops outstanding work', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let calls = 0
   const { window, client, uninstall } = loadPortal('customer', true, async () => {
     calls++
     throw new TypeError('Failed to fetch')
   })
-  await assert.rejects(window.fetch('/api/customer/replacements', { method: 'POST' }), /Refresh the record/)
+  const writeController = new AbortController()
+  const write = window.fetch('/api/customer/replacements', { method: 'POST', signal: writeController.signal })
+  const writeRejected = assert.rejects(write, { name: 'AbortError' })
+  await flush()
   assert.equal(calls, 1)
+  writeController.abort()
+  await writeRejected
   const pending = window.fetch('https://annannsbeveragestrading.com/api/customer/orders')
   const rejected = assert.rejects(pending, { name: 'AbortError' })
   await flush()
@@ -200,31 +205,38 @@ test('API read URLs throughout src use recovery, including cached and uncached s
   t.diagnostic(`Verified recovery for ${urls.size} distinct source API read URLs in both cache modes.`)
   uninstall()
 })
-// All portals must fail closed on unconfirmed writes, without replaying business actions.
+// All portals must keep transient writes pending until a confirmed success arrives.
 for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
-  test(`${portal}: malformed and rejected saves never become success`, async () => {
+  test(`${portal}: malformed saves retry while rejected saves retain their errors`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
     for (const makeResponse of [
       () => new Response(''),
       () => new Response('<html>Gateway failure</html>', { status: 502 }),
       () => new Response('{'),
-      () => Response.json({ success: false, error: 'Insufficient stock', available: 2 }),
-      () => new Response('', { status: 401 }),
+      () => Response.json({ dbUnavailable: true }),
     ]) {
       let calls = 0
       const { window, uninstall } = loadPortal(portal, false, async () => {
         calls++
-        return makeResponse()
+        return calls === 1 ? makeResponse() : Response.json({ success: true })
       })
-      // Malformed 2xx responses reject; real non-2xx responses retain server details.
-      if (makeResponse().ok) {
-        await assert.rejects(window.fetch('/api/orders', { method: 'PATCH' }), /Refresh the record/)
-      } else {
-        const response = await window.fetch('/api/orders', { method: 'PATCH' })
-        assert.equal(response.ok, false)
-        const payload = await response.json()
-        assert.equal(payload.success, false)
-        assert.ok(payload.error.length > 0)
-      }
+      const pending = window.fetch('/api/orders', { method: 'PATCH' })
+      await flush()
+      assert.equal(calls, 1)
+      t.mock.timers.tick(30_000)
+      assert.equal((await (await pending).json()).success, true)
+      assert.equal(calls, 2)
+      uninstall()
+    }
+    for (const response of [
+      Response.json({ success: false, error: 'Insufficient stock', available: 2 }, { status: 422 }),
+      new Response('', { status: 401 }),
+    ]) {
+      let calls = 0
+      const { window, uninstall } = loadPortal(portal, false, async () => { calls++; return response })
+      const result = await window.fetch('/api/orders', { method: 'PATCH' })
+      assert.equal(result.ok, false)
+      assert.ok((await result.json()).error.length > 0)
       assert.equal(calls, 1)
       uninstall()
     }

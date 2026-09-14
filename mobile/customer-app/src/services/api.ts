@@ -83,8 +83,8 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
     if (!(init.body instanceof FormData)) reqHeaders.set("Content-Type", "application/json");
     if (token) reqHeaders.set("Authorization", `Bearer ${token}`);
 
-    // Fix: failed reads stay pending so every mobile section keeps its loading state.
-    // Writes run once; replaying a submission could create a duplicate order or replacement.
+    // Failed reads and writes stay pending so mobile loading states remain visible
+    // until the server confirms success or returns a terminal client error.
     let payload: any;
     let attempt = 0;
     while (true) {
@@ -103,7 +103,7 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
         if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500)) {
           throw new TypeError("Temporary read failure");
         }
-        // Fix: an empty/truncated save response cannot confirm that the action succeeded.
+        // An empty/truncated save response is transient and must keep loading.
         payload = response.status === 204 || response.status === 205 ? {} : await response.json().catch((error) => {
           if (method === "GET" && response.ok) throw error;
           if (method !== "GET" && response.ok) {
@@ -126,12 +126,24 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
       } catch (error) {
         // Caller cancellation and access/validation errors retain their existing handling.
         if (signal?.aborted) throw signal.reason || error;
-        if (error instanceof ApiError) throw error;
-        if (method !== "GET") {
-          if (controller.signal.aborted) throw new ApiError("The server took too long to confirm this action. Check the latest record before submitting again.", 0, null);
-          throw error;
+        if (error instanceof ApiError) {
+          const retryableWrite = method !== "GET" && (
+            error.status === 0 ||
+            error.status === 408 ||
+            error.status === 425 ||
+            error.status === 429 ||
+            error.status >= 500 ||
+            (error.status >= 200 && error.status < 300 && error.payload == null) ||
+            Boolean((error.payload as any)?.dbUnavailable)
+          );
+          if (!retryableWrite) throw error;
         }
-        if (!(error instanceof TypeError) && !(error instanceof SyntaxError) && !controller.signal.aborted) throw error;
+        if (method !== "GET") {
+          // Network and timeout failures remain inside this loop so the caller's
+          // existing finally block cannot clear its loading state prematurely.
+          if (!(error instanceof ApiError) && !(error instanceof TypeError) && !(error instanceof SyntaxError) && !controller.signal.aborted) throw error;
+        }
+        if (method === "GET" && !(error instanceof TypeError) && !(error instanceof SyntaxError) && !controller.signal.aborted) throw error;
       } finally {
         clearTimeout(timer);
         signal?.removeEventListener("abort", abortFromCaller);

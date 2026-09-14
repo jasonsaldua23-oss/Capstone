@@ -56,7 +56,7 @@ for (const app of ['customer', 'driver']) {
     assert.equal(calls, 8, 'only valid data enters the existing cache')
   })
 
-  test(`${app}: access errors and submissions are never replayed`, async () => {
+  test(`${app}: access errors stop while transient submissions retry`, async () => {
     for (const status of [401, 403, 404, 422]) {
       let calls = 0
       const client = loadClient(app, async () => {
@@ -69,10 +69,11 @@ for (const app of ['customer', 'driver']) {
     let writes = 0
     const client = loadClient(app, async () => {
       writes++
-      throw new TypeError('Failed to fetch')
+      if (writes === 1) throw new TypeError('Failed to fetch')
+      return Response.json({ success: true })
     })
-    await assert.rejects(client.apiRequest('/api/replacements', { method: 'POST' }))
-    assert.equal(writes, 1)
+    assert.equal((await client.apiRequest('/api/replacements', { method: 'POST' })).success, true)
+    assert.equal(writes, 2)
   })
 
   test(`${app}: cancellation stops retries and pre-cancelled requests never start`, async (t) => {
@@ -93,22 +94,30 @@ for (const app of ['customer', 'driver']) {
     assert.equal(calls, 1)
   })
 }
-// Prevent a malformed response or an application error from clearing a mobile form as successful.
+// Prevent transient responses from clearing a mobile form before success is confirmed.
 for (const app of ['customer', 'driver']) {
-  test(`${app}: unconfirmed saves reject once and retain server errors`, async () => {
+  test(`${app}: unconfirmed saves retry and retain terminal server errors`, async () => {
     for (const makeResponse of [
       () => new Response(''),
       () => new Response('{'),
       () => Response.json(null),
-      () => Response.json({ success: false, error: 'Insufficient stock' }),
       () => Response.json({ dbUnavailable: true }),
     ]) {
       let calls = 0
-      const client = loadClient(app, async () => { calls++; return makeResponse() })
-      await assert.rejects(client.apiRequest('/api/orders', { method: 'POST' }),
-        /Check the latest record|Insufficient stock/)
-      assert.equal(calls, 1)
+      const client = loadClient(app, async () => {
+        calls++
+        return calls === 1 ? makeResponse() : Response.json({ success: true })
+      })
+      assert.equal((await client.apiRequest('/api/orders', { method: 'POST' })).success, true)
+      assert.equal(calls, 2)
     }
+    let calls = 0
+    const client = loadClient(app, async () => {
+      calls++
+      return Response.json({ success: false, error: 'Insufficient stock' })
+    })
+    await assert.rejects(client.apiRequest('/api/orders', { method: 'POST' }), /Insufficient stock/)
+    assert.equal(calls, 1)
   })
   test(`${app}: successful and intentional no-content saves remain valid`, async () => {
     for (const response of [Response.json({ success: true }), new Response(null, { status: 204 })]) {

@@ -3,21 +3,45 @@ const rejectedRequest = 'The server rejected this request. Check the entered inf
 type ApiWriteOptions = {
   retryDelayMs?: number
   fallbackError?: string | null
+  signal?: AbortSignal | null
+}
+
+const isTransientStatus = (status: number) => [408, 425, 429].includes(status) || status >= 500
+
+async function waitForWriteRetry(delayMs: number, signal?: AbortSignal | null) {
+  if (signal?.aborted) throw signal.reason || new DOMException('Request cancelled', 'AbortError')
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason || new DOMException('Request cancelled', 'AbortError'))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delayMs)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 export async function apiWrite(
   send: () => Promise<Response>,
   options: ApiWriteOptions = {},
 ): Promise<Response> {
-  // Fix: an ambiguous write may already be committed; never replay it automatically.
-  {
+  let attempt = 0
+  while (true) {
+    if (options.signal?.aborted) {
+      throw options.signal.reason || new DOMException('Request cancelled', 'AbortError')
+    }
     let response: Response
     try {
       response = await send()
     } catch (error) {
-      // Abort and programming errors must still reach their existing handlers.
+      if (options.signal?.aborted) throw options.signal.reason || error
+      // Keep callers in their existing loading state while connectivity recovers.
       if (!(error instanceof TypeError)) throw error
-      throw new Error('The request could not be confirmed. Refresh the record before submitting again.')
+      const delay = Math.min((options.retryDelayMs ?? 1000) * 2 ** Math.min(attempt++, 5), 30_000)
+      await waitForWriteRetry(delay, options.signal)
+      continue
     }
 
     // No-content responses are valid for endpoints that intentionally return no body.
@@ -32,8 +56,12 @@ export async function apiWrite(
       // A 2FA challenge is a confirmed login step, not a transient write failure.
       (payload.success !== false || payload.requiresTwoFactor === true) && !payload.dbUnavailable) return response
 
-    if (response.ok) {
-      throw new Error('The server response could not confirm this save. Refresh the record before submitting again.')
+    if (isTransientStatus(response.status) || payload?.dbUnavailable || (response.ok && payload === null)) {
+      // Retry only unconfirmed/transient outcomes; validation and permission errors
+      // still resolve to their existing handlers instead of loading forever.
+      const delay = Math.min((options.retryDelayMs ?? 1000) * 2 ** Math.min(attempt++, 5), 30_000)
+      await waitForWriteRetry(delay, options.signal)
+      continue
     }
 
     // Login callers can opt out of generic fallback copy while preserving real API details.

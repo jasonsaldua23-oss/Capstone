@@ -3,32 +3,28 @@ import test from 'node:test'
 
 import { apiWrite } from '../src/lib/api-write.ts'
 
-// Fix: a lost response after commit must never cause a second mutation.
-test('write reports an ambiguous connection failure without replaying a committed write', async () => {
-  let commits = 0
-  await assert.rejects(apiWrite(async () => {
-    commits++
-    throw new TypeError('response lost after commit')
-  }), /Refresh the record/)
-  assert.equal(commits, 1)
+test('write retries an interrupted response until success is confirmed', async () => {
+  let calls = 0
+  const response = await apiWrite(async () => {
+    calls++
+    if (calls === 1) throw new TypeError('response interrupted')
+    return Response.json({ success: true })
+  }, { retryDelayMs: 0 })
+  assert.equal((await response.json()).success, true)
+  assert.equal(calls, 2)
 })
 
-test('temporary server errors and malformed success never replay writes', async () => {
-  for (const status of [408, 425, 429, 503]) {
-    let calls = 0
-    const response = await apiWrite(async () => {
-      calls++
-      return Response.json({ success: false }, { status })
-    })
-    assert.equal(response.status, status)
-    assert.equal(calls, 1)
-  }
+test('temporary server errors and malformed success keep retrying', async () => {
   let calls = 0
-  await assert.rejects(apiWrite(async () => {
+  const response = await apiWrite(async () => {
     calls++
-    return new Response('<html>Proxy error</html>')
-  }), /Refresh the record/)
-  assert.equal(calls, 1)
+    if (calls === 1) return Response.json({ success: false }, { status: 503 })
+    if (calls === 2) return new Response('<html>Proxy error</html>')
+    if (calls === 3) return Response.json({ dbUnavailable: true })
+    return Response.json({ success: true })
+  }, { retryDelayMs: 0 })
+  assert.equal((await response.json()).success, true)
+  assert.equal(calls, 4)
 })
 
 test('write returns real validation and permission errors without retrying', async () => {
