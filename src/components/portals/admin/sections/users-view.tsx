@@ -365,7 +365,7 @@ export function UsersView() {
       resetForm()
       await fetchUsers()
       // Fix: driver account edits include service-area changes; refresh open trip planners.
-      emitDataSync(['users', 'drivers'])
+      emitDataSync(['user', 'drivers'])
     } catch (error: any) {
       if (/already registered|already exists/i.test(String(error?.message || ''))) {
         // Fix: show the duplicate validation beside the email field, not only in a toast.
@@ -395,7 +395,7 @@ export function UsersView() {
       resetForm()
       await fetchUsers()
       // Fix: remove deleted drivers from any open Create Trip driver lists.
-      emitDataSync(['users', 'drivers'])
+      emitDataSync(['user', 'drivers'])
     } catch (error: any) {
       toast.error(error?.message || 'Failed to delete user')
     } finally {
