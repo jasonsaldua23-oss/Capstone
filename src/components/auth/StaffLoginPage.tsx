@@ -97,7 +97,7 @@ type SystemLoginPageProps = {
   registrationHref?: string
   /** Keeps the shared-browser recovery flow on its neutral /login URL. */
   forgotPasswordPath?: string
-  /** Null keeps the shared /login route from guessing between scoped cookies. */
+  /** Null makes the shared /login route a fresh, tab-independent sign-in. */
   restorePortal?: LoginPortal | null
 }
 
@@ -184,11 +184,13 @@ export function SystemLoginPage({
 
     async function checkSession() {
       try {
+        // Fix: a tab opened from another tab can inherit a copy of sessionStorage.
+        // The neutral login must still allow a different account without revoking
+        // or replacing the account that remains active in the original tab.
+        if (scopedRestorePortal === null) return
         const tabAuthToken = getTabAuthToken()
-        if (scopedRestorePortal === null && !tabAuthToken) return
         const response = await retryingApiRead(
-          // Scoped routes use their own cookie. The shared URL restores only an
-          // explicit tab token, so it never guesses an account from two cookies.
+          // Scoped native/app routes retain their existing cookie or tab-token restore.
           (signal) => fetch('/api/auth/me', {
             signal,
             cache: 'no-store',
@@ -469,10 +471,11 @@ export function SystemLoginPage({
               <Label htmlFor="staff-email" className="text-sm font-semibold text-[#1f3566]">Email</Label>
               <div className={`relative h-11 rounded-xl border bg-white ${loginError ? 'border-rose-300' : 'border-[#d6deea]'}`}>
                 <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a99b3]" />
+                {/* Fix: keep the shared login page blank instead of presenting saved credentials as defaults. */}
                 <Input
                   id="staff-email"
                   type="email"
-                  autoComplete="username"
+                  autoComplete="off"
                   value={email}
                   onChange={(event) => {
                     setEmail(event.target.value)
@@ -492,7 +495,7 @@ export function SystemLoginPage({
                 <Input
                   id="staff-password"
                   type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
+                  autoComplete="new-password"
                   value={password}
                   onChange={(event) => {
                     setPassword(event.target.value)

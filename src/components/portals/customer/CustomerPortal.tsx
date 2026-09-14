@@ -16,7 +16,7 @@ import { CustomerHomeView } from './sections/home/home-view'
 import { CustomerCartView } from './sections/cart/cart-view'
 import { MixedCaseBuilderDialog } from './sections/cart/mixed-case-builder-dialog'
 import { getMixedCaseComponentDepositProfile, getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
-import { getLineDepositAmounts } from '@shared/customer-logic/empty-credit'
+import { getAutomaticEmptyCredit, getLineDepositAmounts, getProductBottleBalance } from '@shared/customer-logic/empty-credit'
 import { CustomerCheckoutView, type DepositRefundLine, type DepositRefundOption } from './sections/checkout/checkout-view'
 import { CustomerOrdersView } from './sections/orders/orders-view'
 import { CustomerOrderDetailPage } from './sections/orders/order-detail-page'
@@ -1075,24 +1075,12 @@ export function CustomerPortal() {
   }
 
   const applyAutomaticEmptyCredit = (item: CartItem, quantity: number): CartItem => {
-    if (!isReturnableGlassItem(item)) {
-      return { ...item, quantity, emptyReturnedQuantity: 0, availableEmptyBottles: 0, availableDepositBalance: 0 }
-    }
-    const customerBalance = Array.isArray(user?.bottleBalances)
-      ? user.bottleBalances.find((row) => String(row.containerTypeId) === String(item.containerTypeId))
-      : undefined
-    const availableEmpties = Math.max(0, Math.floor(Number(customerBalance?.bottlesOutstanding || 0)))
-    const containersPerCase = Math.max(1, Math.floor(Number(item.containersPerCase || 1)))
-    const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
-    const emptyReturnedQuantity = isCase
-      ? Math.min(quantity, Math.floor(availableEmpties / containersPerCase)) * containersPerCase
-      : Math.min(quantity, availableEmpties)
+    // Fix: automatic credit must follow the product sub-balance, not a same-size container pool.
+    const credit = getAutomaticEmptyCredit(item, quantity, user?.bottleBalances)
     return {
       ...item,
       quantity,
-      availableEmptyBottles: availableEmpties,
-      availableDepositBalance: Math.max(0, Number(customerBalance?.depositBalance || 0)),
-      emptyReturnedQuantity,
+      ...credit,
     }
   }
 
@@ -1302,7 +1290,7 @@ export function CustomerPortal() {
   const cartCount = useMemo(() => cart.reduce((sum, i) => sum + i.quantity, 0), [cart])
   const selectedCartItems = useMemo(
     () => {
-      const remainingByContainer = new Map<string, number>()
+      const remainingByProductContainer = new Map<string, number>()
       return cart
         .filter((item) => selectedCartIds.has(item.productId))
         .map((item) => {
@@ -1310,35 +1298,40 @@ export function CustomerPortal() {
             const components = (item.components || []).map((component) => {
               const profile = getMixedCaseComponentDepositProfile(component)
               if (!profile.isReturnable || !profile.containerTypeId) return component
-              if (!remainingByContainer.has(profile.containerTypeId)) {
-                const customerBalance = Array.isArray(user?.bottleBalances)
-                  ? user.bottleBalances.find((row) => String(row.containerTypeId) === profile.containerTypeId)
-                  : undefined
-                remainingByContainer.set(profile.containerTypeId, Math.max(0, Math.floor(Number(customerBalance?.bottlesOutstanding || 0))))
+              const productContainerKey = `${String(component.productId || '')}::${profile.containerTypeId}`
+              if (!remainingByProductContainer.has(productContainerKey)) {
+                const customerBalance = getProductBottleBalance(
+                  { productId: component.productId, containerTypeId: profile.containerTypeId },
+                  user?.bottleBalances,
+                )
+                remainingByProductContainer.set(productContainerKey, Math.max(0, Math.floor(Number(
+                  customerBalance?.bottlesAvailable ?? customerBalance?.bottlesOutstanding ?? 0
+                ))))
               }
-              const remaining = remainingByContainer.get(profile.containerTypeId) || 0
+              const remaining = remainingByProductContainer.get(productContainerKey) || 0
               const needed = Math.max(0, Number(component.quantityPerCase || 0)) * Math.max(0, Number(item.quantity || 0))
               const emptiesUsed = Math.min(needed, remaining)
-              remainingByContainer.set(profile.containerTypeId, remaining - emptiesUsed)
+              remainingByProductContainer.set(productContainerKey, remaining - emptiesUsed)
               return { ...component, emptyReturnedQuantity: emptiesUsed }
             })
             return { ...item, components }
           }
           if (item.packagingType !== 'RETURNABLE' || item.depositExempt || !item.containerTypeId) return item
           const containerKey = String(item.containerTypeId)
-          if (!remainingByContainer.has(containerKey)) {
-            const customerBalance = Array.isArray(user?.bottleBalances)
-              ? user.bottleBalances.find((row) => String(row.containerTypeId) === containerKey)
-              : undefined
-            remainingByContainer.set(containerKey, Math.max(0, Math.floor(Number(customerBalance?.bottlesOutstanding || 0))))
+          const productContainerKey = `${String(item.productId || '')}::${containerKey}`
+          if (!remainingByProductContainer.has(productContainerKey)) {
+            const customerBalance = getProductBottleBalance(item, user?.bottleBalances)
+            remainingByProductContainer.set(productContainerKey, Math.max(0, Math.floor(Number(
+              customerBalance?.bottlesAvailable ?? customerBalance?.bottlesOutstanding ?? 0
+            ))))
           }
-          const remaining = remainingByContainer.get(containerKey) || 0
+          const remaining = remainingByProductContainer.get(productContainerKey) || 0
           const containersPerCase = Math.max(1, Math.floor(Number(item.containersPerCase || 1)))
           const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
           const emptiesUsed = isCase
             ? Math.min(item.quantity, Math.floor(remaining / containersPerCase)) * containersPerCase
             : Math.min(item.quantity, remaining)
-          remainingByContainer.set(containerKey, remaining - emptiesUsed)
+          remainingByProductContainer.set(productContainerKey, remaining - emptiesUsed)
           return { ...item, emptyReturnedQuantity: emptiesUsed }
         })
     },
@@ -1421,14 +1414,18 @@ export function CustomerPortal() {
         0,
         parentContainerAvailable - (usedByContainer.get(containerTypeId) || 0)
       )
-      const refundableBalance = Math.max(0, Number(balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0))
+      const isProductBalance = Array.isArray(balance?.productBalances) && balance.productBalances.length > 0
+      const refundableBalance = Math.max(0, Number(
+        isProductBalance
+          ? balance?.depositAvailable
+          : balance?.depositBalanceTotal ?? balance?.depositAvailable ?? balance?.depositBalance ?? 0
+      ))
       // Every product option shares this container balance; checkout enforces the
       // combined limit while letting the customer identify the exact product.
       return productOptions.flatMap((productOption: any) => {
         const productId = String(productOption?.id || '').trim()
         if (!productId) return []
         const productContainerKey = `${productId}::${containerTypeId}`
-        const isProductBalance = Array.isArray(balance?.productBalances) && balance.productBalances.length > 0
         let used = isProductBalance
           ? (usedByProductContainer.get(productContainerKey) || 0)
           : (usedByContainer.get(containerTypeId) || 0)
@@ -2249,8 +2246,8 @@ export function CustomerPortal() {
       toast.error('Unable to save address right now')
       return false
     }
-    if (!profileFirstName.trim() || !profileLastName.trim()) {
-      toast.error('First name and last name are required')
+    if (!profileFirstName.trim() || !profileLastName.trim() || !profileMiddleName.trim()) {
+      toast.error('First name, last name, and middle name are required.')
       return false
     }
     const nameError = validatePersonName(shippingName, profileFirstName, profileMiddleName, profileLastName, profileSuffix)
@@ -2887,8 +2884,8 @@ export function CustomerPortal() {
       toast.error('Unable to save profile right now')
       return false
     }
-    if (!profileFirstName.trim() || !profileLastName.trim()) {
-      toast.error('Name is required')
+    if (!profileFirstName.trim() || !profileLastName.trim() || !profileMiddleName.trim()) {
+      toast.error('First name, last name, and middle name are required.')
       return false
     }
     const nameError = validatePersonName(profileFirstName, profileMiddleName, profileLastName, profileSuffix)
@@ -3477,6 +3474,8 @@ export function CustomerPortal() {
             setProfileMiddleName={setProfileMiddleName}
             profileLastName={profileLastName}
             setProfileLastName={setProfileLastName}
+            profileSuffix={profileSuffix}
+            setProfileSuffix={setProfileSuffix}
             profileEmail={profileEmail}
             setProfileEmail={setProfileEmail}
             profilePhone={profilePhone}

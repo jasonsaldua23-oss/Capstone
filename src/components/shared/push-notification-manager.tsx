@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bell, Loader2, X } from 'lucide-react'
 
 import type { AuthUser, PortalType } from '@/types'
@@ -47,6 +47,12 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
   const [showPrompt, setShowPrompt] = useState(false)
   const [isEnabling, setIsEnabling] = useState(false)
   const [error, setError] = useState('')
+  const enableAttemptRef = useRef(0)
+
+  useEffect(() => () => {
+    // Stop a pending retry loop when this portal or account is closed.
+    enableAttemptRef.current += 1
+  }, [])
 
   const registerSubscription = useCallback(async (vapidPublicKey: string) => {
     await navigator.serviceWorker.register('/push-sw.js')
@@ -164,16 +170,25 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
 
   const enablePush = async () => {
     if (offline) return
+    const attemptId = ++enableAttemptRef.current
     setIsEnabling(true)
     setError('')
     try {
       if (isNativeApp()) {
-        const result = await enableNotifications()
-        if (!result.registered) {
-          setError(result.message || 'Notifications could not be turned on. Tap Turn On Notifications to try again.')
-          return
+        // Fix: once permission is granted, keep retrying the token save so a
+        // temporary or ambiguous server response never replaces the loading state.
+        while (enableAttemptRef.current === attemptId) {
+          const result = await enableNotifications()
+          if (result.registered) {
+            setShowPrompt(false)
+            return
+          }
+          if (result.needsPermission) {
+            setShowPrompt(false)
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 3_000))
         }
-        setShowPrompt(false)
         return
       }
 
@@ -189,11 +204,12 @@ export function PushNotificationManager({ user, portal }: { user: AuthUser; port
       console.warn('Push notification enable failed:', pushError)
       setError('Notifications could not be turned on. Tap Turn On Notifications to try again.')
     } finally {
-      setIsEnabling(false)
+      if (enableAttemptRef.current === attemptId) setIsEnabling(false)
     }
   }
 
   const dismissPrompt = () => {
+    enableAttemptRef.current += 1
     sessionStorage.setItem('push-prompt-dismissed', '1')
     setShowPrompt(false)
   }

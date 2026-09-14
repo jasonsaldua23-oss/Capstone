@@ -387,10 +387,11 @@ export default function Home() {
       sessionTimerRef.current = window.setTimeout(() => {
         const targetPortal = portal
         setSessionExpiredPortal(targetPortal)
-        clearTabAuthToken()
         queryClient.clear()
-        void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch((error) => {
-          console.error('Logout background request failed:', error)
+        // Fix: capture and revoke this tab's Bearer token before clearing it.
+        // Cookie fallback may belong to a different account signed in elsewhere.
+        void logoutTabAuthSession(targetPortal).then((succeeded) => {
+          if (!succeeded) console.error('Logout background request failed')
         })
       }, timeoutMs)
     }

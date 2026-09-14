@@ -706,8 +706,8 @@ export function CustomerProfileView({
   }, [profilePhone])
 
   const canSaveProfile = useMemo(() => {
-    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0
-  }, [phoneError, profilePhone, profileFirstName, profileLastName])
+    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0 && profileMiddleName.trim().length > 0
+  }, [phoneError, profilePhone, profileFirstName, profileLastName, profileMiddleName])
 
   const handleSaveProfile = async () => {
     if (!canSaveProfile) return
@@ -983,15 +983,15 @@ export function CustomerProfileView({
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="customer-profile-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
+              <Label htmlFor="customer-profile-first-name" className="text-sm font-semibold text-slate-700">First Name <span className="text-red-500">*</span></Label>
               <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="customer-profile-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
+              <Label htmlFor="customer-profile-last-name" className="text-sm font-semibold text-slate-700">Last Name <span className="text-red-500">*</span></Label>
               <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
+              <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name <span className="text-red-500">*</span></Label>
               <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">

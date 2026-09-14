@@ -231,6 +231,69 @@ class CustomerOrderDepositRefundTests(TestCase):
         self.assertEqual(len({row["declarationId"] for row in declared}), 2)
         self.assertEqual({row["containerTypeId"] for row in declared}, {container_type.id})
 
+    def test_same_container_product_cannot_use_another_products_empties(self) -> None:
+        customer = Customer.objects.create(email="exact-product@example.com", password="hashed", name="Exact Product")
+        container_type = ContainerType.objects.create(
+            code="EXACT-PRODUCT-GLASS",
+            name="Shared 8oz Glass",
+            deposit_amount=Decimal("2.00"),
+        )
+        seven_up = Product.objects.create(sku="EXACT-7UP", name="7Up", unit="case", price=240, category="Carbonated (Glass)")
+        mountain_dew = Product.objects.create(sku="EXACT-MD", name="Mountain Dew", unit="case", price=245, category="Carbonated (Glass)")
+        for product in [seven_up, mountain_dew]:
+            ProductPackaging.objects.create(
+                product=product,
+                container_type=container_type,
+                is_primary=True,
+                is_returnable=True,
+                deposit_amount=Decimal("2.00"),
+                case_deposit_amount=Decimal("42.00"),
+                containers_per_case=24,
+            )
+        CustomerBottleBalance.objects.create(
+            customer=customer,
+            container_type=container_type,
+            bottles_outstanding=24,
+            deposit_balance=Decimal("90.00"),
+        )
+        DepositTransaction.objects.create(
+            customer=customer,
+            type=DepositTransaction.TransactionType.ADJUSTMENT,
+            amount=Decimal("90.00"),
+            balance_before=Decimal("0.00"),
+            balance_after=Decimal("90.00"),
+            container_type=container_type,
+            container_count=24,
+            reason="Customer declared 1 empty case(s) of 7Up",
+            reference_type="product",
+            reference_id=seven_up.id,
+        )
+
+        # Fix regression: Mountain Dew cannot claim the 7Up balance merely because
+        # both products use the same container size and deposit price.
+        with self.assertRaisesRegex(ValueError, "this product's available empties"):
+            _create_order_from_checkout_payload(
+                customer=customer,
+                body={},
+                normalized_items=[{
+                    "productId": mountain_dew.id,
+                    "quantity": 1,
+                    "unitPrice": 245,
+                    "totalPrice": 245,
+                    "emptyReturnedQuantity": 24,
+                }],
+                subtotal=245,
+                tax=0,
+                shipping_cost=0,
+                discount=0,
+                total_amount=245,
+                selected_warehouse_id=None,
+                shipping_latitude=None,
+                shipping_longitude=None,
+                payment_status="pending",
+                performed_by=customer.id,
+            )
+
     def test_refund_reduces_the_selected_order_and_available_credit_once(self) -> None:
         customer = Customer.objects.create(
             email="order-refund@example.com",

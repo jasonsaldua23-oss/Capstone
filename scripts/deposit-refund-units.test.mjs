@@ -33,7 +33,7 @@ const {
   serializeDepositRefundQuantity,
 } = context.exports
 
-const { getFullCaseDepositAmount, getLineDepositAmounts } = sharedContext.exports
+const { getAutomaticEmptyCredit, getFullCaseDepositAmount, getLineDepositAmounts } = sharedContext.exports
 const { getMixedCaseDepositAmounts } = mixedContext.exports
 
 test('full cases add bottle deposits and the physical case deposit', () => {
@@ -147,4 +147,77 @@ test('products sharing one container type remain separate balance rows', () => {
     'Pepsi - 1 Liter',
   ])
   assert.deepEqual(rows.map((row) => row.containerBottlesAvailable), [72, 72])
+})
+
+test('automatic empty credit only uses the exact product sub-balance', () => {
+  const balances = [{
+    containerTypeId: 'glass-8oz',
+    bottlesOutstanding: 2376,
+    depositBalance: 8910,
+    productBalances: [{
+      productId: '7up-8oz',
+      bottlesAvailable: 2376,
+      depositAvailable: 8910,
+    }],
+  }]
+
+  const mountainDew = getAutomaticEmptyCredit({
+    productId: 'mountain-dew-8oz',
+    packagingType: 'RETURNABLE',
+    containerTypeId: 'glass-8oz',
+    unit: 'case',
+    containersPerCase: 24,
+    depositAmount: 2,
+    caseDepositAmount: 42,
+  }, 25, balances)
+  const sevenUp = getAutomaticEmptyCredit({
+    productId: '7up-8oz',
+    packagingType: 'RETURNABLE',
+    containerTypeId: 'glass-8oz',
+    unit: 'case',
+    containersPerCase: 24,
+    depositAmount: 2,
+    caseDepositAmount: 42,
+  }, 25, balances)
+
+  assert.deepEqual({ ...mountainDew }, {
+    availableEmptyBottles: 0,
+    availableDepositBalance: 0,
+    emptyReturnedQuantity: 0,
+  })
+  assert.deepEqual({ ...sevenUp }, {
+    availableEmptyBottles: 2376,
+    availableDepositBalance: 8910,
+    emptyReturnedQuantity: 600,
+  })
+})
+
+test('legacy shared balances are not guessed and their product labels stay separate', () => {
+  const sharedBalance = {
+    containerTypeId: 'glass-1l',
+    bottlesOutstanding: 24,
+    depositBalance: 248,
+    productOptions: [
+      { id: 'mountain-dew-1l', name: 'Mountain Dew', label: 'Mountain Dew - 1 Liter' },
+      { id: 'pepsi-1l', name: 'Pepsi', label: 'Pepsi - 1 Liter' },
+    ],
+  }
+
+  const credit = getAutomaticEmptyCredit({
+    productId: 'mountain-dew-1l',
+    packagingType: 'RETURNABLE',
+    containerTypeId: 'glass-1l',
+    unit: 'case',
+    containersPerCase: 12,
+    depositAmount: 6,
+    caseDepositAmount: 52,
+  }, 1, [sharedBalance])
+  const rows = getProductDepositBalanceRows(sharedBalance)
+
+  assert.equal(credit.emptyReturnedQuantity, 0)
+  assert.deepEqual(rows.map((row) => row.productLabel), [
+    'Mountain Dew - 1 Liter',
+    'Pepsi - 1 Liter',
+  ])
+  assert.deepEqual(rows.map((row) => row.bottlesAvailable), [0, 0])
 })

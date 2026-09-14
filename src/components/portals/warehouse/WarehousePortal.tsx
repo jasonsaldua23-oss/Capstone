@@ -966,8 +966,8 @@ export function WarehousePortal() {
       toast.error('Unable to resolve account ID')
       return
     }
-    if (!profileFirstName.trim() || !profileLastName.trim() || !profileEmail.trim()) {
-      toast.error('Name and email are required')
+    if (!profileFirstName.trim() || !profileLastName.trim() || !profileMiddleName.trim() || !profileEmail.trim()) {
+      toast.error('First name, last name, middle name, and email are required.')
       return
     }
     const nameError = validatePersonName(profileFirstName, profileMiddleName, profileLastName, profileSuffix)
@@ -5276,15 +5276,15 @@ export function WarehousePortal() {
                     <div className="space-y-1">
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
-                          <Label htmlFor="warehouse-profile-first-name" className="text-xs font-semibold text-slate-600">First Name</Label>
+                          <Label htmlFor="warehouse-profile-first-name" className="text-xs font-semibold text-slate-600">First Name <span className="text-red-500">*</span></Label>
                           <Input id="warehouse-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} disabled={!isEditingProfile} />
                         </div>
                         <div>
-                          <Label htmlFor="warehouse-profile-last-name" className="text-xs font-semibold text-slate-600">Last Name</Label>
+                          <Label htmlFor="warehouse-profile-last-name" className="text-xs font-semibold text-slate-600">Last Name <span className="text-red-500">*</span></Label>
                           <Input id="warehouse-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} disabled={!isEditingProfile} />
                         </div>
                         <div>
-                          <Label htmlFor="warehouse-profile-middle-name" className="text-xs font-semibold text-slate-600">Middle Name</Label>
+                          <Label htmlFor="warehouse-profile-middle-name" className="text-xs font-semibold text-slate-600">Middle Name <span className="text-red-500">*</span></Label>
                           <Input id="warehouse-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} disabled={!isEditingProfile} />
                         </div>
                         <div>

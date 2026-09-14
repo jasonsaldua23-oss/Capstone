@@ -311,7 +311,9 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             if excess <= 0:
                 break
         unattributed = max(0, total_bottles - sum(declared_by_product.values()))
-        if unattributed > 0 and product_options:
+        # Fix: never guess which brand owns a legacy shared balance. It is only
+        # safe to attribute the remainder when one product uses the container.
+        if unattributed > 0 and len(product_options) == 1:
             fallback_product_id = str(product_options[0]["id"])
             declared_by_product[fallback_product_id] = declared_by_product.get(fallback_product_id, 0) + unattributed
 

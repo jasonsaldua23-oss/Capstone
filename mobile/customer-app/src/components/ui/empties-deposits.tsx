@@ -48,8 +48,24 @@ export function EmptiesDeposits({
 
   const bottleBalances: any[] = (Array.isArray(profile?.bottleBalances) ? profile!.bottleBalances : []).flatMap((balance: any): any[] => {
     const productBalances = Array.isArray(balance.productBalances) ? balance.productBalances : [];
-    return productBalances.length > 0
-      ? productBalances.map((productBalance: any) => ({ ...balance, containerBottlesAvailable: balance.bottlesAvailable, ...productBalance, productOptions: [productBalance] }))
+    if (productBalances.length > 0) {
+      return productBalances.map((productBalance: any) => ({ ...balance, containerBottlesAvailable: balance.bottlesAvailable, ...productBalance, productOptions: [productBalance] }));
+    }
+    const productOptions = Array.isArray(balance.productOptions) ? balance.productOptions : [];
+    // Fix: keep zero/legacy products separate instead of showing one combined label.
+    return productOptions.length > 0
+      ? productOptions.map((product: any) => ({
+        ...balance,
+        ...product,
+        productId: product.productId || product.id,
+        productName: product.name,
+        productLabel: product.label || product.name,
+        productOptions: [product],
+        bottlesAvailable: 0,
+        bottlesOutstanding: 0,
+        depositAvailable: 0,
+        depositBalance: 0,
+      }))
       : [balance];
   });
   // Active orders that are holding empties, as the web's reservedOrders does.
@@ -141,7 +157,8 @@ export function EmptiesDeposits({
                   <View style={styles.emptiesBalanceRow}>
                     <View style={styles.emptiesBalanceMain}>
                       <Text style={styles.emptiesBalanceName} numberOfLines={1}>
-                        {balance.containerTypeName || "Returnable container"}
+                        {/* Fix: never combine brands that happen to share size and deposit pricing. */}
+                        {balance.productLabel || balance.productName || balance.containerTypeName || "Returnable container"}
                       </Text>
                       <Text style={styles.emptiesBalanceMeta}>
                         Deposit value:{" "}

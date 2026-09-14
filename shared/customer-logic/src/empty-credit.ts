@@ -15,6 +15,36 @@ export type EmptyCredit = {
   emptyReturnedQuantity: number
 }
 
+/** Resolve the balance for this exact product, not another product using the same container. */
+export function getProductBottleBalance(
+  item: any,
+  bottleBalances: any[] | null | undefined
+): any | undefined {
+  const containerBalance = Array.isArray(bottleBalances)
+    ? bottleBalances.find((row) => String(row?.containerTypeId) === String(item?.containerTypeId))
+    : undefined
+  if (!containerBalance) return undefined
+
+  const productBalances = Array.isArray(containerBalance.productBalances)
+    ? containerBalance.productBalances
+    : []
+  const productId = String(item?.productId ?? item?.id ?? '').trim()
+  if (productBalances.length === 0) {
+    const productOptions = Array.isArray(containerBalance.productOptions)
+      ? containerBalance.productOptions
+      : []
+    // A legacy unallocated pool is safe only when exactly one product can own it.
+    if (productOptions.length !== 1) return undefined
+    const onlyProductId = String(productOptions[0]?.productId ?? productOptions[0]?.id ?? '')
+    return onlyProductId === productId ? containerBalance : undefined
+  }
+
+  const productBalance = productBalances.find((row: any) =>
+    String(row?.productId ?? row?.id ?? '') === productId
+  )
+  return productBalance ? { ...containerBalance, ...productBalance } : undefined
+}
+
 // A configured case deposit belongs to the physical case and is additional to
 // the refundable deposits of every bottle packed inside it.
 export function getFullCaseDepositAmount(item: any) {
@@ -26,7 +56,7 @@ export function getFullCaseDepositAmount(item: any) {
 
 /**
  * How many empties from the customer's balance are consumed by `quantity` of `item`.
- * `bottleBalances` is the customer's per-container-type balance list.
+ * `bottleBalances` contains product sub-balances inside each container balance.
  */
 export function getAutomaticEmptyCredit(
   item: any,
@@ -36,10 +66,11 @@ export function getAutomaticEmptyCredit(
   if (!isReturnableGlassItem(item)) {
     return { availableEmptyBottles: 0, availableDepositBalance: 0, emptyReturnedQuantity: 0 }
   }
-  const customerBalance = Array.isArray(bottleBalances)
-    ? bottleBalances.find((row) => String(row?.containerTypeId) === String(item.containerTypeId))
-    : undefined
-  const availableEmpties = Math.max(0, Math.floor(Number(customerBalance?.bottlesOutstanding || 0)))
+  // Fix: matching by container type alone let another same-size product pay this deposit.
+  const customerBalance = getProductBottleBalance(item, bottleBalances)
+  const availableEmpties = Math.max(0, Math.floor(Number(
+    customerBalance?.bottlesAvailable ?? customerBalance?.bottlesOutstanding ?? 0
+  )))
   const containersPerCase = Math.max(1, Math.floor(Number(item.containersPerCase || 1)))
   const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
   const emptyReturnedQuantity = isCase
@@ -47,7 +78,9 @@ export function getAutomaticEmptyCredit(
     : Math.min(quantity, availableEmpties)
   return {
     availableEmptyBottles: availableEmpties,
-    availableDepositBalance: Math.max(0, Number(customerBalance?.depositBalance || 0)),
+    availableDepositBalance: Math.max(0, Number(
+      customerBalance?.depositAvailable ?? customerBalance?.depositBalance ?? 0
+    )),
     emptyReturnedQuantity,
   }
 }

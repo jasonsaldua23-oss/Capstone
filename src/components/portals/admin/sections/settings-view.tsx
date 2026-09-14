@@ -273,6 +273,10 @@ export function SettingsView() {
       toast.error('Unable to resolve account email')
       return
     }
+    if (!firstName.trim() || !lastName.trim() || !middleName.trim()) {
+      toast.error('First name, last name, and middle name are required.')
+      return
+    }
     const nameError = validatePersonName(firstName, middleName, lastName, suffix)
     if (nameError) {
       // Fix: do not allow numeric characters in administrator profile names.
@@ -527,15 +531,15 @@ export function SettingsView() {
               <div className="space-y-1.5">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label htmlFor="first-name" className="text-xs font-semibold text-slate-600">First Name</label>
+                    <label htmlFor="first-name" className="text-xs font-semibold text-slate-600">First Name <span className="text-red-500">*</span></label>
                     <Input id="first-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="First name" disabled={!isEditingProfile} />
                   </div>
                   <div>
-                    <label htmlFor="last-name" className="text-xs font-semibold text-slate-600">Last Name</label>
+                    <label htmlFor="last-name" className="text-xs font-semibold text-slate-600">Last Name <span className="text-red-500">*</span></label>
                     <Input id="last-name" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Last name" disabled={!isEditingProfile} />
                   </div>
                   <div>
-                    <label htmlFor="middle-name" className="text-xs font-semibold text-slate-600">Middle Name</label>
+                    <label htmlFor="middle-name" className="text-xs font-semibold text-slate-600">Middle Name <span className="text-red-500">*</span></label>
                     <Input id="middle-name" value={middleName} onChange={(e) => setMiddleName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Middle name" disabled={!isEditingProfile} />
                   </div>
                   <div>

@@ -402,8 +402,8 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   }
 
   const onSave = async (mode: 'profile' | 'license' = 'profile') => {
-    if (mode === 'profile' && (!draft.firstName.trim() || !draft.lastName.trim())) {
-      toast.error('Name is required')
+    if (mode === 'profile' && (!draft.firstName.trim() || !draft.lastName.trim() || !draft.middleName.trim())) {
+      toast.error('First name, last name, and middle name are required.')
       return
     }
     const nameError = mode === 'profile'
@@ -924,15 +924,15 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
         <div className="mx-4 p-5 rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="driver-first-name" className="text-sm font-semibold text-slate-700">First Name</Label>
+              <Label htmlFor="driver-first-name" className="text-sm font-semibold text-slate-700">First Name <span className="text-red-500">*</span></Label>
               <Input id="driver-first-name" value={draft.firstName} onChange={(e) => onChange('firstName', e.target.value)} placeholder="First name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="driver-last-name" className="text-sm font-semibold text-slate-700">Last Name</Label>
+              <Label htmlFor="driver-last-name" className="text-sm font-semibold text-slate-700">Last Name <span className="text-red-500">*</span></Label>
               <Input id="driver-last-name" value={draft.lastName} onChange={(e) => onChange('lastName', e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="driver-middle-name" className="text-sm font-semibold text-slate-700">Middle Name</Label>
+              <Label htmlFor="driver-middle-name" className="text-sm font-semibold text-slate-700">Middle Name <span className="text-red-500">*</span></Label>
               <Input id="driver-middle-name" value={draft.middleName} onChange={(e) => onChange('middleName', e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">

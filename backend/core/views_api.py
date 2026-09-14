@@ -758,11 +758,12 @@ def _create_deposit_refund_claims(
         str(balance.container_type_id): balance
         for balance in CustomerBottleBalance.objects.select_for_update().filter(customer=customer)
     }
-    available_rows = {
-        str(row.get("containerTypeId")): row
+    available_product_rows = {
+        (str(product_row.get("productId")), str(row.get("containerTypeId"))): product_row
         for row in get_customer_bottle_balances(customer)
+        for product_row in row.get("productBalances", [])
     }
-    requested_by_container: dict[str, int] = {}
+    requested_by_product_container: dict[tuple[str, str], int] = {}
     normalized_lines: list[dict[str, Any]] = []
     seen_pairs: set[tuple[str, str]] = set()
     applied_credit = Decimal("0.00")
@@ -794,7 +795,9 @@ def _create_deposit_refund_claims(
         if product is None or packaging is None:
             raise ValueError("The selected product is not linked to that returnable container")
         balance = locked_balances.get(container_type_id)
-        available_row = available_rows.get(container_type_id) or {}
+        # Fix: an empty balance belongs to the declared product even when another
+        # product uses the same physical container type and deposit price.
+        available_row = available_product_rows.get(pair) or {}
         if balance is None:
             raise ValueError("No verified empty-container balance is available for the selected product")
 
@@ -810,11 +813,11 @@ def _create_deposit_refund_claims(
         if quantity <= 0:
             raise ValueError("Each deposit refund requires at least one case or bottle")
 
-        requested_for_container = requested_by_container.get(container_type_id, 0) + quantity
+        requested_for_product = requested_by_product_container.get(pair, 0) + quantity
         available_quantity = max(0, _int(available_row.get("bottlesAvailable"), 0))
         deposit_per_container = Decimal(str(packaging.deposit_amount or packaging.container_type.deposit_amount or 0))
         case_deposit_amount = Decimal(str(packaging.case_deposit_amount or 0))
-        remaining_balance = Decimal(str(balance.deposit_balance or 0))
+        remaining_balance = Decimal(str(available_row.get("depositAvailable") or 0))
         # Preserve the selected units so a full returned case credits its bottle
         # deposits plus the configured physical-case deposit.
         line_amount = (
@@ -828,14 +831,14 @@ def _create_deposit_refund_claims(
             if has_unit_breakdown
             else deposit_per_container * Decimal(quantity)
         ).quantize(Decimal("0.01"))
-        requested_amount_for_container = sum(
+        requested_amount_for_product = sum(
             line["amount"] for line in normalized_lines
-            if line["containerTypeId"] == container_type_id
+            if line["product"].id == product_id and line["containerTypeId"] == container_type_id
         ) + line_amount
-        if requested_for_container > available_quantity or requested_amount_for_container > remaining_balance:
+        if requested_for_product > available_quantity or requested_amount_for_product > remaining_balance:
             raise ValueError("Requested deposit refund exceeds the verified available empties")
 
-        requested_by_container[container_type_id] = requested_for_container
+        requested_by_product_container[pair] = requested_for_product
         normalized_lines.append({
             "product": product,
             "containerTypeId": container_type_id,
@@ -946,6 +949,27 @@ def _create_order_from_checkout_payload(
     )
 
     allocation_policy = _resolve_allocation_policy(body)
+    from .rgb.services import get_customer_bottle_balances
+    available_empties_by_product_container = {
+        (str(product_row.get("productId")), str(balance_row.get("containerTypeId"))): max(
+            0, _int(product_row.get("bottlesAvailable"), 0)
+        )
+        for balance_row in get_customer_bottle_balances(customer)
+        for product_row in balance_row.get("productBalances", [])
+    }
+
+    def reserve_product_empties(product_id: Any, container_type_id: Any, requested: Any) -> int:
+        """Reserve automatic checkout credit from only the matching product balance."""
+        quantity = max(0, _int(requested, 0))
+        if quantity <= 0:
+            return 0
+        key = (str(product_id or ""), str(container_type_id or ""))
+        available = available_empties_by_product_container.get(key, 0)
+        if quantity > available:
+            raise ValueError("Requested empty-container credit exceeds this product's available empties")
+        available_empties_by_product_container[key] = available - quantity
+        return quantity
+
     total_net_deposit = 0.0
     for item in normalized_items:
         if str(item.get("itemType") or "").strip().upper() == OrderItemType.MIXED_CASE:
@@ -980,9 +1004,14 @@ def _create_order_from_checkout_payload(
                 if packaging and packaging.is_returnable and physical_case_deposit is None:
                     physical_case_deposit = float(packaging.case_deposit_amount or 0)
                 total_base_units = max(0, _int(component.get("totalBaseUnits"), 0))
-                empty_covered = min(
+                requested_empty_covered = min(
                     total_base_units,
                     max(0, _int(component.get("emptyReturnedQuantity"), 0)),
+                )
+                empty_covered = reserve_product_empties(
+                    product.id,
+                    packaging.container_type_id if packaging and packaging.is_returnable else None,
+                    requested_empty_covered,
                 )
                 component_deposit = max(0.0, (total_base_units - empty_covered) * deposit_per_unit)
                 bottle_deposit_charged += total_base_units * deposit_per_unit
@@ -1052,7 +1081,11 @@ def _create_order_from_checkout_payload(
             .first()
         )
         is_returnable = bool(pkg and pkg.is_returnable and _is_returnable_product(prod))
-        empty_returned = max(0, _int(item.get("emptyReturnedQuantity"), 0))
+        empty_returned = reserve_product_empties(
+            prod.id,
+            pkg.container_type_id if (pkg and is_returnable) else None,
+            item.get("emptyReturnedQuantity"),
+        )
         containers_per_case = max(1, int(pkg.containers_per_case or 1)) if pkg else 1
         is_case = str(prod.unit or "").strip().lower() == "case"
         full_units = qty * containers_per_case if is_case else qty
@@ -4798,11 +4831,8 @@ def _allocate_inventory_for_order_item(
         previous_qty = max(0, int(inventory.quantity or 0))
         inventory.quantity = max(0, previous_qty - take_qty)
         inventory.save(update_fields=["quantity", "updated_at"])
-        _email_low_stock_if_needed(
-            inventory=inventory,
-            previous_qty=previous_qty,
-            reason=f"Order allocation for {order.order_number}",
-        )
+        # Stock transition notifications are centralized in Inventory signals so
+        # retail sales, reservations, corrections, and allocations behave alike.
 
         movement = movements.setdefault(
             inventory.id,
@@ -6526,22 +6556,34 @@ def _email_new_staff_credentials(user: User, plain_password: str) -> None:
     )
 
 
-def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reason: str) -> None:
-    current_qty = max(0, _int(getattr(inventory, "quantity", 0), 0))
+def _send_inventory_stock_alert(*, inventory: Inventory, status: str, available_qty: int, reason: str) -> None:
+    """Send one committed stock transition through in-app, push, and email channels."""
+    current_qty = max(0, _int(available_qty, 0))
     threshold = max(0, _int(getattr(inventory, "threshold", 0), 0))
-    if threshold <= 0:
-        return
-    if previous_qty <= threshold or current_qty > threshold:
-        return
-
-    recipients = _warehouse_staff_emails()
-    if not recipients:
-        return
+    recipients = _ops_staff_emails()
     warehouse_name = str(getattr(getattr(inventory, "warehouse", None), "name", "") or "Warehouse").strip()
     product = getattr(inventory, "product", None)
     product_name = str(getattr(product, "name", "") or "Product").strip()
     sku = str(getattr(product, "sku", "") or "").strip()
     unit = str(getattr(product, "unit", "") or "case").strip()
+
+    is_out_of_stock = status == "out_of_stock"
+    title = f"Out of stock: {product_name}" if is_out_of_stock else f"Restock needed: {product_name}"
+    message = (
+        f"{product_name} at {warehouse_name} is out of stock."
+        if is_out_of_stock
+        else f"{product_name} at {warehouse_name} has reached its reorder point ({threshold} {unit}s)."
+    )
+    # Added: persist the alert and mirror it to registered browser/native devices.
+    _create_staff_notifications(
+        title=title,
+        message=message,
+        notification_type="INVENTORY",
+        reference_type="inventory",
+        reference_id=inventory.id,
+    )
+    if not recipients:
+        return
 
     details = [("Warehouse", warehouse_name)]
     if sku:
@@ -6550,9 +6592,9 @@ def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reaso
     details.append(("Recorded because of", str(reason or "").strip() or "a stock movement"))
 
     body = EmailBody(
-        recipient_name="Warehouse Team",
+        recipient_name="Operations Team",
         time_greeting=time_greeting(),
-        paragraphs=[f"{product_name} at {warehouse_name} has fallen to its reorder threshold."],
+        paragraphs=[message],
         details=details,
         details_heading="Stock details",
         products=[
@@ -6564,15 +6606,15 @@ def _email_low_stock_if_needed(*, inventory: Inventory, previous_qty: int, reaso
             )
         ],
         products_heading="Remaining stock",
-        next_step="Please arrange a restock so upcoming orders are not affected.",
+        next_step="Please arrange a restock so upcoming orders and counter sales are not affected.",
         closing="Thank you.",
     )
     _send_structured_email(
-        subject=f"Low stock: {product_name} at {warehouse_name}",
-        heading="Low stock alert",
+        subject=f"{'Out of stock' if is_out_of_stock else 'Restock needed'}: {product_name} at {warehouse_name}",
+        heading="Out of stock alert" if is_out_of_stock else "Restock alert",
         body=body,
         recipients=recipients,
-        preheader=f"{product_name} has reached its reorder threshold.",
+        preheader=message,
     )
 
 

@@ -1029,6 +1029,12 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                         <tr key={sale.id} className="hover:bg-slate-50/70 transition-colors">
                           <td className="px-4 py-3 font-semibold text-slate-900">
                             {sale.transactionNumber}
+                            {/* Added: cancelled receipts remain in the ledger, so identify them in the list. */}
+                            {sale.transactionStatus === 'CANCELLED' ? (
+                              <Badge className="mt-1 block w-fit border border-rose-200 bg-rose-50 text-[10px] font-semibold text-rose-700 hover:bg-rose-50">
+                                Cancelled
+                              </Badge>
+                            ) : null}
                           </td>
                           <td className="px-4 py-3">
                             <span className="font-medium text-slate-800">

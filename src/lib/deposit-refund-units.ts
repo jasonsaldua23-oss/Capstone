@@ -13,13 +13,32 @@ import { getFullCaseDepositAmount } from '@shared/customer-logic/empty-credit'
 // product rows while retaining the parent container id used for shared safeguards.
 export function getProductDepositBalanceRows(balance: any): any[] {
   const productBalances = Array.isArray(balance?.productBalances) ? balance.productBalances : []
-  return productBalances.length > 0
-    ? productBalances.map((productBalance: any) => ({
+  if (productBalances.length > 0) {
+    return productBalances.map((productBalance: any) => ({
       ...balance,
       containerBottlesAvailable: balance.bottlesAvailable,
       ...productBalance,
       productOptions: [productBalance],
       productIds: [productBalance.productId || productBalance.id],
+    }))
+  }
+
+  const productOptions = Array.isArray(balance?.productOptions) ? balance.productOptions : []
+  // Fix: even zero/legacy balances render each product independently instead of
+  // combining same-size, same-price products into one misleading row.
+  return productOptions.length > 0
+    ? productOptions.map((product: any) => ({
+      ...balance,
+      ...product,
+      productId: product.productId || product.id,
+      productName: product.name,
+      productLabel: product.label || product.name,
+      productOptions: [product],
+      productIds: [product.productId || product.id],
+      bottlesAvailable: 0,
+      bottlesOutstanding: 0,
+      depositAvailable: 0,
+      depositBalance: 0,
     }))
     : [balance]
 }

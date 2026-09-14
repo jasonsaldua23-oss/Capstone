@@ -24,6 +24,8 @@ export function CustomerProfileDialog(props: any) {
     setProfileMiddleName,
     profileLastName,
     setProfileLastName,
+    profileSuffix,
+    setProfileSuffix,
     profileEmail,
     setProfileEmail,
     profilePhone,
@@ -51,8 +53,8 @@ export function CustomerProfileDialog(props: any) {
   }, [profilePhone])
 
   const canSaveProfile = useMemo(() => {
-    return !phoneError && profilePhone.length > 0
-  }, [phoneError, profilePhone])
+    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0 && profileMiddleName.trim().length > 0
+  }, [phoneError, profilePhone, profileFirstName, profileLastName, profileMiddleName])
 
   return (
     <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
@@ -105,16 +107,20 @@ export function CustomerProfileDialog(props: any) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="customer-profile-first-name" className="text-slate-800">First Name</Label>
+                <Label htmlFor="customer-profile-first-name" className="text-slate-800">First Name <span className="text-red-500">*</span></Label>
                 <Input id="customer-profile-first-name" value={profileFirstName} onChange={(e) => setProfileFirstName(e.target.value)} placeholder="First name" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="customer-profile-middle-name" className="text-slate-800">Middle Name</Label>
+                <Label htmlFor="customer-profile-last-name" className="text-slate-800">Last Name <span className="text-red-500">*</span></Label>
+                <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="customer-profile-middle-name" className="text-slate-800">Middle Name <span className="text-red-500">*</span></Label>
                 <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="customer-profile-last-name" className="text-slate-800">Last Name</Label>
-                <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" />
+                <Label htmlFor="customer-profile-suffix" className="text-slate-800">Suffix <span className="text-slate-400 font-normal text-xs">(Optional)</span></Label>
+                <Input id="customer-profile-suffix" value={profileSuffix ?? ''} onChange={(e) => setProfileSuffix?.(e.target.value)} placeholder="e.g. Jr., Sr., III" />
               </div>
             </div>
             <div className="space-y-2">

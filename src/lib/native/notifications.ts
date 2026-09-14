@@ -210,7 +210,7 @@ export async function enableNotifications(): Promise<PushRegistration> {
 
   const permission = await ensureNotificationPermission()
   if (!permission.granted) {
-    return { registered: false, transport: 'none', message: permission.message }
+    return { registered: false, needsPermission: true, transport: 'none', message: permission.message }
   }
 
   try {

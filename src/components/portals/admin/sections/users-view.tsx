@@ -157,6 +157,7 @@ export function UsersView() {
     return (
       form.lastName.trim() !== '' &&
       form.firstName.trim() !== '' &&
+      form.middleName.trim() !== '' &&
       isValidEmail(form.email.trim()) &&
       emailVerified &&
       isValidPhone(form.phone) &&
@@ -298,6 +299,24 @@ export function UsersView() {
   const saveUser = async (mode: 'create' | 'edit') => {
     if (mode === 'create' && !canSave) {
       toast.error('Please complete all required fields.')
+      return
+    }
+    // Required-field check for both create and edit — canSave only guards create.
+    const requiredNameFields: Array<{ key: 'firstName' | 'lastName' | 'middleName'; label: string }> = [
+      { key: 'firstName', label: 'First Name' },
+      { key: 'lastName', label: 'Last Name' },
+      { key: 'middleName', label: 'Middle Name' },
+    ]
+    let hasNameFieldError = false
+    for (const { key, label } of requiredNameFields) {
+      if (!form[key].trim()) {
+        setTouched((prev) => ({ ...prev, [key]: true }))
+        setFormErrors((prev) => ({ ...prev, [key]: `${label} is required.` }))
+        hasNameFieldError = true
+      }
+    }
+    if (hasNameFieldError) {
+      toast.error('Please fill in all required fields.')
       return
     }
     const nameError = validatePersonName(form.firstName, form.middleName, form.lastName, form.suffix)
@@ -694,7 +713,7 @@ export function UsersView() {
 
             {/* Middle Name */}
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-700">Middle Name</label>
+              <label className="text-xs font-medium text-gray-700">Middle Name <span className="text-red-500">*</span></label>
               <Input
                 placeholder="Middle Name"
                 value={form.middleName}
@@ -705,9 +724,10 @@ export function UsersView() {
 
             {/* Suffix */}
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-700">Suffix</label>
+              <label className="text-xs font-medium text-gray-700">Suffix <span className="text-gray-400 font-normal">(Optional)</span></label>
               <Input
                 placeholder="Jr., Sr., III"
+                placeholder="e.g. Jr., Sr., III"
                 value={form.suffix}
                 onChange={(e) => updateField('suffix', e.target.value)}
                 className="h-8 text-sm"
@@ -1091,19 +1111,19 @@ export function UsersView() {
               <h3 className="text-sm font-semibold text-gray-900">Personal information</h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700">First Name</label>
+                  <label className="text-sm font-medium text-gray-700">First Name <span className="text-red-500">*</span></label>
                   <Input value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} className="h-11" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700">Last Name</label>
+                  <label className="text-sm font-medium text-gray-700">Last Name <span className="text-red-500">*</span></label>
                   <Input value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} className="h-11" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700">Middle Name</label>
+                  <label className="text-sm font-medium text-gray-700">Middle Name <span className="text-red-500">*</span></label>
                   <Input value={form.middleName} onChange={(e) => setForm((f) => ({ ...f, middleName: e.target.value }))} className="h-11" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700">Suffix</label>
+                  <label className="text-sm font-medium text-gray-700">Suffix <span className="text-gray-400 font-normal">(Optional)</span></label>
                   <Input placeholder="Jr., Sr., III" value={form.suffix} onChange={(e) => setForm((f) => ({ ...f, suffix: e.target.value }))} className="h-11" />
                 </div>
               </div>

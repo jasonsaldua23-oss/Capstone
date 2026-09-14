@@ -169,6 +169,8 @@ export function WarehouseInventoryView({
                           {status === 'healthy' && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
                           {status === 'overstocked' && <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Overstocked</Badge>}
                           {status === 'restock' && <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
+                          {/* Fix: zero available stock has its own status and must not leave this cell blank. */}
+                          {status === 'out_of_stock' && <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Out of Stock</Badge>}
                         </td>
                         <td className="p-2.5 text-center">
                           <Button size="icon" variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => openEditDialog(item)}>
