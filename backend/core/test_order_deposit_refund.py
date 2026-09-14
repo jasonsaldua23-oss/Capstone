@@ -462,18 +462,20 @@ class CustomerOrderDepositRefundTests(TestCase):
         )
         self.assertEqual(request_response.status_code, 400)
 
+        refund_payload = {
+            "requestId": "later-refund-request-1",
+            "depositCreditAmount": 2976,
+            "depositRefundLines": [{
+                "productId": product.id,
+                "containerTypeId": container_type.id,
+                "quantity": 288,
+                "cases": 24,
+                "bottles": 0,
+            }],
+        }
         response = self.client.post(
             f"/api/customer/orders/{order.id}/deposit-refund",
-            data=json.dumps({
-                "depositCreditAmount": 2976,
-                "depositRefundLines": [{
-                    "productId": product.id,
-                    "containerTypeId": container_type.id,
-                    "quantity": 288,
-                    "cases": 24,
-                    "bottles": 0,
-                }],
-            }),
+            data=json.dumps(refund_payload),
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
@@ -489,6 +491,21 @@ class CustomerOrderDepositRefundTests(TestCase):
         self.assertEqual(claim.requested_loose_bottles, 0)
         self.assertEqual(claim.requested_amount, Decimal("2976.00"))
         self.assertEqual(response.json()["appliedAmount"], 2976.0)
+
+        # Retrying the exact POST after a lost response returns the committed
+        # result without reducing the PO or reserving the same empties twice.
+        replay = self.client.post(
+            f"/api/customer/orders/{order.id}/deposit-refund",
+            data=json.dumps(refund_payload),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(replay.status_code, 200, replay.content)
+        order.refresh_from_db()
+        claim.refresh_from_db()
+        self.assertEqual(order.total_amount, 1024)
+        self.assertEqual(claim.requested_quantity, 288)
+        self.assertEqual(replay.json()["appliedAmount"], 2976.0)
 
         # The driver must count a case-only declaration in cases while the stored
         # quantity remains in bottles for deposit settlement.

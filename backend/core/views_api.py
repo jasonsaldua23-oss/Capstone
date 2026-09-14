@@ -100,6 +100,7 @@ from .models import (
     Notification,
     Order,
     OrderDepositRefundClaim,
+    OrderDepositRefundRequest,
     OrderItem,
     OrderItemType,
     PurchaseOrderStage,
@@ -12529,6 +12530,9 @@ def customer_order_deposit_refund(request: HttpRequest, order_id: str) -> JsonRe
         return _err("Unauthorized", 401)
     # Fix: parse the request before entering the existing locked refund workflow.
     body = _json_body(request)
+    request_id = str(body.get("requestId") or "").strip()
+    if len(request_id) > 120:
+        return _err("requestId must be 120 characters or fewer", 400)
 
     try:
         with transaction.atomic():
@@ -12539,29 +12543,47 @@ def customer_order_deposit_refund(request: HttpRequest, order_id: str) -> JsonRe
                 .select_related("customer")
                 .get(id=order_id, customer_id=p.get("userId"))
             )
-            # Deposit refunds belong to an approved PO, never to its pending PR.
-            if not str(order.purchase_order_number or "").strip():
-                return _err("Deposit refunds can only be applied to a purchase order", 400)
-            if order.status in {OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}:
-                return _err("Deposit refunds cannot be added to this order", 400)
-            if order.request_status in {PurchaseRequestStatus.REJECTED, PurchaseRequestStatus.CANCELLED}:
-                return _err("Deposit refunds cannot be added to this order", 400)
-            if order.bottle_returns.exists():
-                return _err("The empty-container collection for this order is already complete", 400)
-
-            # Delivery state controls eligibility; payment state does not.
-            maximum_credit = max(Decimal("0.00"), Decimal(str(order.total_amount or 0)))
-            applied_credit = _create_deposit_refund_claims(
-                order=order,
-                customer=order.customer,
-                raw_refund_lines=body.get("depositRefundLines"),
-                maximum_order_credit=maximum_credit,
-                client_amount=body.get("depositCreditAmount"),
+            previous_request = (
+                OrderDepositRefundRequest.objects.select_for_update().filter(request_id=request_id).first()
+                if request_id
+                else None
             )
-            if applied_credit <= 0:
-                return _err("Select at least one empty container to refund", 400)
-            order.total_amount = max(0.0, float(Decimal(str(order.total_amount or 0)) - applied_credit))
-            order.save(update_fields=["total_amount", "updated_at"])
+            if previous_request is not None:
+                if previous_request.order_id != order.id:
+                    return _err("Request ID was already used for another deposit refund", 409)
+                # A lost response may cause the shared client to replay this POST.
+                # Return the committed result without reserving or crediting it again.
+                applied_credit = previous_request.applied_amount
+            else:
+                # Deposit refunds belong to an approved PO, never to its pending PR.
+                if not str(order.purchase_order_number or "").strip():
+                    return _err("Deposit refunds can only be applied to a purchase order", 400)
+                if order.status in {OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+                    return _err("Deposit refunds cannot be added to this order", 400)
+                if order.request_status in {PurchaseRequestStatus.REJECTED, PurchaseRequestStatus.CANCELLED}:
+                    return _err("Deposit refunds cannot be added to this order", 400)
+                if order.bottle_returns.exists():
+                    return _err("The empty-container collection for this order is already complete", 400)
+
+                # Delivery state controls eligibility; payment state does not.
+                maximum_credit = max(Decimal("0.00"), Decimal(str(order.total_amount or 0)))
+                applied_credit = _create_deposit_refund_claims(
+                    order=order,
+                    customer=order.customer,
+                    raw_refund_lines=body.get("depositRefundLines"),
+                    maximum_order_credit=maximum_credit,
+                    client_amount=body.get("depositCreditAmount"),
+                )
+                if applied_credit <= 0:
+                    return _err("Select at least one empty container to refund", 400)
+                order.total_amount = max(0.0, float(Decimal(str(order.total_amount or 0)) - applied_credit))
+                order.save(update_fields=["total_amount", "updated_at"])
+                if request_id:
+                    OrderDepositRefundRequest.objects.create(
+                        request_id=request_id,
+                        order=order,
+                        applied_amount=applied_credit,
+                    )
     except Order.DoesNotExist:
         return _err("Order not found", 404)
     except ValueError as error:

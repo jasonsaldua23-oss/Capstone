@@ -995,6 +995,19 @@ class OrderDepositRefundClaim(models.Model):
         ]
 
 
+class OrderDepositRefundRequest(models.Model):
+    """Records a completed manual refund so a retried POST cannot apply it twice."""
+
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    request_id = models.CharField(max_length=120, unique=True)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="deposit_refund_requests")
+    applied_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "OrderDepositRefundRequest"
+
+
 class BottleReturn(models.Model):
     class ReturnStatus(models.TextChoices):
         PENDING = "PENDING", "Pending"

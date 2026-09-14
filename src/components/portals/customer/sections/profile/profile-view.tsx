@@ -186,7 +186,14 @@ export function CustomerProfileView({
       .flatMap((balance: any) => {
       const containerTypeId = String(balance?.containerTypeId || '').trim()
       const bottlesAvailable = Math.max(0, Math.floor(Number(balance?.bottlesAvailable ?? balance?.bottlesOutstanding ?? 0)))
-      const refundableBalance = Math.max(0, Number(balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0))
+      const isProductBalance = Array.isArray(balance?.productBalances) && balance.productBalances.length > 0
+      // Product rows must use their own refundable value; the parent total may
+      // include another brand that shares the same physical bottle type.
+      const refundableBalance = Math.max(0, Number(
+        isProductBalance
+          ? balance?.depositAvailable
+          : balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0
+      ))
       const productOptions = Array.isArray(balance?.productOptions) ? balance.productOptions : []
       if (!containerTypeId || bottlesAvailable <= 0 || refundableBalance <= 0) return []
       return productOptions.flatMap((product: any) => {
@@ -414,6 +421,8 @@ export function CustomerProfileView({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
+          // Retries reuse this serialized body so the backend can return the first result.
+          requestId: crypto.randomUUID(),
           depositCreditAmount: Math.round(requestedRefundAmount * 100) / 100,
           depositRefundLines: refundLines,
         }),
