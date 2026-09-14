@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -1368,8 +1368,26 @@ class DriverTripsApiContractTests(TestCase):
         orders[2].save(update_fields=["status", "updated_at"])
         trip.status = TripStatus.COMPLETED
         trip.save(update_fields=["status", "updated_at"])
+        replacement_order = Order.objects.create(
+            order_number="RPL-CASH-EXCLUDED-001",
+            subtotal=999,
+            total_amount=999,
+            status=OrderStatus.DELIVERED,
+        )
+        TripDropPoint.objects.create(
+            trip=trip,
+            order=replacement_order,
+            sequence=4,
+            status="COMPLETED",
+            location_name="Replacement Stop",
+            address="Replacement Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+        )
         # The finalized total includes post-delivery additions such as a verified
-        # empties shortfall; deductions are already stored in order.total_amount.
+        # empties shortfall, while free replacement deliveries remain excluded.
+        # Deductions are already stored in order.total_amount.
         with patch(
             "core.views_api.empties_adjustments_for_orders",
             return_value={orders[2].id: {"amount": 50.0}},
@@ -3689,7 +3707,13 @@ class RoutePlanStructureContractTests(TestCase):
         self.assertIn("orders", plan)
 
     def test_route_plan_uses_rescheduled_delivery_date_not_created_date(self) -> None:
-        future_delivery = timezone.now() + timedelta(days=2)
+        future_delivery_date = timezone.localdate() + timedelta(days=2)
+        # Midnight local time crosses into the previous UTC date in Manila and
+        # must still match the calendar date selected in Create Trip.
+        future_delivery = timezone.make_aware(
+            datetime.combine(future_delivery_date, time.min),
+            timezone.get_current_timezone(),
+        )
         order = Order.objects.create(
             order_number="ORD-ROUTE-RESCHEDULED-001",
             customer=self.customer,
@@ -3741,7 +3765,7 @@ class RoutePlanStructureContractTests(TestCase):
 
         future_response = self.client.get(
             "/api/trips/route-plan",
-            data={"warehouseId": self.warehouse.id, "date": future_delivery.date().isoformat()},
+            data={"warehouseId": self.warehouse.id, "date": future_delivery_date.isoformat()},
             HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
         )
         self.assertEqual(future_response.status_code, 200)

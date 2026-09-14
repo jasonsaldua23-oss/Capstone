@@ -3734,7 +3734,10 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     + float((empties_adjustment or {}).get("amount") or 0),
                     2,
                 )
-                if trip_is_completed and _normalize_order_status(dp.order.status) == OrderStatus.DELIVERED:
+                is_replacement_delivery = str(getattr(dp.order, "order_number", "") or "").strip().upper().startswith("RPL-")
+                # Fix: scheduled replacements are free fulfillment deliveries and
+                # must never be counted as cash collected by the driver.
+                if trip_is_completed and not is_replacement_delivery and _normalize_order_status(dp.order.status) == OrderStatus.DELIVERED:
                     cash_collected_total += amount_due
                 row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number
@@ -13178,9 +13181,13 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
         oqs = oqs.exclude(id__in=active_route_order_ids)
 
         if route_date:
-            # Fix: route dates are calendar values supplied by the client. Use
-            # UTC boundaries so Django does not shift them to the next local day.
-            route_start = datetime.combine(route_date, time.min, tzinfo=timezone.utc)
+            # Fix: the selected route date is a Philippine calendar day. Build
+            # its boundaries in the configured local timezone before Django
+            # converts them to UTC for the database query.
+            route_start = timezone.make_aware(
+                datetime.combine(route_date, time.min),
+                timezone.get_current_timezone(),
+            )
             route_end = route_start + timedelta(days=1)
             oqs = oqs.filter(
                 Q(timeline__delivery_date__gte=route_start, timeline__delivery_date__lt=route_end)
