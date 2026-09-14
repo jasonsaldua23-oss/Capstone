@@ -127,6 +127,7 @@ from .models import (
     VehicleStatus,
     Warehouse,
 )
+from .deposit_math import deposit_for_case_and_bottles, full_case_deposit
 from .retail_pos import (
     cancel_retail_sale,
     create_retail_sale,
@@ -509,6 +510,15 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
     return parsed
 
 
+def _delivery_date_is_past(value: Any) -> bool:
+    """Compare delivery schedules by local calendar date, not UTC timestamp."""
+    parsed = value if isinstance(value, datetime) else _parse_iso_datetime(value)
+    if parsed is None:
+        return False
+    local_value = timezone.localtime(parsed) if timezone.is_aware(parsed) else parsed
+    return local_value.date() < timezone.localdate()
+
+
 def _normalize_philippine_phone(value: Any) -> str | None:
     """Keep staff phone values numeric and limited to supported Philippine mobile formats."""
     phone = str(value or "").strip()
@@ -803,13 +813,18 @@ def _create_deposit_refund_claims(
         requested_for_container = requested_by_container.get(container_type_id, 0) + quantity
         available_quantity = max(0, _int(available_row.get("bottlesAvailable"), 0))
         deposit_per_container = Decimal(str(packaging.deposit_amount or packaging.container_type.deposit_amount or 0))
-        case_deposit_amount = Decimal(str(packaging.case_deposit_amount or (deposit_per_container * containers_per_case)))
+        case_deposit_amount = Decimal(str(packaging.case_deposit_amount or 0))
         remaining_balance = Decimal(str(balance.deposit_balance or 0))
-        # Cases and loose bottles can have different deposit rates. Preserve the
-        # selected units so ₱52/case is never recalculated as twelve ₱6 bottles.
+        # Preserve the selected units so a full returned case credits its bottle
+        # deposits plus the configured physical-case deposit.
         line_amount = (
-            (case_deposit_amount * Decimal(requested_cases))
-            + (deposit_per_container * Decimal(requested_loose_bottles))
+            deposit_for_case_and_bottles(
+                cases=requested_cases,
+                loose_bottles=requested_loose_bottles,
+                bottle_deposit=deposit_per_container,
+                containers_per_case=containers_per_case,
+                case_deposit=case_deposit_amount,
+            )
             if has_unit_breakdown
             else deposit_per_container * Decimal(quantity)
         ).quantize(Decimal("0.01"))
@@ -948,7 +963,9 @@ def _create_order_from_checkout_payload(
                 product_subtotal=item.get("totalPrice") or 0,
                 notes=item.get("notes"),
             )
-            item_deposit = 0.0
+            bottle_deposit_charged = 0.0
+            bottle_deposit_refunded = 0.0
+            physical_case_deposit: float | None = None
             for component in item.get("components") or []:
                 product = component.get("product")
                 if product is None:
@@ -960,13 +977,16 @@ def _create_order_from_checkout_payload(
                     .first()
                 )
                 deposit_per_unit = float(packaging.deposit_amount or 0) if packaging and packaging.is_returnable else 0.0
+                if packaging and packaging.is_returnable and physical_case_deposit is None:
+                    physical_case_deposit = float(packaging.case_deposit_amount or 0)
                 total_base_units = max(0, _int(component.get("totalBaseUnits"), 0))
                 empty_covered = min(
                     total_base_units,
                     max(0, _int(component.get("emptyReturnedQuantity"), 0)),
                 )
                 component_deposit = max(0.0, (total_base_units - empty_covered) * deposit_per_unit)
-                item_deposit += component_deposit
+                bottle_deposit_charged += total_base_units * deposit_per_unit
+                bottle_deposit_refunded += empty_covered * deposit_per_unit
                 MixedCaseComponent.objects.create(
                     order_item=order_item,
                     product=product,
@@ -986,13 +1006,19 @@ def _create_order_from_checkout_payload(
                     deposit_total=component_deposit,
                     empty_covered_quantity=empty_covered,
                 )
-            order_item.is_returnable_item = item_deposit > 0
-            order_item.full_quantity = max(0, _int(item.get("caseCapacity"), 0) * _int(item.get("quantity"), 0))
+            case_capacity = max(1, _int(item.get("caseCapacity"), 1))
+            case_count = max(0, _int(item.get("quantity"), 0))
+            order_item.full_quantity = case_capacity * case_count
             order_item.empty_returned_quantity = sum(
                 max(0, _int(component.get("emptyReturnedQuantity"), 0))
                 for component in (item.get("components") or [])
             )
-            order_item.deposit_charged = item_deposit
+            covered_cases = min(case_count, order_item.empty_returned_quantity // case_capacity)
+            physical_case_amount = physical_case_deposit or 0.0
+            order_item.deposit_charged = bottle_deposit_charged + (case_count * physical_case_amount)
+            order_item.deposit_refunded = bottle_deposit_refunded + (covered_cases * physical_case_amount)
+            item_deposit = max(0.0, float(order_item.deposit_charged) - float(order_item.deposit_refunded))
+            order_item.is_returnable_item = order_item.deposit_charged > 0
             order_item.net_deposit = item_deposit
             order_item.deposit_total = item_deposit
             order_item.save(update_fields=[
@@ -1000,6 +1026,7 @@ def _create_order_from_checkout_payload(
                 "full_quantity",
                 "empty_returned_quantity",
                 "deposit_charged",
+                "deposit_refunded",
                 "net_deposit",
                 "deposit_total",
             ])
@@ -1031,8 +1058,10 @@ def _create_order_from_checkout_payload(
         full_units = qty * containers_per_case if is_case else qty
         deposit_per_unit = float(pkg.deposit_amount or 0) if is_returnable else 0.0
         case_deposit = float(pkg.case_deposit_amount or 0) if is_returnable else 0.0
-        deposit_charged = (qty * case_deposit) if is_case else (qty * deposit_per_unit)
-        deposit_refunded = ((empty_returned // containers_per_case) * case_deposit) if is_case else (empty_returned * deposit_per_unit)
+        # Fix: the case value is additional to every bottle deposit in the case.
+        full_case_deposit_amount = float(full_case_deposit(deposit_per_unit, containers_per_case, case_deposit))
+        deposit_charged = (qty * full_case_deposit_amount) if is_case else (qty * deposit_per_unit)
+        deposit_refunded = ((empty_returned // containers_per_case) * full_case_deposit_amount) if is_case else (empty_returned * deposit_per_unit)
         net_deposit = max(0.0, deposit_charged - deposit_refunded)
         # Fix: standard returnable-item deposits are part of the amount payable.
         total_net_deposit += net_deposit
@@ -2338,6 +2367,53 @@ def _create_customer_notification(
     )
 
 
+def _expire_past_delivery_purchase_requests(order_ids: list[str] | None = None) -> set[str]:
+    """Cancel unapproved requests whose promised delivery day has already passed."""
+    local_midnight = timezone.make_aware(
+        datetime.combine(timezone.localdate(), time.min),
+        timezone.get_current_timezone(),
+    )
+    candidates = Order.objects.select_related("customer", "timeline").filter(
+        status=OrderStatus.PENDING,
+        request_status=PurchaseRequestStatus.PENDING_APPROVAL,
+        timeline__delivery_date__lt=local_midnight,
+    )
+    if order_ids is not None:
+        candidates = candidates.filter(id__in=order_ids)
+
+    expired_ids: set[str] = set()
+    now = timezone.now()
+    reason = "Delivery date expired before approval"
+    for order in candidates:
+        # Fix: the conditional update keeps expiration idempotent if two lists load together.
+        updated = Order.objects.filter(
+            id=order.id,
+            status=OrderStatus.PENDING,
+            request_status=PurchaseRequestStatus.PENDING_APPROVAL,
+        ).update(
+            status=OrderStatus.CANCELLED,
+            request_status=PurchaseRequestStatus.CANCELLED,
+            purchase_order_stage=None,
+            cancelled_by_name="System",
+            cancellation_reason=reason,
+            cancelled_at=now,
+            updated_at=now,
+        )
+        if not updated:
+            continue
+        expired_ids.add(str(order.id))
+        OrderTimeline.objects.filter(order_id=order.id).update(cancelled_at=now, updated_at=now)
+        _create_customer_notification(
+            customer=order.customer,
+            title="Purchase request expired",
+            message=f"Your purchase request {order.purchase_request_number or order.order_number} was cancelled because its delivery date passed before approval.",
+            notification_type="ORDER",
+            reference_type="order",
+            reference_id=order.id,
+        )
+    return expired_ids
+
+
 def _create_user_notification(
     *,
     user: User | None,
@@ -2522,7 +2598,8 @@ def _serialize_order(
             OrderStatus.CONFIRMED: PurchaseOrderStage.APPROVED,
             OrderStatus.PREPARING: PurchaseOrderStage.PROCESSING,
             OrderStatus.OUT_FOR_DELIVERY: PurchaseOrderStage.OUT_FOR_DELIVERY,
-            OrderStatus.RESCHEDULED: PurchaseOrderStage.OUT_FOR_DELIVERY,
+            # A new schedule puts the PO back in the approved queue; processing is a separate staff action.
+            OrderStatus.RESCHEDULED: PurchaseOrderStage.APPROVED,
             OrderStatus.DELIVERED: PurchaseOrderStage.DELIVERED,
             OrderStatus.CANCELLED: PurchaseOrderStage.CANCELLED,
             OrderStatus.REJECTED: PurchaseOrderStage.CANCELLED,
@@ -2607,6 +2684,20 @@ def _serialize_order(
     else:
         data["deliveryDate"] = None
         data["deliveredAt"] = None
+
+    terminal_statuses = {OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}
+    delivery_date_past = bool(
+        timeline
+        and timeline.delivery_date
+        and _delivery_date_is_past(timeline.delivery_date)
+        and normalized_order_status not in terminal_statuses
+    )
+    data["deliveryDatePast"] = delivery_date_past
+    # Approved active POs must receive a new schedule before warehouse work continues.
+    data["requiresReschedule"] = bool(
+        delivery_date_past
+        and str(getattr(order, "request_status", "") or "").strip().upper() == PurchaseRequestStatus.APPROVED
+    )
 
     if include_items:
         items = []
@@ -8988,12 +9079,24 @@ def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
     unit = str(body.get("unit") or "CASE").strip()
     reason = str(body.get("reason") or "").strip()
     request_id = str(body.get("requestId") or "").strip()
-    if action not in {"SUPPLIER_RETURN", "DISPOSAL"} or unit not in {"CASE", "BASE_UNIT"} or not reason or not request_id or len(request_id) > 100:
-        return _err("Action, unit, reason and requestId are required", 400)
+    if action not in {"SUPPLIER_RETURN", "DISPOSAL"}:
+        return _err("Invalid expired-stock action", 400)
+    if unit not in {"CASE", "BASE_UNIT"}:
+        return _err("Invalid expired-stock unit", 400)
+    if not reason:
+        return _err("Disposal reason or reference is required", 400)
+    if len(reason) > 500:
+        return _err("Disposal reason must be 500 characters or fewer", 400)
+    if not request_id or len(request_id) > 100:
+        return _err("A valid requestId is required", 400)
     try:
         quantity = Decimal(str(body.get("quantity")))
         if not quantity.is_finite() or quantity <= 0 or quantity != quantity.to_integral_value():
             raise ValueError()
+        # Guard the conversion before an intentionally huge submitted number can
+        # become an expensive integer allocation; real inventory is lower than this.
+        if quantity.adjusted() > 9:
+            return _err("Quantity is too large", 400)
         quantity = int(quantity)
     except (ValueError, ArithmeticError):
         return _err("Quantity must be a positive whole number", 400)
@@ -9018,7 +9121,13 @@ def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
         batch_field = "quantity" if unit == "CASE" else "loose_units"
         inventory_field = "quantity" if unit == "CASE" else "loose_bottles"
         stock_before = int(getattr(inventory, inventory_field) or 0)
-        if quantity > int(getattr(batch, batch_field) or 0) or quantity > stock_before:
+        batch_available = int(getattr(batch, batch_field) or 0)
+        unit_label = "cases" if unit == "CASE" else "loose bottles"
+        if batch_available <= 0:
+            return _err(f"No {unit_label} remain in this batch", 400)
+        if quantity > batch_available:
+            return _err(f"Quantity exceeds the {batch_available} {unit_label} remaining in this batch", 400)
+        if quantity > stock_before:
             return _err("Quantity exceeds the remaining physical stock", 400)
         setattr(batch, batch_field, int(getattr(batch, batch_field)) - quantity)
         setattr(inventory, inventory_field, stock_before - quantity)
@@ -9026,6 +9135,17 @@ def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
         batch.status = "DEPLETED" if batch.quantity == 0 and batch.loose_units == 0 else batch.status
         batch.save(update_fields=[batch_field, "status", "updated_at"])
         inventory.save(update_fields=[inventory_field, "updated_at"])
+        # Snapshot the listed value at disposal time. The system has no product
+        # cost field, so this is explicitly a listed-price stock-loss value.
+        case_price = Decimal(str(getattr(inventory.product, "case_price", None) or inventory.product.price or 0))
+        per_case = max(1, _int(getattr(inventory.product, "quantity_per_unit", 0), 1))
+        listed_unit_price = (
+            case_price
+            if unit == "CASE"
+            else Decimal(str(getattr(inventory.product, "retail_unit_price", None) or (case_price / per_case)))
+        )
+        loss_unit_price = listed_unit_price.quantize(Decimal("0.01"))
+        loss_amount = (loss_unit_price * quantity).quantize(Decimal("0.01"))
         InventoryTransaction.objects.create(
             warehouse_id=inventory.warehouse_id, product_id=inventory.product_id,
             type="OUT", quantity=quantity, quantity_unit=unit,
@@ -9034,8 +9154,68 @@ def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
             reference_type="expired_stock", reference_id=request_id,
             performed_by=str(staff.get("name") or staff.get("userId") or "Warehouse staff"),
             notes=f"{action}; Batch={batch.id} ({batch.batch_number}); {reason}",
+            loss_unit_price=loss_unit_price if action == "DISPOSAL" else Decimal("0.00"),
+            loss_amount=loss_amount if action == "DISPOSAL" else Decimal("0.00"),
         )
     return _ok({"success": True, "message": "Expired stock action recorded"}, 201)
+
+
+@require_GET
+def disposed_stock_history(request: HttpRequest) -> JsonResponse:
+    """List warehouse-scoped disposal records with their retained batch details."""
+    staff, err = _require_staff(request)
+    if err:
+        return err
+    page, size, off = _pagination(request)
+    qs = (
+        InventoryTransaction.objects.select_related("warehouse", "product")
+        .filter(reference_type="expired_stock", notes__startswith="DISPOSAL;")
+        .order_by("-created_at", "-id")
+    )
+    staff_role = str(staff.get("role") or "").strip().upper()
+    staff_user_id = str(staff.get("userId") or "").strip()
+    if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
+        allowed_warehouse_ids = _get_allowed_warehouse_ids_for_staff(staff_user_id)
+        if not allowed_warehouse_ids:
+            return _ok({"success": True, "disposals": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
+        qs = qs.filter(warehouse_id__in=allowed_warehouse_ids)
+
+    total = qs.count()
+    rows = list(qs[off : off + size])
+    # Existing disposal ledger rows store the batch ID in their immutable notes.
+    # Batches are retained after disposal, allowing their expiry details to remain visible.
+    batch_id_by_transaction: dict[str, str] = {}
+    for row in rows:
+        match = re.search(r"(?:^|;\s*)Batch=([^\s;]+)\s*\(", str(row.notes or ""))
+        if match:
+            batch_id_by_transaction[row.id] = match.group(1)
+    batches = {
+        batch.id: batch
+        for batch in StockBatch.objects.filter(id__in=set(batch_id_by_transaction.values())).select_related("inventory__product")
+    }
+    disposals = []
+    for row in rows:
+        batch = batches.get(batch_id_by_transaction.get(row.id, ""))
+        batch_number_match = re.search(r"Batch=[^\s;]+\s*\(([^)]+)\)", str(row.notes or ""))
+        reason_parts = str(row.notes or "").split("; ", 2)
+        disposals.append({
+            "id": row.id,
+            "disposedAt": row.created_at,
+            "batchId": batch.id if batch else batch_id_by_transaction.get(row.id),
+            "batchNumber": batch.batch_number if batch else (batch_number_match.group(1) if batch_number_match else "Unavailable batch"),
+            "product": _serialize_model(row.product),
+            "warehouse": _serialize_model(row.warehouse),
+            "quantity": row.quantity,
+            "quantityUnit": row.quantity_unit,
+            "expiryDate": batch.expiry_date if batch else None,
+            "manufacturedDate": batch.receipt_date if batch else None,
+            "reason": reason_parts[2] if len(reason_parts) == 3 else "",
+            "performedBy": row.performed_by,
+            "lossUnitPrice": row.loss_unit_price,
+            "lossAmount": row.loss_amount,
+            "lossBasis": "LISTED_PRICE",
+        })
+    return _ok({"success": True, "disposals": disposals, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
 
 
 @csrf_exempt
@@ -10197,6 +10377,8 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
     if not p:
         return _err("Unauthorized", 401)
     if request.method == "GET":
+        # Fix: pending requests cannot remain actionable after their delivery day passes.
+        _expire_past_delivery_purchase_requests()
         page, size, off = _pagination(request)
         include_replacements = str(request.GET.get("includeReplacements") or "").strip().lower() == "true"
         include_orders = request.GET.get("includeOrders", "true") != "false"
@@ -10383,7 +10565,19 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 .first()
             )
             if existing_order:
+                # An idempotent retry must not revive a request whose delivery date passed.
+                _expire_past_delivery_purchase_requests([str(existing_order.id)])
+                existing_order.refresh_from_db()
                 return _ok({"success": True, "duplicate": True, "order": _serialize_order(existing_order)})
+        delivery_date_raw = str(body.get("deliveryDate") or "").strip()
+        if delivery_date_raw:
+            parsed_delivery_date = _parse_iso_datetime(delivery_date_raw)
+            if parsed_delivery_date is None:
+                return _err("Invalid deliveryDate format", 400)
+            if _delivery_date_is_past(parsed_delivery_date):
+                return _err("Delivery date cannot be in the past. Choose today or a future date.", 400)
+            # Store one validated ISO value so checkout and workflow comparisons agree.
+            body["deliveryDate"] = parsed_delivery_date.isoformat()
         items = body.get("items") or []
         if not isinstance(items, list) or not items:
             return _err("items are required")
@@ -10751,7 +10945,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     if next_status not in allowed_statuses:
         return _err("Invalid status", 400)
     try:
-        o = Order.objects.get(id=order_id)
+        o = Order.objects.select_related("timeline").get(id=order_id)
     except Order.DoesNotExist:
         return _err("Order not found", 404)
 
@@ -10762,12 +10956,33 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
 
     current_status = _normalize_order_status(o.status)
     is_pending_request = str(o.request_status or "").strip().upper() == PurchaseRequestStatus.PENDING_APPROVAL
+    timeline = getattr(o, "timeline", None)
+    delivery_date_past = bool(timeline and timeline.delivery_date and _delivery_date_is_past(timeline.delivery_date))
+
+    # Fix: an expired pending request is closed consistently even if approval is attempted directly.
+    if is_pending_request and delivery_date_past:
+        _expire_past_delivery_purchase_requests([str(o.id)])
+        return _err("Purchase request expired because its delivery date has passed.", 409)
+
+    rescheduled_delivery_at: datetime | None = None
+    if next_status == OrderStatus.RESCHEDULED:
+        rescheduled_delivery_at = _parse_iso_datetime(body.get("deliveryDate"))
+        if rescheduled_delivery_at is None:
+            return _err("A valid deliveryDate is required to reschedule the order", 400)
+        if _delivery_date_is_past(rescheduled_delivery_at):
+            return _err("Delivery date cannot be in the past. Choose today or a future date.", 400)
+        active_trip_assignment = TripDropPoint.objects.filter(
+            order_id=o.id,
+            status__in=["PENDING", "ARRIVED", "IN_TRANSIT", "IN_PROGRESS"],
+        ).exists()
+        if active_trip_assignment:
+            return _err("Remove the order from its active delivery trip before rescheduling it.", 409)
     repairs_missing_approval = (
         next_status == OrderStatus.CONFIRMED
         and (is_pending_request or not str(o.purchase_order_number or "").strip())
     )
 
-    if current_status == next_status and not repairs_missing_approval:
+    if current_status == next_status and not repairs_missing_approval and next_status != OrderStatus.RESCHEDULED:
         current = Order.objects.select_related("customer", "timeline").get(id=o.id)
         return _ok({"success": True, "order": _serialize_order(current, include_items=False)})
 
@@ -10776,8 +10991,8 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
 
     allowed_transitions = {
         OrderStatus.PENDING: {OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.REJECTED, OrderStatus.CANCELLED},
-        OrderStatus.CONFIRMED: {OrderStatus.PREPARING, OrderStatus.REJECTED, OrderStatus.CANCELLED},
-        OrderStatus.PREPARING: {OrderStatus.OUT_FOR_DELIVERY, OrderStatus.REJECTED, OrderStatus.CANCELLED},
+        OrderStatus.CONFIRMED: {OrderStatus.PREPARING, OrderStatus.RESCHEDULED, OrderStatus.REJECTED, OrderStatus.CANCELLED},
+        OrderStatus.PREPARING: {OrderStatus.RESCHEDULED, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.REJECTED, OrderStatus.CANCELLED},
         OrderStatus.RESCHEDULED: {OrderStatus.PREPARING, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.REJECTED, OrderStatus.CANCELLED},
         OrderStatus.OUT_FOR_DELIVERY: {OrderStatus.DELIVERED, OrderStatus.REJECTED, OrderStatus.CANCELLED},
         OrderStatus.DELIVERED: set(),
@@ -10800,6 +11015,9 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     }:
         return _err("Purchase request must be approved before processing", 400)
 
+    if delivery_date_past and next_status == OrderStatus.PREPARING:
+        return _err("Delivery date has passed. Reschedule the order before processing it.", 409)
+
     if next_status == OrderStatus.REJECTED and not rejection_reason:
         return _err("A rejection reason is required", 400)
 
@@ -10814,7 +11032,17 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             # Revalidate after waiting for another approval/cancellation/delivery.
             current_status = _normalize_order_status(o.status)
             is_pending_request = o.request_status == PurchaseRequestStatus.PENDING_APPROVAL
-            if current_status == next_status and not (next_status == OrderStatus.CONFIRMED and (is_pending_request or not o.purchase_order_number)):
+            # PostgreSQL cannot lock the nullable side of select_related("timeline").
+            # Lock the one-to-one timeline separately while the parent order is locked.
+            locked_timeline = OrderTimeline.objects.select_for_update().filter(order_id=o.id).first()
+            locked_delivery_date_past = bool(
+                locked_timeline
+                and locked_timeline.delivery_date
+                and _delivery_date_is_past(locked_timeline.delivery_date)
+            )
+            if locked_delivery_date_past and next_status == OrderStatus.PREPARING:
+                return _err("Delivery date has passed. Reschedule the order before processing it.", 409)
+            if current_status == next_status and not (next_status == OrderStatus.CONFIRMED and (is_pending_request or not o.purchase_order_number)) and next_status != OrderStatus.RESCHEDULED:
                 return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
             if current_status != next_status and next_status not in allowed_transitions.get(current_status, set()):
                 return _err(f"Invalid transition from {current_status} to {next_status}", 409)
@@ -10871,7 +11099,11 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             elif next_status == OrderStatus.PREPARING:
                 o.purchase_order_stage = PurchaseOrderStage.PROCESSING
                 update_fields.append("purchase_order_stage")
-            elif next_status in {OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RESCHEDULED}:
+            elif next_status == OrderStatus.RESCHEDULED:
+                # A manual reschedule returns the PO to the warehouse queue with a valid date.
+                o.purchase_order_stage = PurchaseOrderStage.APPROVED
+                update_fields.append("purchase_order_stage")
+            elif next_status == OrderStatus.OUT_FOR_DELIVERY:
                 o.purchase_order_stage = PurchaseOrderStage.OUT_FOR_DELIVERY
                 update_fields.append("purchase_order_stage")
             elif next_status == OrderStatus.DELIVERED:
@@ -10900,6 +11132,8 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             o.save(update_fields=list(dict.fromkeys(update_fields)))
 
             timeline, _ = OrderTimeline.objects.get_or_create(order=o)
+            if next_status == OrderStatus.RESCHEDULED and rescheduled_delivery_at is not None:
+                timeline.delivery_date = rescheduled_delivery_at
             status_map = {
                 "CONFIRMED": "confirmed_at",
                 "PREPARING": "processed_at",
@@ -10911,7 +11145,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             field = status_map.get(o.status)
             if field:
                 setattr(timeline, field, now)
-                timeline.save()
+            timeline.save()
     except ValueError as e:
         return _err(str(e), 400)
 
@@ -10945,6 +11179,15 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             customer=updated.customer,
             title="Order delivered",
             message=f"Your order {updated.order_number} has been delivered successfully.",
+            notification_type="ORDER",
+            reference_type="order",
+            reference_id=updated.id,
+        )
+    elif next_status == OrderStatus.RESCHEDULED and rescheduled_delivery_at is not None:
+        _create_customer_notification(
+            customer=updated.customer,
+            title="Order rescheduled",
+            message=f"Your order {updated.order_number} was rescheduled to {timezone.localtime(rescheduled_delivery_at).date().isoformat()}.",
             notification_type="ORDER",
             reference_type="order",
             reference_id=updated.id,
@@ -11240,12 +11483,25 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             return _err("Forbidden: trip warehouse is outside your assigned warehouse scope", 403)
 
     orders_to_assign = list(
-        Order.objects.filter(id__in=requested_order_ids).prefetch_related("items__product").all()
+        Order.objects.select_related("timeline").filter(id__in=requested_order_ids).prefetch_related("items__product").all()
     )
     orders_by_id = {str(order.id): order for order in orders_to_assign}
     missing_order_ids = [oid for oid in requested_order_ids if oid not in orders_by_id]
     if missing_order_ids:
         return _err("Some orders were not found", 404)
+    overdue_orders = [
+        str(order.order_number)
+        for order in orders_to_assign
+        if getattr(order, "timeline", None)
+        and order.timeline.delivery_date
+        and _delivery_date_is_past(order.timeline.delivery_date)
+    ]
+    if overdue_orders:
+        return _err(
+            "Order(s) have a passed delivery date and must be rescheduled before trip assignment: "
+            + ", ".join(overdue_orders),
+            409,
+        )
 
     order_allocations_map = _build_order_warehouse_allocations_map(requested_order_ids)
     incompatible_orders: list[str] = []
@@ -11519,11 +11775,24 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
 
                 orders_map = {
                     str(order.id): order
-                    for order in Order.objects.select_related("customer").filter(id__in=add_order_ids)
+                    for order in Order.objects.select_related("customer", "timeline").filter(id__in=add_order_ids)
                 }
                 missing_order_ids = [oid for oid in add_order_ids if oid not in orders_map]
                 if missing_order_ids:
                     return _err("Some orders were not found", 404)
+                overdue_orders = [
+                    str(order.order_number)
+                    for order in orders_map.values()
+                    if getattr(order, "timeline", None)
+                    and order.timeline.delivery_date
+                    and _delivery_date_is_past(order.timeline.delivery_date)
+                ]
+                if overdue_orders:
+                    return _err(
+                        "Order(s) have a passed delivery date and must be rescheduled before trip assignment: "
+                        + ", ".join(overdue_orders),
+                        409,
+                    )
 
                 staff_role = str(staff.get("role") or "").strip().upper()
                 staff_user_id = str(staff.get("userId") or "").strip()
@@ -14607,6 +14876,7 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
         containers_per_case = pkg.containers_per_case or (product.quantity_per_unit or 24)
         case_deposit = float(pkg.case_deposit_amount or 42.0)
         unit_deposit = float(pkg.deposit_amount or 2.0)
+        full_case_deposit_amount = float(full_case_deposit(unit_deposit, containers_per_case, case_deposit))
 
         # Mixed-case components can share one container balance. Cap each product
         # by its own declaration history so recording one component does not hide another.
@@ -14630,7 +14900,8 @@ def customer_empty_bottles_eligible(request: HttpRequest) -> JsonResponse:
                 "containerTypeName": container_type.name,
                 "containersPerCase": containers_per_case,
                 "unitDeposit": unit_deposit,
-                "caseDeposit": case_deposit,
+                # This endpoint exposes the refundable value of one complete case.
+                "caseDeposit": full_case_deposit_amount,
                 "totalCasesOrdered": total_bottles_ordered // max(1, containers_per_case),
                 "totalBottlesOrdered": total_bottles_ordered,
                 "currentlyHeldCases": currently_held_bottles // max(1, containers_per_case),
@@ -14726,7 +14997,14 @@ def customer_record_empty_bottles(request: HttpRequest) -> JsonResponse:
                 400
             )
 
-        added_deposit = (case_deposit * Decimal(str(cases))) + (unit_deposit * Decimal(str(loose_bottles)))
+        # Fix: empty-case credit mirrors the full deposit originally charged.
+        added_deposit = deposit_for_case_and_bottles(
+            cases=cases,
+            loose_bottles=loose_bottles,
+            bottle_deposit=unit_deposit,
+            containers_per_case=containers_per_case,
+            case_deposit=case_deposit,
+        )
 
         balance_before = balance.deposit_balance
         balance.bottles_outstanding += added_bottles

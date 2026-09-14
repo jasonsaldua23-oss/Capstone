@@ -128,7 +128,8 @@ export function EmptiesDeposits({
                 ? Math.max(1, Number(selectedPackaging?.containersPerCase || balance.containersPerCase || 1))
                 : 1;
               const depositAmount = isCaseFormat
-                ? Number(selectedPackaging?.caseDepositAmount || balance.caseDepositAmount || 0)
+                ? (Number(selectedPackaging?.depositAmount || balance.depositAmount || 0) * containersPerUnit)
+                  + Number(selectedPackaging?.caseDepositAmount || balance.caseDepositAmount || 0)
                 : Number(selectedPackaging?.depositAmount || balance.depositAmount || 0);
               const count = Math.floor(bottlesAvailable / containersPerUnit);
               const depositAvailable = Math.min(
@@ -188,6 +189,7 @@ export function EmptiesDeposits({
                 const quantity = Math.max(1, emptyQuantitiesByProductId[item.productId] || 1);
                 const isCase = String(item.unit || "").toLowerCase() === "case";
                 const maximumQuantity = isCase ? item.availableCasesToReturn : item.availableBottlesToReturn;
+                // The eligible-items API returns the combined refundable case value.
                 const depositPerUnit = isCase ? item.caseDeposit : item.unitDeposit;
                 const unitLabel = isCase ? "case" : "bottle";
                 return (

@@ -12,7 +12,7 @@ Warehouse staff need a fast sales channel for walk-in and offline pickup transac
 
 The repository already contains most of those primitives, but the migration state requires reconciliation before POS work. Database migrations 0079–0089 are applied, while the runtime models omit a number of fields introduced by those migrations. The currently unapplied migration 0090 proposes deleting the mixed-case, reservation, purchase workflow, and RGB/deposit schema. Applying 0090 would destroy the exact source-of-truth data required by this feature.
 
-The product model currently has one `price` value and does not distinguish an individual retail price from a full-case price. The RGB configuration has both per-bottle and per-case deposits, but the required formula for partially covered full cases is not defined. Those decisions are recorded under “Approval Required.”
+The product model currently has one `price` value and does not distinguish an individual retail price from a full-case price. The RGB configuration stores a per-bottle deposit and an additional physical-case deposit; the combined formula is recorded below.
 
 ## Approved Decisions
 
@@ -20,10 +20,9 @@ The product model currently has one `price` value and does not distinguish an in
   - Option A: add explicit `retail_unit_price` and `case_price` configuration to the existing Product registration flow.
   - Option B: keep `Product.price` as the case/pack price and derive the loose price as `price / quantity_per_unit`.
   - Recommendation: **A**, because it avoids inventing a loose retail price and preserves the registered price as authoritative.
-- D-2 — Partial empty coverage for a full case whose registered case deposit differs from bottle deposit × case quantity:
-  - Option A: prorate the registered case deposit by uncovered bottles: `case_deposit × uncovered / case_capacity`.
-  - Option B: charge the registered case deposit, then credit each returned empty at the registered bottle-deposit rate.
-  - Recommendation: **A**, because the registered case deposit remains authoritative and coverage reaches exactly zero when all required empties are supplied.
+- D-2 — Partial empty coverage for a full case:
+  - The complete deposit is `(bottle_deposit × case_capacity) + physical_case_deposit`.
+  - Prorate that complete amount by uncovered bottles so coverage reaches exactly zero when all required empties are supplied.
 - D-3 — Walk-in customer accounting:
   - Option A: allow POS orders and RGB return/deposit audit records to have no Customer account, while snapshotting walk-in name/contact on the order.
   - Option B: create a shared “Walk-in Customer” account.
@@ -49,8 +48,8 @@ Approval includes replacing the destructive, unapplied migration 0090 with a non
 - FR-14: Staff MUST be able to enter returned empty quantities per eligible container/product allocation, from zero through the eligible new-bottle quantity.
 - FR-15: Returned empties MUST NOT exceed the eligible new-bottle quantity in the same sale.
 - FR-16: Loose-item deposit MUST equal `max(eligible bottles - accepted empties, 0) × registered bottle deposit`.
-- FR-17: Full-case deposit with no empties MUST use the registered case deposit when it is greater than zero; partial coverage MUST follow approved D-2.
-- FR-18: Mixed-case deposit MUST be calculated from its actual eligible component bottles and their snapshotted configured rates; it MUST reach zero when every eligible bottle is covered by an accepted compatible empty.
+- FR-17: Full-case deposit with no empties MUST equal `(registered bottle deposit × case capacity) + registered physical-case deposit`; partial coverage MUST follow approved D-2.
+- FR-18: Mixed-case deposit MUST include its actual eligible component-bottle deposits plus one physical-case deposit per case, and MUST reach zero when every eligible bottle/case is covered by accepted compatible empties.
 - FR-19: The quote and checkout summary MUST show product total, empty bottles provided, deposit charged, grand total, fulfillment, payment status, amount paid, and remaining balance.
 - FR-20: An immediate sale MUST atomically consume inventory once, create per-product `OUT` transactions, record accepted empties, record deposit audit entries, and mark the retail order completed.
 - FR-21: A customer-pickup sale MUST atomically reserve inventory, reduce available-to-sell stock, and start at `PENDING_PICKUP` without consuming stock.
@@ -131,9 +130,9 @@ Then deposits are respectively ₱24, ₱0, and ₱8
 And entering 13 returns 400.
 
 ### AC-11: Full-case deposit (FR-17)
-Given a full case with a registered ₱90 case deposit  
-When zero empties are accepted  
-Then the deposit is ₱90 rather than bottle deposit × capacity  
+Given a 24-bottle case with a ₱2 bottle deposit and ₱42 physical-case deposit
+When zero empties are accepted
+Then the complete deposit is `(₱2 × 24) + ₱42 = ₱90`
 And partial coverage follows approved D-2.
 
 ### AC-12: Mixed-case deposit (FR-18)

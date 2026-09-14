@@ -24,6 +24,74 @@ from .views_api import _create_order_from_checkout_payload
 
 
 class CustomerOrderDepositRefundTests(TestCase):
+    def test_mixed_case_checkout_adds_one_physical_case_deposit(self) -> None:
+        customer = Customer.objects.create(email="mixed-deposit@example.com", password="hashed", name="Mixed Deposit")
+        container_type = ContainerType.objects.create(
+            code="MIXED-DEPOSIT-GLASS",
+            name="Mixed Deposit Glass",
+            deposit_amount=Decimal("2.00"),
+        )
+        products = [
+            Product.objects.create(
+                sku=f"MIXED-DEPOSIT-{index}",
+                name=f"Mixed Deposit {index}",
+                unit="case",
+                quantity_per_unit=24,
+                price=240,
+                category="Carbonated (Glass)",
+                sizes=["12oz"],
+            )
+            for index in range(2)
+        ]
+        for product in products:
+            ProductPackaging.objects.create(
+                product=product,
+                container_type=container_type,
+                is_primary=True,
+                is_returnable=True,
+                deposit_amount=Decimal("2.00"),
+                case_deposit_amount=Decimal("42.00"),
+                containers_per_case=24,
+            )
+
+        order = _create_order_from_checkout_payload(
+            customer=customer,
+            body={},
+            normalized_items=[{
+                "itemType": "MIXED_CASE",
+                "quantity": 1,
+                "caseCapacity": 24,
+                "unitPrice": 240,
+                "totalPrice": 240,
+                "components": [
+                    {
+                        "product": product,
+                        "quantityPerCase": 12,
+                        "caseCount": 1,
+                        "totalBaseUnits": 12,
+                        "unitPrice": 10,
+                        "componentSubtotal": 120,
+                    }
+                    for product in products
+                ],
+            }],
+            subtotal=240,
+            tax=0,
+            shipping_cost=0,
+            discount=0,
+            total_amount=240,
+            selected_warehouse_id=None,
+            shipping_latitude=None,
+            shipping_longitude=None,
+            payment_status="pending",
+            performed_by=customer.id,
+        )
+
+        item = order.items.get()
+        self.assertEqual(item.deposit_charged, Decimal("90.00"))
+        self.assertEqual(item.net_deposit, Decimal("90.00"))
+        self.assertEqual(order.total_amount, 330)
+
     def test_bottle_product_balance_keeps_per_bottle_quantity_and_value(self) -> None:
         customer = Customer.objects.create(email="bottle-balance@example.com", password="hashed", name="Bottle Balance")
         product = Product.objects.create(sku="BOTTLE-BALANCE", name="Bottle Product", unit="bottle", price=20, category="Carbonated (Glass)")
@@ -81,15 +149,15 @@ class CustomerOrderDepositRefundTests(TestCase):
             customer=customer,
             container_type=container_type,
             bottles_outstanding=72,
-            deposit_balance=Decimal("132.00"),
+            deposit_balance=Decimal("228.00"),
         )
-        for product, cases in zip(products, [2, 1]):
+        for product, cases, full_case_amount in zip(products, [2, 1], [Decimal("90.00"), Decimal("48.00")]):
             DepositTransaction.objects.create(
                 customer=customer,
                 type=DepositTransaction.TransactionType.ADJUSTMENT,
-                amount=Decimal("42.00") * cases,
+                amount=full_case_amount * cases,
                 balance_before=Decimal("0.00"),
-                balance_after=Decimal("42.00") * cases,
+                balance_after=full_case_amount * cases,
                 container_type=container_type,
                 container_count=24 * cases,
                 reason=f"Customer declared {cases} empty case(s) of {product.name}",
@@ -107,7 +175,7 @@ class CustomerOrderDepositRefundTests(TestCase):
         self.assertEqual(sum(row["bottlesAvailable"] for row in serialized["productBalances"]), 72)
         self.assertEqual(
             {row["productName"]: row["depositPerUnit"] for row in serialized["productBalances"]},
-            {"Mountain Dew": 42.0, "Pepsi": 48.0},
+            {"Mountain Dew": 90.0, "Pepsi": 48.0},
         )
 
         # Checkout must validate the same per-product prices shown by the client.
@@ -146,11 +214,11 @@ class CustomerOrderDepositRefundTests(TestCase):
             payment_status="pending",
             performed_by=customer.id,
         )
-        # The purchased case adds a new ₱42 deposit before the ₱132 refund.
-        self.assertEqual(order.total_amount, 110)
+        # The purchased case adds its complete deposit before refunding the empties.
+        self.assertEqual(order.total_amount, 62)
         self.assertEqual(
             sum(claim.requested_amount for claim in order.deposit_refund_claims.all()),
-            Decimal("132.00"),
+            Decimal("228.00"),
         )
         # Driver verification keeps each selected product on its own counter even
         # though both products settle into the same physical container ledger.
@@ -227,7 +295,7 @@ class CustomerOrderDepositRefundTests(TestCase):
 
         balance.refresh_from_db()
         claim = OrderDepositRefundClaim.objects.get(order=order)
-        self.assertEqual(order.total_amount, 164)
+        self.assertEqual(order.total_amount, 188)
         self.assertEqual(balance.deposit_balance, Decimal("90.00"))
         self.assertEqual(claim.requested_quantity, 30)
         self.assertEqual(claim.requested_amount, Decimal("60.00"))
@@ -290,7 +358,7 @@ class CustomerOrderDepositRefundTests(TestCase):
             customer=customer,
             container_type=container_type,
             bottles_outstanding=288,
-            deposit_balance=Decimal("1248.00"),
+            deposit_balance=Decimal("2976.00"),
         )
         serialized_balance = get_customer_bottle_balances(customer)[0]
         product_option = serialized_balance["productOptions"][0]
@@ -303,7 +371,7 @@ class CustomerOrderDepositRefundTests(TestCase):
             purchase_order_number="PO-LATER-REFUND",
             customer=customer,
             subtotal=2000,
-            total_amount=2000,
+            total_amount=4000,
             payment_status="paid",
         )
         token = create_token({"type": "customer", "userId": customer.id, "role": "CUSTOMER"})
@@ -334,7 +402,7 @@ class CustomerOrderDepositRefundTests(TestCase):
         response = self.client.post(
             f"/api/customer/orders/{order.id}/deposit-refund",
             data=json.dumps({
-                "depositCreditAmount": 1248,
+                "depositCreditAmount": 2976,
                 "depositRefundLines": [{
                     "productId": product.id,
                     "containerTypeId": container_type.id,
@@ -351,13 +419,13 @@ class CustomerOrderDepositRefundTests(TestCase):
         order.refresh_from_db()
         balance.refresh_from_db()
         claim = OrderDepositRefundClaim.objects.get(order=order)
-        self.assertEqual(order.total_amount, 752)
-        self.assertEqual(balance.deposit_balance, Decimal("1248.00"))
+        self.assertEqual(order.total_amount, 1024)
+        self.assertEqual(balance.deposit_balance, Decimal("2976.00"))
         self.assertEqual(claim.requested_quantity, 288)
         self.assertEqual(claim.requested_cases, 24)
         self.assertEqual(claim.requested_loose_bottles, 0)
-        self.assertEqual(claim.requested_amount, Decimal("1248.00"))
-        self.assertEqual(response.json()["appliedAmount"], 1248.0)
+        self.assertEqual(claim.requested_amount, Decimal("2976.00"))
+        self.assertEqual(response.json()["appliedAmount"], 2976.0)
 
         # The driver must count a case-only declaration in cases while the stored
         # quantity remains in bottles for deposit settlement.
@@ -411,7 +479,7 @@ class CustomerOrderDepositRefundTests(TestCase):
         self.assertTrue(response.json().get("success"), response.json())
         balance = CustomerBottleBalance.objects.get(customer=customer, container_type=container_type)
         self.assertEqual(balance.bottles_outstanding, (34 * 24) + 9)
-        self.assertEqual(balance.deposit_balance, (Decimal("42.00") * 34) + (Decimal("2.00") * 9))
+        self.assertEqual(balance.deposit_balance, (Decimal("90.00") * 34) + (Decimal("2.00") * 9))
 
     def test_mixed_case_components_are_eligible_as_loose_bottles(self) -> None:
         customer = Customer.objects.create(email="mixed-case-history@example.com", password="hashed", name="Mixed Case History")

@@ -16,6 +16,7 @@ import { CustomerHomeView } from './sections/home/home-view'
 import { CustomerCartView } from './sections/cart/cart-view'
 import { MixedCaseBuilderDialog } from './sections/cart/mixed-case-builder-dialog'
 import { getMixedCaseComponentDepositProfile, getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
+import { getLineDepositAmounts } from '@shared/customer-logic/empty-credit'
 import { CustomerCheckoutView, type DepositRefundLine, type DepositRefundOption } from './sections/checkout/checkout-view'
 import { CustomerOrdersView } from './sections/orders/orders-view'
 import { CustomerOrderDetailPage } from './sections/orders/order-detail-page'
@@ -1350,23 +1351,14 @@ export function CustomerPortal() {
   const selectedDepositCharged = useMemo(
     () => selectedCartItems.reduce((sum, i) => {
       if (i.itemType === 'MIXED_CASE') return sum + getMixedCaseDepositAmounts(i).charged
-      if (!isReturnableGlassItem(i)) return sum
-      const isCase = i.itemType === 'MIXED_CASE' || String(i.unit || '').trim().toLowerCase() === 'case'
-      const deposit = isCase ? Number(i.caseDepositAmount || 0) : Number(i.depositAmount || 0)
-      return sum + (i.quantity * deposit)
+      return sum + getLineDepositAmounts(i).charged
     }, 0),
     [selectedCartItems]
   )
   const selectedDepositRefunded = useMemo(
     () => selectedCartItems.reduce((sum, i) => {
       if (i.itemType === 'MIXED_CASE') return sum + getMixedCaseDepositAmounts(i).refunded
-      if (!isReturnableGlassItem(i)) return sum
-      const isCase = i.itemType === 'MIXED_CASE' || String(i.unit || '').trim().toLowerCase() === 'case'
-      if (isCase) {
-        const coveredCases = Math.floor((i.emptyReturnedQuantity || 0) / Math.max(1, i.containersPerCase || 1))
-        return sum + (coveredCases * Number(i.caseDepositAmount || 0))
-      }
-      return sum + ((i.emptyReturnedQuantity || 0) * Number(i.depositAmount || 0))
+      return sum + getLineDepositAmounts(i).refunded
     }, 0),
     [selectedCartItems]
   )

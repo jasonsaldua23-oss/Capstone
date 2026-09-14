@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
+import { getLineDepositAmounts } from '@shared/customer-logic/empty-credit'
 import { getCheckoutQuantityLabel } from '@shared/customer-logic/item-display'
 
 export type DepositRefundOption = {
@@ -292,10 +293,8 @@ export function CustomerCheckoutView({
 
                       const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
                       const containersPerCase = Math.max(1, Number(item.containersPerCase || 1))
-                      const grossDeposit = item.quantity * Number(isCase ? item.caseDepositAmount || 0 : item.depositAmount || 0)
-                      const depositCredit = isCase
-                        ? Math.floor(Number(item.emptyReturnedQuantity || 0) / containersPerCase) * Number(item.caseDepositAmount || 0)
-                        : Number(item.emptyReturnedQuantity || 0) * Number(item.depositAmount || 0)
+                      // Shared math includes bottle deposits and the added case deposit.
+                      const { charged: grossDeposit, refunded: depositCredit } = getLineDepositAmounts(item)
                       const newDeposit = Math.max(0, grossDeposit - depositCredit)
                       // Case purchases display full cases and case credits;
                       // bottle wording is reserved for genuinely loose items.

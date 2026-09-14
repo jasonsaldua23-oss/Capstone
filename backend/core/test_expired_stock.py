@@ -1,10 +1,11 @@
 from datetime import timedelta
+from decimal import Decimal
 import json
 from unittest.mock import patch
 from django.test import TestCase, RequestFactory
 from django.utils import timezone
 from .models import Inventory, InventoryReservation, InventoryTransaction, Order, OrderItem, Product, StockBatch, Warehouse
-from .views_api import resolve_expired_stock, _allocate_inventory_for_order_item, _reserve_inventory_for_order_item, inventory_collection
+from .views_api import disposed_stock_history, resolve_expired_stock, _allocate_inventory_for_order_item, _reserve_inventory_for_order_item, inventory_collection
 from .mixed_case import available_base_units
 
 
@@ -43,12 +44,35 @@ class ExpiredStockTests(TestCase):
         self.assertEqual((self.inventory.quantity, self.inventory.loose_bottles), (6, 0))
         self.assertEqual(available_base_units(self.inventory), 144)
 
+    def test_disposed_history_retains_batch_expiry_and_loss_snapshot(self):
+        self.product.price = 100.50
+        self.product.save(update_fields=["price"])
+        self.assertEqual(self.submit(quantity=2, requestId="disposal-history").status_code, 201)
+        movement = InventoryTransaction.objects.get(reference_id="disposal-history")
+        self.assertEqual((movement.loss_unit_price, movement.loss_amount), (Decimal("100.50"), Decimal("201.00")))
+
+        request = RequestFactory().get("/api/stock-batches/disposals?pageSize=20")
+        with patch("core.views_api._require_staff", return_value=({"role": "WAREHOUSE_STAFF", "userId": "staff"}, None)), patch("core.views_api._get_allowed_warehouse_ids_for_staff", return_value=[self.warehouse.id]):
+            response = disposed_stock_history(request)
+        payload = json.loads(response.content)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["total"], 1)
+        row = payload["disposals"][0]
+        self.assertEqual((row["batchNumber"], row["quantity"], row["quantityUnit"]), ("EXPIRED", 2, "CASE"))
+        self.assertEqual(row["expiryDate"][:10], self.batch.expiry_date.isoformat()[:10])
+        self.assertEqual(Decimal(str(row["lossAmount"])), Decimal("201.00"))
+
     def test_invalid_and_nonexpired_removals_leave_stock_unchanged(self):
-        for changes in [dict(quantity=5), dict(quantity=0), dict(quantity=-1), dict(quantity=1.5), dict(reason=""), dict(batchId=self.fresh.id)]:
+        for changes in [dict(quantity=5), dict(quantity=0), dict(quantity=-1), dict(quantity=1.5), dict(quantity=1321324234345), dict(reason=""), dict(batchId=self.fresh.id)]:
             self.assertEqual(self.submit(**changes).status_code, 400)
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 10)
         self.assertFalse(InventoryTransaction.objects.exists())
+
+    def test_quantity_above_batch_remaining_returns_a_specific_validation_error(self):
+        response = self.submit(quantity=5)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(json.loads(response.content)["error"], "Quantity exceeds the 4 cases remaining in this batch")
 
     def test_reserved_expired_stock_cannot_be_removed(self):
         InventoryReservation.objects.create(inventory=self.inventory, order_item=self.item, product=self.product, stock_batch=self.batch, quantity_base_units=24)

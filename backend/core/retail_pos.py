@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .beverage_categories import require_category_spec
+from .deposit_math import full_case_deposit
 from .mixed_case import (
     available_base_units,
     consume_order_reservations,
@@ -101,7 +102,7 @@ def calculate_deposit_amount(
     case_count: int = 0,
     case_capacity: int = 0,
 ) -> Decimal:
-    """Charge only uncovered containers, preserving an explicit case deposit."""
+    """Charge uncovered bottles plus the additional physical-case deposit."""
     eligible = nonnegative_int(eligible_units, "Eligible bottle quantity")
     empties = nonnegative_int(empty_units, "Empty bottles provided")
     if empties > eligible:
@@ -117,8 +118,10 @@ def calculate_deposit_amount(
         capacity = positive_int(case_capacity, "Case capacity")
         if cases * capacity != eligible:
             raise ValueError("Eligible bottle quantity does not match the case quantity and capacity")
-        # Approved D-2: prorate the registered case deposit by uncovered bottles.
-        return money((registered_case_deposit * Decimal(cases) * Decimal(uncovered)) / Decimal(eligible))
+        # Fix: the complete-case amount contains every bottle deposit and the
+        # separate case/container deposit, then existing partial coverage applies.
+        complete_case_amount = full_case_deposit(unit_deposit, capacity, registered_case_deposit)
+        return money((complete_case_amount * Decimal(cases) * Decimal(uncovered)) / Decimal(eligible))
 
     return money(money(unit_deposit) * Decimal(uncovered))
 
@@ -265,6 +268,7 @@ def _quote_mixed_line(raw: dict[str, Any], products: dict[str, Product]) -> dict
     total_units = 0
     product_subtotal = Decimal("0.00")
     deposit_total = Decimal("0.00")
+    physical_case_deposit: Decimal | None = None
     empties_total = 0
     components: list[dict[str, Any]] = []
     for raw_component in raw_components:
@@ -293,7 +297,9 @@ def _quote_mixed_line(raw: dict[str, Any], products: dict[str, Product]) -> dict
             raise ValueError(f"Empty bottles provided cannot exceed {quantity_units} for {product.name}")
         price = _price_for(product, RetailSaleMode.LOOSE)
         component_subtotal = money(price * Decimal(quantity_units))
-        packaging, unit_deposit, _case_deposit, deposit_eligible = _deposit_configuration(product)
+        packaging, unit_deposit, component_case_deposit, deposit_eligible = _deposit_configuration(product)
+        if deposit_eligible and physical_case_deposit is None:
+            physical_case_deposit = component_case_deposit
         component_deposit = (
             calculate_deposit_amount(
                 mode=RetailSaleMode.MIXED_CASE,
@@ -339,6 +345,16 @@ def _quote_mixed_line(raw: dict[str, Any], products: dict[str, Product]) -> dict
         raise ValueError("These products use different packaging types and cannot be combined in the same case")
     if any(component["quantityPerCase"] <= 0 for component in components):
         raise ValueError("Each Mixed Case component quantity must divide evenly across the selected cases")
+    # Fix: a mixed case still uses a physical case in addition to its bottles.
+    covered_cases = min(case_count, empties_total // case_capacity)
+    physical_case_net = money((physical_case_deposit or Decimal("0.00")) * Decimal(case_count - covered_cases))
+    deposit_total += physical_case_net
+    if physical_case_net > 0:
+        # Keep the existing component allocation model by attaching the single
+        # case charge to one returnable component for ledger/report persistence.
+        first_returnable = next((component for component in components if component["depositEligible"]), None)
+        if first_returnable is not None:
+            first_returnable["deposit"] = money(first_returnable["deposit"] + physical_case_net)
     return {
         "mode": RetailSaleMode.MIXED_CASE,
         "product": None,

@@ -73,7 +73,9 @@ import { buildReceiptHtml, formatAddress, getInitials } from "../lib/format";
 import {
   composeShippingAddress,
   getAutomaticEmptyCredit,
+  getFullCaseDepositAmount,
   getLineDepositAmounts,
+  getMixedCaseDepositAmounts,
   OTP_EXPIRY_SECONDS,
   OTP_RESEND_COOLDOWN_SECONDS,
   SERVICE_AREA_MESSAGE,
@@ -1652,7 +1654,9 @@ function useCustomerPortalState() {
   const selectedDepositRefunded = useMemo(
     () =>
       selectedUnifiedCartItems.reduce(
-        (sum, item) => (item.isMixedCase ? sum : sum + getLineDepositAmounts(item.source).refunded),
+        (sum, item) => sum + (item.isMixedCase
+          ? getMixedCaseDepositAmounts(item.source).refunded
+          : getLineDepositAmounts(item.source).refunded),
         0
       ),
     [selectedUnifiedCartItems]
@@ -1674,9 +1678,12 @@ function useCustomerPortalState() {
   const selectedDepositCharged = selectedStandardCartItems.reduce((sum, item) => {
     if (item.product.depositExempt || String(item.product.packagingType || "").toUpperCase() !== "RETURNABLE") return sum;
     const unit = String(item.product.unit || "").toLowerCase();
-    const deposit = unit === "case" ? Number(item.product.caseDepositAmount || 0) : Number(item.product.depositAmount || 0);
+    const deposit = unit === "case" ? getFullCaseDepositAmount(item.product) : Number(item.product.depositAmount || 0);
     return sum + item.quantity * deposit;
-  }, 0);
+  }, 0) + selectedMixedCartItems.reduce(
+    (sum, item) => sum + getMixedCaseDepositAmounts(item).charged,
+    0
+  );
   // The web total lets the backend reconcile returnable-container deposits; mirror that displayed calculation.
   const checkoutTotal = Math.max(0, selectedSubtotal - totalDiscount);
   const cartLineCount = cartItems.length + mixedCart.length;

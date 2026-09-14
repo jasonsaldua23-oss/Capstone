@@ -59,7 +59,7 @@ class RetailPosMoneyTests(SimpleTestCase):
                 case_count=1,
                 case_capacity=12,
             ),
-            Decimal("90.00"),
+            Decimal("114.00"),
         )
         self.assertEqual(
             calculate_deposit_amount(
@@ -71,7 +71,7 @@ class RetailPosMoneyTests(SimpleTestCase):
                 case_count=1,
                 case_capacity=12,
             ),
-            Decimal("30.00"),
+            Decimal("38.00"),
         )
 
     def test_empty_quantity_cannot_exceed_eligible_bottles(self):

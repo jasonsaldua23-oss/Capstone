@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
+import { getFullCaseDepositAmount } from '@shared/customer-logic/empty-credit'
 
 type CustomerCartViewProps = {
   setActiveView: (view: any) => void
@@ -352,7 +353,7 @@ export function CustomerCartView(props: CustomerCartViewProps) {
                         </span>
                       </div>
                       <div className="flex items-center justify-between border-t border-slate-200/60 pt-1.5 text-[11px] text-slate-600">
-                        <span>Deposit per {isCase ? 'case' : 'bottle'}: <strong className="text-emerald-700">{formatPeso(isCase ? item.caseDepositAmount || 0 : item.depositAmount || 0)}</strong></span>
+                        <span>Deposit per {isCase ? 'case' : 'bottle'}: <strong className="text-emerald-700">{formatPeso(isCase ? getFullCaseDepositAmount(item) : item.depositAmount || 0)}</strong></span>
                         <span className={`font-medium ${(item.emptyReturnedQuantity || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
                           {(item.emptyReturnedQuantity || 0) > 0
                             ? `${appliedEmptyQuantity} ${emptyUnitLabel}${appliedEmptyQuantity !== 1 ? 's' : ''} applied`

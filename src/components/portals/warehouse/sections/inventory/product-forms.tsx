@@ -653,7 +653,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-sm font-medium text-emerald-900">Deposit per Case (PHP)</label>
+                        <label className="text-sm font-medium text-emerald-900">Additional Physical Case Deposit (PHP)</label>
                         <Input
                           type="number"
                           step="1"
@@ -875,7 +875,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-emerald-900">Deposit / Case (PHP)</label>
+                    <label className="text-sm font-medium text-emerald-900">Additional Physical Case Deposit (PHP)</label>
                     <Input
                       type="number"
                       step="1"
@@ -886,7 +886,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
                       className="bg-white"
                     />
                   </div>
-                  <p className="col-span-2 text-xs text-emerald-800">Enter custom deposit amounts or leave blank to use defaults.</p>
+                  <p className="col-span-2 text-xs text-emerald-800">A full-case deposit equals every bottle deposit plus this additional physical-case amount. Leave blank to use defaults.</p>
                 </div>
               ) : productCategory ? (
                 <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">

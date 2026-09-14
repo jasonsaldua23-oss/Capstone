@@ -210,19 +210,42 @@ def declared_empties_by_container(
         else list(
             MixedCaseComponent.objects.filter(
                 order_item__order=order, empty_covered_quantity__gt=0
-            ).select_related("product")
+            ).select_related("product", "order_item")
         )
     )
+
+    # Mixed-case component rows snapshot bottle rates. Any remainder in the
+    # parent item's refund is the physical-case credit and is allocated once.
+    mixed_case_extra_by_item: dict[str, Decimal] = {}
+    for item in items:
+        item_components = [component for component in components if component.order_item_id == item.id]
+        bottle_refund = sum(
+            (
+                Decimal(str(component.deposit_per_unit or 0))
+                * Decimal(max(0, _int(component.empty_covered_quantity, 0)))
+                for component in item_components
+            ),
+            Decimal("0.00"),
+        )
+        mixed_case_extra_by_item[str(item.id)] = max(
+            Decimal("0.00"),
+            Decimal(str(getattr(item, "deposit_refunded", 0) or 0)) - bottle_refund,
+        )
 
     for component in components:
         quantity = max(0, _int(getattr(component, "empty_covered_quantity", 0)))
         if quantity <= 0:
             continue
         per_case = _containers_per_case(component, packaging_cache)
+        component_deposit_value = (
+            Decimal(str(getattr(component, "deposit_per_unit", 0) or 0)) * Decimal(quantity)
+        )
+        extra_key = str(component.order_item_id)
+        component_deposit_value += mixed_case_extra_by_item.pop(extra_key, Decimal("0.00"))
         _add(
             str(getattr(component, "container_type_id", "") or "").strip(),
             quantity,
-            Decimal(str(getattr(component, "deposit_total", 0) or 0)),
+            component_deposit_value,
             str(getattr(component, "container_type_name", "") or "").strip(),
             product_id=str(getattr(component, "product_id", "") or "").strip(),
             product_name=str(getattr(component, "product_name", "") or "").strip(),

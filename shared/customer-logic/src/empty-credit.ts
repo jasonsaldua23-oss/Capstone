@@ -15,6 +15,15 @@ export type EmptyCredit = {
   emptyReturnedQuantity: number
 }
 
+// A configured case deposit belongs to the physical case and is additional to
+// the refundable deposits of every bottle packed inside it.
+export function getFullCaseDepositAmount(item: any) {
+  const containersPerCase = Math.max(1, Number(item?.containersPerCase || 1))
+  const bottleDeposit = Math.max(0, Number(item?.depositAmount || 0))
+  const caseDeposit = Math.max(0, Number(item?.caseDepositAmount || 0))
+  return (bottleDeposit * containersPerCase) + caseDeposit
+}
+
 /**
  * How many empties from the customer's balance are consumed by `quantity` of `item`.
  * `bottleBalances` is the customer's per-container-type balance list.
@@ -49,9 +58,10 @@ export function getLineDepositAmounts(item: any) {
   const quantity = Math.max(0, Number(item.quantity || 0))
   const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
   const containersPerCase = Math.max(1, Number(item.containersPerCase || 1))
-  const charged = quantity * Number(isCase ? item.caseDepositAmount || 0 : item.depositAmount || 0)
+  const fullCaseDeposit = getFullCaseDepositAmount(item)
+  const charged = quantity * Number(isCase ? fullCaseDeposit : item.depositAmount || 0)
   const refunded = isCase
-    ? Math.floor(Number(item.emptyReturnedQuantity || 0) / containersPerCase) * Number(item.caseDepositAmount || 0)
+    ? Math.floor(Number(item.emptyReturnedQuantity || 0) / containersPerCase) * fullCaseDeposit
     : Number(item.emptyReturnedQuantity || 0) * Number(item.depositAmount || 0)
   return { charged, refunded: Math.min(charged, refunded) }
 }

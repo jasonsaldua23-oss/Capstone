@@ -41,6 +41,7 @@ export {
 export {
   isReturnableGlassItem,
   getAutomaticEmptyCredit,
+  getFullCaseDepositAmount,
   getLineDepositAmounts,
   type EmptyCredit,
 } from "../../../../shared/customer-logic/src/empty-credit.ts";

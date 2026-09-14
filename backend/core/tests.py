@@ -26,6 +26,7 @@ from .models import (
     OrderTimeline,
     OrderStatus,
     PurchaseOrderStage,
+    PurchaseRequestStatus,
     Product,
     ProductPackaging,
     Replacement,
@@ -595,6 +596,41 @@ class PurchaseRequestWorkflowTests(TestCase):
             approval_notice.message,
             f"Your order {self.order.purchase_order_number} was approved.",
         )
+
+    def test_warehouse_approval_expires_request_with_past_delivery_date(self) -> None:
+        timeline = self.order.timeline
+        timeline.delivery_date = timezone.now() - timedelta(days=1)
+        timeline.save(update_fields=["delivery_date", "updated_at"])
+
+        response = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data='{"status":"CONFIRMED"}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.CANCELLED)
+        self.assertEqual(self.order.request_status, PurchaseRequestStatus.CANCELLED)
+        self.assertEqual(self.order.cancellation_reason, "Delivery date expired before approval")
+        self.assertFalse(bool(self.order.purchase_order_number))
+
+    def test_orders_list_expires_pending_request_with_past_delivery_date(self) -> None:
+        timeline = self.order.timeline
+        timeline.delivery_date = timezone.now() - timedelta(days=1)
+        timeline.save(update_fields=["delivery_date", "updated_at"])
+
+        response = self.client.get(
+            "/api/orders",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.CANCELLED)
+        self.assertEqual(self.order.request_status, PurchaseRequestStatus.CANCELLED)
+        self.assertEqual(self.order.cancellation_reason, "Delivery date expired before approval")
 
     def test_pending_request_cannot_skip_approval_and_start_processing(self) -> None:
         response = self.client.patch(
@@ -1629,8 +1665,8 @@ class CustomerOrdersPostApiContractTests(TestCase):
         created_order = Order.objects.get(id=response.json()["order"]["id"])
         # The product subtotal and new container deposit must both be payable.
         self.assertEqual(created_order.subtotal, 240)
-        self.assertEqual(created_order.total_amount, 282)
-        self.assertEqual(created_order.items.get().net_deposit, 42)
+        self.assertEqual(created_order.total_amount, 330)
+        self.assertEqual(created_order.items.get().net_deposit, 90)
 
     @patch("core.views_api._email_new_order_to_warehouse_staff")
     @patch("core.views_api._email_order_confirmed_to_customer")
@@ -2237,6 +2273,44 @@ class OrderStatusTransitionApiContractTests(TestCase):
 
         timeline = OrderTimeline.objects.get(order=order)
         self.assertIsNotNone(timeline.processed_at)
+
+    def test_overdue_approved_order_requires_reschedule_before_processing(self) -> None:
+        order = self._create_order(
+            status=OrderStatus.CONFIRMED,
+            purchase_order_number="PO-STATUS-OVERDUE-001",
+            purchase_order_stage=PurchaseOrderStage.APPROVED,
+        )
+        OrderTimeline.objects.create(order=order, delivery_date=timezone.now() - timedelta(days=1))
+
+        response = self._patch_status(order.id, {"status": "PREPARING"})
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "Delivery date has passed. Reschedule the order before processing it.")
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.CONFIRMED)
+
+    def test_overdue_approved_order_can_be_rescheduled_to_valid_date(self) -> None:
+        order = self._create_order(
+            status=OrderStatus.CONFIRMED,
+            purchase_order_number="PO-STATUS-RESCHEDULE-001",
+            purchase_order_stage=PurchaseOrderStage.APPROVED,
+        )
+        OrderTimeline.objects.create(order=order, delivery_date=timezone.now() - timedelta(days=1))
+        new_delivery_date = timezone.localdate() + timedelta(days=2)
+
+        response = self._patch_status(
+            order.id,
+            {"status": "RESCHEDULED", "deliveryDate": new_delivery_date.isoformat()},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["order"]["requiresReschedule"])
+        self.assertEqual(response.json()["order"]["status"], OrderStatus.RESCHEDULED)
+        self.assertEqual(response.json()["order"]["purchaseOrderStage"], PurchaseOrderStage.APPROVED)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.RESCHEDULED)
+        self.assertEqual(order.purchase_order_stage, PurchaseOrderStage.APPROVED)
+        self.assertEqual(timezone.localtime(order.timeline.delivery_date).date(), new_delivery_date)
 
     def test_staff_cancellation_requires_and_saves_reason(self) -> None:
         order = self._create_order(status=OrderStatus.PREPARING)
@@ -4039,6 +4113,29 @@ class TripsPostCreationContractTests(TestCase):
                 title="New trip assigned",
             ).exists()
         )
+
+    def test_trips_post_rejects_order_with_passed_delivery_date(self) -> None:
+        OrderTimeline.objects.create(
+            order=self.order_1,
+            delivery_date=timezone.now() - timedelta(days=1),
+        )
+
+        response = self.client.post(
+            "/api/trips",
+            data={
+                "driverId": self.driver.id,
+                "vehicleId": self.vehicle.id,
+                "warehouseId": self.warehouse.id,
+                "orderIds": [self.order_1.id],
+                "status": "PLANNED",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("must be rescheduled before trip assignment", response.json()["error"])
+        self.assertFalse(Trip.objects.filter(vehicle=self.vehicle).exists())
 
     def test_trips_post_returns_404_when_driver_or_vehicle_missing(self) -> None:
         response = self.client.post(

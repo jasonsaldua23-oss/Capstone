@@ -34,8 +34,8 @@ class GlassDepositCalculationTests(TestCase):
             full_quantity=24,
             empty_returned_quantity=0,
         )
-        self.assertEqual(result["depositCharged"], 48.0)
-        self.assertEqual(result["netDeposit"], 48.0)
+        self.assertEqual(result["depositCharged"], 90.0)
+        self.assertEqual(result["netDeposit"], 90.0)
 
     def test_returned_containers_credit_the_registered_unit_deposit(self) -> None:
         result = calculate_deposit_for_order_item(
@@ -43,7 +43,7 @@ class GlassDepositCalculationTests(TestCase):
             full_quantity=24,
             empty_returned_quantity=24,
         )
-        self.assertEqual(result["depositRefunded"], 48.0)
+        self.assertEqual(result["depositRefunded"], 90.0)
         self.assertEqual(result["netDeposit"], 0.0)
 
     def test_individual_bottles_use_per_bottle_deposit(self) -> None:
@@ -183,14 +183,14 @@ class CustomerGlassDepositBalanceTests(TestCase):
             full_quantity=24,
             empty_returned_quantity=empties,
             deposit_per_unit=Decimal("2.00"),
-            deposit_charged=Decimal("48.00"),
-            deposit_refunded=Decimal("48.00") if empties else Decimal("0.00"),
+            deposit_charged=Decimal("90.00"),
+            deposit_refunded=Decimal("90.00") if empties else Decimal("0.00"),
             net_deposit=net_deposit,
         )
         return order
 
     def test_delivery_adds_new_case_deposit_to_the_matching_bottle_type(self) -> None:
-        order = self._create_order_item(empties=0, net_deposit=Decimal("48.00"))
+        order = self._create_order_item(empties=0, net_deposit=Decimal("90.00"))
 
         process_order_deposits(order, "tester")
 
@@ -199,16 +199,16 @@ class CustomerGlassDepositBalanceTests(TestCase):
             container_type=self.packaging.container_type,
         )
         self.assertEqual(balance.bottles_outstanding, 24)
-        self.assertEqual(CustomerDepositLedger.objects.get(customer=self.customer).balance, Decimal("48.00"))
+        self.assertEqual(CustomerDepositLedger.objects.get(customer=self.customer).balance, Decimal("90.00"))
 
     def test_fully_covered_exchange_records_matching_charge_and_refund(self) -> None:
         CustomerBottleBalance.objects.create(
             customer=self.customer,
             container_type=self.packaging.container_type,
             bottles_outstanding=24,
-            deposit_balance=Decimal("48.00"),
+            deposit_balance=Decimal("90.00"),
         )
-        CustomerDepositLedger.objects.create(customer=self.customer, balance=Decimal("48.00"))
+        CustomerDepositLedger.objects.create(customer=self.customer, balance=Decimal("90.00"))
         order = self._create_order_item(empties=24, net_deposit=Decimal("0.00"))
 
         transactions = process_order_deposits(order, "tester")
@@ -219,4 +219,4 @@ class CustomerGlassDepositBalanceTests(TestCase):
         )
         self.assertEqual(balance.bottles_outstanding, 24)
         self.assertEqual(len(transactions), 2)
-        self.assertEqual(CustomerDepositLedger.objects.get(customer=self.customer).balance, Decimal("48.00"))
+        self.assertEqual(CustomerDepositLedger.objects.get(customer=self.customer).balance, Decimal("90.00"))

@@ -56,8 +56,9 @@ export type WarehouseOrdersViewProps = {
   openOrderDetail: (order: any) => Promise<void>
   updateWarehouseOrderStatus: (
     orderId: string,
-    status: 'PREPARING' | 'FOR_DELIVERY' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED',
-    reason?: string
+    status: 'PREPARING' | 'RESCHEDULED' | 'FOR_DELIVERY' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED',
+    reason?: string,
+    deliveryDate?: string
   ) => Promise<void>
   updatingOrderId: string | null
   onOpenTransportation: () => void

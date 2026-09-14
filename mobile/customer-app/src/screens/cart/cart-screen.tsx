@@ -6,7 +6,7 @@ import { Pressable, Text, View } from "react-native";
 import { MixedCaseComponents } from "../../components/ui/mixed-case-components";
 import { formatPeso, getAvailableQuantity } from "../../lib/customer-logic";
 import { ProductThumb } from "../../components/ui/product-thumb";
-import { getLineDepositAmounts, getMixedCaseDepositAmounts, isReturnableGlassItem } from "../../lib/shared";
+import { getFullCaseDepositAmount, getLineDepositAmounts, getMixedCaseDepositAmounts, isReturnableGlassItem } from "../../lib/shared";
 import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
@@ -237,7 +237,7 @@ export function CartScreen() {
                         <Text style={styles.cartDepositValue}>
                           {formatPeso(
                             isCase
-                              ? Number(item.source?.caseDepositAmount || 0)
+                              ? getFullCaseDepositAmount(item.source)
                               : Number(item.source?.depositAmount || 0)
                           )}
                         </Text>

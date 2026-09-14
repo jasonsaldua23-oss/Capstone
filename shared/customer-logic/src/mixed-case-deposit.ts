@@ -9,6 +9,7 @@ export function getMixedCaseComponentDepositProfile(component: any) {
   return {
     containerTypeId: String(component?.containerTypeId || product?.containerTypeId || '').trim(),
     depositPerUnit,
+    caseDeposit: Math.max(0, Number(product?.caseDepositAmount || 0)),
     isReturnable: !product?.depositExempt && depositPerUnit > 0,
   }
 }
@@ -16,7 +17,8 @@ export function getMixedCaseComponentDepositProfile(component: any) {
 // Mixed cases are charged by the actual returnable bottles contributed by each component.
 export function getMixedCaseDepositAmounts(item: any) {
   const caseCount = Math.max(0, Number(item?.quantity || item?.caseCount || 0))
-  return (Array.isArray(item?.components) ? item.components : []).reduce(
+  const components = Array.isArray(item?.components) ? item.components : []
+  const bottleTotals = components.reduce(
     (totals: { charged: number; refunded: number }, component: any) => {
       const profile = getMixedCaseComponentDepositProfile(component)
       if (!profile.isReturnable) return totals
@@ -29,4 +31,18 @@ export function getMixedCaseDepositAmounts(item: any) {
     },
     { charged: 0, refunded: 0 }
   )
+  const caseCapacity = Math.max(1, Number(item?.caseCapacity || 1))
+  const physicalCaseDeposit = components
+    .map(getMixedCaseComponentDepositProfile)
+    .find((profile: any) => profile.isReturnable)?.caseDeposit || 0
+  const coveredBottles = components.reduce(
+    (sum: number, component: any) => sum + Math.max(0, Number(component?.emptyReturnedQuantity ?? component?.emptyCoveredQuantity ?? 0)),
+    0
+  )
+  // A mixed case still uses one physical case; credit it only for each complete
+  // case-equivalent set of empties covered by the customer.
+  return {
+    charged: bottleTotals.charged + (caseCount * physicalCaseDeposit),
+    refunded: bottleTotals.refunded + (Math.min(caseCount, Math.floor(coveredBottles / caseCapacity)) * physicalCaseDeposit),
+  }
 }

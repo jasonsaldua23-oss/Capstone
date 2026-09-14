@@ -13,7 +13,7 @@ import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_CANCELLATION_R
 import type { WarehouseOrdersViewProps } from '../shared/types'
 import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
-type OrderAction = 'processing' | 'assign' | 'delivered' | 'completed' | 'cancel'
+type OrderAction = 'processing' | 'reschedule' | 'assign' | 'delivered' | 'completed' | 'cancel'
 
 const orderBadgeClass: Record<string, string> = {
   APPROVED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
@@ -41,6 +41,12 @@ function formatScheduledDelivery(order: any): string {
   }
   const parsed = new Date(raw)
   return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString()
+}
+
+function getLocalDateOnly(): string {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 10)
 }
 
 // Keep long database IDs readable in the table while exposing the full value on hover.
@@ -129,6 +135,7 @@ export function WarehouseOrdersView({
   const [actionState, setActionState] = useState<{ order: any; action: OrderAction } | null>(null)
   const [selectedCancelReasons, setSelectedCancelReasons] = useState<string[]>([])
   const [otherCancelReason, setOtherCancelReason] = useState('')
+  const [rescheduleDate, setRescheduleDate] = useState('')
 
   const warehouseOptions = useMemo(() => {
     return Array.from(
@@ -184,6 +191,7 @@ export function WarehouseOrdersView({
 
     // Required: cancellations must include a reason before the status is updated.
     if (action === 'cancel' && !cancelReason) return
+    if (action === 'reschedule' && (!rescheduleDate || rescheduleDate < getLocalDateOnly())) return
 
     if (action === 'assign' && !order?.assignedTripId && !order?.progress?.trip?.id) {
       onOpenTransportation()
@@ -196,7 +204,9 @@ export function WarehouseOrdersView({
     const nextStatus =
       action === 'processing'
         ? 'PREPARING'
-        : action === 'assign'
+        : action === 'reschedule'
+          ? 'RESCHEDULED'
+          : action === 'assign'
             ? 'FOR_DELIVERY'
             : action === 'delivered'
               ? 'DELIVERED'
@@ -204,10 +214,16 @@ export function WarehouseOrdersView({
                 ? 'COMPLETED'
                 : 'CANCELLED'
 
-    await updateWarehouseOrderStatus(order.id, nextStatus, action === 'cancel' ? cancelReason : undefined)
+    await updateWarehouseOrderStatus(
+      order.id,
+      nextStatus,
+      action === 'cancel' ? cancelReason : undefined,
+      action === 'reschedule' ? rescheduleDate : undefined
+    )
     setActionState(null)
     setSelectedCancelReasons([])
     setOtherCancelReason('')
+    setRescheduleDate('')
   }
 
   return (
@@ -277,6 +293,13 @@ export function WarehouseOrdersView({
                 <tbody>
                   {filteredOrders.map((order) => {
                     const stage = getOrderStage(order)
+                    // Rescheduling is offered only after Start Processing confirms the date has passed.
+                    const needsReschedule = Boolean(order?.showRescheduleAction)
+                    const isProcessingOrder = Boolean(
+                      updatingOrderId === order.id
+                      && actionState?.order?.id === order.id
+                      && actionState.action === 'processing'
+                    )
                     const isAssignedToDelivery = Boolean(
                       order?.assignedTripId ||
                       order?.progress?.trip?.id ||
@@ -339,22 +362,45 @@ export function WarehouseOrdersView({
                                     <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>
                                   </td>
                                   <td rowSpan={displayItems.length} className="px-4 py-3">
-                                    <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" size="sm" onClick={() => void openOrderDetail(order)}>
+                                    {/* Fix: action labels vary, so keep every control aligned to one column width. */}
+                                    <div className="flex w-[172px] flex-col gap-2">
+                            <Button variant="outline" size="sm" className="w-full" onClick={() => void openOrderDetail(order)}>
                               <Eye className="mr-2 h-4 w-4" />
                               View Details
                             </Button>
-                            {stage === 'APPROVED' ? (
-                              <Button size="sm" className="bg-violet-600 hover:bg-violet-700" disabled={updatingOrderId === order.id} onClick={() => setActionState({ order, action: 'processing' })}>
-                                {updatingOrderId === order.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {stage === 'APPROVED' || stage === 'RESCHEDULED' ? (
+                              <Button
+                                size="sm"
+                                className="w-full bg-violet-600 hover:bg-violet-700"
+                                disabled={updatingOrderId === order.id || needsReschedule}
+                                onClick={() => setActionState({ order, action: 'processing' })}
+                                title={needsReschedule ? 'Reschedule the passed delivery date before processing' : undefined}
+                              >
+                                {/* Fix: do not present a reschedule request as processing in the background row. */}
+                                {isProcessingOrder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                 Start Processing
+                              </Button>
+                            ) : null}
+                            {needsReschedule && ['APPROVED', 'PROCESSING', 'RESCHEDULED'].includes(stage) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full border-amber-300 text-amber-800 hover:bg-amber-50"
+                                disabled={updatingOrderId === order.id || isAssignedToDelivery}
+                                onClick={() => {
+                                  setRescheduleDate('')
+                                  setActionState({ order, action: 'reschedule' })
+                                }}
+                                title={isAssignedToDelivery ? 'Remove the order from its delivery trip before rescheduling' : 'Choose a new delivery date'}
+                              >
+                                Reschedule
                               </Button>
                             ) : null}
                             {stage === 'PROCESSING' || stage === 'READY_FOR_DELIVERY' ? (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="border-blue-200 text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                className="w-full border-blue-200 text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                                 disabled={updatingOrderId === order.id || isAssignedToDelivery}
                                 // Fix: assignment starts in Transportation > Trips, so skip the extra confirmation step.
                                 onClick={onOpenTransportation}
@@ -368,7 +414,7 @@ export function WarehouseOrdersView({
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="border-rose-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                className="w-full border-rose-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                                 disabled={updatingOrderId === order.id || isAssignedToDelivery || !['APPROVED', 'PROCESSING', 'PREPARING', 'READY_FOR_DELIVERY', 'RESCHEDULED'].includes(stage)}
                                 onClick={() => setActionState({ order, action: 'cancel' })}
                                 title={isAssignedToDelivery ? 'Cannot cancel order because it is already assigned to delivery' : undefined}
@@ -393,12 +439,14 @@ export function WarehouseOrdersView({
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && updatingOrderId !== actionState?.order?.id && (setActionState(null), setSelectedCancelReasons([]), setOtherCancelReason(''))}>
+      <AlertDialog open={!!actionState} onOpenChange={(open) => !open && updatingOrderId !== actionState?.order?.id && (setActionState(null), setSelectedCancelReasons([]), setOtherCancelReason(''), setRescheduleDate(''))}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
               {actionState?.action === 'processing'
                 ? 'Start Purchase Order Processing'
+                : actionState?.action === 'reschedule'
+                  ? 'Reschedule Purchase Order'
                 : actionState?.action === 'assign'
                   ? 'Assign Delivery'
                   : 'Cancel Purchase Order'}
@@ -406,6 +454,8 @@ export function WarehouseOrdersView({
             <AlertDialogDescription>
               {actionState?.action === 'processing'
                 ? `Are you sure you want to move order ${actionState?.order?.orderNumber || ''} into processing? This will prepare it for warehouse picking and packing.`
+                : actionState?.action === 'reschedule'
+                  ? `The delivery date for ${actionState?.order?.orderNumber || ''} has passed. Choose a new valid delivery date before processing can continue.`
                 : actionState?.action === 'assign'
                   ? (!actionState?.order?.assignedTripId && !actionState?.order?.progress?.trip?.id
                     ? 'This order needs a transportation trip assignment. Proceed to the Transportation module to assign a vehicle and driver.'
@@ -413,6 +463,18 @@ export function WarehouseOrdersView({
                   : `Are you sure you want to cancel order ${actionState?.order?.orderNumber || ''}? This action cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {actionState?.action === 'reschedule' ? (
+            <div className="space-y-2">
+              <label htmlFor="order-reschedule-date" className="text-sm font-medium text-slate-700">New delivery date</label>
+              <Input
+                id="order-reschedule-date"
+                type="date"
+                min={getLocalDateOnly()}
+                value={rescheduleDate}
+                onChange={(event) => setRescheduleDate(event.target.value)}
+              />
+            </div>
+          ) : null}
           {actionState?.action === 'cancel' ? (
             <OrderReasonCheckboxes
               options={WAREHOUSE_CANCELLATION_REASONS}
@@ -430,12 +492,17 @@ export function WarehouseOrdersView({
                 setActionState(null)
                 setSelectedCancelReasons([])
                 setOtherCancelReason('')
+                setRescheduleDate('')
               }}
             >
               {actionState?.action === 'cancel' ? 'No, Keep Order' : 'Cancel'}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={updatingOrderId === actionState?.order?.id || (actionState?.action === 'cancel' && !buildOrderActionReason(selectedCancelReasons, otherCancelReason))}
+              disabled={
+                updatingOrderId === actionState?.order?.id ||
+                (actionState?.action === 'cancel' && !buildOrderActionReason(selectedCancelReasons, otherCancelReason)) ||
+                (actionState?.action === 'reschedule' && (!rescheduleDate || rescheduleDate < getLocalDateOnly()))
+              }
               onClick={(event) => {
                 event.preventDefault()
                 void submitAction()
@@ -443,6 +510,8 @@ export function WarehouseOrdersView({
               className={
                 actionState?.action === 'processing'
                   ? 'bg-violet-600 hover:bg-violet-700'
+                  : actionState?.action === 'reschedule'
+                    ? 'bg-amber-600 hover:bg-amber-700'
                   : actionState?.action === 'cancel'
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : 'bg-blue-600 hover:bg-blue-700'
@@ -452,11 +521,15 @@ export function WarehouseOrdersView({
               {updatingOrderId === actionState?.order?.id
                 ? actionState?.action === 'processing'
                   ? 'Starting...'
+                  : actionState?.action === 'reschedule'
+                    ? 'Rescheduling...'
                   : actionState?.action === 'cancel'
                     ? 'Cancelling...'
                     : 'Assigning...'
                 : actionState?.action === 'processing'
                   ? 'Start Processing'
+                  : actionState?.action === 'reschedule'
+                    ? 'Save New Date'
                   : actionState?.action === 'cancel'
                     ? 'Cancel Order'
                     : (!actionState?.order?.assignedTripId && !actionState?.order?.progress?.trip?.id ? 'Go to Transportation' : 'Assign Delivery')}

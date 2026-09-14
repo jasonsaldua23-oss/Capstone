@@ -612,13 +612,15 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     }
     const product = products.find((item) => item.id === line.productId)
     if (!product?.depositEligible) return sum
-    const units = line.mode === 'CASE' ? line.quantity * product.caseQuantity : line.quantity
-    // For CASE mode, user inputs cases returned (not individual bottles), so convert to bottles
-    const returnedBottles = line.mode === 'CASE'
-      ? Number(line.emptyBottlesProvided || 0) * product.caseQuantity
-      : Number(line.emptyBottlesProvided || 0)
-    const returned = Math.min(units, returnedBottles)
-    return sum + Math.max(0, units - returned) * Number(product.depositPerUnit || 0)
+    if (line.mode === 'CASE') {
+      const returnedCases = Math.min(line.quantity, Number(line.emptyBottlesProvided || 0))
+      // Fix: each full case includes all bottle deposits plus its own case deposit.
+      const fullCaseDeposit = (product.caseQuantity * Number(product.depositPerUnit || 0))
+        + Number(product.caseDeposit || 0)
+      return sum + Math.max(0, line.quantity - returnedCases) * fullCaseDeposit
+    }
+    const returned = Math.min(line.quantity, Number(line.emptyBottlesProvided || 0))
+    return sum + Math.max(0, line.quantity - returned) * Number(product.depositPerUnit || 0)
   }, 0), [cart, products])
 
   const cartGrandTotal = cartProductTotal + cartDepositTotal

@@ -4449,14 +4449,15 @@ export function WarehousePortal() {
   const updateWarehouseOrderStatus = async (
     orderId: string,
     status: 'CONFIRMED' | 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
-    reason?: string
+    reason?: string,
+    deliveryDate?: string
   ) => {
     setUpdatingOrderId(orderId)
     try {
       const response = await fetch(`/api/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, reason }),
+        body: JSON.stringify({ status, reason, deliveryDate }),
       })
       const responseText = await response.text()
       let payload: any = {}
@@ -4477,13 +4478,27 @@ export function WarehousePortal() {
           payload?.message ||
           safeRawError ||
           'Failed to update order status'
+        if (/Delivery date has passed\. Reschedule the order before processing it\./i.test(backendError)) {
+          // Fix: reveal rescheduling only after the warehouse explicitly starts processing.
+          setOrders((prev) => prev.map((order) => (
+            order.id === orderId ? { ...order, showRescheduleAction: true } : order
+          )))
+          setSelectedOrder((prev) => (
+            prev && prev.id === orderId ? { ...prev, showRescheduleAction: true } : prev
+          ))
+        }
         setOrderStatusErrorModal(backendError)
         return false
       }
 
       const updatedOrder = payload?.order || {}
-      setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, ...updatedOrder, status, notes: reason || order.notes } : order)))
-      setSelectedOrder((prev) => (prev && prev.id === orderId ? { ...prev, ...updatedOrder, status, notes: reason || prev.notes } : prev))
+      const clearRescheduleAction = status === 'RESCHEDULED' ? { showRescheduleAction: false } : {}
+      setOrders((prev) => prev.map((order) => (
+        order.id === orderId ? { ...order, ...updatedOrder, ...clearRescheduleAction, status, notes: reason || order.notes } : order
+      )))
+      setSelectedOrder((prev) => (
+        prev && prev.id === orderId ? { ...prev, ...updatedOrder, ...clearRescheduleAction, status, notes: reason || prev.notes } : prev
+      ))
       toast.success('Order status updated')
       emitDataSync(['orders', 'trips', 'customers', 'auth', 'user'])
       void Promise.all([
@@ -6306,6 +6321,7 @@ export function WarehousePortal() {
                   const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
                   const isPendingApproval = String(selectedOrder.paymentStatus || '').toLowerCase() === 'pending_approval'
                   const isAlreadyApproved = ['CONFIRMED', 'APPROVED'].includes(selectedOrderStatus)
+                  const isUpdatingSelectedOrder = updatingOrderId === selectedOrder.id
                   return (
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {isAlreadyApproved ? (
@@ -6317,17 +6333,17 @@ export function WarehousePortal() {
                           className="bg-emerald-600 text-white hover:bg-emerald-700"
                           // PR approval must generate its PO before preparation starts.
                           onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'CONFIRMED')}
-                          disabled={updatingOrderId === selectedOrder.id}
+                          disabled={isUpdatingSelectedOrder}
+                          aria-busy={isUpdatingSelectedOrder}
                         >
-                          Approve Order
+                          {/* Fix: make the approval request visible while duplicate clicks are blocked. */}
+                          {isUpdatingSelectedOrder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {isUpdatingSelectedOrder ? 'Approving Order...' : 'Approve Order'}
                         </Button>
                       ) : selectedOrderStatus === 'RESCHEDULED' ? (
-                        <Button
-                          className="bg-amber-600 text-white hover:bg-amber-700"
-                          onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'PREPARING')}
-                          disabled={updatingOrderId === selectedOrder.id}
-                        >
-                          Approve Rescheduled Order
+                        <Button variant="outline" disabled>
+                          {/* Fix: a new delivery date alone must not start warehouse processing. */}
+                          Order Rescheduled
                         </Button>
                       ) : (
                         <Button variant="outline" disabled>

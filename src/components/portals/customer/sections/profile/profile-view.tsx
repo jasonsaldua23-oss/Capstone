@@ -214,7 +214,7 @@ export function CustomerProfileView({
   const requestedRefundAmount = refundEmptyOptions.reduce(
     (total: number, option: any) => {
       const selected = refundQuantityByProduct[option.key] || { cases: 0, bottles: 0 }
-      return total + (selected.cases * option.caseDepositAmount) + (selected.bottles * option.depositPerContainer)
+      return total + (selected.cases * option.depositPerUnit) + (selected.bottles * option.depositPerContainer)
     },
     0
   )
@@ -1820,7 +1820,7 @@ export function CustomerProfileView({
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-slate-900">{option.productName}</p>
                             <p className="mt-0.5 text-xs text-slate-500">
-                              {option.containerTypeName} · {supportsCases ? `${formatDeposit(option.caseDepositAmount)}/case` : `${formatDeposit(option.depositPerContainer)}/bottle`}
+                              {option.containerTypeName} · {supportsCases ? `${formatDeposit(option.depositPerUnit)}/case` : `${formatDeposit(option.depositPerContainer)}/bottle`}
                             </p>
                             <p className="mt-1 text-xs font-medium text-emerald-700">
                               {availableCases > 0 ? `${availableCases} case${availableCases === 1 ? '' : 's'}` : ''}

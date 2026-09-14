@@ -7,6 +7,8 @@ export type DepositRefundUnitDetails = {
   depositPerUnit: number
 }
 
+import { getFullCaseDepositAmount } from '@shared/customer-logic/empty-credit'
+
 // A container balance can hold several products. Consumers render and select the
 // product rows while retaining the parent container id used for shared safeguards.
 export function getProductDepositBalanceRows(balance: any): any[] {
@@ -30,9 +32,11 @@ export function getDepositRefundUnitDetails(product: any, balance: any): Deposit
     : 'BOTTLE'
   const containersPerCase = Math.max(1, Math.floor(Number(product?.containersPerCase ?? balance?.containersPerCase ?? 1)))
   const depositPerBottle = Math.max(0, Number(product?.depositAmount ?? balance?.depositAmount ?? 0))
-  const caseDeposit = Math.max(0, Number(
-    product?.caseDepositAmount ?? balance?.caseDepositAmount ?? (depositPerBottle * containersPerCase)
-  ))
+  const caseDeposit = getFullCaseDepositAmount({
+    depositAmount: depositPerBottle,
+    containersPerCase,
+    caseDepositAmount: product?.caseDepositAmount ?? balance?.caseDepositAmount ?? 0,
+  })
 
   return unitType === 'CASE'
     ? { unitType, unitLabel: 'case', containersPerUnit: containersPerCase, depositPerUnit: caseDeposit }

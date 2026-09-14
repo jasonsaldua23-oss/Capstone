@@ -9,6 +9,7 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from ..beverage_categories import category_spec
+from ..deposit_math import deposit_for_container_count, full_case_deposit
 
 from ..models import (
     BottleReturn,
@@ -251,11 +252,10 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
                 "unit": str(product.unit or ""),
                 "containersPerCase": product_containers_per_case,
                 "depositAmount": float(product_deposit_amount),
+                # Keep this as the configurable physical-case component; clients
+                # add it to the deposits for the bottles inside the case.
                 "caseDepositAmount": float(
-                    (product_packaging.case_deposit_amount if product_packaging else None)
-                    # Fix: a missing case price falls back to this product's own
-                    # bottle price and case size, never another shared product.
-                    or (product_deposit_amount * product_containers_per_case)
+                    (product_packaging.case_deposit_amount if product_packaging else None) or 0
                 ),
             })
         containers_per_case = max(1, int(primary_packaging.containers_per_case or 1)) if primary_packaging else 1
@@ -269,19 +269,20 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
         cases_reserved, loose_bottles_reserved = divmod(bottles_reserved, containers_per_case)
 
         unit_deposit = float(balance.container_type.deposit_amount or 0)
-        case_deposit = float(primary_packaging.case_deposit_amount or 0) if primary_packaging else (unit_deposit * containers_per_case)
+        case_deposit = float(primary_packaging.case_deposit_amount or 0) if primary_packaging else 0
+        full_case_deposit_amount = float(full_case_deposit(unit_deposit, containers_per_case, case_deposit))
         counts_by_case = bool(exact_products) and all(
             str(product.unit or "").strip().lower() == "case" for product in exact_products
         )
         # Fix: a bottle product keeps per-bottle value even when its count happens
         # to contain enough bottles to form a case.
         deposit_available = float(
-            (cases_available * case_deposit) + (loose_bottles_available * unit_deposit)
+            (cases_available * full_case_deposit_amount) + (loose_bottles_available * unit_deposit)
             if counts_by_case
             else bottles_available * unit_deposit
         )
         deposit_reserved = float(
-            (cases_reserved * case_deposit) + (loose_bottles_reserved * unit_deposit)
+            (cases_reserved * full_case_deposit_amount) + (loose_bottles_reserved * unit_deposit)
             if counts_by_case
             else bottles_reserved * unit_deposit
         )
@@ -334,7 +335,11 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             product_is_case = str(option["unit"] or "").strip().lower() == "case"
             product_available_units = product_available // product_containers_per_case if product_is_case else product_available
             product_reserved_units = product_reserved // product_containers_per_case if product_is_case else product_reserved
-            product_deposit_per_unit = float(option["caseDepositAmount"] if product_is_case else option["depositAmount"])
+            product_deposit_per_unit = float(
+                full_case_deposit(option["depositAmount"], product_containers_per_case, option["caseDepositAmount"])
+                if product_is_case
+                else option["depositAmount"]
+            )
             product_balances.append({
                 **option,
                 "productId": product_id,
@@ -458,8 +463,22 @@ def calculate_deposit_for_order_item(
         }
 
     deposit_per_unit = packaging.deposit_amount
-    deposit_charged = _money(deposit_per_unit * Decimal(full_quantity))
-    deposit_refunded = _money(deposit_per_unit * Decimal(empty_returned_quantity))
+    sold_by_case = str(product.unit or "").strip().lower() == "case"
+    # Fix: complete cases include bottle deposits and the physical-case deposit.
+    deposit_charged = deposit_for_container_count(
+        full_quantity,
+        bottle_deposit=deposit_per_unit,
+        containers_per_case=packaging.containers_per_case,
+        case_deposit=packaging.case_deposit_amount,
+        include_case_deposit=sold_by_case,
+    )
+    deposit_refunded = deposit_for_container_count(
+        empty_returned_quantity,
+        bottle_deposit=deposit_per_unit,
+        containers_per_case=packaging.containers_per_case,
+        case_deposit=packaging.case_deposit_amount,
+        include_case_deposit=sold_by_case,
+    )
     net_deposit = _money(deposit_charged - deposit_refunded)
 
     return {
@@ -511,11 +530,12 @@ def process_order_deposits(
 
         full_qty = max(0, _int(item.full_quantity, 0))
         empty_returned = max(0, _int(item.empty_returned_quantity, 0))
-        deposit_per_unit = Decimal(str(item.deposit_per_unit or "0"))
+        # Order snapshots are authoritative and include the separate case value.
+        charge_amount = _money(Decimal(str(item.deposit_charged or 0)))
+        refund_amount = _money(Decimal(str(item.deposit_refunded or 0)))
 
         # CHARGE for full containers delivered
-        if full_qty > 0 and deposit_per_unit > 0:
-            charge_amount = _money(deposit_per_unit * Decimal(full_qty))
+        if full_qty > 0 and charge_amount > 0:
             balance_before = ledger.balance
             ledger.balance += charge_amount
             ledger.save(update_fields=["balance", "last_transaction_at", "updated_at"])
@@ -539,8 +559,7 @@ def process_order_deposits(
             transactions.append(tx)
 
         # REFUND for empties returned
-        if empty_returned > 0 and deposit_per_unit > 0:
-            refund_amount = _money(deposit_per_unit * Decimal(empty_returned))
+        if empty_returned > 0 and refund_amount > 0:
             balance_before = ledger.balance
             ledger.balance -= refund_amount
             ledger.save(update_fields=["balance", "last_transaction_at", "updated_at"])
@@ -571,6 +590,10 @@ def process_order_deposits(
         )
         bottle_balance.bottles_sold_total += full_qty
         bottle_balance.bottles_returned_total += empty_returned
+        bottle_balance.deposit_balance = max(
+            Decimal("0.00"),
+            _money(Decimal(str(bottle_balance.deposit_balance or 0)) + charge_amount - refund_amount),
+        )
         if empty_returned > 0:
             bottle_balance.last_return_at = timezone.now()
         bottle_balance.save(
@@ -579,6 +602,7 @@ def process_order_deposits(
                 "bottles_sold_total",
                 "bottles_returned_total",
                 "last_return_at",
+                "deposit_balance",
                 "updated_at",
             ]
         )

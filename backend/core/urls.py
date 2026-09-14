@@ -41,6 +41,7 @@ urlpatterns = [
     path("stock-batches", v.stock_batches_collection),
     path("stock-batches/bulk", v.stock_batches_bulk_collection),
     path("stock-batches/expired-stock", v.resolve_expired_stock),
+    path("stock-batches/disposals", v.disposed_stock_history),
     path("vehicles", v.vehicles_collection),
     path("vehicles/<str:vehicle_id>", v.vehicle_detail),
     path("drivers", v.drivers_collection),

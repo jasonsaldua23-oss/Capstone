@@ -145,6 +145,36 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         ):
             return customer_replacements(request)
 
+    def test_checkout_rejects_past_delivery_date(self):
+        payload = self._checkout_payload("checkout-past-delivery")
+        payload["deliveryDate"] = (timezone.localdate() - timedelta(days=1)).isoformat()
+
+        response = self._post_order(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            json.loads(response.content)["error"],
+            "Delivery date cannot be in the past. Choose today or a future date.",
+        )
+        self.assertFalse(Order.objects.filter(request_id="checkout-past-delivery").exists())
+
+    def test_checkout_retry_expires_an_existing_past_due_request(self):
+        payload = self._checkout_payload("checkout-expired-retry")
+        payload["deliveryDate"] = (timezone.localdate() + timedelta(days=1)).isoformat()
+        created_response = self._post_order(payload)
+        self.assertEqual(created_response.status_code, 201)
+
+        order = Order.objects.get(request_id="checkout-expired-retry")
+        order.timeline.delivery_date = timezone.now() - timedelta(days=1)
+        order.timeline.save(update_fields=["delivery_date", "updated_at"])
+
+        retry_response = self._post_order(payload)
+
+        self.assertEqual(retry_response.status_code, 200)
+        self.assertTrue(json.loads(retry_response.content)["duplicate"])
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.CANCELLED)
+
     def test_customer_checkout_owns_order_and_ignores_lifecycle_and_charge_tampering(self):
         other_customer = Customer.objects.create(
             email="other-checkout@example.test",
