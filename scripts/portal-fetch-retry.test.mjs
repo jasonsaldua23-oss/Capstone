@@ -321,6 +321,20 @@ test('Admin refresh restores its own token even after another tab logs into Ware
   assert.equal(user.role, 'ADMIN')
 })
 
+test('cancelled home auth checks do not report expected cleanup aborts', async () => {
+  const errors = []
+  const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    getTabAuthToken: () => null, scopedPortal: 'admin', lockedPortal: null,
+    getRememberedTabLoginPortal: () => 'admin', allowedPortals: ['admin', 'warehouse'],
+    fetch: async () => { throw new DOMException('signal is aborted without reason', 'AbortError') },
+    cancelled: true, defaultPortal: 'admin', setUser: () => {}, setPortal: () => {},
+    router: { replace: path => assert.fail(path) }, setIsLoading: () => {},
+    setAuthError: message => assert.fail(message), console: { error: (...args) => errors.push(args) },
+  })
+  await check()
+  assert.deepEqual(errors, [])
+})
+
 for (const portal of ['Admin', 'Warehouse', 'Driver', 'Customer']) {
   test(`${portal} login ignores another portal cookie without logging that account out`, async () => {
     const calls = []

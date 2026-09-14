@@ -283,8 +283,10 @@ export default function Home() {
           }
         }
       } catch (error) {
+        // Fix: effect cleanup intentionally aborts the auth request; do not surface it as an error overlay.
+        if (cancelled) return
         console.error('Auth check failed:', error)
-        if (!cancelled) setAuthError('Unable to restore your session. Check your connection and retry.')
+        setAuthError('Unable to restore your session. Check your connection and retry.')
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -301,9 +303,8 @@ export default function Home() {
     if (!isLoading && !authError && isMounted && !user) {
       const logoutPortal = logoutRedirectPortalRef.current
       if (logoutPortal) {
-        // Fix: an explicit logout must return to that portal's own login page,
-        // instead of being overwritten by the shared signed-out portal chooser.
-        router.replace(loginPathForPortal(logoutPortal))
+        // Fix: shared browsers use one role-neutral login URL; native shells retain their required scope.
+        router.replace(appVariant === 'all' && !lockedPortal ? '/login' : loginPathForPortal(logoutPortal))
         return
       }
       const rememberedPortal = getRememberedTabLoginPortal(allowedPortals)
@@ -452,7 +453,8 @@ export default function Home() {
     setPortal(nextPortal)
     const serverLogoutSucceeded = await logoutTabAuthSession(nextPortal)
     if (!serverLogoutSucceeded) console.error('Logout cookie cleanup request failed')
-    router.replace(loginPathForPortal(nextPortal))
+    // Fix: hide the previous portal from the browser URL after logout.
+    router.replace(appVariant === 'all' && !lockedPortal ? '/login' : loginPathForPortal(nextPortal))
     setIsLoading(false)
   }
 

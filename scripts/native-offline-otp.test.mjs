@@ -58,6 +58,13 @@ test('shared browser sign-in stays neutral while the Shop shell keeps its scoped
     },
   })
 
+  // Every role-specific browser entry resolves to the one role-based login page.
+  for (const scopedPath of ['/login/admin', '/login/warehouse', '/driver/login', '/customer/login', '/login/driver', '/login/customer']) {
+    const response = await middleware(new NextRequest(`https://example.test${scopedPath}`))
+    assert.equal(response.status, 307, scopedPath)
+    assert.equal(response.headers.get('location'), 'https://example.test/login', scopedPath)
+  }
+
   // Browser bookmarks are normalized without losing the registration intent.
   const browserRedirect = await middleware(new NextRequest('https://example.test/customer/login?mode=register'))
   assert.equal(browserRedirect.status, 307)

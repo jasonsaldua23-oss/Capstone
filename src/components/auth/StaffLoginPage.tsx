@@ -450,8 +450,9 @@ export function SystemLoginPage({
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onReady={renderGoogleButton} />
       ) : null}
       <Toaster position="top-right" />
-      <Card className="w-full max-w-[420px] rounded-[24px] border border-[#dce3ec] bg-white/95 shadow-[0_16px_42px_rgba(15,23,42,0.14)] backdrop-blur-sm">
-        <CardHeader className="space-y-2 pb-0 pt-6">
+      {/* Tightened: avoid stacking the card's default padding with large header/content spacing. */}
+      <Card className="w-full max-w-[420px] gap-4 rounded-[24px] border border-[#dce3ec] bg-white/95 py-4 shadow-[0_16px_42px_rgba(15,23,42,0.14)] backdrop-blur-sm">
+        <CardHeader className="space-y-2 pb-0 pt-2">
           <div className="mx-auto flex h-[112px] w-[112px] items-center justify-center overflow-hidden">
             <img src="/ann-anns-logo.png" alt="Ann Ann's Beverages Trading logo" className="h-full w-full object-contain" />
           </div>
@@ -462,7 +463,7 @@ export function SystemLoginPage({
             Sign in to continue.
           </CardDescription>
         </CardHeader>
-        <CardContent className="px-7 pb-6">
+        <CardContent className="px-7 pb-2">
           <form onSubmit={submitPasswordLogin} autoComplete="off" className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="staff-email" className="text-sm font-semibold text-[#1f3566]">Email</Label>

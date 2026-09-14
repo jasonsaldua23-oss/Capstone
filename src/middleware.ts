@@ -170,15 +170,26 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(defaultLoginPath, request.url))
   }
 
+  if (variant === 'all' && !shellPortal) {
+    const scopedBrowserLogin = (['admin', 'warehouse', 'driver', 'customer'] as PortalType[]).some((portal) =>
+      pathname === loginPathForPortal(portal) || pathname === `/login/${portal}`
+    )
+    if (scopedBrowserLogin) {
+      // Fix: role-based browser authentication has one public login page and URL.
+      const neutralLogin = new URL('/login', request.url)
+      neutralLogin.search = request.nextUrl.search
+      return NextResponse.redirect(neutralLogin)
+    }
+  }
+
   if (
     variant === 'all' &&
     !shellPortal &&
-    (pathname === '/customer/login' || pathname === '/customer/login/forgot-password')
+    pathname === '/customer/login/forgot-password'
   ) {
     // Keep browser authentication and recovery on neutral addresses. Do not apply
     // this to the Shop shell: its Capacitor/PWA scope must retain Customer routes.
-    const neutralPath = pathname === '/customer/login/forgot-password' ? '/login/forgot-password' : '/login'
-    const neutralLogin = new URL(neutralPath, request.url)
+    const neutralLogin = new URL('/login/forgot-password', request.url)
     neutralLogin.search = request.nextUrl.search
     return NextResponse.redirect(neutralLogin)
   }

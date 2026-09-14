@@ -1,7 +1,7 @@
 import uuid
 
 from django.db import models
-from django.db.models.functions import Lower
+from django.db.models.functions import Lower, Trim
 from django.utils import timezone
 
 
@@ -189,8 +189,8 @@ class User(models.Model):
 
     class Meta:
         db_table = "User"
-        # Fix: case-insensitive duplicate staff emails must also fail under concurrent writes.
-        constraints = [models.UniqueConstraint(Lower("email"), name="unique_staff_email_normalized")]
+        # Fix: canonical email uniqueness also rejects whitespace/case variants under concurrent writes.
+        constraints = [models.UniqueConstraint(Lower(Trim("email")), name="unique_staff_email_canonical")]
 
 
 class DriverServiceArea(models.Model):
@@ -237,6 +237,8 @@ class Customer(models.Model):
 
     class Meta:
         db_table = "Customer"
+        # Fix: match staff email uniqueness instead of relying on case-sensitive field uniqueness alone.
+        constraints = [models.UniqueConstraint(Lower(Trim("email")), name="unique_customer_email_canonical")]
 
 
 class ConsumedAuthProof(models.Model):

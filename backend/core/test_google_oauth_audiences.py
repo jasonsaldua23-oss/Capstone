@@ -5,6 +5,7 @@ import json
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.db import IntegrityError, transaction
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
@@ -231,6 +232,16 @@ class UnifiedLoginTests(TestCase):
         # must never pick one account based on factor order or insertion order.
         self.assertEqual(password_response.status_code, 401, password_response.content)
         self.assertEqual(google_response.status_code, 401, google_response.content)
+
+    def test_each_account_table_rejects_case_and_whitespace_email_duplicates(self):
+        self.create_staff(email="canonical-staff@example.com")
+        self.create_customer(email="canonical-customer@example.com")
+
+        # The database constraints protect writes that bypass API-level duplicate checks.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.create_staff(email="  CANONICAL-STAFF@EXAMPLE.COM  ")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.create_customer(email="  CANONICAL-CUSTOMER@EXAMPLE.COM  ")
 
 
 @override_settings(GOOGLE_OAUTH_CLIENT_ID="", GOOGLE_OAUTH_CLIENT_IDS=["web-client"])
