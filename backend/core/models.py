@@ -574,6 +574,8 @@ class Vehicle(models.Model):
 class Trip(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     trip_number = models.CharField(max_length=120, unique=True)
+    # Retry key lets a lost success response be replayed without creating a second trip.
+    request_id = models.CharField(max_length=120, blank=True, null=True, unique=True)
     driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="trips")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="trips")
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)

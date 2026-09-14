@@ -4186,6 +4186,30 @@ class TripsPostCreationContractTests(TestCase):
             ).exists()
         )
 
+    def test_trips_post_replays_same_request_without_creating_a_duplicate(self) -> None:
+        payload = {
+            "requestId": "trip-create-retry-1",
+            "driverId": self.driver.id,
+            "vehicleId": self.vehicle.id,
+            "warehouseId": self.warehouse.id,
+            "orderIds": [self.order_1.id, self.order_2.id],
+            "status": "PLANNED",
+        }
+
+        first = self.client.post(
+            "/api/trips", data=payload, content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        replay = self.client.post(
+            "/api/trips", data=payload, content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(first.status_code, 201, first.content.decode())
+        self.assertEqual(replay.status_code, 200, replay.content.decode())
+        self.assertEqual(replay.json()["trip"]["id"], first.json()["trip"]["id"])
+        self.assertEqual(Trip.objects.filter(request_id=payload["requestId"]).count(), 1)
+
     def test_trips_post_rejects_order_with_passed_delivery_date(self) -> None:
         OrderTimeline.objects.create(
             order=self.order_1,

@@ -11738,6 +11738,18 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             }
         )
     body = _json_body(request)
+    request_id = str(body.get("requestId") or "").strip()
+    if len(request_id) > 120:
+        return _err("requestId must be 120 characters or fewer", 400)
+    if request_id:
+        # A retried create must return the committed trip instead of failing because
+        # its orders are now assigned by the first, response-lost attempt.
+        existing_trip = Trip.objects.filter(request_id=request_id).first()
+        if existing_trip:
+            if str(existing_trip.created_by_user_id or "") != str(staff.get("userId") or ""):
+                return _err("requestId has already been used", 409)
+            existing_trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=existing_trip.id)
+            return _ok({"success": True, "trip": _serialize_trip(existing_trip)}, 200)
     try:
         driver = User.objects.get(id=str(body.get("driverId", "")), role="DRIVER")
         vehicle = Vehicle.objects.get(id=str(body.get("vehicleId", "")))
@@ -11845,6 +11857,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             return _err("Invalid plannedStartAt. Expected ISO date/time (e.g. YYYY-MM-DD)", 400)
 
     trip = None
+    trip_was_created = False
     for _ in range(5):
         try:
             with transaction.atomic():
@@ -11866,6 +11879,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                     return _err(locked_overload_message, 400)
                 trip = Trip.objects.create(
                     trip_number=_generate_next_trip_number(),
+                    request_id=request_id or None,
                     driver=driver,
                     vehicle=vehicle,
                     warehouse_id=requested_warehouse_id,
@@ -11902,8 +11916,15 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                     warehouse_id=requested_warehouse_id,
                     performed_by=staff_user_id or None,
                 )
+            trip_was_created = True
             break
         except IntegrityError:
+            # A concurrent retry may have committed this request while this
+            # transaction waited on the unique request key.
+            if request_id:
+                trip = Trip.objects.filter(request_id=request_id).first()
+                if trip:
+                    break
             trip = None
             continue
 
@@ -11913,28 +11934,29 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
     trip.total_drop_points = trip.drop_points.count()
     trip.save(update_fields=["total_drop_points", "updated_at"])
     trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
-    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
-    _create_staff_notifications(
-        title="Trip created",
-        message=f"{actor_name} created trip {trip.trip_number} for driver {driver.name}.",
-        notification_type="TRIP",
-        reference_type="trip",
-        reference_id=trip.id,
-    )
-    # Send the assignment directly to the driver who owns this trip.
-    _create_user_notification(
-        user=trip.driver,
-        title="New trip assigned",
-        message=f"You were assigned to trip {trip.trip_number} with {trip.total_drop_points} delivery stop(s).",
-        notification_type="TRIP",
-        reference_type="trip",
-        reference_id=trip.id,
-    )
-    try:
-        _email_trip_assigned_to_driver(trip)
-    except Exception:
-        logger.exception("Failed to email the trip assignment for %s", trip.id)
-    return _ok({"success": True, "trip": _serialize_trip(trip)}, 201)
+    if trip_was_created:
+        actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+        _create_staff_notifications(
+            title="Trip created",
+            message=f"{actor_name} created trip {trip.trip_number} for driver {driver.name}.",
+            notification_type="TRIP",
+            reference_type="trip",
+            reference_id=trip.id,
+        )
+        # Send the assignment directly to the driver who owns this trip.
+        _create_user_notification(
+            user=trip.driver,
+            title="New trip assigned",
+            message=f"You were assigned to trip {trip.trip_number} with {trip.total_drop_points} delivery stop(s).",
+            notification_type="TRIP",
+            reference_type="trip",
+            reference_id=trip.id,
+        )
+        try:
+            _email_trip_assigned_to_driver(trip)
+        except Exception:
+            logger.exception("Failed to email the trip assignment for %s", trip.id)
+    return _ok({"success": True, "trip": _serialize_trip(trip)}, 201 if trip_was_created else 200)
 
 
 @csrf_exempt

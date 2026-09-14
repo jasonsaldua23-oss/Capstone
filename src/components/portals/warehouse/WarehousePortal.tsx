@@ -3195,6 +3195,8 @@ export function WarehousePortal() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          // Stable across the shared fetch retry loop so replay returns this trip.
+          requestId: crypto.randomUUID(),
           plannedStartAt: selectedSavedRoute.date,
           status: 'PLANNED',
           warehouseId: selectedSavedRoute.warehouseId,
@@ -3305,6 +3307,8 @@ export function WarehousePortal() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          // Stable across the shared fetch retry loop so replay returns this trip.
+          requestId: crypto.randomUUID(),
           plannedStartAt: routeDate,
           status: 'PLANNED',
           warehouseId: routeWarehouseId,
