@@ -1147,7 +1147,7 @@ export function AdminPortal() {
                 className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
               >
                 <Recycle className="h-4 w-4" />
-                Empty Bottles
+                Empties
               </TabsTrigger>
             </TabsList>
             <TabsContent value="inventory" className="mt-0">
