@@ -14,6 +14,9 @@ export type WarehouseLiveTrackingInputs = {
   trackingDate: string
 }
 
+const recordedAtMs = (point: any) =>
+  new Date(point?.recordedAt || point?.recorded_at || point?.createdAt || point?.created_at || 0).getTime()
+
 export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
   const {
     driverLocations,
@@ -95,6 +98,11 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
     )
     const tripOrderIds = new Set<string>()
     const shownDriverIds = new Set<string>()
+    const latestDriverPointById = new Map<string, any>(
+      driverLocations
+        .map((location: any) => [String(location?.driverId || '').trim(), location] as const)
+        .filter(([driverId]) => Boolean(driverId))
+    )
 
     scopedTrips
       .filter(
@@ -180,11 +188,19 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
 
         const latestLog = logs[logs.length - 1]
         const latestLocation = trip.latestLocation
-        const driverLat = Number(latestLog?.latitude ?? latestLocation?.latitude ?? latestLocation?.lat)
-        const driverLng = Number(latestLog?.longitude ?? latestLocation?.longitude ?? latestLocation?.lng)
-        const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
         const driverName = String(trip?.driver?.user?.name || trip?.driver?.name || 'Driver')
         const driverId = String(trip?.driver?.id || '').trim()
+        // The trip payload is re-read only when a trip changes; the driver's own
+        // position is refreshed on its own scope every few seconds. Whichever of
+        // them was recorded last is where the vehicle actually is.
+        const livePoint = latestDriverPointById.get(driverId)
+        const freshestPoint = [latestLog, latestLocation, livePoint]
+          .filter((point: any) => Number.isFinite(Number(point?.latitude ?? point?.lat)))
+          .sort((a: any, b: any) => recordedAtMs(a) - recordedAtMs(b))
+          .pop()
+        const driverLat = Number(freshestPoint?.latitude ?? freshestPoint?.lat)
+        const driverLng = Number(freshestPoint?.longitude ?? freshestPoint?.lng)
+        const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
         const vehiclePlate = String(trip?.vehicle?.licensePlate || 'N/A')
         
         const markerHeading =

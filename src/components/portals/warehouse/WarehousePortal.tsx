@@ -543,6 +543,7 @@ export function WarehousePortal() {
     fetchReplacementsData,
     fetchSavedRoutesData,
     fetchTripsData,
+    fetchDriverPositions,
     fetchVehiclesData,
     fetchWarehousesData,
     refreshInventoryAndStockData,
@@ -588,6 +589,13 @@ export function WarehousePortal() {
     tripsCacheKey,
     tripsRefreshRef,
   })
+  // The live-tracking subscription below is re-created only when the view changes,
+  // so it reads the current fetcher through a ref rather than closing over a stale one.
+  const fetchDriverPositionsRef = useRef(fetchDriverPositions)
+  useEffect(() => {
+    fetchDriverPositionsRef.current = fetchDriverPositions
+  })
+
   const {
     confirmDeleteTrip,
     createRoutePlan,
@@ -819,6 +827,18 @@ export function WarehousePortal() {
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [])
+
+  useEffect(() => {
+    // Driver positions advance on their own throttled scope, so the map follows a
+    // moving vehicle while it is on screen without re-reading trips and orders.
+    if (activeView !== 'liveTracking') return
+    const unsubscribe = subscribeDataSync(({ scopes }) => {
+      if (scopes.includes('tracking') && document.visibilityState === 'visible') {
+        void fetchDriverPositionsRef.current()
+      }
+    })
+    return unsubscribe
+  }, [activeView])
 
   useEffect(() => {
     if (activeView === 'orders' || activeView === 'purchaseRequests') {

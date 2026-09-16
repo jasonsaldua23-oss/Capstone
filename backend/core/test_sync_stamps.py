@@ -1,11 +1,20 @@
 """Cross-device sync stamps: bumping, completeness, and the read endpoint."""
 
+from datetime import timedelta
+
 from django.test import Client, TestCase
 from django.utils import timezone
 
 from .auth import create_token
 from .models import Inventory, Product, RoleType, SyncStamp, User, Warehouse
-from .sync_stamps import bump_scopes, read_stamps, scopes_for_path
+from .sync_stamps import (
+    TRACKING_BUMP_INTERVAL_SECONDS,
+    bump_scopes,
+    bump_scopes_throttled,
+    read_stamps,
+    scopes_for_path,
+    throttled_scopes_for_path,
+)
 
 
 class SyncStampBumpTests(TestCase):
@@ -105,6 +114,31 @@ class SyncStampBumpTests(TestCase):
         """Location logs land every few seconds; treating them as trip changes
         would put every portal into a permanent reload loop."""
         self.assertEqual(scopes_for_path("/api/driver/location"), ())
+        # They do carry the map's own scope, which is throttled instead.
+        self.assertEqual(throttled_scopes_for_path("/api/driver/location"), ("tracking",))
+        self.assertEqual(throttled_scopes_for_path("/api/trips"), ())
+
+    def test_tracking_advances_once_per_window_however_many_pings_arrive(self) -> None:
+        """Several drivers report every few seconds. The maps should learn that
+        something moved, not be asked to re-read once per ping."""
+        before = read_stamps()["tracking"]
+        for _ in range(5):
+            bump_scopes_throttled(["tracking"])
+        first = read_stamps()["tracking"]
+        self.assertEqual(first, before + 1, "a burst of pings is one bump")
+
+        # Once the window has passed, the next ping moves it again.
+        SyncStamp.objects.filter(scope="tracking").update(
+            updated_at=timezone.now() - timedelta(seconds=TRACKING_BUMP_INTERVAL_SECONDS + 1)
+        )
+        bump_scopes_throttled(["tracking"])
+        self.assertEqual(read_stamps()["tracking"], first + 1)
+
+    def test_a_throttled_scope_missing_from_the_table_is_created(self) -> None:
+        """A scope added after the last migration still has to work."""
+        SyncStamp.objects.filter(scope="tracking").delete()
+        bump_scopes_throttled(["tracking"])
+        self.assertEqual(read_stamps()["tracking"], 1)
 
     def test_auth_writes_never_bump(self) -> None:
         self.assertEqual(scopes_for_path("/api/auth/login"), ())

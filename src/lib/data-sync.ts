@@ -17,6 +17,9 @@ export type DataSyncScope =
   | 'feedback'
   | 'customers'
   | 'notifications'
+  // Live driver positions. The server advances this one on a throttle, so it is
+  // safe to refresh on, unlike the per-ping writes behind it.
+  | 'tracking'
   | 'auth'
   | 'user'
 

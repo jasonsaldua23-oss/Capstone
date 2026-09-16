@@ -723,7 +723,9 @@ export function CustomerPortal() {
 
     const unsubscribe = subscribeDataSync((message) => {
       const scopes = message.scopes || []
-      if (scopes.includes('orders') || scopes.includes('trips')) {
+      // 'tracking' is the driver's position moving; the other two are the delivery
+      // around it changing. Both belong on this screen while it is open.
+      if (scopes.includes('orders') || scopes.includes('trips') || scopes.includes('tracking')) {
         refreshTrackingIfVisible()
       }
     })

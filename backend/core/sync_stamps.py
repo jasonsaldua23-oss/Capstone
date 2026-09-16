@@ -32,10 +32,13 @@ from __future__ import annotations
 import logging
 from typing import Iterable
 
+from datetime import timedelta
+
 from django.db import DatabaseError, transaction
 from django.db.models import F
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,7 @@ SYNC_SCOPES: tuple[str, ...] = (
     "customers",
     "feedback",
     "notifications",
+    "tracking",
 )
 
 _VALID_SCOPES = frozenset(SYNC_SCOPES)
@@ -114,8 +118,8 @@ def _model_scope_map() -> dict[type, tuple[str, ...]]:
         m.Feedback: ("feedback",),
         m.Notification: ("notifications",),
         # Intentionally unwatched: LocationLog is written every few seconds by every
-        # active driver. Bumping 'trips' on each ping would make all portals reload
-        # their trip lists continuously. Live tracking keeps its own refresh.
+        # active driver, so a bump per ping would defeat the point of a stamp. The
+        # 'tracking' scope below carries those writes on a throttle instead.
     }
 
 
@@ -146,6 +150,17 @@ _PATH_SCOPES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("/api/uploads", ("orders", "replacements", "products")),
 )
 
+# Paths whose scopes advance at most once per window. A driver reports a position
+# every few seconds, and several drivers report at once, so an un-throttled bump
+# would ask every open portal to re-read on almost every poll. Throttled, the maps
+# still see movement promptly without a request per ping.
+_THROTTLED_PATH_SCOPES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("/api/driver/location", ("tracking",)),
+)
+
+TRACKING_BUMP_INTERVAL_SECONDS = 4
+
+
 # Writes that must never bump a stamp: they either carry no portal-visible data
 # or fire far too often to be a refresh trigger.
 _PATH_SCOPES_EXCLUDED: tuple[str, ...] = (
@@ -168,6 +183,15 @@ def scopes_for_path(path: str) -> tuple[str, ...]:
         if normalized.startswith(prefix) and len(prefix) > best_length:
             best, best_length = scopes, len(prefix)
     return best
+
+
+def throttled_scopes_for_path(path: str) -> tuple[str, ...]:
+    """Resolve the scopes a write to ``path`` invalidates at most once per window."""
+    normalized = (path or "").rstrip("/") or "/"
+    for prefix, scopes in _THROTTLED_PATH_SCOPES:
+        if normalized.startswith(prefix):
+            return scopes
+    return ()
 
 
 def _apply_bump(scopes: tuple[str, ...]) -> None:
@@ -200,6 +224,36 @@ def bump_scopes(scopes: Iterable[str]) -> None:
     transaction.on_commit(lambda: _apply_bump(wanted))
 
 
+def bump_scopes_throttled(scopes: Iterable[str], interval_seconds: int = TRACKING_BUMP_INTERVAL_SECONDS) -> None:
+    """Advance ``scopes`` only if they have not advanced within the window.
+
+    The filter and the write are one statement, so concurrent drivers reporting at
+    the same moment produce one bump between them rather than one each. Unlike
+    ``_apply_bump`` this writes ``updated_at``: for a throttled scope that column
+    is what "when did this last move" means, and ``auto_now`` does not fire on an
+    UPDATE.
+    """
+    from .models import SyncStamp
+
+    wanted = tuple(sorted({scope for scope in scopes if scope in _VALID_SCOPES}))
+    if not wanted:
+        return
+    now = timezone.now()
+    cutoff = now - timedelta(seconds=interval_seconds)
+    try:
+        updated = SyncStamp.objects.filter(scope__in=wanted, updated_at__lte=cutoff).update(
+            revision=F("revision") + 1, updated_at=now
+        )
+        if updated == len(wanted):
+            return
+        existing = set(SyncStamp.objects.filter(scope__in=wanted).values_list("scope", flat=True))
+        for scope in wanted:
+            if scope not in existing:
+                SyncStamp.objects.create(scope=scope, revision=1, updated_at=now)
+    except DatabaseError:
+        logger.warning("Could not bump throttled sync stamps for %s", ",".join(wanted), exc_info=True)
+
+
 def read_stamps() -> dict[str, int]:
     """Return every scope's current revision, defaulting unseeded scopes to 0."""
     from .models import SyncStamp
@@ -229,6 +283,9 @@ class SyncStampMiddleware:
             # The view's transaction has already committed by the time the response
             # reaches this middleware, so apply the bump directly.
             _apply_bump(tuple(sorted(set(scopes))))
+        throttled = throttled_scopes_for_path(request.path)
+        if throttled:
+            bump_scopes_throttled(throttled)
         return response
 
 

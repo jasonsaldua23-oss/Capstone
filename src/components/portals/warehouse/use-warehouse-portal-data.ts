@@ -363,6 +363,15 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
     }
   }
 
+  // Just the driver dots. Their positions change every few seconds while the trips
+  // around them do not, so movement is refreshed without re-reading every page of
+  // trips to get it.
+  const fetchDriverPositions = async () => {
+    const result = await safeFetchJson('/api/trips?page=1&pageSize=1&includeTracking=1', { cache: 'no-store' })
+    if (!result.ok) return
+    setDriverLocations(Array.isArray(result.data?.driverLocations) ? result.data.driverLocations : [])
+  }
+
   const fetchTripsData = (options?: { showLoading?: boolean }): Promise<WarehouseTripItem[] | null> => {
     // Deduplicate simultaneous refreshes from local mutations and cross-tab sync events.
     if (tripsRefreshRef.current) return tripsRefreshRef.current
@@ -473,6 +482,7 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
     fetchReplacementsData,
     fetchSavedRoutesData,
     fetchTripsData,
+    fetchDriverPositions,
     fetchVehiclesData,
     fetchWarehousesData,
     refreshInventoryAndStockData,

@@ -55,6 +55,9 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+const recordedAtMs = (point: any) =>
+  new Date(point?.recordedAt || point?.recorded_at || point?.createdAt || point?.created_at || 0).getTime()
+
 export function TrackingView() {
   const [trips, setTrips] = useState<any[]>([])
   const [driverLocations, setDriverLocations] = useState<any[]>([])
@@ -118,6 +121,14 @@ export function TrackingView() {
     ].some((value) => isDateMatch(value, trackingDate))
   }
 
+  // Just the driver dots, not the trips and orders around them. Positions change
+  // every few seconds while the whole tracking payload does not, so movement is
+  // refreshed on its own instead of re-reading every trip and order to get it.
+  const fetchDriverPositions = async () => {
+    const response = await safeFetchJson('/api/trips?page=1&pageSize=1&includeTracking=1', { cache: 'no-store' })
+    if (response.ok) setDriverLocations(toArray<any>(response.data?.driverLocations))
+  }
+
   const fetchTrackingTrips = async () => {
     setIsLoading(true)
     try {
@@ -167,6 +178,8 @@ export function TrackingView() {
       const scopes = message.scopes || []
       if (scopes.includes('trips') || scopes.includes('orders')) {
         refreshLive()
+      } else if (scopes.includes('tracking') && document.visibilityState === 'visible') {
+        void fetchDriverPositions()
       }
     })
 
@@ -263,6 +276,11 @@ export function TrackingView() {
     )
     const tripOrderIds = new Set<string>()
     const shownDriverIds = new Set<string>()
+    const latestDriverPointById = new Map<string, any>(
+      driverLocations
+        .map((location: any) => [String(location?.driverId || location?.driver_id || '').trim(), location] as const)
+        .filter(([driverId]) => Boolean(driverId))
+    )
 
     tripsForMap.forEach((trip: any) => {
       const normalizedTripStatus = normalizeTripStatus(trip?.status)
@@ -332,11 +350,19 @@ export function TrackingView() {
 
       const latestLog = logs[logs.length - 1]
       const latestLocation = trip.latestLocation
-      const driverLat = Number(latestLog?.latitude ?? latestLocation?.latitude)
-      const driverLng = Number(latestLog?.longitude ?? latestLocation?.longitude)
-      const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
       const driverName = String(trip?.driver?.user?.name || trip?.driver?.name || 'Driver')
       const driverId = String(trip?.driver?.id || '').trim()
+      // The trip payload is re-read only when a trip changes; the driver's own
+      // position is refreshed on its own scope every few seconds. Whichever of
+      // them was recorded last is where the vehicle actually is.
+      const livePoint = latestDriverPointById.get(driverId)
+      const freshestPoint = [latestLog, latestLocation, livePoint]
+        .filter((point) => Number.isFinite(Number(point?.latitude ?? point?.lat)))
+        .sort((a, b) => recordedAtMs(a) - recordedAtMs(b))
+        .pop()
+      const driverLat = Number(freshestPoint?.latitude ?? freshestPoint?.lat)
+      const driverLng = Number(freshestPoint?.longitude ?? freshestPoint?.lng)
+      const hasDriverPosition = Number.isFinite(driverLat) && Number.isFinite(driverLng)
       const vehiclePlate = String(trip?.vehicle?.licensePlate || 'N/A')
       const markerHeading =
         nextDropPoint &&
