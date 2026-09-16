@@ -183,6 +183,10 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     // Recheck stock when returning to POS instead of reusing a five-minute availability snapshot.
     staleTime: 0,
+    // Cross-device sales and reservations do not reach the local sync channel.
+    // Quiet polling keeps sellable quantities current while the POS is visible.
+    refetchInterval: 2000,
+    refetchIntervalInBackground: false,
   })
 
   const { data: sales = [], isLoading: loadingSales, refetch: refetchSales } = useQuery({

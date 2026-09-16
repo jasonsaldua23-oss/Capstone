@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { subscribeDataSync } from '@/lib/data-sync'
+
 export type WarehouseView =
   | 'dashboard'
   | 'retailPos'
@@ -103,14 +105,19 @@ export function useWarehousePortalLayoutState({ logout }: { logout: () => Promis
   useEffect(() => {
     void fetchNotifications()
 
-    // Added: poll quietly so the bell shows new cross-device order and replacement alerts.
+    // An alert raised on any device reaches the bell as soon as it is stored; the
+    // timer only covers a stamp endpoint that is unreachable.
     const refreshNotifications = () => {
       if (document.visibilityState === 'visible') void fetchNotifications({ silent: true })
     }
-    const intervalId = window.setInterval(refreshNotifications, 15000)
+    const unsubscribe = subscribeDataSync(({ scopes }) => {
+      if (scopes.includes('notifications')) void fetchNotifications({ silent: true })
+    })
+    const intervalId = window.setInterval(refreshNotifications, 60000)
     window.addEventListener('focus', refreshNotifications)
 
     return () => {
+      unsubscribe()
       window.clearInterval(intervalId)
       window.removeEventListener('focus', refreshNotifications)
     }

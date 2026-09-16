@@ -46,6 +46,9 @@ const uncachedApiPrefixes = [
   '/api/notifications',
   '/api/customer/tracking',
   '/api/driver/location',
+  // The change-stamp poll is the signal that the cache is stale; serving it from
+  // that same cache would pin every portal to the revision it first saw.
+  '/api/sync/',
 ]
 
 const referenceApiPrefixes = [

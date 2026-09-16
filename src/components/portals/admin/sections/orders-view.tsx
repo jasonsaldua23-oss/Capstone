@@ -416,12 +416,14 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
       }
     }
 
-    // Cross-device status changes cannot use BroadcastChannel, so poll the lightweight marker.
+    // Cross-device status changes now arrive as sync events (see lib/sync-hub.ts),
+    // so the delta runs when an order actually moves instead of every 4s. This slow
+    // sweep is only a safety net for a stamp endpoint that is unreachable.
     const orderStatusPollInterval = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
         void fetchOrdersDeltaIfChanged(true)
       }
-    }, 4000)
+    }, 60000)
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)

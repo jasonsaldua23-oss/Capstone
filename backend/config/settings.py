@@ -180,6 +180,9 @@ MIDDLEWARE = [
     "core.auth_response_middleware.StaffAuthFallbackNoStoreMiddleware",
     # Fix: all API views return a traceable JSON failure for unexpected exceptions.
     "core.auth_response_middleware.ApiErrorResponseMiddleware",
+    # Advances the cross-device sync stamps for any successful API write, including
+    # the bulk and queryset paths that never fire a model signal.
+    "core.sync_stamps.SyncStampMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

@@ -7,20 +7,22 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { useMemo, useState } from 'react'
 
+// Each rating uses the same delivery dimensions so admin summaries remain comparable and actionable.
 const FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
-  1: ['Missing items', 'Damaged unit', 'Wrong order', 'Poor driver attitude'],
-  2: ['Packaging issue', 'Incomplete order', 'Hard to contact driver', 'Item condition problem'],
-  3: ['Minor packaging issue', 'Communication could improve', 'Acceptable service', 'Minor inconvenience'],
-  4: ['Friendly driver', 'Good unit', 'Accurate order', 'Smooth transaction'],
-  5: ['Professional driver', 'Perfect packaging', 'Complete order', 'Great overall experience'],
+  1: ['Delivery was severely delayed', 'Order had missing or wrong items', 'Damaged cases or leaking bottles', 'Driver conduct was unprofessional', 'No clear delivery updates were provided'],
+  2: ['Delivery was delayed', 'Order was incomplete or had quantity errors', 'Some products or packaging were damaged', 'Driver service needs improvement', 'Delivery updates were unclear'],
+  3: ['Delivery timing was acceptable', 'Order was mostly complete and correct', 'Product condition was acceptable', 'Driver service was acceptable', 'Communication could improve'],
+  4: ['Delivery was on time', 'Order was complete and accurate', 'Products arrived in good condition', 'Driver was courteous and professional', 'Communication was clear'],
+  5: ['Delivery was on time as scheduled', 'Order was complete and exactly correct', 'Products and packaging were in excellent condition', 'Driver was highly professional', 'Communication was excellent'],
 }
 
+// Replacement choices focus on the resolution itself rather than repeating general delivery feedback.
 const REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
-  1: ['Issue was not resolved', 'Replacement arrived damaged', 'Very slow handling', 'Poor communication'],
-  2: ['Resolution was incomplete', 'Redelivery was delayed', 'Updates were unclear', 'Replacement quality issue'],
-  3: ['Issue was resolved', 'Handling time was acceptable', 'Updates could improve', 'Replacement was acceptable'],
-  4: ['Fast replacement handling', 'Good replacement condition', 'Clear status updates', 'Smooth redelivery'],
-  5: ['Excellent replacement service', 'Perfect replacement condition', 'Very fast resolution', 'Excellent communication'],
+  1: ['Issue was not resolved', 'Replacement was incomplete or incorrect', 'Replacement items arrived damaged', 'Redelivery was severely delayed', 'No clear updates were provided'],
+  2: ['Issue was only partly resolved', 'Replacement quantity was incomplete', 'Replacement item condition was poor', 'Redelivery was delayed', 'Updates were unclear'],
+  3: ['Issue was resolved', 'Handling time was acceptable', 'Replacement condition was acceptable', 'Updates could improve', 'Overall replacement service was acceptable'],
+  4: ['Issue was fully resolved', 'Replacement was complete and correct', 'Replacement arrived in good condition', 'Redelivery was prompt', 'Updates were clear'],
+  5: ['Issue was resolved efficiently', 'Replacement was complete and exactly correct', 'Replacement arrived in excellent condition', 'Resolution was very fast', 'Communication was excellent'],
 }
 
 export function CustomerRatingDialog(props: any) {

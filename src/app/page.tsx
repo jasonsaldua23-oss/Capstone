@@ -11,6 +11,7 @@ import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from
 import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
 import { PushNotificationManager } from '@/components/shared/push-notification-manager'
+import { DataSyncBridge } from '@/components/shared/data-sync-bridge'
 import { InstallAppPrompt } from '@/components/shared/install-app-prompt'
 import { resetInstallPromptForNewSession, retainCapturedInstallPromptForPortal } from '@/lib/native/install-prompt'
 import { getLockedPortal } from '@/lib/native/portal-lock'
@@ -513,6 +514,8 @@ export default function Home() {
       <AuthContext.Provider value={{ user, setUser, logout, isLoading }}>
         <PortalContext.Provider value={{ portal, setPortal }}>
           <Toaster position="top-right" />
+          {/* Keeps every portal current with changes made on other devices. */}
+          <DataSyncBridge enabled={Boolean(user)} />
           {/* Pass the active portal so the shared notification prompt uses relevant copy. */}
           <PushNotificationManager user={user} portal={portal} />
           {(portal === 'driver' || portal === 'customer') && (

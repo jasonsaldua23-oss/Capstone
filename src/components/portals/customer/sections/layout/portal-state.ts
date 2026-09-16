@@ -287,3 +287,6 @@ export function useCustomerPortalState(user: any) {
     cropDragRef,
   }
 }
+
+/** Everything the state hook manages, for hooks and views that take a subset. */
+export type CustomerPortalState = ReturnType<typeof useCustomerPortalState>

@@ -683,7 +683,8 @@ export function normalizeTripStatusForMetrics(status: unknown) {
 
 export function isActiveTripStatusForMetrics(status: unknown) {
   const normalized = normalizeTripStatusForMetrics(status)
-  return normalized === 'PLANNED' || normalized === 'IN_PROGRESS'
+  // Fix: planned trips have not started and must not inflate Active Trips.
+  return normalized === 'IN_PROGRESS'
 }
 
 export function countActiveTrips(trips: any[]) {

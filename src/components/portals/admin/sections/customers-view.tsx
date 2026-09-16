@@ -111,11 +111,12 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
   useEffect(() => {
     fetchCustomers()
     const refresh = () => { if (document.visibilityState === 'visible') void fetchCustomers(false) }
-    // Reuse local data-sync events plus a visible-page poll for other devices.
+    // Sync events now carry other devices' changes too (see lib/sync-hub.ts), so
+    // the timer is only a safety net for an unreachable stamp endpoint.
     const unsubscribe = subscribeDataSync(({ scopes }) => {
       if (scopes.includes('customers') || scopes.includes('orders')) refresh()
     })
-    const timer = window.setInterval(refresh, 15000)
+    const timer = window.setInterval(refresh, 60000)
     return () => { unsubscribe(); window.clearInterval(timer) }
   }, [])
 

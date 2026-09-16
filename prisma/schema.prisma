@@ -542,13 +542,6 @@ enum FeedbackType {
   QUESTION
 }
 
-enum FeedbackStatus {
-  OPEN
-  IN_PROGRESS
-  RESOLVED
-  CLOSED
-}
-
 model Feedback {
   id           String        @id @default(cuid())
   customerId   String
@@ -560,13 +553,6 @@ model Feedback {
   subject      String
   message      String
   rating       Int?          // 1-5 stars
-  status       FeedbackStatus @default(OPEN)
-  
-  // Response
-  response     String?
-  respondedAt  DateTime?
-  respondedBy  String?
-  
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }

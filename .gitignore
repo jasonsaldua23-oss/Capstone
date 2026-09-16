@@ -142,6 +142,9 @@ dist-apk/
 ~$*
 /.codex-pdf-preview/
 
+# Temporary PDF dependencies, render previews, and revision working files.
+/tmp/
+
 # Fix: retain local recovery backups without distributing account snapshots in source.
 /backend/db.sqlite3.bak
 /backend/db_backups/*.zip

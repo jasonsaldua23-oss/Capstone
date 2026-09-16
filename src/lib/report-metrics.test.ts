@@ -152,6 +152,7 @@ test('warehouse dashboard total retains cancelled orders while activity metrics 
 test('active trip counting uses normalized trip statuses', () => {
   const trips = [
     { status: 'PLANNED' },
+    { status: 'IN_PROGRESS' },
     { status: 'IN_TRANSIT' },
     { status: 'OUT_FOR_DELIVERY' },
     { status: 'COMPLETED' },

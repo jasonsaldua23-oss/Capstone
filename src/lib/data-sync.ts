@@ -16,6 +16,7 @@ export type DataSyncScope =
   | 'stocks'
   | 'feedback'
   | 'customers'
+  | 'notifications'
   | 'auth'
   | 'user'
 

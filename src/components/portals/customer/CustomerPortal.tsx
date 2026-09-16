@@ -1,23 +1,18 @@
 'use client'
 
-import { useEffect, useMemo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useCallback, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useNativeBack } from '@/hooks/use-native-back'
 import { NativeOfflineNotice } from '@/components/shared/native-offline-notice'
-import { Home, Package, User } from 'lucide-react'
 import { useAuth } from '@/app/page'
 import { clearTabAuthToken } from '@/lib/client-auth'
-import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { subscribeDataSync } from '@/lib/data-sync'
 import { toast } from 'sonner'
-import { validatePersonName } from '@/lib/person-name'
 import { CustomerProfileView } from './sections/profile/profile-view'
 import { CustomerFeedbackView } from './sections/feedback/feedback-view'
 import { CustomerHomeView } from './sections/home/home-view'
 import { CustomerCartView } from './sections/cart/cart-view'
 import { MixedCaseBuilderDialog } from './sections/cart/mixed-case-builder-dialog'
-import { getMixedCaseComponentDepositProfile, getMixedCaseDepositAmounts } from '@/components/portals/shared/mixed-case-deposit'
-import { getAutomaticEmptyCredit, getLineDepositAmounts, getProductBottleBalance } from '@shared/customer-logic/empty-credit'
-import { CustomerCheckoutView, type DepositRefundLine, type DepositRefundOption } from './sections/checkout/checkout-view'
+import { CustomerCheckoutView, type DepositRefundLine } from './sections/checkout/checkout-view'
 import { CustomerOrdersView } from './sections/orders/orders-view'
 import { CustomerOrderDetailPage } from './sections/orders/order-detail-page'
 import { CustomerPurchaseRequestView } from './sections/purchase-requests/purchase-request-view'
@@ -50,40 +45,11 @@ import {
   CUSTOMER_ORDER_REASONS,
   OrderReasonCheckboxes,
 } from '@/components/portals/shared/order-reason-checkboxes'
-import {
-  cancelCustomerReplacementRequest,
-  cancelCustomerOrder,
-  createCustomerOrder,
-  fetchAllCustomerOrders,
-  fetchCustomerTracking,
-  fetchReplacementsMeta,
-  fetchLegacyCustomerReplacements,
-  quoteMixedCase,
-  submitCustomerReplacementRequest,
-  uploadReplacementEvidence,
-} from './sections/orders/orders-api'
+import { fetchAllCustomerOrders, fetchCustomerTracking, fetchReplacementsMeta, fetchLegacyCustomerReplacements } from './sections/orders/orders-api'
 import { fetchCustomerProducts } from './sections/shared/products-api'
-import { fetchCustomerProfile, updateCustomerProfile, uploadCustomerAvatar } from './sections/profile/profile-api'
-import { fetchFeedbackMeta, submitOrderFeedback } from './sections/feedback/feedback-api'
-import {
-  extractCustomerPayload,
-  formatPeso,
-  getProductImage,
-  getReplacementBadgeClass,
-  getReplacementRank,
-  getReplacementStatusLabel,
-  parseReplacementMeta,
-} from './sections/shared/customer-common'
-import type {
-  CartItem,
-  CustomerOrdersTab,
-  DeliveryIssueRecord,
-  DeliveryIssueSummary,
-  DriverTrackingItem,
-  Order,
-  OrderItem,
-  Product,
-} from './sections/shared/customer-types'
+import { fetchFeedbackMeta } from './sections/feedback/feedback-api'
+import { formatPeso, getProductImage, getReplacementBadgeClass, getReplacementRank, getReplacementStatusLabel, parseReplacementMeta } from './sections/shared/customer-common'
+import type { CustomerOrdersTab, DeliveryIssueRecord, DeliveryIssueSummary, DriverTrackingItem, Order, Product } from './sections/shared/customer-types'
 import {
   formatOrderStatus,
   getOrderStageIndex,
@@ -94,60 +60,14 @@ import {
   orderStages,
 } from './sections/orders/order-status'
 import { downloadOrderReceipt } from './sections/orders/receipt-utils'
-import { SERVICE_AREA_MESSAGE, useServiceArea } from '@/lib/service-area'
-import { isValidPhilippinePhone } from '@/lib/philippine-phone'
-import { getDepositRefundUnitDetails, getMaximumDepositRefundQuantity, getProductDepositBalanceRows, serializeDepositRefundQuantity } from '@/lib/deposit-refund-units'
+import { useServiceArea } from '@/lib/service-area'
+import { parseDateOnly } from './customer-portal-utils'
+import { useCustomerCart } from './sections/cart/use-customer-cart'
+import { useCustomerAddress } from './sections/address/use-customer-address'
+import { useCustomerProfileAvatar } from './sections/profile/use-customer-profile-avatar'
+import { useCustomerOrderActions } from './sections/orders/use-customer-order-actions'
 
 const poppins = { className: '' }
-
-const getLocalDateOnly = () => {
-  const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
-}
-
-const parseDateOnly = (value: string) => {
-  const [yearText, monthText, dayText] = String(value || '').split('-')
-  const year = Number(yearText)
-  const month = Number(monthText)
-  const day = Number(dayText)
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
-  if (year <= 0 || month < 1 || month > 12 || day < 1 || day > 31) return null
-  return new Date(year, month - 1, day)
-}
-
-const createClientRequestId = () =>
-  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-
-type ManualAddressParts = {
-  house?: string
-  street?: string
-  subdivision?: string
-  barangay?: string
-  city?: string
-  province?: string
-  zip?: string
-  country?: string
-}
-
-// Single source of truth for the geocoding query, so a pin-driven auto-fill and a
-// manually typed address that describe the same place produce the same string.
-const buildManualAddressQuery = (parts: ManualAddressParts) =>
-  [
-    parts.house,
-    parts.street,
-    parts.subdivision,
-    parts.barangay,
-    parts.city,
-    parts.province,
-    parts.zip,
-    parts.country || 'Philippines',
-  ]
-    .map((part) => String(part || '').trim())
-    .filter(Boolean)
-    .join(', ')
-
 
 export function CustomerPortal() {
   const { user, setUser, logout } = useAuth()
@@ -190,9 +110,13 @@ export function CustomerPortal() {
       } catch { /* Preserve the last known count during a temporary outage. */ }
     }
     void refreshUnread()
-    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshUnread() }, 15000)
+    // A notification raised on any device reaches the badge as soon as it is stored.
+    const unsubscribeUnread = subscribeDataSync(({ scopes }) => {
+      if (scopes.includes('notifications')) void refreshUnread()
+    })
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshUnread() }, 60000)
     window.addEventListener('focus', refreshUnread)
-    return () => { disposed = true; window.clearInterval(interval); window.removeEventListener('focus', refreshUnread) }
+    return () => { disposed = true; unsubscribeUnread(); window.clearInterval(interval); window.removeEventListener('focus', refreshUnread) }
   }, [user?.id])
   const notifInitialSubViewRef = useRef<'real-notifications' | 'menu'>('menu')
   const [profileViewKey, setProfileViewKey] = useState(0)
@@ -223,11 +147,6 @@ export function CustomerPortal() {
       setIsAddressDialogOpen(false)
     }
   }
-  const manualAddressPinDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const manualAddressPinAbortRef = useRef<AbortController | null>(null)
-  const lastManualAddressQueryRef = useRef('')
-  const wasAddressEditorOpenRef = useRef(false)
-  const lastOutsideServiceAreaQueryRef = useRef('')
   const { isInServiceArea } = useServiceArea()
   const checkoutRequestRef = useRef<{ payloadKey: string; requestId: string } | null>(null)
   const {
@@ -426,115 +345,66 @@ export function CustomerPortal() {
     imageElement.style.transformOrigin = 'center center'
   }, [avatarCropSource, avatarCropX, avatarCropY, avatarCropZoom])
 
-  const hydrateAddressFromProfile = (customer: any) => {
-    const customerName = String(customer?.name || '').trim()
-    const customerNameParts = customerName.split(/\s+/).filter(Boolean)
-    const rawAddress = String(customer?.address || '').trim()
-    const city = String(customer?.city || '').trim()
-    const state = String(customer?.province || '').trim() || 'Negros Occidental'
-    const zipCode = String(customer?.zipCode || '').trim()
-
-    const parts = rawAddress
-      .split(',')
-      .map((part) => part.trim())
-      .filter(Boolean)
-
-    const normalizeToken = (value: string) =>
-      String(value || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '')
-        .trim()
-    const isCountryLike = (value: string) => /philippines/i.test(String(value || ''))
-    const isPostalLike = (value: string) => /^\d{4}$/.test(String(value || '').trim())
-    const isHouseLike = (value: string) => /^(\d+|#|lot|blk|block)\b/i.test(String(value || '').trim())
-    const isBarangayLike = (value: string) => /\b(barangay|brgy\.?|poblacion)\b/i.test(String(value || ''))
-    const isSubdivisionLike = (value: string) =>
-      /\b(subdivision|homes?|villages?|heights?|plains?|residences?)\b/i.test(String(value || ''))
-
-    const tokens = [...parts]
-    if (tokens.length > 0 && isCountryLike(tokens[tokens.length - 1])) tokens.pop()
-    if (tokens.length > 0 && isPostalLike(tokens[tokens.length - 1])) tokens.pop()
-    if (tokens.length > 0 && normalizeToken(tokens[tokens.length - 1]) === normalizeToken(state)) tokens.pop()
-    if (city && tokens.length > 0 && normalizeToken(tokens[tokens.length - 1]) === normalizeToken(city)) tokens.pop()
-
-    let houseNumber = ''
-    let streetName = ''
-    let subdivision = ''
-    let barangay = String(customer?.barangay || customer?.brgy || '').trim()
-
-    if (tokens.length === 1) {
-      streetName = tokens[0] || ''
-    } else if (tokens.length >= 2) {
-      if (isHouseLike(tokens[0])) {
-        houseNumber = tokens[0] || ''
-        streetName = tokens[1] || ''
-      } else {
-        streetName = tokens[0] || ''
-      }
-
-      const remaining = tokens.slice(isHouseLike(tokens[0]) ? 2 : 1)
-      const barangayCandidate =
-        remaining.find((token) => isBarangayLike(token)) ||
-        remaining.find((token) => !isSubdivisionLike(token)) ||
-        ''
-      if (!barangay && barangayCandidate && !isSubdivisionLike(barangayCandidate)) {
-        barangay = barangayCandidate
-      }
-
-      // Optional field: only populate when token explicitly looks like subdivision.
-      const subdivisionCandidate = remaining.find(
-        (token) => isSubdivisionLike(token) && !isBarangayLike(token)
-      )
-      if (subdivisionCandidate) {
-        subdivision = subdivisionCandidate
-      }
-    }
-
-    const hydratedPhone = String(customer?.phone || '').trim()
-    setShippingPhone(hydratedPhone)
-    setShippingHouseNumber(houseNumber)
-    setShippingStreetName(streetName)
-    setShippingSubdivision(subdivision)
-    setShippingBarangay(barangay)
-    setShippingCity(city)
-    setShippingProvince(state)
-    setShippingZipCode(zipCode)
-    setShippingCountry('Philippines')
-    const hydratedLatitude = typeof customer?.latitude === 'number' ? customer.latitude : null
-    const hydratedLongitude = typeof customer?.longitude === 'number' ? customer.longitude : null
-    setShippingLatitude(hydratedLatitude)
-    setShippingLongitude(hydratedLongitude)
-
-    // The saved fields and the saved pin belong together, so record them as synced and
-    // let the map keep the exact coordinates the customer saved.
-    lastManualAddressQueryRef.current =
-      hydratedLatitude !== null && hydratedLongitude !== null
-        ? buildManualAddressQuery({
-            house: houseNumber,
-            street: streetName,
-            subdivision,
-            barangay,
-            city,
-            province: state,
-            zip: zipCode,
-            country: 'Philippines',
-          })
-        : ''
-    setProfileName(String(customer?.name || '').trim())
-    setProfileFirstName(String(customer?.firstName || customerNameParts[0] || '').trim())
-    setProfileMiddleName(String(customer?.middleName || '').trim())
-    setProfileLastName(String(customer?.lastName || customerNameParts.slice(1).join(' ') || '').trim())
-    setProfileSuffix(String(customer?.suffix || '').trim())
-    setProfileEmail(String(customer?.email || '').trim())
-    setProfilePhone(hydratedPhone)
-    setProfileAvatar(customer?.avatar ? String(customer.avatar) : null)
-    setProfileAvatarFile(null)
-    setCustomerDiscountOption(String(customer?.discountOption || 'NO_DISCOUNT').toUpperCase())
-    setCustomerDiscountStatus(String(customer?.discountStatus || 'REMOVED').toUpperCase())
-    setCustomerDiscountPercent(Number(customer?.discountPercent || 0))
-    setCustomerDiscountAmountPerCase(Number(customer?.discountAmountPerCase || 0))
-  }
-
+  const {
+    composedShippingAddress,
+    handleOutsideServiceArea,
+    handlePinnedLocation,
+    loadCustomerProfile,
+    saveAddressToProfile,
+    searchAddressInNegrosOccidental,
+    useCurrentLocation,
+  } = useCustomerAddress({
+    activeView,
+    addressSearch,
+    customerId,
+    isAddressDialogOpen,
+    isInServiceArea,
+    isResolvingPinnedAddress,
+    profileFirstName,
+    profileLastName,
+    profileMiddleName,
+    profileSuffix,
+    setAddressSearchResults,
+    setCustomerDiscountAmountPerCase,
+    setCustomerDiscountOption,
+    setCustomerDiscountPercent,
+    setCustomerDiscountStatus,
+    setIsResolvingPinnedAddress,
+    setIsSavingAddress,
+    setIsSearchingAddress,
+    setProfileAvatar,
+    setProfileAvatarFile,
+    setProfileEmail,
+    setProfileFirstName,
+    setProfileLastName,
+    setProfileMiddleName,
+    setProfileName,
+    setProfilePhone,
+    setProfileSuffix,
+    setShippingBarangay,
+    setShippingCity,
+    setShippingCountry,
+    setShippingHouseNumber,
+    setShippingLatitude,
+    setShippingLongitude,
+    setShippingPhone,
+    setShippingProvince,
+    setShippingStreetName,
+    setShippingSubdivision,
+    setShippingZipCode,
+    shippingBarangay,
+    shippingCity,
+    shippingCountry,
+    shippingHouseNumber,
+    shippingLatitude,
+    shippingLongitude,
+    shippingName,
+    shippingPhone,
+    shippingProvince,
+    shippingStreetName,
+    shippingSubdivision,
+    shippingZipCode,
+  })
   useEffect(() => {
     setShippingName(user?.name || '')
     setProfileName(user?.name || '')
@@ -545,23 +415,6 @@ export function CustomerPortal() {
     setProfileEmail(user?.email || '')
     setProfileAvatar((user as any)?.avatar ? String((user as any).avatar) : null)
   }, [user])
-
-  const loadCustomerProfile = useCallback(async (silent = true) => {
-    if (!customerId) return
-    try {
-      const { response, data: payload } = await fetchCustomerProfile(customerId)
-      if (!response?.ok) throw new Error('Failed to load customer profile')
-      const customer = extractCustomerPayload(payload)
-      if (!customer) throw new Error('Customer profile is missing')
-      hydrateAddressFromProfile(customer)
-    } catch (error: any) {
-      console.warn('Failed to load customer profile:', error)
-    }
-  }, [customerId])
-
-  useEffect(() => {
-    loadCustomerProfile()
-  }, [loadCustomerProfile])
 
   const fetchOrders = useCallback(async (silent = false) => {
     try {
@@ -647,8 +500,9 @@ export function CustomerPortal() {
     setDeliveryIssueRecords(replacements)
   }, [])
 
-  const fetchProducts = useCallback(async (): Promise<Product[] | null> => {
-    setIsProductsLoading(true)
+  const fetchProducts = useCallback(async (silent = false): Promise<Product[] | null> => {
+    // Background stock refreshes must not replace the catalog with a loading state.
+    if (!silent) setIsProductsLoading(true)
     try {
       const { response, data: payload } = await fetchCustomerProducts()
       if (!response?.ok) throw new Error('Failed to fetch products')
@@ -666,7 +520,7 @@ export function CustomerPortal() {
       console.warn('Failed to load products:', error)
       return null
     } finally {
-      setIsProductsLoading(false)
+      if (!silent) setIsProductsLoading(false)
     }
   }, [setIsProductsLoading, setProducts])
 
@@ -755,124 +609,27 @@ export function CustomerPortal() {
       }
     }
 
-    const pollInterval = setInterval(() => {
-      if (
-        document.visibilityState === 'visible' &&
-        ['orders', 'purchase-requests', 'purchase-request-detail', 'order-detail', 'track'].includes(activeView)
-      ) {
+    // Cross-device changes now arrive as sync events (see lib/sync-hub.ts), which
+    // is both faster and far cheaper than re-fetching orders and the whole catalog
+    // on a 2-4s timer. This slow sweep only covers a stamp endpoint that is down.
+    const fallbackSweepInterval = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void fetchProducts(true)
+      if (['orders', 'purchase-requests', 'purchase-request-detail', 'order-detail', 'track'].includes(activeView)) {
         void refreshOrders(true)
       }
-    }, 4000)
+    }, 60000)
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
       unsubscribe()
-      clearInterval(pollInterval)
+      clearInterval(fallbackSweepInterval)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [activeView, fetchOrderMeta, fetchOrders, fetchProducts, isSelectedTrackingOrderDelivered])
-
-  const submitReplacementRequest = useCallback(async (
-    orderId: string,
-    numberDamagedItems: number,
-    damageType: string,
-    description: string,
-    files: File[],
-    replacementLines?: Array<{
-      originalOrderItemId: string
-      originalProductId?: string
-      replacementProductId?: string
-      originalProductName?: string
-      originalProductSku?: string
-      originalProductSize?: string
-      replacementProductName?: string
-      replacementProductSku?: string
-      replacementProductSize?: string
-      inputMode?: 'case' | 'bottle'
-      lineInputMode?: 'case' | 'bottle'
-      quantityPerCase?: number
-      qtyPerUnit?: number
-      quantityToReplace: number
-      quantityToReplaceCases?: number
-      quantityToReplaceUnits?: number
-      quantityToReplaceBottles?: number
-      reason: string
-      description?: string
-    }>,
-    customerNotes = '',
-  ) => {
-    if (!damageType.trim()) throw new Error('Reason / type of damage is required')
-    if (!files.length) throw new Error('At least one evidence file is required')
-    const uploaded: string[] = []
-    for (const file of files) {
-      const { response, data } = await uploadReplacementEvidence(file)
-      if (!response.ok || data?.success === false || !data?.fileUrl) {
-        throw new Error(data?.error || 'Failed to upload replacement evidence')
-      }
-      uploaded.push(String(data.fileUrl))
-    }
-    const { response, data } = await submitCustomerReplacementRequest({
-      orderId,
-      numberDamagedItems: Math.floor(numberDamagedItems),
-      damageType: damageType.trim(),
-      description: description.trim(),
-      notes: customerNotes.trim(),
-      evidence: uploaded,
-      replacementLines,
-    })
-    if (!response.ok || data?.success === false) {
-      throw new Error(data?.error || 'Failed to submit replacement request')
-    }
-    await fetchOrderMeta()
-    emitDataSync(['replacements'])
-    toast.success('Replacement request submitted')
-  }, [fetchOrderMeta])
-
-  const requestCancelReplacement = useCallback((replacement: DeliveryIssueRecord) => {
-    const replacementId = String(replacement?.id || '').trim()
-    if (!replacementId) {
-      toast.error('Unable to identify this replacement request')
-      return
-    }
-    setPendingCancelReplacement({
-      id: replacementId,
-      replacementNumber: String(replacement?.replacementNumber || 'this replacement request'),
-    })
-  }, [])
-
-  const confirmCancelReplacement = useCallback(async () => {
-    const replacementId = pendingCancelReplacement?.id
-    if (!replacementId) return
-    setIsCancellingReplacement(true)
-    try {
-      const { response, data } = await cancelCustomerReplacementRequest(replacementId)
-      if (!response.ok || data?.success === false) {
-        if (response.status === 409) {
-          // Fix: refresh immediately if admin moved the request to Under Review first.
-          await fetchOrderMeta()
-          setPendingCancelReplacement(null)
-        }
-        throw new Error(data?.error || 'Failed to cancel replacement request')
-      }
-      const cancelled = data?.replacement as DeliveryIssueRecord | undefined
-      if (cancelled?.id) {
-        setDeliveryIssueRecords((previous) =>
-          previous.map((record) => (record.id === cancelled.id ? { ...record, ...cancelled } : record))
-        )
-      }
-      await fetchOrderMeta()
-      emitDataSync(['replacements'])
-      toast.success('Replacement request cancelled')
-      setPendingCancelReplacement(null)
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to cancel replacement request')
-    } finally {
-      setIsCancellingReplacement(false)
-    }
-  }, [fetchOrderMeta, pendingCancelReplacement?.id])
 
   useEffect(() => {
     if (activeView !== 'track') return
@@ -1045,548 +802,6 @@ export function CustomerPortal() {
 
   // Returns the stock a cart line is limited to, or null when the line carries
   // no availability figure at all (the server stays the final authority there).
-  const getCartItemAvailable = (item: any): number | null => {
-    const raw = Number(item?.available)
-    return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : null
-  }
-
-  const getAvailableQty = (product: Product) => {
-    const explicitAvailable = Number((product as any)?.availableQuantity)
-    if (Number.isFinite(explicitAvailable)) {
-      return Math.max(0, Math.floor(explicitAvailable))
-    }
-    return (product.inventory || []).reduce((sum, inv) => sum + Math.max(0, inv.quantity - inv.reservedQuantity), 0)
-  }
-
-  const getProductSizeLabel = (product: Product) => {
-    const sizes = Array.isArray((product as any)?.sizes)
-      ? (product as any).sizes.map((s: any) => String(s).trim()).filter(Boolean)
-      : []
-    if (sizes.length > 0) return sizes.join(', ')
-    const fallback = String((product as any)?.sizeLabel || (product as any)?.size || '').trim()
-    return fallback || String((product as any)?.unit || '').trim() || 'case'
-  }
-
-  const isReturnableGlassItem = (item: any) => {
-    if (!item) return false
-    if (item.packagingType !== 'RETURNABLE' || item.depositExempt) return false
-    const hasDeposit = Number(item.caseDepositAmount || item.depositAmount || 0) > 0
-    return Boolean(hasDeposit && item.containerTypeId)
-  }
-
-  const applyAutomaticEmptyCredit = (item: CartItem, quantity: number): CartItem => {
-    // Fix: automatic credit must follow the product sub-balance, not a same-size container pool.
-    const credit = getAutomaticEmptyCredit(item, quantity, user?.bottleBalances)
-    return {
-      ...item,
-      quantity,
-      ...credit,
-    }
-  }
-
-  const addToCart = (product: Product, requestedQty = 1) => {
-    const available = getAvailableQty(product)
-    const qty = Math.max(1, Math.floor(Number(requestedQty || 1)))
-    if (available <= 0) {
-      toast.error('This item is out of stock')
-      return
-    }
-
-    setCart((prev) => {
-      const existing = prev.find((i) => i.productId === product.id)
-      if (!existing) {
-        const newItem: CartItem = {
-          productId: product.id,
-          name: product.name,
-          sku: product.sku,
-          imageUrl: product.imageUrl || null,
-          unit: product.unit,
-          sizeLabel: getProductSizeLabel(product),
-          category: String((product as any)?.category?.name || (product as any)?.category || '').trim() || undefined,
-          containerPackagingType: product.containerPackagingType,
-          looseUnit: product.looseUnit,
-          packagingCompatibilityKey: product.packagingCompatibilityKey,
-          depositExempt: product.depositExempt,
-          unitPrice: product.price,
-          quantity: Math.min(qty, available),
-          available,
-          packagingType: product.packagingType,
-          containerTypeId: product.containerTypeId,
-          containerTypeName: product.containerTypeName,
-          containersPerCase: product.containersPerCase,
-          depositAmount: product.depositAmount,
-          caseDepositAmount: product.caseDepositAmount,
-        }
-        return [
-          ...prev,
-          applyAutomaticEmptyCredit(newItem, newItem.quantity),
-        ]
-      }
-      if (existing.quantity >= available) return prev
-      return prev.map((i) =>
-        i.productId === product.id
-          ? applyAutomaticEmptyCredit({
-            ...i,
-            available,
-            imageUrl: i.imageUrl || product.imageUrl || null,
-            sizeLabel: i.sizeLabel || getProductSizeLabel(product),
-            category:
-              String((i as any)?.category || '').trim() ||
-              String((product as any)?.category?.name || (product as any)?.category || '').trim() ||
-              undefined,
-            containerPackagingType: product.containerPackagingType,
-            looseUnit: product.looseUnit,
-            packagingCompatibilityKey: product.packagingCompatibilityKey,
-            depositExempt: product.depositExempt,
-          }, Math.min(existing.quantity + qty, available))
-          : i
-      )
-    })
-    setSelectedCartIds((prev) => {
-      if (prev.has(product.id)) return prev
-      const next = new Set(prev)
-      next.add(product.id)
-      return next
-    })
-  }
-
-  useEffect(() => {
-    if (!Array.isArray(products) || products.length === 0) return
-    setCart((prev) =>
-      prev.map((item) => {
-        if (item.itemType === 'MIXED_CASE') {
-          // Refresh component product data so persisted mixed cases retain both product images.
-          return {
-            ...item,
-            components: (item.components || []).map((component) => ({
-              ...component,
-              product: products.find((product) => String(product.id) === String(component.productId)) || component.product || null,
-            })),
-          }
-        }
-        const currentSize = String((item as any)?.sizeLabel || '').trim()
-        const product = products.find((p) => String(p.id) === String(item.productId))
-        const nextCategory =
-          String((item as any)?.category || '').trim() ||
-          String((product as any)?.category?.name || (product as any)?.category || '').trim() ||
-          undefined
-        if (!product) {
-          return { ...item, sizeLabel: String(item.unit || 'case').trim() || 'case', category: nextCategory }
-        }
-        const refreshedItem = {
-          ...item,
-          // Availability has to track the live catalog; a frozen snapshot let an
-          // over-quantity cart reach checkout and fail server-side.
-          available: getAvailableQty(product),
-          sizeLabel: currentSize && currentSize.toUpperCase() !== 'N/A' ? currentSize : getProductSizeLabel(product),
-          category: nextCategory,
-          containerPackagingType: product.containerPackagingType,
-          looseUnit: product.looseUnit,
-          packagingCompatibilityKey: product.packagingCompatibilityKey,
-          depositExempt: product.depositExempt,
-          packagingType: product.packagingType,
-          containerTypeId: product.containerTypeId,
-          containerTypeName: product.containerTypeName,
-          containersPerCase: product.containersPerCase,
-          depositAmount: product.depositAmount,
-          caseDepositAmount: product.caseDepositAmount,
-        }
-        return applyAutomaticEmptyCredit(refreshedItem, item.quantity)
-      })
-    )
-  }, [products, setCart, user?.bottleBalances])
-
-  const openAddToCartDialog = (product: Product) => {
-    const available = getAvailableQty(product)
-    if (available <= 0) {
-      toast.error('This item is out of stock')
-      return
-    }
-    setPendingCartProduct(product)
-    setPendingCartQty('1')
-    setIsAddToCartDialogOpen(true)
-  }
-
-  const confirmAddToCart = () => {
-    if (!pendingCartProduct) return
-    const available = getAvailableQty(pendingCartProduct)
-    if (available <= 0) {
-      toast.error('This item is out of stock')
-      setIsAddToCartDialogOpen(false)
-      setPendingCartProduct(null)
-      return
-    }
-    const parsed = Number(pendingCartQty)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      toast.error('Please enter a valid quantity')
-      return
-    }
-    const qty = Math.min(Math.floor(parsed), available)
-    addToCart(pendingCartProduct, qty)
-    setIsAddToCartDialogOpen(false)
-    setPendingCartProduct(null)
-    toast.success('Added to cart', { duration: 1000 })
-  }
-
-  const adjustPendingCartQty = (delta: number) => {
-    if (!pendingCartProduct) return
-    const available = getAvailableQty(pendingCartProduct)
-    const current = Number(pendingCartQty)
-    const safeCurrent = Number.isFinite(current) && current > 0 ? Math.floor(current) : 1
-    const next = Math.max(1, Math.min(available, safeCurrent + delta))
-    setPendingCartQty(String(next))
-  }
-
-  const updateCartQty = (productId: string, qty: number) => {
-    setCart((prev) =>
-      prev
-        .map((i) => {
-          if (i.productId !== productId) return i
-          if (i.itemType === 'MIXED_CASE') return qty <= 0 ? { ...i, quantity: 0 } : i
-          const newQty = Math.max(0, Math.min(qty, i.available))
-          return applyAutomaticEmptyCredit(i, newQty)
-        })
-        .filter((i) => i.quantity > 0)
-    )
-  }
-
-  // Added: customers can drop a line item from the cart outright, not only by
-  // stepping the quantity down to zero.
-  const removeFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((item) => item.productId !== productId))
-    setSelectedCartIds((prev) => {
-      const next = new Set(prev)
-      next.delete(productId)
-      return next
-    })
-  }
-
-  const removeSelectedFromCart = () => {
-    setCart((prev) => prev.filter((item) => !selectedCartIds.has(item.productId)))
-    setSelectedCartIds(new Set())
-  }
-
-  const openMixedCaseBuilder = (item: CartItem | null = null) => {
-    setEditingMixedCase(item)
-    setIsMixedCaseBuilderOpen(true)
-  }
-
-  const saveMixedCase = (item: CartItem) => {
-    const mixedCaseWithDeposit = applyAutomaticEmptyCredit(item, item.quantity)
-    setCart((prev) => {
-      const existing = prev.some((row) => row.productId === item.productId)
-      return existing
-        ? prev.map((row) => (row.productId === item.productId ? mixedCaseWithDeposit : row))
-        : [...prev, mixedCaseWithDeposit]
-    })
-    setSelectedCartIds((prev) => {
-      const next = new Set(prev)
-      next.add(item.productId)
-      return next
-    })
-    setEditingMixedCase(null)
-  }
-
-  const cartCount = useMemo(() => cart.reduce((sum, i) => sum + i.quantity, 0), [cart])
-  const selectedCartItems = useMemo(
-    () => {
-      const remainingByProductContainer = new Map<string, number>()
-      return cart
-        .filter((item) => selectedCartIds.has(item.productId))
-        .map((item) => {
-          if (item.itemType === 'MIXED_CASE') {
-            const components = (item.components || []).map((component) => {
-              const profile = getMixedCaseComponentDepositProfile(component)
-              if (!profile.isReturnable || !profile.containerTypeId) return component
-              const productContainerKey = `${String(component.productId || '')}::${profile.containerTypeId}`
-              if (!remainingByProductContainer.has(productContainerKey)) {
-                const customerBalance = getProductBottleBalance(
-                  { productId: component.productId, containerTypeId: profile.containerTypeId },
-                  user?.bottleBalances,
-                )
-                remainingByProductContainer.set(productContainerKey, Math.max(0, Math.floor(Number(
-                  customerBalance?.bottlesAvailable ?? customerBalance?.bottlesOutstanding ?? 0
-                ))))
-              }
-              const remaining = remainingByProductContainer.get(productContainerKey) || 0
-              const needed = Math.max(0, Number(component.quantityPerCase || 0)) * Math.max(0, Number(item.quantity || 0))
-              const emptiesUsed = Math.min(needed, remaining)
-              remainingByProductContainer.set(productContainerKey, remaining - emptiesUsed)
-              return { ...component, emptyReturnedQuantity: emptiesUsed }
-            })
-            return { ...item, components }
-          }
-          if (item.packagingType !== 'RETURNABLE' || item.depositExempt || !item.containerTypeId) return item
-          const containerKey = String(item.containerTypeId)
-          const productContainerKey = `${String(item.productId || '')}::${containerKey}`
-          if (!remainingByProductContainer.has(productContainerKey)) {
-            const customerBalance = getProductBottleBalance(item, user?.bottleBalances)
-            remainingByProductContainer.set(productContainerKey, Math.max(0, Math.floor(Number(
-              customerBalance?.bottlesAvailable ?? customerBalance?.bottlesOutstanding ?? 0
-            ))))
-          }
-          const remaining = remainingByProductContainer.get(productContainerKey) || 0
-          const containersPerCase = Math.max(1, Math.floor(Number(item.containersPerCase || 1)))
-          const isCase = item.itemType === 'MIXED_CASE' || String(item.unit || '').trim().toLowerCase() === 'case'
-          const emptiesUsed = isCase
-            ? Math.min(item.quantity, Math.floor(remaining / containersPerCase)) * containersPerCase
-            : Math.min(item.quantity, remaining)
-          remainingByProductContainer.set(productContainerKey, remaining - emptiesUsed)
-          return { ...item, emptyReturnedQuantity: emptiesUsed }
-        })
-    },
-    [cart, selectedCartIds, user?.bottleBalances]
-  )
-  const selectedSubtotal = useMemo(
-    () => selectedCartItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
-    [selectedCartItems]
-  )
-  const selectedDepositCharged = useMemo(
-    () => selectedCartItems.reduce((sum, i) => {
-      if (i.itemType === 'MIXED_CASE') return sum + getMixedCaseDepositAmounts(i).charged
-      return sum + getLineDepositAmounts(i).charged
-    }, 0),
-    [selectedCartItems]
-  )
-  const selectedDepositRefunded = useMemo(
-    () => selectedCartItems.reduce((sum, i) => {
-      if (i.itemType === 'MIXED_CASE') return sum + getMixedCaseDepositAmounts(i).refunded
-      return sum + getLineDepositAmounts(i).refunded
-    }, 0),
-    [selectedCartItems]
-  )
-  const depositRefundOptions = useMemo<DepositRefundOption[]>(() => {
-    const usedByContainer = new Map<string, number>()
-    const usedByProductContainer = new Map<string, number>()
-    selectedCartItems.forEach((item) => {
-      if (item.itemType === 'MIXED_CASE') {
-        ;(item.components || []).forEach((component: any) => {
-          const containerTypeId = String(component.containerTypeId || '').trim()
-          if (containerTypeId) {
-            const used = Math.max(0, Number(component.emptyReturnedQuantity || 0))
-            const productContainerKey = `${String(component.productId || '')}::${containerTypeId}`
-            usedByContainer.set(containerTypeId, (usedByContainer.get(containerTypeId) || 0) + used)
-            usedByProductContainer.set(productContainerKey, (usedByProductContainer.get(productContainerKey) || 0) + used)
-          }
-        })
-        return
-      }
-      const containerTypeId = String(item.containerTypeId || '').trim()
-      if (containerTypeId) {
-        const used = Math.max(0, Number(item.emptyReturnedQuantity || 0))
-        const productContainerKey = `${String(item.productId || '')}::${containerTypeId}`
-        usedByContainer.set(containerTypeId, (usedByContainer.get(containerTypeId) || 0) + used)
-        usedByProductContainer.set(productContainerKey, (usedByProductContainer.get(productContainerKey) || 0) + used)
-      }
-    })
-
-    const balanceRows = (Array.isArray(user?.bottleBalances) ? user.bottleBalances : [])
-      .flatMap(getProductDepositBalanceRows)
-    const knownProductContainerKeys = new Set(
-      balanceRows.map((balance: any) => `${String(balance?.productId || balance?.productIds?.[0] || '')}::${String(balance?.containerTypeId || '')}`)
-    )
-    const unmatchedUsedByContainer = new Map<string, number>()
-    usedByContainer.forEach((totalUsed, containerTypeId) => {
-      let matchedUsed = 0
-      usedByProductContainer.forEach((quantity, productContainerKey) => {
-        if (productContainerKey.endsWith(`::${containerTypeId}`) && knownProductContainerKeys.has(productContainerKey)) {
-          matchedUsed += quantity
-        }
-      })
-      unmatchedUsedByContainer.set(containerTypeId, Math.max(0, totalUsed - matchedUsed))
-    })
-
-    return balanceRows
-      .flatMap((balance: any) => {
-      const containerTypeId = String(balance?.containerTypeId || '').trim()
-      const productOptions = Array.isArray(balance?.productOptions) && balance.productOptions.length > 0
-        ? balance.productOptions
-        : [{
-          id: balance?.productIds?.[0],
-          label: balance?.productLabel || balance?.productName,
-        }]
-      if (!containerTypeId) return []
-      const availableBottles = Math.max(0, Math.floor(Number(balance?.bottlesAvailable ?? balance?.bottlesOutstanding ?? 0)))
-      const parentContainerAvailable = Math.max(0, Math.floor(Number(balance?.containerBottlesAvailable ?? availableBottles)))
-      // Fix: cart-level empty credits and manual refunds draw from the same
-      // physical container pool, even when they refer to different products.
-      const containerBottlesAvailable = Math.max(
-        0,
-        parentContainerAvailable - (usedByContainer.get(containerTypeId) || 0)
-      )
-      const isProductBalance = Array.isArray(balance?.productBalances) && balance.productBalances.length > 0
-      const refundableBalance = Math.max(0, Number(
-        isProductBalance
-          ? balance?.depositAvailable
-          : balance?.depositBalanceTotal ?? balance?.depositAvailable ?? balance?.depositBalance ?? 0
-      ))
-      // Every product option shares this container balance; checkout enforces the
-      // combined limit while letting the customer identify the exact product.
-      return productOptions.flatMap((productOption: any) => {
-        const productId = String(productOption?.id || '').trim()
-        if (!productId) return []
-        const productContainerKey = `${productId}::${containerTypeId}`
-        let used = isProductBalance
-          ? (usedByProductContainer.get(productContainerKey) || 0)
-          : (usedByContainer.get(containerTypeId) || 0)
-        if (isProductBalance) {
-          const unmatchedUsed = unmatchedUsedByContainer.get(containerTypeId) || 0
-          const additionalUsed = Math.min(Math.max(0, availableBottles - used), unmatchedUsed)
-          used += additionalUsed
-          unmatchedUsedByContainer.set(containerTypeId, unmatchedUsed - additionalUsed)
-        }
-        const remainingAfterOrderDeposit = Math.max(0, availableBottles - used)
-        const unitDetails = getDepositRefundUnitDetails(productOption, balance)
-        if (unitDetails.depositPerUnit <= 0) return []
-        const maxQuantity = getMaximumDepositRefundQuantity(
-          remainingAfterOrderDeposit,
-          refundableBalance,
-          unitDetails
-        )
-        if (maxQuantity <= 0) return []
-        return [{
-          productId,
-          productName: String(productOption?.label || productOption?.name || balance?.containerTypeName || 'Returnable product'),
-          containerTypeId,
-          containerTypeName: String(balance?.containerTypeName || 'Returnable container'),
-          ...unitDetails,
-          maxQuantity,
-          containerBottlesAvailable,
-        }]
-      })
-    })
-  }, [selectedCartItems, user?.bottleBalances])
-  const depositCreditAmount = useMemo(
-    () => Math.round(depositRefundLines.reduce((total, line) => total + (line.quantity * line.depositPerUnit), 0) * 100) / 100,
-    [depositRefundLines]
-  )
-  const discountCasesAffected = useMemo(
-    () => selectedCartItems.reduce((sum, item) => {
-      const isMixedCase = item.itemType === 'MIXED_CASE'
-      const normalizedUnit = String(item.unit || '').trim().toLowerCase()
-      // Packs count toward the discount minimum alongside standard and mixed cases.
-      const isCaseOrPack = normalizedUnit === 'case' || normalizedUnit === 'pack'
-      return isMixedCase || isCaseOrPack
-        ? sum + Math.max(0, Number(item.quantity || 0))
-        : sum
-    }, 0),
-    [selectedCartItems]
-  )
-  const checkoutDiscountBreakdown = useMemo(() => {
-    const normalizedOption = String(customerDiscountOption || 'NO_DISCOUNT').toUpperCase()
-    const normalizedStatus = String(customerDiscountStatus || 'REMOVED').toUpperCase()
-    const isActive = normalizedStatus === 'ACTIVE'
-    const presetPercentMap: Record<string, number> = {
-      NO_DISCOUNT: 0,
-      DISCOUNT_5: 5,
-      DISCOUNT_10: 10,
-      DISCOUNT_15: 15,
-      DISCOUNT_20: 20,
-      DISCOUNT_25: 25,
-    }
-    let name = 'No Discount'
-    let discountType = 'NO_DISCOUNT'
-    let discountPercent = 0
-    let amountPerCase = 0
-    if (isActive) {
-      if (normalizedOption in presetPercentMap) {
-        discountPercent = presetPercentMap[normalizedOption] || 0
-        discountType = discountPercent > 0 ? 'PERCENTAGE' : 'NO_DISCOUNT'
-        if (normalizedOption !== 'NO_DISCOUNT') name = `${discountPercent}% Discount`
-      } else if (normalizedOption === 'OTHER') {
-        name = 'Other (Manual)'
-        amountPerCase = Math.max(0, Number(customerDiscountAmountPerCase || 0))
-        discountPercent = Math.max(0, Number(customerDiscountPercent || 0))
-        discountType = amountPerCase > 0 ? 'AMOUNT_PER_CASE' : 'PERCENTAGE'
-      }
-    }
-    const perCaseDiscount = discountType === 'AMOUNT_PER_CASE'
-      ? amountPerCase
-      : 0
-    const percentageDiscountTotal = selectedCartItems.reduce((sum, item) => {
-      const qty = Math.max(0, Number(item?.quantity || 0))
-      const unitPrice = Math.max(0, Number(item?.unitPrice || 0))
-      return sum + (unitPrice * qty * (discountPercent / 100))
-    }, 0)
-    const totalDiscountRaw = discountType === 'AMOUNT_PER_CASE'
-      ? (amountPerCase * discountCasesAffected)
-      : percentageDiscountTotal
-    // The configured discount becomes eligible at the 50-case minimum.
-    const isDiscountEligible = discountCasesAffected >= 50
-    const totalDiscount = isActive && isDiscountEligible
-      ? Math.min(selectedSubtotal, Math.max(0, totalDiscountRaw))
-      : 0
-    return {
-      name: isDiscountEligible ? name : 'No Discount',
-      discountType: isDiscountEligible ? discountType : 'NO_DISCOUNT',
-      discountPercent: isDiscountEligible ? discountPercent : 0,
-      amountPerCase: isDiscountEligible ? amountPerCase : 0,
-      perCaseDiscount: isActive && isDiscountEligible
-        ? (discountType === 'AMOUNT_PER_CASE'
-          ? perCaseDiscount
-          : (discountCasesAffected > 0 ? totalDiscount / discountCasesAffected : 0))
-        : 0,
-      casesAffected: isDiscountEligible ? discountCasesAffected : 0,
-      totalDiscount,
-      // Fix: the payable total includes the new deposit after any existing-empty credit.
-      finalTotal: Math.max(0, selectedSubtotal - totalDiscount + selectedDepositCharged - selectedDepositRefunded - depositCreditAmount),
-    }
-  }, [
-    customerDiscountOption,
-    customerDiscountStatus,
-    customerDiscountAmountPerCase,
-    customerDiscountPercent,
-    discountCasesAffected,
-    selectedCartItems,
-    selectedSubtotal,
-    selectedDepositCharged,
-    selectedDepositRefunded,
-    depositCreditAmount,
-  ])
-  const selectedCount = useMemo(() => selectedCartItems.length, [selectedCartItems])
-  // Stock is checked in the browser so an order that the server would reject is
-  // blocked before it is submitted, with the shortfall named on the line item.
-  const insufficientStockItems = useMemo(
-    () =>
-      selectedCartItems.filter((item) => {
-        const available = getCartItemAvailable(item)
-        if (available === null) return false
-        return available <= 0 || Math.max(0, Math.floor(Number(item?.quantity || 0))) > available
-      }),
-    [selectedCartItems]
-  )
-  const insufficientStockProductIds = useMemo(
-    () => new Set(insufficientStockItems.map((item) => String(item.productId))),
-    [insufficientStockItems]
-  )
-  const canPlaceOrder = useMemo(
-    () => {
-      const deliveryDateText = String(deliveryDate || '').trim()
-      if (!deliveryDateText) return false
-      const parsedDate = parseDateOnly(deliveryDateText)
-      if (!parsedDate) return false
-      if (insufficientStockItems.length > 0) return false
-      return parsedDate >= getLocalDateOnly() && selectedCartItems.length > 0
-    },
-    [selectedCartItems.length, deliveryDate, insufficientStockItems.length]
-  )
-  const allCartSelected = useMemo(
-    () => cart.length > 0 && cart.every((item) => selectedCartIds.has(item.productId)),
-    [cart, selectedCartIds]
-  )
-
-  useEffect(() => {
-    setSelectedCartIds((prev) => {
-      const existing = new Set(cart.map((item) => item.productId))
-      const next = new Set<string>()
-      for (const id of prev) {
-        if (existing.has(id)) next.add(id)
-      }
-      if (next.size === prev.size) return prev
-      return next
-    })
-  }, [cart])
-
   const productCategoryOptions = useMemo(() => {
     const categories = Array.from(
       new Set(
@@ -1611,29 +826,6 @@ export function CustomerPortal() {
       return category === productCategoryFilter
     })
   }, [products, productSearch, productCategoryFilter])
-
-  const composedShippingAddress = useMemo(() => {
-    return [
-      shippingHouseNumber,
-      shippingStreetName,
-      shippingSubdivision,
-      shippingBarangay,
-      shippingCity,
-      shippingProvince || 'Negros Occidental',
-      shippingZipCode,
-    ]
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .join(', ')
-  }, [
-    shippingHouseNumber,
-    shippingStreetName,
-    shippingSubdivision,
-    shippingBarangay,
-    shippingCity,
-    shippingProvince,
-    shippingZipCode,
-  ])
 
   const isReplacementOrder = (order: any): boolean =>
     String(order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(order?.isScheduledReplacement)
@@ -1789,1307 +981,170 @@ export function CustomerPortal() {
     })
   }, [deliveryIssueRecords, ordersSearch])
 
-  const placeOrder = async () => {
-    if (
-      !shippingName ||
-      !shippingPhone ||
-      !shippingStreetName ||
-      !shippingCity ||
-      !shippingProvince ||
-      !shippingZipCode
-    ) {
-      toast.error('Please complete all detailed shipping fields')
-      return
-    }
-    const shippingNameError = validatePersonName(shippingName)
-    if (shippingNameError) {
-      // Fix: reject numeric shipping contact names before checkout.
-      toast.error(shippingNameError)
-      return
-    }
-    if (selectedCartItems.length === 0) {
-      toast.error('Your cart is empty')
-      return
-    }
-    if (insufficientStockItems.length > 0) {
-      const first = insufficientStockItems[0]
-      const available = getCartItemAvailable(first) ?? 0
-      toast.error(
-        available <= 0
-          ? `${first.name || 'An item'} is out of stock. Remove it to continue.`
-          : `Only ${available} ${first.unit || 'case'}(s) of ${first.name || 'an item'} are available. Lower the quantity to continue.`
-      )
-      setActiveView('cart')
-      return
-    }
-    if (!String(deliveryDate || '').trim()) {
-      toast.error('Please select a delivery date before placing your order')
-      return
-    }
-    const parsedDeliveryDate = parseDateOnly(deliveryDate)
-    if (!parsedDeliveryDate) {
-      toast.error('Please select a valid delivery date')
-      return
-    }
-    if (parsedDeliveryDate < getLocalDateOnly()) {
-      toast.error('Delivery date cannot be before today')
-      return
-    }
-    if (shippingLatitude === null || shippingLongitude === null) {
-      toast.error('Please pin your delivery address on the map before placing your order')
-      setIsAddressDialogOpen(true)
-      return
-    }
-    if (!isInServiceArea(shippingLatitude, shippingLongitude)) {
-      toast.error(SERVICE_AREA_MESSAGE)
-      setIsAddressDialogOpen(true)
-      return
-    }
-
-    setIsPlacingOrder(true)
-    const cartSnapshot = [...cart]
-    const selectedIdsSnapshot = new Set(selectedCartIds)
-    try {
-      const orderPayload = {
-        shippingName,
-        shippingPhone,
-        shippingAddress: composedShippingAddress,
-        shippingCity,
-        shippingProvince,
-        shippingZipCode,
-        shippingCountry,
-        shippingLatitude,
-        shippingLongitude,
-        notes,
-        deliveryDate: deliveryDate || null,
-        discountPreview: {
-          type: checkoutDiscountBreakdown.discountType,
-          name: checkoutDiscountBreakdown.name,
-          percent: checkoutDiscountBreakdown.discountPercent,
-          amountPerCase: checkoutDiscountBreakdown.amountPerCase,
-          perCaseDiscount: checkoutDiscountBreakdown.perCaseDiscount,
-          casesAffected: checkoutDiscountBreakdown.casesAffected,
-          totalDiscount: checkoutDiscountBreakdown.totalDiscount,
-        },
-        // The server prices these product-specific lines authoritatively. Sending
-        // a duplicated cached total can reject a valid order after packaging data refreshes.
-        depositRefundLines: depositRefundLines.map((line) => ({
-          productId: line.productId,
-          containerTypeId: line.containerTypeId,
-          // Fix: the API stores bottle equivalents but prices explicit cases and
-          // bottles separately, so preserve the selected packaging unit here.
-          ...serializeDepositRefundQuantity(line),
-        })),
-        items: selectedCartItems.map((item) =>
-          item.itemType === 'MIXED_CASE'
-            ? {
-              itemType: 'MIXED_CASE',
-              caseCapacity: item.caseCapacity,
-              quantity: item.quantity,
-              emptyReturnedQuantity: item.emptyReturnedQuantity || 0,
-              components: (item.components || []).map((component) => ({
-                productId: component.productId,
-                quantity: component.quantityPerCase,
-                emptyReturnedQuantity: component.emptyReturnedQuantity || 0,
-              })),
-            }
-            : {
-              itemType: 'STANDARD_CASE',
-              productId: item.productId,
-              quantity: item.quantity,
-              // Server recalculates this from the live balance; sending it keeps
-              // the request transparent for receipts and debugging.
-              emptyReturnedQuantity: item.emptyReturnedQuantity || 0,
-            }
-        ),
-      }
-      const payloadKey = JSON.stringify(orderPayload)
-      if (!checkoutRequestRef.current || checkoutRequestRef.current.payloadKey !== payloadKey) {
-        checkoutRequestRef.current = {
-          payloadKey,
-          requestId: createClientRequestId(),
-        }
-      }
-      const { response, data } = await createCustomerOrder({
-        ...orderPayload,
-        requestId: checkoutRequestRef.current.requestId,
-      })
-      if (!response.ok || data?.success === false) {
-        const errorMessage = String(data?.error || data?.message || '').trim()
-        throw new Error(errorMessage || `Failed to place order (HTTP ${response.status})`)
-      }
-      setLastPlacedOrderNumber(String(data?.order?.purchaseRequestNumber || data?.order?.orderNumber || data?.order?.id || '').trim())
-      setIsOrderConfirmationOpen(true)
-      if (data?.order) {
-        setOrders((prev) => [data.order, ...prev.filter((order) => order.id !== data.order.id)])
-      }
-      const selectedIds = new Set(selectedCartItems.map((item) => item.productId))
-      setCart((prev) => prev.filter((item) => !selectedIds.has(item.productId)))
-      setSelectedCartIds((prev) => {
-        const next = new Set(prev)
-        selectedIds.forEach((id) => next.delete(id))
-        return next
-      })
-      // The credit belongs to the completed request and must not carry into the next order.
-      setDepositRefundLines([])
-      // Refresh once in background via shared sync channel.
-      emitDataSync(['orders', 'customers', 'auth', 'user'])
-      void fetchProducts()
-      void loadCustomerProfile()
-      try {
-        const authMeRes = await fetch('/api/auth/me', { cache: 'no-store' })
-        const authMeData = await authMeRes.json().catch(() => ({}))
-        if (authMeRes.ok && authMeData?.user) {
-          setUser(authMeData.user)
-        }
-      } catch {}
-      setOrdersTab('ALL')
-      setOrdersSearch('')
-      setActiveView('purchase-requests')
-      checkoutRequestRef.current = null
-    } catch (e: any) {
-      setCart(cartSnapshot)
-      setSelectedCartIds(selectedIdsSnapshot)
-      toast.error(e?.message || 'Failed to place order')
-    } finally {
-      setIsPlacingOrder(false)
-    }
-  }
-
   const downloadReceipt = downloadOrderReceipt
 
-  const openTrackView = (orderId: string) => {
-    setSelectedTrackingOrderId(orderId)
-    setActiveView('track')
-  }
-
-  const openRatingDialog = (order: Order, initialDeliveryRating = 5) => {
-    if (reviewedOrderIds.has(order.id)) {
-      setReviewDetailsOrder(order)
-      return
-    }
-    setRatingDialogOrder(order)
-    setDeliveryRatingValue(Math.max(1, Math.min(5, Math.round(initialDeliveryRating))))
-    setRatingComment('')
-  }
-
-  const addToCartDirect = (product: Product, qty: number) => {
-    const available = getAvailableQty(product)
-    if (available <= 0) {
-      toast.error('This item is out of stock')
-      return
-    }
-    const safeQty = Math.max(1, Math.min(available, Math.floor(Number(qty) || 1)))
-    addToCart(product, safeQty)
-    toast.success('Added to cart', { duration: 1000 })
-  }
-
-  const buyAgainFromOrder = async (order: any) => {
-    const orderItems = Array.isArray(order?.items) ? order.items : []
-    if (orderItems.length === 0) {
-      toast.error('No items found in this order')
-      return
-    }
-
-    let addedCount = 0
-    let skippedCount = 0
-    let missingProductRefCount = 0
-    let productNotFoundCount = 0
-    let outOfStockCount = 0
-    const catalogProducts = (await fetchProducts()) || products
-
-    for (const item of orderItems) {
-      const itemType = String(item?.itemType || item?.item_type || '').trim().toUpperCase()
-      if (itemType === 'MIXED_CASE') {
-        const components = Array.isArray(item?.components) ? item.components : []
-        const caseCapacity = Math.max(0, Math.floor(Number(item?.caseCapacity || item?.case_capacity || 0)))
-        const qty = Math.max(1, Math.floor(Number(item?.quantity || 1)))
-        if (caseCapacity <= 0 || components.length < 2) {
-          skippedCount += 1
-          missingProductRefCount += 1
-          continue
-        }
-
-        try {
-          const { response, data } = await quoteMixedCase({
-            caseCapacity,
-            quantity: qty,
-            components: components.map((component: any) => ({
-              productId: String(component?.productId || component?.product?.id || ''),
-              quantity: Math.max(0, Math.floor(Number(component?.quantityPerCase || component?.quantity || 0))),
-            })),
-          })
-          if (!response.ok || data?.success === false || !data?.quote) {
-            throw new Error(data?.error || 'Mixed Case is unavailable')
-          }
-
-          const quote = data.quote
-          const quoteComponents = Array.isArray(quote?.components) ? quote.components : []
-          const componentProducts = quoteComponents.map((component: any) =>
-            catalogProducts.find((product) => String(product.id) === String(component?.productId))
-          )
-          if (quoteComponents.length < 2 || componentProducts.some((product: Product | undefined) => !product)) {
-            skippedCount += 1
-            productNotFoundCount += 1
-            continue
-          }
-
-          const maxCases = Math.min(...quoteComponents.map((component: any) => {
-            const product = catalogProducts.find((row) => String(row.id) === String(component?.productId))
-            return Math.floor(
-              Number(product?.availableBaseUnits || 0) /
-              Math.max(1, Number(component?.quantityPerCase || 1))
-            )
-          }))
-          if (!Number.isFinite(maxCases) || maxCases < qty) {
-            skippedCount += 1
-            outOfStockCount += 1
-            continue
-          }
-
-          const cartKey = `mixed:${createClientRequestId()}`
-          const firstProduct = componentProducts[0]
-          // Store each selected product with the quote for the mixed-case image pair.
-          const mixedComponents = quoteComponents.map((component: any, index: number) => ({
-            ...component,
-            product: componentProducts[index] || null,
-          }))
-          const mixedItem: CartItem = {
-            productId: cartKey,
-            itemType: 'MIXED_CASE',
-            name: `Mixed Case — ${Number(quote.caseCapacity || caseCapacity)} units`,
-            sku: 'MIXED-CASE',
-            imageUrl: firstProduct?.imageUrl || null,
-            unit: 'mixed case',
-            sizeLabel: `${Number(quote.caseCapacity || caseCapacity)} units`,
-            unitPrice: Number(quote.unitPrice || 0),
-            quantity: Number(quote.caseCount || qty),
-            available: maxCases,
-            caseCapacity: Number(quote.caseCapacity || caseCapacity),
-            components: mixedComponents,
-          }
-          setCart((prev) => [...prev, mixedItem])
-          setSelectedCartIds((prev) => new Set(prev).add(cartKey))
-          addedCount += 1
-        } catch (error: any) {
-          skippedCount += 1
-          if (/out of stock|insufficient|inventory/i.test(String(error?.message || ''))) outOfStockCount += 1
-          else productNotFoundCount += 1
-        }
-        continue
-      }
-
-      const productId = String(item?.product?.id || item?.productId || '').trim()
-      const qty = Math.max(1, Math.floor(Number(item?.quantity || 1)))
-      if (!productId) {
-        skippedCount += 1
-        missingProductRefCount += 1
-        continue
-      }
-
-      const catalogProduct = catalogProducts.find((p) => String(p.id) === productId)
-      if (!catalogProduct) {
-        skippedCount += 1
-        productNotFoundCount += 1
-        continue
-      }
-
-      const available = getAvailableQty(catalogProduct)
-      if (available <= 0) {
-        skippedCount += 1
-        outOfStockCount += 1
-        continue
-      }
-
-      addToCart(catalogProduct, Math.min(qty, available))
-      addedCount += 1
-    }
-
-    if (addedCount === 0) {
-      if (outOfStockCount > 0 && productNotFoundCount === 0 && missingProductRefCount === 0) {
-        toast.error('Product unavailable: out of stock')
-      } else if (productNotFoundCount > 0 || missingProductRefCount > 0) {
-        toast.error('Product unavailable')
-      } else {
-        toast.error('Unable to add item right now')
-      }
-      return
-    }
-
-    if (skippedCount > 0) {
-      toast.message(`${addedCount} item(s) added, ${skippedCount} item(s) unavailable`)
-    } else {
-      toast.success('Items added to cart')
-    }
-    setActiveView('cart')
-  }
-
-  const submitRating = async (selectedFeedbackOptions: string[] = []) => {
-    if (!ratingDialogOrder?.id) return false
-    if (deliveryRatingValue === 0) {
-      toast.error('Please select a rating')
-      return false
-    }
-    const selectedReasons = Array.from(
-      new Set(
-        selectedFeedbackOptions
-          .map((item) => String(item || '').trim())
-          .filter(Boolean)
-      )
-    )
-    // Added: a star rating cannot be submitted without meaningful feedback.
-    if (selectedReasons.length === 0) {
-      toast.error('Please select at least one feedback option')
-      return false
-    }
-    if (reviewedOrderIds.has(ratingDialogOrder.id)) {
-      toast.info('You already rated this order')
-      setRatingDialogOrder(null)
-      return false
-    }
-
-    setIsSubmittingRating(true)
-    try {
-      const overallRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)))
-      const composedMessage = selectedReasons.map((reason) => `- ${reason}`).join('\n')
-      const { response, payload } = await submitOrderFeedback({
-        orderId: ratingDialogOrder.id,
-        rating: overallRating,
-        type: overallRating <= 2 ? 'COMPLAINT' : overallRating === 3 ? 'SUGGESTION' : 'COMPLIMENT',
-        subject: `${ratingDialogOrder?.isReplacementReview ? 'Replacement Review' : 'Order Review'} - ${ratingDialogOrder.orderNumber}`,
-        message: composedMessage,
-      })
-      if (response.status === 409) {
-        setReviewedOrderIds((prev) => {
-          const next = new Set(prev)
-          next.add(ratingDialogOrder.id)
-          return next
-        })
-        void fetchOrderMeta()
-        toast.info('This order is already rated')
-        setRatingDialogOrder(null)
-        setRatingComment('')
-        setDeliveryRatingValue(5)
-        return true
-      }
-
-      if (!response.ok || payload?.success === false) {
-        const backendMessage = String(payload?.error || payload?.message || '').trim()
-        const statusHint = response?.status ? ` (${response.status})` : ''
-        throw new Error((backendMessage || 'Failed to submit rating') + statusHint)
-      }
-
-      setReviewedOrderIds((prev) => {
-        const next = new Set(prev)
-        next.add(ratingDialogOrder.id)
-        return next
-      })
-      void fetchOrderMeta()
-      toast.success('Review submitted successfully')
-      setRatingDialogOrder(null)
-      setRatingComment('')
-      setDeliveryRatingValue(5)
-      return true
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to submit rating')
-      return false
-    } finally {
-      setIsSubmittingRating(false)
-    }
-  }
-
-  const requestCancelOrder = (orderId: string) => {
-    const source = orders.find((item) => item.id === orderId) || (selectedOrder?.id === orderId ? selectedOrder : null)
-    const orderNumber = String(source?.orderNumber || 'this order')
-    setSelectedCancellationReasons([])
-    setOtherCancellationReason('')
-    setPendingCancelOrder({ id: orderId, orderNumber })
-  }
-
-  const confirmCancelOrder = async () => {
-    const orderId = pendingCancelOrder?.id
-    if (!orderId) return
-    const reason = buildOrderActionReason(selectedCancellationReasons, otherCancellationReason)
-    // Required: do not send a cancellation without an explanation.
-    if (!reason) {
-      toast.error('A cancellation reason is required')
-      return
-    }
-    setIsCancellingOrder(true)
-    try {
-      const { response, payload } = await cancelCustomerOrder(orderId, reason)
-      if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to cancel order')
-      }
-      const updatedOrder = payload?.order || { id: orderId, status: 'CANCELLED', paymentStatus: 'cancelled' }
-      setOrders((prev) =>
-        prev.map((order) => (order.id === orderId ? { ...order, ...updatedOrder, status: 'CANCELLED', paymentStatus: 'cancelled' } : order))
-      )
-      setSelectedOrder((prev) =>
-        prev?.id === orderId ? { ...prev, ...updatedOrder, status: 'CANCELLED', paymentStatus: 'cancelled' } : prev
-      )
-      toast.success('Order cancelled successfully')
-      // Refresh once in background via shared sync channel.
-      emitDataSync(['orders'])
-      setPendingCancelOrder(null)
-      setSelectedCancellationReasons([])
-      setOtherCancellationReason('')
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to cancel order')
-    } finally {
-      setIsCancellingOrder(false)
-    }
-  }
-
-  const saveAddressToProfile = async () => {
-    if (!customerId) {
-      toast.error('Unable to save address right now')
-      return false
-    }
-    if (!profileFirstName.trim() || !profileLastName.trim() || !profileMiddleName.trim()) {
-      toast.error('First name, last name, and middle name are required.')
-      return false
-    }
-    const nameError = validatePersonName(shippingName, profileFirstName, profileMiddleName, profileLastName, profileSuffix)
-    if (nameError) {
-      toast.error(nameError)
-      return false
-    }
-    if (
-      !shippingStreetName ||
-      !shippingCity ||
-      !shippingProvince ||
-      !shippingZipCode
-    ) {
-      toast.error('Please complete street, city, province, and postal code before saving')
-      return false
-    }
-    if (shippingLatitude === null || shippingLongitude === null) {
-      toast.error('Please pin your address on the map before saving')
-      return false
-    }
-    if (!isInServiceArea(shippingLatitude, shippingLongitude)) {
-      toast.error(SERVICE_AREA_MESSAGE)
-      return false
-    }
-    const normalizedShippingPhone = String(shippingPhone || '').replace(/\D/g, '')
-    if (!normalizedShippingPhone || !isValidPhilippinePhone(normalizedShippingPhone)) {
-      toast.error('Please enter a valid Philippine mobile number before saving')
-      return false
-    }
-
-    setIsSavingAddress(true)
-    try {
-      const { response, payload: data } = await updateCustomerProfile(customerId, {
-        // Keep Contact Information and Profile backed by the same structured name fields.
-        firstName: profileFirstName.trim(),
-        middleName: profileMiddleName.trim(),
-        lastName: profileLastName.trim(),
-        suffix: profileSuffix.trim(),
-        address: composedShippingAddress,
-        barangay: shippingBarangay,
-        subdivision: shippingSubdivision,
-        streetName: shippingStreetName,
-        houseNumber: shippingHouseNumber,
-        city: shippingCity,
-        province: shippingProvince || 'Negros Occidental',
-        zipCode: shippingZipCode,
-        country: 'Philippines',
-        latitude: shippingLatitude,
-        longitude: shippingLongitude,
-        phone: normalizedShippingPhone,
-      })
-      if (!response.ok || data?.success === false) throw new Error(data?.error || 'Failed to save')
-      const updatedCustomer = extractCustomerPayload(data)
-      if (updatedCustomer) {
-        hydrateAddressFromProfile(updatedCustomer)
-      }
-      await loadCustomerProfile()
-      toast.success('Address saved successfully')
-      return true
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to save address')
-      return false
-    } finally {
-      setIsSavingAddress(false)
-    }
-  }
-
-  const useCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser')
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude
-        const lng = position.coords.longitude
-        if (!isInServiceArea(lat, lng)) {
-          toast.error(`Your current location is outside our delivery area. ${SERVICE_AREA_MESSAGE}`)
-          return
-        }
-        await handlePinnedLocation(lat, lng)
-        toast.success('Current location pinned')
-      },
-      () => {
-        toast.error('Failed to get your current location')
-      }
-    )
-  }
-
-  const handleOutsideServiceArea = () => {
-    toast.error(SERVICE_AREA_MESSAGE)
-  }
-
-  const handlePinnedLocation = async (lat: number, lng: number) => {
-    // Last line of defence for callers that do not pre-check (saved-address picks,
-    // search results), so a pin can never land outside the delivery area.
-    if (!isInServiceArea(lat, lng)) {
-      toast.error(SERVICE_AREA_MESSAGE)
-      return
-    }
-
-    setShippingLatitude(lat)
-    setShippingLongitude(lng)
-    setIsResolvingPinnedAddress(true)
-
-    try {
-      const fetchReverse = async (zoom: number) => {
-        const reverseResponse = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1&countrycodes=ph&zoom=${zoom}`,
-          {
-            headers: {
-              Accept: 'application/json',
-            },
-          }
-        )
-        if (!reverseResponse.ok) {
-          throw new Error('Reverse geocoding failed')
-        }
-        return reverseResponse.json()
-      }
-
-      const data = await fetchReverse(18)
-
-      const addr = data?.address || {}
-      const displayName = String(data?.display_name || '')
-      const displayParts = displayName
-        .split(',')
-        .map((part: string) => part.trim())
-        .filter(Boolean)
-      const postcodeFromDisplay = displayName.match(/\b\d{4}\b/)?.[0] || ''
-      const normalizeAddressToken = (value: string) =>
-        String(value || '')
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, '')
-          .trim()
-      const isPostalLike = (value: string) => /^\d{4}$/.test(String(value || '').trim())
-      const isCountryLike = (value: string) => /philippines/i.test(String(value || ''))
-      const isBarangayLike = (value: string) => /\b(barangay|brgy\.?|poblacion)\b/i.test(String(value || ''))
-      const isSubdivisionLike = (value: string) =>
-        /\b(subdivision|homes?|villages?|heights?|plains?|residences?)\b/i.test(String(value || ''))
-      const isStreetLike = (value: string) =>
-        /\b(street|st\.?|road|rd\.?|avenue|ave\.?|highway|hwy|drive|dr\.?|lane|ln\.?|boulevard|blvd\.?|way|purok\s*\d*)\b/i.test(String(value || ''))
-
-      const barangayFromDisplay =
-        displayParts.find((part: string) => /^(barangay|brgy\.?)\s+/i.test(part)) ||
-        displayParts.find((part: string) => /\b(barangay|brgy\.?)\b/i.test(part)) ||
-        ''
-
-      const houseNumber = String(addr.house_number || '').trim()
-      const streetName = String(
-        addr.road ||
-        addr.residential ||
-        addr.pedestrian ||
-        addr.path ||
-        addr.footway ||
-        addr.street ||
-        displayParts[0] ||
-        ''
-      ).trim()
-      let subdivision = String(
-        addr.subdivision ||
-        // Keep optional subdivision conservative: only explicit subdivision-like fields.
-        addr.allotments ||
-        addr.village ||
-        ''
-      ).trim()
-      if (subdivision && !isSubdivisionLike(subdivision)) {
-        subdivision = ''
-      }
-      let city = String(
-        addr.city ||
-        addr.town ||
-        addr.municipality ||
-        ''
-      ).trim()
-      let province = String(addr.state || addr.region || '').trim()
-      const postcode = String(addr.postcode || postcodeFromDisplay || '').trim()
-      const country = String(addr.country || 'Philippines').trim()
-
-      if (!province) {
-        province =
-          displayParts.find((part: string) => /negros occidental/i.test(part)) ||
-          displayParts.find((part: string) => /province|occidental/i.test(part)) ||
-          'Negros Occidental'
-      }
-
-      if (!city) {
-        const provinceIndex = displayParts.findIndex(
-          (part: string) => normalizeAddressToken(part) === normalizeAddressToken(province)
-        )
-        if (provinceIndex > 0) {
-          city = displayParts[provinceIndex - 1] || ''
-        } else {
-          city =
-            displayParts.find((part: string) => /city|municipality|silay|bacolod|talisay|bago|cadiz|escalante|victorias|himamaylan|kabankalan|sagay|san carlos|la carlota/i.test(part)) ||
-            ''
-        }
-      }
-
-      const localityTokens = displayParts.filter((part: string) => {
-        const normalized = normalizeAddressToken(part)
-        if (!normalized) return false
-        if (isCountryLike(part)) return false
-        if (isPostalLike(part)) return false
-        if (normalizeAddressToken(part) === normalizeAddressToken(province)) return false
-        if (city && normalizeAddressToken(part) === normalizeAddressToken(city)) return false
-        if (streetName && normalizeAddressToken(part) === normalizeAddressToken(streetName)) return false
-        if (isStreetLike(part)) return false
-        return true
-      })
-
-      let barangay = String(
-        addr.barangay ||
-        addr.suburb ||
-        addr.neighbourhood ||
-        addr.quarter ||
-        addr.city_district ||
-        addr.hamlet ||
-        barangayFromDisplay ||
-        ''
-      ).trim()
-
-      // Prefer explicit barangay tokens from display name when available.
-      if (barangayFromDisplay) {
-        barangay = barangayFromDisplay
-      }
-
-      // If reverse geocoder omits barangay, infer it from display tokens nearest to city/province.
-      if (!barangay) {
-        const likelyBarangay =
-          localityTokens.find((token) => /barangay|brgy|poblacion|purok|sitio/i.test(token)) ||
-          localityTokens.find((token) => !isStreetLike(token) && !isSubdivisionLike(token)) ||
-          ''
-        barangay = String(likelyBarangay || '').trim()
-      }
-
-      // Never keep barangay-like text in subdivision.
-      if (subdivision && isBarangayLike(subdivision)) {
-        if (!barangay) barangay = subdivision
-        subdivision = ''
-      }
-
-      // Avoid duplicate values between subdivision and barangay.
-      if (
-        subdivision &&
-        barangay &&
-        normalizeAddressToken(subdivision) === normalizeAddressToken(barangay)
-      ) {
-        subdivision = ''
-      }
-
-      // Avoid putting city value into barangay when reverse geocoder returns coarse data.
-      if (barangay && city && normalizeAddressToken(barangay) === normalizeAddressToken(city)) {
-        barangay = ''
-      }
-      if (barangay && streetName && normalizeAddressToken(barangay) === normalizeAddressToken(streetName)) {
-        barangay = ''
-      }
-      if (barangay && isStreetLike(barangay)) {
-        barangay = ''
-      }
-      if (barangay && isSubdivisionLike(barangay)) {
-        if (!subdivision) subdivision = barangay
-        barangay = ''
-      }
-
-      // Fallback: if barangay is still missing at high zoom (POI-level),
-      // request a coarser reverse-geocode to recover locality-level barangay.
-      if (!barangay) {
-        try {
-          const coarseData = await fetchReverse(15)
-          const coarseAddr = coarseData?.address || {}
-          const coarseDisplayName = String(coarseData?.display_name || '')
-          const coarseDisplayParts = coarseDisplayName
-            .split(',')
-            .map((part: string) => part.trim())
-            .filter(Boolean)
-          const coarseBarangayFromDisplay =
-            coarseDisplayParts.find((part: string) => /^(barangay|brgy\.?)\s+/i.test(part)) ||
-            coarseDisplayParts.find((part: string) => /\b(barangay|brgy\.?|poblacion|sitio|purok)\b/i.test(part)) ||
-            ''
-          const coarseCandidate = String(
-            coarseAddr.barangay ||
-            coarseAddr.suburb ||
-            coarseAddr.neighbourhood ||
-            coarseAddr.quarter ||
-            coarseAddr.city_district ||
-            coarseAddr.hamlet ||
-            coarseBarangayFromDisplay ||
-            ''
-          ).trim()
-          if (
-            coarseCandidate &&
-            (!city || normalizeAddressToken(coarseCandidate) !== normalizeAddressToken(city)) &&
-            (!streetName || normalizeAddressToken(coarseCandidate) !== normalizeAddressToken(streetName)) &&
-            !isStreetLike(coarseCandidate) &&
-            !isSubdivisionLike(coarseCandidate)
-          ) {
-            barangay = coarseCandidate
-          }
-        } catch {
-          // Keep manual entry flow when coarse lookup fails.
-        }
-      }
-
-      // Final fallback: use nearest locality token if still empty.
-      if (!barangay) {
-        const finalLocalityToken =
-          localityTokens.find((token) => /barangay|brgy|poblacion|sitio|purok/i.test(token)) ||
-          localityTokens.find((token) => !isStreetLike(token) && !isSubdivisionLike(token)) ||
-          ''
-        if (
-          finalLocalityToken &&
-          (!city || normalizeAddressToken(finalLocalityToken) !== normalizeAddressToken(city)) &&
-          (!streetName || normalizeAddressToken(finalLocalityToken) !== normalizeAddressToken(streetName))
-        ) {
-          barangay = String(finalLocalityToken).trim()
-        }
-      }
-
-      setShippingHouseNumber(houseNumber)
-      setShippingStreetName(streetName)
-      setShippingSubdivision(subdivision)
-      setShippingBarangay(barangay)
-      setShippingCity(city)
-      setShippingProvince(province)
-      setShippingZipCode(postcode)
-      setShippingCountry(country)
-
-      // These fields describe the coordinates we were just handed, so mark them as
-      // already synced — otherwise the manual-typing effect geocodes them right back
-      // and drags the pin off the spot the user chose.
-      lastManualAddressQueryRef.current = buildManualAddressQuery({
-        house: houseNumber,
-        street: streetName,
-        subdivision,
-        barangay,
-        city,
-        province,
-        zip: postcode,
-        country,
-      })
-    } catch {
-      // Auto-fill failed, but the pin is still where the customer put it. Freeze whatever
-      // is already typed against it so the manual-typing sync does not move it away.
-      lastManualAddressQueryRef.current = buildManualAddressQuery({
-        house: shippingHouseNumber,
-        street: shippingStreetName,
-        subdivision: shippingSubdivision,
-        barangay: shippingBarangay,
-        city: shippingCity,
-        province: shippingProvince,
-        zip: shippingZipCode,
-        country: shippingCountry,
-      })
-      toast.error('Pinned location set, but address auto-fill failed. You can fill fields manually.')
-    } finally {
-      setIsResolvingPinnedAddress(false)
-    }
-  }
-
-  // The address form lives in the dialog on some flows and on its own page on others;
-  // both need the map pin kept in step with the fields.
-  const isAddressEditorOpen = isAddressDialogOpen || activeView === 'edit-address'
-
-  useEffect(() => {
-    if (!isAddressEditorOpen) {
-      wasAddressEditorOpenRef.current = false
-      return
-    }
-    if (wasAddressEditorOpenRef.current) return
-    wasAddressEditorOpenRef.current = true
-    lastOutsideServiceAreaQueryRef.current = ''
-
-    // A saved address opens with its own saved pin. Treat it as already synced so
-    // opening the form never re-geocodes it and nudges the pin somewhere new.
-    if (shippingLatitude !== null && shippingLongitude !== null) {
-      lastManualAddressQueryRef.current = buildManualAddressQuery({
-        house: shippingHouseNumber,
-        street: shippingStreetName,
-        subdivision: shippingSubdivision,
-        barangay: shippingBarangay,
-        city: shippingCity,
-        province: shippingProvince,
-        zip: shippingZipCode,
-        country: shippingCountry,
-      })
-    } else {
-      lastManualAddressQueryRef.current = ''
-    }
-  }, [
-    isAddressEditorOpen,
-    shippingHouseNumber,
-    shippingStreetName,
-    shippingSubdivision,
-    shippingBarangay,
+  const {
+    addToCartDirect,
+    allCartSelected,
+    buyAgainFromOrder,
+    canPlaceOrder,
+    cartCount,
+    checkoutDiscountBreakdown,
+    depositCreditAmount,
+    depositRefundOptions,
+    discountCasesAffected,
+    getAvailableQty,
+    getCartItemAvailable,
+    insufficientStockItems,
+    openMixedCaseBuilder,
+    placeOrder,
+    removeFromCart,
+    removeSelectedFromCart,
+    saveMixedCase,
+    selectedCartItems,
+    selectedCount,
+    selectedDepositCharged,
+    selectedDepositRefunded,
+    selectedSubtotal,
+    updateCartQty,
+  } = useCustomerCart({
+    cart,
+    checkoutRequestRef,
+    composedShippingAddress,
+    customerDiscountAmountPerCase,
+    customerDiscountOption,
+    customerDiscountPercent,
+    customerDiscountStatus,
+    deliveryDate,
+    depositRefundLines,
+    fetchProducts,
+    isInServiceArea,
+    loadCustomerProfile,
+    notes,
+    pendingCartProduct,
+    pendingCartQty,
+    products,
+    selectedCartIds,
+    setActiveView,
+    setCart,
+    setDepositRefundLines,
+    setEditingMixedCase,
+    setIsAddToCartDialogOpen,
+    setIsAddressDialogOpen,
+    setIsMixedCaseBuilderOpen,
+    setIsOrderConfirmationOpen,
+    setIsPlacingOrder,
+    setLastPlacedOrderNumber,
+    setOrders,
+    setOrdersSearch,
+    setOrdersTab,
+    setPendingCartProduct,
+    setPendingCartQty,
+    setSelectedCartIds,
+    setUser,
     shippingCity,
-    shippingProvince,
-    shippingZipCode,
     shippingCountry,
     shippingLatitude,
     shippingLongitude,
-  ])
-
-  useEffect(() => {
-    if (!isAddressEditorOpen) return
-    if (isResolvingPinnedAddress) return
-
-    const street = String(shippingStreetName || '').trim()
-    const city = String(shippingCity || '').trim()
-    const province = String(shippingProvince || '').trim()
-
-    if (!street || !city || !province) return
-
-    const query = buildManualAddressQuery({
-      house: shippingHouseNumber,
-      street: shippingStreetName,
-      subdivision: shippingSubdivision,
-      barangay: shippingBarangay,
-      city: shippingCity,
-      province: shippingProvince,
-      zip: shippingZipCode,
-      country: shippingCountry,
-    })
-    if (!query) return
-    // Already resolved outside the delivery area; re-asking would only repeat the warning.
-    if (query === lastOutsideServiceAreaQueryRef.current) return
-    // With no pin on the map there is nothing in sync yet, so geocode even a query we
-    // have seen before (e.g. the user cleared the form and retyped the same address).
-    const hasPin = shippingLatitude !== null && shippingLongitude !== null
-    if (hasPin && query === lastManualAddressQueryRef.current) return
-
-    if (manualAddressPinDebounceRef.current) {
-      clearTimeout(manualAddressPinDebounceRef.current)
-    }
-
-    manualAddressPinDebounceRef.current = setTimeout(async () => {
-      try {
-        if (manualAddressPinAbortRef.current) {
-          manualAddressPinAbortRef.current.abort()
-        }
-        const controller = new AbortController()
-        manualAddressPinAbortRef.current = controller
-
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=ph&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`,
-          { signal: controller.signal }
-        )
-        if (!response.ok) return
-
-        const data = await response.json()
-        const top = Array.isArray(data) ? data[0] : null
-        const lat = Number(top?.lat)
-        const lng = Number(top?.lon)
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
-
-        if (!isInServiceArea(lat, lng)) {
-          // Drop the pin rather than leave it pointing at a previous, valid address while
-          // the fields describe somewhere we do not deliver.
-          setShippingLatitude(null)
-          setShippingLongitude(null)
-          lastManualAddressQueryRef.current = ''
-          // Typing is noisy, so warn once per settled address instead of per keystroke.
-          if (lastOutsideServiceAreaQueryRef.current !== query) {
-            lastOutsideServiceAreaQueryRef.current = query
-            toast.error(`That address is outside our delivery area. ${SERVICE_AREA_MESSAGE}`)
-          }
-          return
-        }
-
-        lastOutsideServiceAreaQueryRef.current = ''
-
-        const sameLat = shippingLatitude !== null && Math.abs(shippingLatitude - lat) < 0.00001
-        const sameLng = shippingLongitude !== null && Math.abs(shippingLongitude - lng) < 0.00001
-        if (sameLat && sameLng) {
-          lastManualAddressQueryRef.current = query
-          return
-        }
-
-        setShippingLatitude(lat)
-        setShippingLongitude(lng)
-        lastManualAddressQueryRef.current = query
-      } catch {
-        // Keep manual typing flow uninterrupted when geocoding fails.
-      }
-    }, 700)
-
-    return () => {
-      if (manualAddressPinDebounceRef.current) {
-        clearTimeout(manualAddressPinDebounceRef.current)
-        manualAddressPinDebounceRef.current = null
-      }
-    }
-  }, [
-    isAddressEditorOpen,
-    isResolvingPinnedAddress,
-    shippingHouseNumber,
-    shippingStreetName,
-    shippingSubdivision,
-    shippingBarangay,
-    shippingCity,
+    shippingName,
+    shippingPhone,
     shippingProvince,
+    shippingStreetName,
     shippingZipCode,
-    shippingCountry,
-    shippingLatitude,
-    shippingLongitude,
-    setShippingLatitude,
-    setShippingLongitude,
-  ])
+    user,
+  })
 
-  useEffect(() => {
-    return () => {
-      if (manualAddressPinDebounceRef.current) {
-        clearTimeout(manualAddressPinDebounceRef.current)
-      }
-      if (manualAddressPinAbortRef.current) {
-        manualAddressPinAbortRef.current.abort()
-      }
-    }
-  }, [])
+  const {
+    confirmCancelOrder,
+    confirmCancelReplacement,
+    openRatingDialog,
+    openTrackView,
+    requestCancelOrder,
+    requestCancelReplacement,
+    submitRating,
+    submitReplacementRequest,
+  } = useCustomerOrderActions({
+    deliveryRatingValue,
+    fetchOrderMeta,
+    notes,
+    orders,
+    otherCancellationReason,
+    pendingCancelOrder,
+    pendingCancelReplacement,
+    ratingDialogOrder,
+    reviewedOrderIds,
+    selectedCancellationReasons,
+    selectedOrder,
+    setActiveView,
+    setDeliveryIssueRecords,
+    setDeliveryRatingValue,
+    setIsCancellingOrder,
+    setIsCancellingReplacement,
+    setIsSubmittingRating,
+    setOrders,
+    setOtherCancellationReason,
+    setPendingCancelOrder,
+    setPendingCancelReplacement,
+    setRatingComment,
+    setRatingDialogOrder,
+    setReviewDetailsOrder,
+    setReviewedOrderIds,
+    setSelectedCancellationReasons,
+    setSelectedOrder,
+    setSelectedTrackingOrderId,
+  })
 
-  const searchAddressInNegrosOccidental = async () => {
-    const query = addressSearch.trim()
-    if (!query) {
-      toast.error('Type an address to search')
-      return
-    }
-
-    setIsSearchingAddress(true)
-    try {
-      const [localResponse, broadResponse] = await Promise.all([
-        fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=ph&limit=15&addressdetails=1&q=${encodeURIComponent(
-            `${query}, Negros Occidental, Philippines`
-          )}`
-        ),
-        fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=ph&limit=15&addressdetails=1&q=${encodeURIComponent(
-            `${query}, Philippines`
-          )}`
-        ),
-      ])
-
-      if (!localResponse.ok && !broadResponse.ok) throw new Error('Search failed')
-
-      type SearchAddress = {
-        house_number?: string
-        road?: string
-        pedestrian?: string
-        path?: string
-        barangay?: string
-        village?: string
-        suburb?: string
-        neighbourhood?: string
-        city?: string
-        town?: string
-        municipality?: string
-        province?: string
-      }
-      type SearchItem = {
-        display_name: string
-        lat: string
-        lon: string
-        address?: SearchAddress
-      }
-
-      const localData: SearchItem[] = localResponse.ok ? await localResponse.json() : []
-      const broadData: SearchItem[] = broadResponse.ok ? await broadResponse.json() : []
-      const data = [...localData, ...broadData]
-
-      const results = (data || [])
-        .map((item) => ({
-          displayName: (() => {
-            const addr = item.address || {}
-            const isSubdivisionLike = (value: string) =>
-              /\b(subdivision|homes?|villages?|heights?|plains?|residences?)\b/i.test(String(value || ''))
-            const street = [addr.house_number, addr.road || addr.pedestrian || addr.path].filter(Boolean).join(' ')
-            const barangay = addr.barangay || ''
-            const subdivision = isSubdivisionLike(String(addr.village || '')) ? String(addr.village) : ''
-            const area = addr.suburb || addr.neighbourhood || subdivision || ''
-            const city = addr.city || addr.town || addr.municipality || ''
-            const province = addr.province || ''
-            const parts = [street, barangay, area, city, province].filter(Boolean)
-            return parts.length > 0 ? parts.join(', ') : item.display_name
-          })(),
-          latitude: Number(item.lat),
-          longitude: Number(item.lon),
-        }))
-        .filter(
-          (item) =>
-            Number.isFinite(item.latitude) &&
-            Number.isFinite(item.longitude) &&
-            isInServiceArea(item.latitude, item.longitude)
-        )
-        .filter((item, index, arr) => arr.findIndex((x) => x.latitude === item.latitude && x.longitude === item.longitude) === index)
-        .slice(0, 10)
-
-      setAddressSearchResults(results)
-      if (results.length === 0) {
-        toast.error(`No matching address found. ${SERVICE_AREA_MESSAGE}`)
-      }
-    } catch {
-      toast.error('Failed to search address')
-      setAddressSearchResults([])
-    } finally {
-      setIsSearchingAddress(false)
-    }
-  }
-
-  const avatarPreviewUrl = useMemo(() => {
-    if (profileAvatarFile) return URL.createObjectURL(profileAvatarFile)
-    return profileAvatar
-  }, [profileAvatar, profileAvatarFile])
-
-  useEffect(() => {
-    if (!profileAvatarFile) return
-    return () => {
-      if (avatarPreviewUrl?.startsWith('blob:')) {
-        URL.revokeObjectURL(avatarPreviewUrl)
-      }
-    }
-  }, [avatarPreviewUrl, profileAvatarFile])
-
-  const uploadProfileAvatar = async (file: File) => {
-    const { response, payload } = await uploadCustomerAvatar(file)
-    if (!response.ok || payload?.success === false || !payload?.imageUrl) {
-      throw new Error(payload?.error || 'Failed to upload profile photo')
-    }
-    return String(payload.imageUrl)
-  }
-
-  const saveProfile = async () => {
-    if (!customerId) {
-      toast.error('Unable to save profile right now')
-      return false
-    }
-    if (!profileFirstName.trim() || !profileLastName.trim() || !profileMiddleName.trim()) {
-      toast.error('First name, last name, and middle name are required.')
-      return false
-    }
-    const nameError = validatePersonName(profileFirstName, profileMiddleName, profileLastName, profileSuffix)
-    if (nameError) {
-      // Fix: customer profile names cannot contain numeric characters.
-      toast.error(nameError)
-      return false
-    }
-    if (!profileEmail.trim()) {
-      toast.error('Email is required')
-      return false
-    }
-    const normalizedProfilePhone = String(profilePhone || '').replace(/\D/g, '')
-    if (!normalizedProfilePhone || !isValidPhilippinePhone(normalizedProfilePhone)) {
-      toast.error('Please enter a valid Philippine mobile number before saving')
-      return false
-    }
-
-    setIsSavingProfile(true)
-    try {
-      let avatarToSave = profileAvatar
-      if (profileAvatarFile) {
-        avatarToSave = await uploadProfileAvatar(profileAvatarFile)
-      }
-      const { response, payload } = await updateCustomerProfile(customerId, {
-        firstName: profileFirstName.trim(),
-        middleName: profileMiddleName.trim(),
-        lastName: profileLastName.trim(),
-        suffix: profileSuffix.trim(),
-        email: profileEmail.trim(),
-        phone: normalizedProfilePhone,
-        avatar: avatarToSave,
-      })
-      if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to update profile')
-      }
-
-      const updatedCustomer = extractCustomerPayload(payload)
-      if (updatedCustomer) {
-        setProfileName(String(updatedCustomer.name || '').trim())
-        setProfileFirstName(String(updatedCustomer.firstName || '').trim())
-        setProfileMiddleName(String(updatedCustomer.middleName || '').trim())
-        setProfileLastName(String(updatedCustomer.lastName || '').trim())
-        setProfileSuffix(String(updatedCustomer.suffix || '').trim())
-        setProfileEmail(String(updatedCustomer.email || '').trim())
-        setProfilePhone(String(updatedCustomer.phone || '').trim())
-        setProfileAvatar(updatedCustomer.avatar ? String(updatedCustomer.avatar) : null)
-        setProfileAvatarFile(null)
-        if (updatedCustomer.phone !== undefined) {
-          setShippingPhone(String(updatedCustomer.phone || '').trim())
-        }
-        if (updatedCustomer.name) {
-          setShippingName(String(updatedCustomer.name).trim())
-        }
-        if (user) {
-          setUser({
-            ...(user as any),
-            name: String(updatedCustomer.name || [profileFirstName, profileMiddleName, profileLastName, profileSuffix].filter(Boolean).join(' ')).trim(),
-            firstName: String(updatedCustomer.firstName || profileFirstName).trim(),
-            middleName: String(updatedCustomer.middleName || profileMiddleName).trim(),
-            lastName: String(updatedCustomer.lastName || profileLastName).trim(),
-            suffix: String(updatedCustomer.suffix || profileSuffix).trim(),
-            email: String(updatedCustomer.email || profileEmail).trim(),
-            avatar: updatedCustomer.avatar ? String(updatedCustomer.avatar) : null,
-          })
-        }
-      }
-
-      await loadCustomerProfile()
-      toast.success('Profile updated successfully')
-      return true
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to update profile')
-      return false
-    } finally {
-      setIsSavingProfile(false)
-    }
-  }
-
-  const handleAvatarUpload = async (file: File | null) => {
-    if (!file) return
-    if (!customerId) {
-      toast.error('Unable to upload photo right now')
-      return
-    }
-
-    setIsSavingProfile(true)
-    try {
-      const avatarUrl = await uploadProfileAvatar(file)
-      const { response, payload } = await updateCustomerProfile(customerId, { avatar: avatarUrl })
-      if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to update profile photo')
-      }
-
-      setProfileAvatar(avatarUrl)
-      if (user) {
-        setUser({
-          ...(user as any),
-          avatar: avatarUrl,
-        })
-      }
-      await loadCustomerProfile()
-      toast.success('Profile photo updated')
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to update profile photo')
-    } finally {
-      setIsSavingProfile(false)
-    }
-  }
-
-  const openAvatarCropDialog = async (file: File | null) => {
-    if (!file) return
-    try {
-      const objectUrl = URL.createObjectURL(file)
-      setAvatarCropFile(file)
-      setAvatarCropSource(objectUrl)
-      setAvatarCropZoom(1)
-      setAvatarCropX(0)
-      setAvatarCropY(0)
-      setIsAvatarCropDialogOpen(true)
-    } catch {
-      toast.error('Failed to open image cropper')
-    }
-  }
-
-  const createCroppedAvatarFile = async (): Promise<File | null> => {
-    if (!avatarCropSource) return null
-
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve(img)
-      img.onerror = () => reject(new Error('Failed to load image'))
-      img.src = avatarCropSource
-    })
-
-    const outputSize = 512
-    const canvas = document.createElement('canvas')
-    canvas.width = outputSize
-    canvas.height = outputSize
-    const ctx = canvas.getContext('2d')
-    if (!ctx || typeof (ctx as any).clearRect !== 'function' || typeof (ctx as any).drawImage !== 'function') {
-      toast.error('Image editor is unavailable on this device. Please try another photo.')
-      return null
-    }
-
-    const baseScale = Math.max(outputSize / image.width, outputSize / image.height)
-    const scale = baseScale * avatarCropZoom
-    const drawWidth = image.width * scale
-    const drawHeight = image.height * scale
-    const x = (outputSize - drawWidth) / 2 + avatarCropX
-    const y = (outputSize - drawHeight) / 2 + avatarCropY
-
-    try {
-      ctx.clearRect(0, 0, outputSize, outputSize)
-      ctx.drawImage(image, x, y, drawWidth, drawHeight)
-    } catch {
-      toast.error('Failed to process the selected image.')
-      return null
-    }
-
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((value) => resolve(value), 'image/jpeg', 0.92)
-    })
-    if (!blob) return null
-    return new File([blob], `avatar-${Date.now()}.jpg`, { type: 'image/jpeg' })
-  }
-
-  const clampCropOffset = (value: number) => Math.max(-160, Math.min(160, value))
-
-  const handleCropPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!avatarCropSource) return
-    cropDragRef.current = {
-      active: true,
-      startX: event.clientX,
-      startY: event.clientY,
-      initialX: avatarCropX,
-      initialY: avatarCropY,
-    }
-    setIsDraggingCrop(true)
-  }
-
-  const handleCropPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!cropDragRef.current.active) return
-    const dx = event.clientX - cropDragRef.current.startX
-    const dy = event.clientY - cropDragRef.current.startY
-    setAvatarCropX(clampCropOffset(cropDragRef.current.initialX + dx))
-    setAvatarCropY(clampCropOffset(cropDragRef.current.initialY + dy))
-  }
-
-  const handleCropPointerUp = () => {
-    if (!cropDragRef.current.active) return
-    cropDragRef.current.active = false
-    setIsDraggingCrop(false)
-  }
-
-  // Fix: mirror in-app Back destinations without losing the cart or selected order.
-  useNativeBack(() => {
-    if (activeView === 'checkout') { setActiveView('cart'); return true }
-    if (activeView === 'order-detail') { setSelectedOrder(null); setActiveView(backView); return true }
-    if (activeView === 'edit-address') { setActiveView(backAddressView); return true }
-    if (activeView === 'purchase-request-detail') { setSelectedOrder(null); setActiveView('purchase-requests'); return true }
-    if (activeView === 'track') { setActiveView('orders'); return true }
-    if (activeView !== 'home') { setActiveView('home'); return true }
-    return false
+  const {
+    avatarPreviewUrl,
+    createCroppedAvatarFile,
+    handleAvatarUpload,
+    handleCropPointerDown,
+    handleCropPointerMove,
+    handleCropPointerUp,
+    openAvatarCropDialog,
+    saveProfile,
+  } = useCustomerProfileAvatar({
+    activeView,
+    avatarCropSource,
+    avatarCropX,
+    avatarCropY,
+    avatarCropZoom,
+    backAddressView,
+    backView,
+    cropDragRef,
+    customerId,
+    loadCustomerProfile,
+    profileAvatar,
+    profileAvatarFile,
+    profileEmail,
+    profileFirstName,
+    profileLastName,
+    profileMiddleName,
+    profilePhone,
+    profileSuffix,
+    setActiveView,
+    setAvatarCropFile,
+    setAvatarCropSource,
+    setAvatarCropX,
+    setAvatarCropY,
+    setAvatarCropZoom,
+    setIsAvatarCropDialogOpen,
+    setIsDraggingCrop,
+    setIsSavingProfile,
+    setProfileAvatar,
+    setProfileAvatarFile,
+    setProfileEmail,
+    setProfileFirstName,
+    setProfileLastName,
+    setProfileMiddleName,
+    setProfileName,
+    setProfilePhone,
+    setProfileSuffix,
+    setSelectedOrder,
+    setShippingName,
+    setShippingPhone,
+    setUser,
+    user,
   })
 
   return (

@@ -8,3 +8,8 @@ class CoreConfig(AppConfig):
     def ready(self) -> None:
         # Added: register stock-level transition alerts for every inventory write path.
         from . import inventory_signals  # noqa: F401
+
+        # Advance the cross-device sync stamps whenever watched records change.
+        from .sync_stamps import register_signals
+
+        register_signals()

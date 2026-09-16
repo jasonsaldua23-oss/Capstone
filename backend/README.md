@@ -38,7 +38,7 @@ python manage.py runserver 0.0.0.0:8000
 - `DELETE /api/vehicles/:id`
 - `GET|POST|PUT /api/drivers`
 - `GET /api/dashboard/stats`
-- `GET|POST|PATCH /api/feedback`
+- `GET|POST /api/feedback`
 - `GET|PATCH /api/notifications`
 - `GET|POST|PATCH /api/orders`
 - `GET /api/orders/:id`

@@ -131,6 +131,13 @@ export function FeedbackView() {
   const avgRating = rated.length > 0
     ? rated.reduce((sum, item) => sum + item.rating, 0) / rated.length
     : 0
+  // Added: rating bands make the feedback summary useful even when the average hides mixed scores.
+  const ratingBandRate = (minimum: number, maximum: number) => rated.length > 0
+    ? Math.round((rated.filter((item) => item.rating >= minimum && item.rating <= maximum).length / rated.length) * 100)
+    : 0
+  const positiveFeedbackRate = ratingBandRate(4, 5)
+  const neutralFeedbackRate = ratingBandRate(3, 3)
+  const negativeFeedbackRate = ratingBandRate(1, 2)
   const ratingDistribution = [5, 4, 3, 2, 1].map((score) => ({
     label: `${score} Star${score > 1 ? 's' : ''}`,
     value: rated.filter((item) => item.rating === score).length,
@@ -205,7 +212,7 @@ export function FeedbackView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -239,8 +246,50 @@ export function FeedbackView() {
                 <CircleCheck className="h-5 w-5 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Response Rate</p>
+                <p className="text-sm text-gray-500">Participation Rate</p>
                 <p className="text-3xl font-bold">{responseRate}%</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-md bg-emerald-50 flex items-center justify-center">
+                <CircleCheck className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Positive Ratings</p>
+                <p className="text-3xl font-bold">{positiveFeedbackRate}%</p>
+                <p className="text-xs text-gray-400">4–5 stars</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-md bg-amber-50 flex items-center justify-center">
+                <BarChart3 className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Neutral Ratings</p>
+                <p className="text-3xl font-bold">{neutralFeedbackRate}%</p>
+                <p className="text-xs text-gray-400">3 stars</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-md bg-rose-50 flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5 text-rose-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Negative Ratings</p>
+                <p className="text-3xl font-bold">{negativeFeedbackRate}%</p>
+                <p className="text-xs text-gray-400">1–2 stars</p>
               </div>
             </div>
           </CardContent>

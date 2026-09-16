@@ -825,7 +825,7 @@ export function AdminPortal() {
     const refreshNotifications = () => {
       if (document.visibilityState === 'visible') void fetchNotifications({ silent: true })
     }
-    const intervalId = window.setInterval(refreshNotifications, 15000)
+    const intervalId = window.setInterval(refreshNotifications, 60000)
     window.addEventListener('focus', refreshNotifications)
 
     return () => {
@@ -837,7 +837,9 @@ export function AdminPortal() {
   useEffect(() => {
     const unsubscribe = subscribeDataSync((message) => {
       const shouldRefreshNotifications = message.scopes.some((scope) =>
-        ['inventory', 'products', 'stock-batches', 'orders', 'trips', 'replacements', 'warehouses'].includes(scope)
+        // 'notifications' covers alerts raised on another device, which no
+        // data-scope change of this portal's own would announce.
+        ['notifications', 'inventory', 'products', 'stock-batches', 'orders', 'trips', 'replacements', 'warehouses'].includes(scope)
       )
       if (shouldRefreshNotifications) {
         void fetchNotifications({ silent: true })

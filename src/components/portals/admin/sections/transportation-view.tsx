@@ -239,7 +239,8 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     }
   }, [trips])
 
-  const activeTripsCount = trips.filter((trip) => ['IN_PROGRESS', 'PLANNED'].includes(normalizeTripStatus(trip?.status))).length
+  // Fix: only trips that have started belong in the Active Trips metric.
+  const activeTripsCount = trips.filter((trip) => normalizeTripStatus(trip?.status) === 'IN_PROGRESS').length
   const driversOnDutyCount = drivers.filter((driver) => driver?.isActive !== false).length
   const maintenanceCount = vehicles.filter((vehicle) => String(vehicle?.status).toUpperCase().includes('MAINTENANCE')).length
   const totalTripsPages = Math.max(1, Math.ceil(trips.length / tripsPageSize))

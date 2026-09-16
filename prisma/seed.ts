@@ -474,7 +474,6 @@ async function main() {
       subject: 'Excellent Delivery Service',
       message: 'The delivery was on time and the driver was very professional. Great experience!',
       rating: 5,
-      status: 'CLOSED',
     }
   })
 

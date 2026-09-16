@@ -1053,3 +1053,22 @@ class BottleReturnLine(models.Model):
         db_table = "BottleReturnLine"
         verbose_name = "Bottle Return Line"
         verbose_name_plural = "Bottle Return Lines"
+
+
+class SyncStamp(models.Model):
+    """Monotonic per-scope revision powering cross-device portal synchronization.
+
+    The portals already share a client-side refresh bus, but it is built on
+    BroadcastChannel/localStorage and so never crosses a device boundary. One row
+    per scope lets any device detect "something in this scope changed" with a
+    single indexed read, instead of re-fetching whole collections on a timer.
+    """
+
+    scope = models.CharField(primary_key=True, max_length=40)
+    revision = models.BigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "SyncStamp"
+        verbose_name = "Sync Stamp"
+        verbose_name_plural = "Sync Stamps"

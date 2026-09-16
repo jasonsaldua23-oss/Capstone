@@ -641,9 +641,9 @@ class MixedCaseApiTests(MixedCaseFixtureMixin, TestCase):
         self.assertEqual(len(first["order"]["items"][0]["components"]), 2)
         created_order = Order.objects.get(request_id=payload["requestId"])
         self.assertEqual(created_order.status, OrderStatus.PENDING)
-        # Checkout records a pending request only; stock is reserved later from
-        # the latest inventory state when warehouse staff approve the request.
-        self.assertFalse(
+        # Checkout reserves component stock immediately while preserving the
+        # idempotent response for a retried request ID.
+        self.assertTrue(
             InventoryReservation.objects.filter(order_item__order=created_order).exists()
         )
 

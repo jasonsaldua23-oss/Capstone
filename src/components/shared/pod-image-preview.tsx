@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -12,6 +12,18 @@ type PodImagePreviewProps = {
   caption?: string
 }
 
+function isProtectedMediaUrl(src: string): boolean {
+  if (src.startsWith('/api/media/')) return true
+  if (typeof window === 'undefined') return false
+
+  try {
+    const url = new URL(src, window.location.origin)
+    return url.origin === window.location.origin && url.pathname.startsWith('/api/media/')
+  } catch {
+    return false
+  }
+}
+
 export function PodImagePreview({
   src,
   alt = 'Proof of delivery',
@@ -21,14 +33,57 @@ export function PodImagePreview({
   const [isOpen, setIsOpen] = useState(false)
   const [failedSource, setFailedSource] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+  const [resolvedSource, setResolvedSource] = useState<{ original: string; display: string } | null>(null)
   // A changed source is a fresh file, so failure state is derived from its URL.
   const failed = failedSource === src
+  const protectedMedia = isProtectedMediaUrl(src)
+  const displaySource = resolvedSource?.original === src ? resolvedSource.display : protectedMedia ? null : src
+
+  useEffect(() => {
+    setFailedSource(null)
+    setResolvedSource(null)
+    if (!isProtectedMediaUrl(src)) return
+
+    const controller = new AbortController()
+    let objectUrl: string | null = null
+
+    async function loadProtectedMedia() {
+      try {
+        // Fix: fetch protected evidence through the tab-auth interceptor so Admin and
+        // Warehouse tabs send their own Bearer token instead of an unrelated cookie.
+        const response = await fetch(src, {
+          cache: 'no-store',
+          credentials: 'include',
+          signal: controller.signal,
+        })
+        if (!response.ok) throw new Error(`Protected photo request failed with ${response.status}`)
+
+        objectUrl = URL.createObjectURL(await response.blob())
+        setResolvedSource({ original: src, display: objectUrl })
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setFailedSource(src)
+      }
+    }
+
+    void loadProtectedMedia()
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [attempt, src])
 
   // Missing files and transient failures stay actionable without substituting fake proof.
   if (failed) return <div className={className} role="alert">
     <p className="text-sm text-slate-600">POD photo could not be loaded. If retry fails, contact staff to check the stored photo.</p>
     <button type="button" className="mt-2 text-sm text-sky-700" onClick={() => { setAttempt((value) => value + 1); setFailedSource(null) }}>Retry photo</button>
   </div>
+
+  if (!displaySource) return (
+    <div className={className || 'h-64 w-full rounded-xl border border-slate-200 bg-slate-50'} role="status">
+      <p className="p-3 text-sm text-slate-600">Loading photo...</p>
+    </div>
+  )
 
   return (
     <>
@@ -41,7 +96,7 @@ export function PodImagePreview({
         {/* Added: clicking a compact thumbnail opens an in-page enlarged preview. */}
         <img
           key={`${src}-${attempt}`}
-          src={src}
+          src={displaySource}
           onError={() => setFailedSource(src)}
           alt={alt}
           className={className || 'h-64 w-full rounded-xl border border-slate-200 bg-slate-50 object-contain'}
@@ -77,7 +132,7 @@ export function PodImagePreview({
           >
             <X className="h-4.5 w-4.5" />
           </button>
-          <img src={src} alt={alt} className="max-h-[88vh] w-full rounded-md object-contain" />
+          <img src={displaySource} alt={alt} className="max-h-[88vh] w-full rounded-md object-contain" />
         </DialogContent>
       </Dialog>
     </>
