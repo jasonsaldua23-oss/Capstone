@@ -188,10 +188,12 @@ export function acceptTruckFix(previous: TruckMotion | undefined, target: Driver
   const desiredHeading = fixHeading ?? movementHeading ?? previous.desiredHeading
   if (previous.mode === 'planar') {
     const local = toLocalMeters(previous.origin, fixPoint)
+    // Each axis covers only its share of the ground speed, so the reported speed
+    // is withheld here and each model measures its own from the positions it sees.
     return {
       ...previous,
-      east: acceptFix(previous.east, { progressMeters: local.east, atMs: ctx.nowMs, reportedSpeedMps }, NO_PREDICT),
-      north: acceptFix(previous.north, { progressMeters: local.north, atMs: ctx.nowMs, reportedSpeedMps }, NO_PREDICT),
+      east: acceptFix(previous.east, { progressMeters: local.east, atMs: ctx.nowMs, reportedSpeedMps: null }, NO_PREDICT),
+      north: acceptFix(previous.north, { progressMeters: local.north, atMs: ctx.nowMs, reportedSpeedMps: null }, NO_PREDICT),
       fixSignature: signature, fixPoint, desiredHeading,
     }
   }

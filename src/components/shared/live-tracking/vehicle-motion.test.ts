@@ -285,6 +285,30 @@ test('a fix arriving after the loop had stopped does not replay the idle time as
   assert.ok(state.displayedMeters > 102 && state.displayedMeters < 112)
 })
 
+test('without prediction the icon keeps moving between sparse fixes instead of darting', () => {
+  // What the admin and warehouse maps get: a position every 5 seconds, no prediction.
+  const noPredict = { predict: false }
+  let state = createMotionState({ progressMeters: 0, atMs: 0, reportedSpeedMps: 11 })
+  const frames: Frame[] = []
+  let nextFix = 5000
+  for (let t = FRAME_MS; t <= 30_000; t += FRAME_MS) {
+    if (t >= nextFix) {
+      state = acceptFix(state, { progressMeters: (11 * nextFix) / 1000, atMs: nextFix, reportedSpeedMps: 11 }, noPredict)
+      nextFix += 5000
+    }
+    state = stepMotion(state, t, noPredict)
+    frames.push({ t, truth: (11 * t) / 1000, shown: state.displayedMeters, velocity: state.displayedVelocityMps })
+  }
+  const settledFrames = frames.filter((f) => f.t > 12_000)
+  const movingShare = settledFrames.filter((f) => f.velocity > 0.5).length / settledFrames.length
+  console.log(`    5 s fixes, no prediction: moving in ${Math.round(100 * movingShare)}% of frames, max ${fmt(Math.max(...settledFrames.map((f) => f.velocity)))} m/s for a vehicle doing 11 m/s`)
+  // It fills the gap rather than sprinting and waiting...
+  assert.ok(movingShare > 0.9, `only moved in ${Math.round(100 * movingShare)}% of frames`)
+  assert.ok(maxVelocityJump(settledFrames) < 0.2)
+  // ...and never runs away: without prediction it must stay behind the last report.
+  for (const f of settledFrames) assert.ok(f.shown <= f.truth + 0.5, `ran ahead of the reported position at t=${f.t}`)
+})
+
 test('extrapolation caps at the window and its speed ramps to zero smoothly', () => {
   assert.equal(extrapolatedMeters(10, 0), 0)
   assert.equal(extrapolatedMeters(MOTION_STATIONARY_SPEED_MPS / 2, 5000), 0)
