@@ -6,6 +6,7 @@ import { useAuth } from '@/app/page'
 import { useNativeBack } from '@/hooks/use-native-back'
 import { NativeOfflineNotice } from '@/components/shared/native-offline-notice'
 import { useNativeOffline } from '@/hooks/use-native-offline'
+import { subscribeDataSync } from '@/lib/data-sync'
 import { toast } from 'sonner'
 import { HistoryView } from './sections/history/history-view'
 import { HomeView } from './sections/home/home-view'
@@ -57,9 +58,13 @@ export function DriverPortal() {
       } catch { /* Preserve the last known count during a temporary outage. */ }
     }
     void refreshUnread()
-    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshUnread() }, 15000)
+    // A notification raised on any device reaches the badge as soon as it is stored.
+    const unsubscribeUnread = subscribeDataSync(({ scopes }) => {
+      if (scopes.includes('notifications')) void refreshUnread()
+    })
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshUnread() }, 60000)
     window.addEventListener('focus', refreshUnread)
-    return () => { disposed = true; window.clearInterval(interval); window.removeEventListener('focus', refreshUnread) }
+    return () => { disposed = true; unsubscribeUnread(); window.clearInterval(interval); window.removeEventListener('focus', refreshUnread) }
   }, [user?.id])
   // Fix: notification navigation affects rendering, so keep it in state.
   const [notificationInitialView, setNotificationInitialView] = useState<'real-notifications' | 'menu'>('menu')

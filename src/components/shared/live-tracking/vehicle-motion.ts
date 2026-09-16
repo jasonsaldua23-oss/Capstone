@@ -1,0 +1,456 @@
+/**
+ * Smooth motion for the vehicle icon between GPS fixes.
+ *
+ * A phone reports a fix about once a second, while the map draws sixty frames in
+ * that time. The icon therefore has to be *predicted* between fixes, and each
+ * fix then tells us how wrong the prediction was. The previous approach restarted
+ * a linear interpolation at every fix, which made the icon's speed jump each
+ * second (surging when it was behind, dragging when ahead), turned prediction off
+ * below walking pace (so slow crawls became stop-and-go), and snapped the heading
+ * from one road segment to the next.
+ *
+ * This model keeps two things continuous - velocity and heading - by separating
+ * the motion into:
+ *
+ *  - a **prediction**: the last fix advanced by a low-pass-filtered ground speed,
+ *    eased to a stop if fixes stop arriving; and
+ *  - an **error offset**: the difference between what is drawn and the
+ *    prediction. When a fix arrives the offset absorbs the jump so the drawn
+ *    position does not move, then it is worked off at an acceleration a vehicle
+ *    could plausibly have - the icon gently speeds up or slows down to converge
+ *    instead of jumping.
+ *
+ * Everything here is pure and in metres along the route (or a local plane when
+ * off-route), so it can be tested without a browser.
+ */
+
+/** Longest a vehicle is advanced on prediction alone before it is eased to a stop. */
+export const MOTION_MAX_EXTRAPOLATION_MS = 3500
+/** The final part of that window over which predicted speed ramps down to zero. */
+export const MOTION_EXTRAPOLATION_RAMP_MS = 1500
+/** How long after a fix the vehicle's measured acceleration keeps shaping the prediction. */
+export const MOTION_ACCEL_HORIZON_MS = 1000
+/** Plausible bounds on that acceleration; anything beyond is a bad Doppler reading. */
+export const MOTION_MAX_ACCEL_MPS2 = 4
+export const MOTION_MAX_DECEL_MPS2 = 6
+/** Time constant of the final exponential approach once an error is nearly worked off. */
+export const MOTION_CORRECTION_TIME_S = 0.8
+/** Gentlest acceleration used to work off an error; noise-sized errors use exactly this. */
+export const MOTION_MIN_CORRECTION_ACCEL_MPS2 = 3
+/** Larger errors accelerate harder so that any correction completes in about this long. */
+export const MOTION_MAX_CORRECTION_TIME_S = 3
+/** ...and the icon is never drawn moving more than this much faster than the vehicle
+ * itself, so a big correction reads as hurrying rather than as being fired down the road. */
+export const MOTION_MAX_CATCHUP_SPEED_MPS = 8
+/** A speed change carried over from a fix (the vehicle braked or pulled away) is worked off within about this long. */
+export const MOTION_CARRIED_SPEED_TIME_S = 1
+/** Beyond this the prediction is simply wrong (reroute, tunnel exit); jump rather than glide. */
+export const MOTION_SNAP_ERROR_METERS = 2000
+/** While a small error is behind the icon it slows to this share of the predicted speed, never to a halt. */
+export const MOTION_MIN_SPEED_FRACTION = 0.4
+/** Time constant of the speed filter when the phone reports a (Doppler) speed. Short: that reading is already steady, and braking must show promptly. */
+export const MOTION_SPEED_FILTER_TIME_S = 0.4
+/** ...and when speed can only be measured from position deltas, which carry the position noise. */
+export const MOTION_MEASURED_SPEED_FILTER_TIME_S = 1.2
+/** Below this the vehicle is treated as parked: no prediction, heading held. */
+export const MOTION_STATIONARY_SPEED_MPS = 0.3
+/** A correction smaller than this never drives the icon backwards; larger ones may. */
+export const MOTION_REVERSE_ERROR_METERS = 25
+/** Share of the speed estimate taken from the phone's reported (Doppler) speed. */
+export const MOTION_REPORTED_SPEED_WEIGHT = 0.85
+/** While parked, fixes closer than this to the drawn position are treated as no movement. */
+export const MOTION_PARKED_DEADBAND_METERS = 6
+/** A parked phone whose Doppler speed is zero is believed unless the position moves faster than this. */
+export const MOTION_PARKED_TRUST_MPS = 5
+/** Heading turn-rate limits, degrees per second, scaling with speed between the two. */
+export const MOTION_TURN_RATE_MIN_DPS = 45
+export const MOTION_TURN_RATE_MAX_DPS = 240
+export const MOTION_TURN_RATE_PER_MPS = 20
+/** Time constant for the heading to settle onto the road tangent. */
+export const MOTION_HEADING_TIME_S = 0.18
+/** Frame gaps longer than this (tab switch, jank) are stepped as this instead. */
+const MAX_FRAME_S = 0.1
+/** A gap since the last frame longer than this means the loop was not running. */
+const STALE_FRAME_MS = 50
+/** An offset this small is finished; it is zeroed so the loop can stop. */
+const SETTLE_EPSILON = 0.02
+
+export type VehicleFix = {
+  /** Distance along the route (route mode) or an axis in metres (planar mode). */
+  progressMeters: number
+  atMs: number
+  reportedSpeedMps?: number | null
+}
+
+export type VehicleMotionState = {
+  fixProgressMeters: number
+  fixAtMs: number
+  /** Filtered ground speed used for prediction. */
+  speedMps: number
+  /** Change in Doppler speed between the last two fixes; lets the prediction brake and pull away with the vehicle. */
+  accelMps2: number
+  reportedSpeedMps: number | null
+  /** Drawn position minus predicted position; worked off toward zero. */
+  offsetMeters: number
+  offsetVelocityMps: number
+  /** Acceleration budget for the correction in progress. */
+  correctionAccelMps2: number
+  /** The error was large enough that the icon is being driven backwards to fix it. */
+  reversing: boolean
+  displayedMeters: number
+  displayedVelocityMps: number
+  lastStepAtMs: number
+}
+
+export type MotionOptions = {
+  /** Advance on prediction between fixes. Off for maps that only show reported positions. */
+  predict: boolean
+}
+
+export function createMotionState(fix: VehicleFix): VehicleMotionState {
+  const speed = finiteSpeed(fix.reportedSpeedMps) ?? 0
+  return {
+    fixProgressMeters: fix.progressMeters,
+    fixAtMs: fix.atMs,
+    speedMps: speed,
+    accelMps2: 0,
+    reportedSpeedMps: finiteSpeed(fix.reportedSpeedMps),
+    offsetMeters: 0,
+    offsetVelocityMps: 0,
+    correctionAccelMps2: MOTION_MIN_CORRECTION_ACCEL_MPS2,
+    reversing: false,
+    displayedMeters: fix.progressMeters,
+    displayedVelocityMps: 0,
+    lastStepAtMs: fix.atMs,
+  }
+}
+
+function finiteSpeed(value: number | null | undefined): number | null {
+  // Number(null) is 0, which would read as "parked" rather than "no reading".
+  if (value === null || value === undefined) return null
+  const speed = Number(value)
+  // iOS reports -1 when the speed is unknown; treat any negative as "no reading".
+  return Number.isFinite(speed) && speed >= 0 ? speed : null
+}
+
+const FULL_SPEED_MS = MOTION_MAX_EXTRAPOLATION_MS - MOTION_EXTRAPOLATION_RAMP_MS
+
+/**
+ * The prediction after a fix runs in three phases: the vehicle's acceleration is
+ * applied for a short horizon (a braking van keeps braking, one pulling away keeps
+ * gaining), then the speed holds, then it ramps to zero if no fix has come.
+ * This gives the end of the acceleration phase within `untilMs`.
+ */
+function accelPhase(speedMps: number, accelMps2: number, untilMs: number): { endMs: number; endSpeed: number } {
+  if (accelMps2 === 0) return { endMs: 0, endSpeed: speedMps }
+  let endMs = Math.min(untilMs, MOTION_ACCEL_HORIZON_MS)
+  if (accelMps2 < 0) endMs = Math.min(endMs, (speedMps / -accelMps2) * 1000)
+  return { endMs, endSpeed: Math.max(0, speedMps + (accelMps2 * endMs) / 1000) }
+}
+
+/** Distance the prediction has advanced `elapsedMs` after a fix, easing to a stop at the cap. */
+export function extrapolatedMeters(speedMps: number, elapsedMs: number, accelMps2 = 0): number {
+  if (speedMps < MOTION_STATIONARY_SPEED_MPS || elapsedMs <= 0) return 0
+  const t = Math.min(elapsedMs, MOTION_MAX_EXTRAPOLATION_MS)
+  const { endMs, endSpeed } = accelPhase(speedMps, accelMps2, Math.min(t, FULL_SPEED_MS))
+  const accelS = endMs / 1000
+  let meters = speedMps * accelS + (accelMps2 * accelS * accelS) / 2
+  meters += (endSpeed * (Math.min(t, FULL_SPEED_MS) - endMs)) / 1000
+  if (t > FULL_SPEED_MS) {
+    // Integral of a speed that falls linearly from endSpeed to 0 across the ramp.
+    const intoRamp = t - FULL_SPEED_MS
+    meters += (endSpeed * intoRamp * (1 - intoRamp / (2 * MOTION_EXTRAPOLATION_RAMP_MS))) / 1000
+  }
+  return meters
+}
+
+/** Speed the prediction is moving at `elapsedMs` after a fix (the derivative of the above). */
+export function extrapolatedSpeedMps(speedMps: number, elapsedMs: number, accelMps2 = 0): number {
+  if (speedMps < MOTION_STATIONARY_SPEED_MPS || elapsedMs < 0) return 0
+  if (elapsedMs >= MOTION_MAX_EXTRAPOLATION_MS) return 0
+  const { endMs, endSpeed } = accelPhase(speedMps, accelMps2, Math.min(elapsedMs, FULL_SPEED_MS))
+  if (elapsedMs <= endMs) return Math.max(0, speedMps + (accelMps2 * elapsedMs) / 1000)
+  if (elapsedMs <= FULL_SPEED_MS) return endSpeed
+  return endSpeed * (1 - (elapsedMs - FULL_SPEED_MS) / MOTION_EXTRAPOLATION_RAMP_MS)
+}
+
+function predictedMeters(state: VehicleMotionState, nowMs: number, options: MotionOptions): number {
+  if (!options.predict) return state.fixProgressMeters
+  return state.fixProgressMeters + extrapolatedMeters(state.speedMps, nowMs - state.fixAtMs, state.accelMps2)
+}
+
+function predictedSpeed(state: VehicleMotionState, nowMs: number, options: MotionOptions): number {
+  if (!options.predict) return 0
+  return extrapolatedSpeedMps(state.speedMps, nowMs - state.fixAtMs, state.accelMps2)
+}
+
+/** The frame time the drawn position belongs to, for folding a fix in without a jump. */
+function anchorTimeFor(state: VehicleMotionState, fix: VehicleFix): number {
+  return fix.atMs - state.lastStepAtMs > STALE_FRAME_MS ? fix.atMs : state.lastStepAtMs
+}
+
+/** Prediction at a time that may precede the fix (linear backwards) or follow it (extrapolated). */
+function predictedMetersAt(state: VehicleMotionState, atMs: number, options: MotionOptions): number {
+  if (!options.predict) return state.fixProgressMeters
+  if (atMs >= state.fixAtMs) return predictedMeters(state, atMs, options)
+  const speed = state.speedMps < MOTION_STATIONARY_SPEED_MPS ? 0 : state.speedMps
+  return state.fixProgressMeters - (speed * (state.fixAtMs - atMs)) / 1000
+}
+
+/** Acceleration that works off `errorMeters` from rest in about MOTION_MAX_CORRECTION_TIME_S. */
+function correctionAccelFor(errorMeters: number): number {
+  const t = MOTION_MAX_CORRECTION_TIME_S
+  return Math.max(MOTION_MIN_CORRECTION_ACCEL_MPS2, (4 * Math.abs(errorMeters)) / (t * t))
+}
+
+/**
+ * Fold a new fix into the model without moving the drawn icon.
+ *
+ * The speed estimate blends the GPS-reported speed with the distance covered
+ * since the previous fix, then low-passes the result so one noisy fix cannot make
+ * the icon lurch. The prediction re-anchors on the new fix; whatever that changes
+ * about "where the icon should be right now" goes into the error offset, and the
+ * offset velocity is set so the drawn velocity is unchanged this frame.
+ */
+export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: MotionOptions): VehicleMotionState {
+  const dtS = (fix.atMs - state.fixAtMs) / 1000
+  const reported = finiteSpeed(fix.reportedSpeedMps)
+  // Distance over time is only meaningful once fixes are far enough apart, and
+  // even then it inherits the position noise: 3 m of error on a 1 s gap is 3 m/s.
+  // The phone's Doppler speed is far steadier, so it leads when available.
+  const measuredRaw = dtS >= 0.25 ? Math.max(0, (fix.progressMeters - state.fixProgressMeters) / dtS) : null
+  const jumpMeters = fix.progressMeters - state.displayedMeters
+
+  // A parked vehicle's fixes wander by metres per second though nothing moves.
+  // Doppler says so directly; without it, staying inside the deadband says the
+  // same. Such a fix contributes no speed, and if it is close it is held at the
+  // drawn position so the icon does not fidget.
+  const wasParked = state.speedMps < MOTION_STATIONARY_SPEED_MPS
+  const insideDeadband = Math.abs(jumpMeters) < MOTION_PARKED_DEADBAND_METERS
+  const stationary = wasParked && (
+    reported === null
+      ? insideDeadband
+      : reported < MOTION_STATIONARY_SPEED_MPS && (measuredRaw ?? 0) < MOTION_PARKED_TRUST_MPS
+  )
+  const measured = stationary ? 0 : measuredRaw
+  const raw = reported !== null && measured !== null
+    ? reported * MOTION_REPORTED_SPEED_WEIGHT + measured * (1 - MOTION_REPORTED_SPEED_WEIGHT)
+    : reported ?? measured ?? state.speedMps
+  const filterTimeS = reported !== null ? MOTION_SPEED_FILTER_TIME_S : MOTION_MEASURED_SPEED_FILTER_TIME_S
+  const alpha = dtS > 0 ? 1 - Math.exp(-dtS / filterTimeS) : 1
+  const speedMps = Math.max(0, state.speedMps + (raw - state.speedMps) * alpha)
+  // Two Doppler readings give the vehicle's acceleration, which the prediction
+  // carries forward so that braking and pulling away are followed rather than
+  // discovered a fix late. Position-derived speeds are far too noisy for this.
+  const accelMps2 = reported !== null && state.reportedSpeedMps !== null && dtS >= 0.5 && !stationary
+    ? Math.max(-MOTION_MAX_DECEL_MPS2, Math.min(MOTION_MAX_ACCEL_MPS2, (reported - state.reportedSpeedMps) / dtS))
+    : 0
+  // Holding freezes the anchor under the icon, so only do it when the icon is
+  // still enough to stop within half a metre of where it is.
+  const stoppingMeters = (state.offsetVelocityMps * state.offsetVelocityMps) / (2 * state.correctionAccelMps2)
+  const held = stationary && insideDeadband && stoppingMeters < 0.5
+  const progressMeters = held ? state.displayedMeters : fix.progressMeters
+
+  const next: VehicleMotionState = {
+    ...state,
+    fixProgressMeters: progressMeters,
+    fixAtMs: fix.atMs,
+    speedMps,
+    accelMps2,
+    reportedSpeedMps: reported,
+  }
+  // Re-anchor without a visible jump. The drawn position is as of the last frame,
+  // so compare it with where the new prediction says the vehicle was *then*; the
+  // next frame then advances both together. If frames stopped a while ago (the
+  // icon had settled, or the browser stalled) the icon has not moved since, and
+  // anchoring at the fix keeps the gap from being replayed as a leap.
+  const anchorMs = anchorTimeFor(state, fix)
+  next.lastStepAtMs = anchorMs
+  next.offsetMeters = state.displayedMeters - predictedMetersAt(next, anchorMs, options)
+  next.offsetVelocityMps = state.displayedVelocityMps - predictedSpeed(next, Math.max(fix.atMs, anchorMs), options)
+  if (Math.abs(next.offsetMeters) > MOTION_SNAP_ERROR_METERS) {
+    next.offsetMeters = 0
+    next.offsetVelocityMps = 0
+    next.displayedMeters = predictedMetersAt(next, anchorMs, options)
+    next.displayedVelocityMps = predictedSpeed(next, Math.max(fix.atMs, anchorMs), options)
+  }
+  // A correction already under way keeps its budget: fixes keep arriving while
+  // it runs and each one re-measures roughly the same shrinking error, which
+  // must not be mistaken for a smaller job and braked into an overshoot. And when
+  // the vehicle's own speed changed, the icon must follow at a comparable rate
+  // or it sails on past a braking van.
+  const underWay = Math.abs(state.offsetVelocityMps) > MOTION_STATIONARY_SPEED_MPS
+  next.correctionAccelMps2 = Math.max(
+    correctionAccelFor(next.offsetMeters),
+    underWay ? state.correctionAccelMps2 : 0,
+    Math.abs(next.offsetVelocityMps) / MOTION_CARRIED_SPEED_TIME_S
+  )
+  // Backing the icon up is only ever worth it for a large error, and once begun
+  // it runs to completion rather than stalling as the error dips below the line.
+  next.reversing = next.offsetMeters > 0 && (state.reversing || next.offsetMeters >= MOTION_REVERSE_ERROR_METERS)
+  return next
+}
+
+/**
+ * One frame of working the error offset toward zero.
+ *
+ * The velocity heads for a target that is the smaller of an exponential approach
+ * (so the last metres ease in) and the fastest speed from which the icon can
+ * still stop at zero under the acceleration budget (so it never overshoots), and
+ * it may only change by that budget per frame - never a jump.
+ */
+function stepCorrection(
+  offsetMeters: number,
+  offsetVelocityMps: number,
+  accelMps2: number,
+  dtS: number,
+  maxSpeedMps: number
+): [number, number] {
+  const distance = Math.abs(offsetMeters)
+  const stoppingSpeed = Math.sqrt(2 * accelMps2 * distance)
+  const easingSpeed = distance / MOTION_CORRECTION_TIME_S
+  const desired = -Math.sign(offsetMeters) * Math.min(stoppingSpeed, easingSpeed, maxSpeedMps)
+  const maxChange = accelMps2 * dtS
+  const change = Math.max(-maxChange, Math.min(maxChange, desired - offsetVelocityMps))
+  const velocity = offsetVelocityMps + change
+  // Carried velocity may cross zero; the overshoot is at most v²/2a - centimetres -
+  // and the controller turns it around. Clamping at zero instead would move the
+  // icon by that much within one frame, which reads as a flicker in velocity.
+  return [offsetMeters + velocity * dtS, velocity]
+}
+
+/** Advance the drawn position to `nowMs`. Call once per animation frame. */
+export function stepMotion(state: VehicleMotionState, nowMs: number, options: MotionOptions): VehicleMotionState {
+  const dtS = Math.min(MAX_FRAME_S, Math.max(0, (nowMs - state.lastStepAtMs) / 1000))
+  if (dtS === 0) return state
+  const target = predictedMeters(state, nowMs, options)
+  const targetSpeed = predictedSpeed(state, nowMs, options)
+  // Whatever the error, the icon may only be drawn moving a little faster than the
+  // vehicle is. Where there is no prediction the correction *is* the motion, so the
+  // allowance has to cover the vehicle's own speed as well.
+  const catchUpCeiling = Math.max(1, state.speedMps + MOTION_MAX_CATCHUP_SPEED_MPS - targetSpeed)
+  let [offsetMeters, offsetVelocityMps] = stepCorrection(
+    state.offsetMeters, state.offsetVelocityMps, state.correctionAccelMps2, dtS, catchUpCeiling
+  )
+  // A vehicle following a road does not reverse to fix a few metres of error; it
+  // slows and lets the prediction catch up. Bounding the pull to a share of the
+  // prediction's own speed keeps the icon rolling forward, just slower. The bound
+  // is approached within the acceleration budget like everything else, so a
+  // vehicle pulling away under a backing-up icon turns it around smoothly. Real
+  // backtracking shows up as a large error and is allowed through, and a parked
+  // icon may glide either way.
+  const moving = targetSpeed >= MOTION_STATIONARY_SPEED_MPS
+  const reversing = state.reversing && offsetMeters > 0
+  if (moving && !reversing) {
+    const slowestVelocity = -(1 - MOTION_MIN_SPEED_FRACTION) * targetSpeed
+    const floor = Math.min(slowestVelocity, state.offsetVelocityMps + state.correctionAccelMps2 * dtS)
+    if (offsetVelocityMps < floor) {
+      offsetVelocityMps = floor
+      offsetMeters = state.offsetMeters + offsetVelocityMps * dtS
+    }
+  }
+  // Once the correction is down to centimetres it is finished: fold what is left
+  // into the anchor so the drawn position does not move, and stop the loop.
+  let correctionAccelMps2 = state.correctionAccelMps2
+  let fixProgressMeters = state.fixProgressMeters
+  if (Math.abs(offsetMeters) < SETTLE_EPSILON && Math.abs(offsetVelocityMps) < SETTLE_EPSILON) {
+    fixProgressMeters += offsetMeters
+    offsetMeters = 0
+    offsetVelocityMps = 0
+    correctionAccelMps2 = MOTION_MIN_CORRECTION_ACCEL_MPS2
+  }
+  const displayedMeters = target + (fixProgressMeters - state.fixProgressMeters) + offsetMeters
+  const displayedVelocityMps = (displayedMeters - state.displayedMeters) / dtS
+
+  return {
+    ...state,
+    fixProgressMeters,
+    offsetMeters,
+    offsetVelocityMps,
+    correctionAccelMps2,
+    reversing,
+    displayedMeters,
+    displayedVelocityMps,
+    lastStepAtMs: nowMs,
+  }
+}
+
+/** Whether the icon is still moving or converging, i.e. frames are still needed. */
+export function isMotionSettled(state: VehicleMotionState, nowMs: number, options: MotionOptions): boolean {
+  if (state.offsetMeters !== 0 || state.offsetVelocityMps !== 0) return false
+  return predictedSpeed(state, nowMs, options) < 0.01
+}
+
+/** Snap the model to a fix with no motion, for tabs that were in the background. */
+export function resetMotion(state: VehicleMotionState | undefined, fix: VehicleFix): VehicleMotionState {
+  const fresh = createMotionState(fix)
+  return state ? { ...fresh, speedMps: state.speedMps } : fresh
+}
+
+/**
+ * Re-express the model in new coordinates (a replacement route, or a switch
+ * between route and planar tracking) without moving the icon: it stays at
+ * `displayedMeters` with `displayedVelocityMps`, and the new fix's disagreement
+ * becomes an offset to work off as usual.
+ */
+export function rebaseMotion(
+  previous: VehicleMotionState,
+  fix: VehicleFix,
+  displayedMeters: number,
+  displayedVelocityMps: number,
+  options: MotionOptions
+): VehicleMotionState {
+  const anchorMs = anchorTimeFor(previous, fix)
+  const next: VehicleMotionState = {
+    ...createMotionState(fix),
+    speedMps: previous.speedMps,
+    accelMps2: previous.accelMps2,
+    displayedMeters,
+    displayedVelocityMps,
+    lastStepAtMs: anchorMs,
+  }
+  next.offsetMeters = displayedMeters - predictedMetersAt(next, anchorMs, options)
+  next.offsetVelocityMps = displayedVelocityMps - predictedSpeed(next, Math.max(fix.atMs, anchorMs), options)
+  if (Math.abs(next.offsetMeters) > MOTION_SNAP_ERROR_METERS) return resetMotion(previous, fix)
+  next.correctionAccelMps2 = Math.max(
+    correctionAccelFor(next.offsetMeters),
+    Math.abs(next.offsetVelocityMps) / MOTION_CARRIED_SPEED_TIME_S
+  )
+  next.reversing = next.offsetMeters >= MOTION_REVERSE_ERROR_METERS
+  return next
+}
+
+// ---------------------------------------------------------------------------------
+// Heading
+
+export function normalizeHeading(value: number): number {
+  return ((value % 360) + 360) % 360
+}
+
+export function shortestHeadingDelta(from: number, to: number): number {
+  return ((to - from + 540) % 360) - 180
+}
+
+/**
+ * Turn the drawn heading toward the road tangent at a rate a vehicle could
+ * actually turn: quick at speed, slow when creeping, held when parked so GPS
+ * jitter cannot spin a stationary van.
+ */
+export function stepHeading(
+  current: number | null,
+  desired: number | null,
+  speedMps: number,
+  dtS: number
+): number | null {
+  if (desired === null || !Number.isFinite(desired)) return current
+  if (current === null || !Number.isFinite(current)) return normalizeHeading(desired)
+  if (speedMps < MOTION_STATIONARY_SPEED_MPS) return current
+  const delta = shortestHeadingDelta(current, desired)
+  const maxRate = Math.min(
+    MOTION_TURN_RATE_MAX_DPS,
+    Math.max(MOTION_TURN_RATE_MIN_DPS, MOTION_TURN_RATE_MIN_DPS + MOTION_TURN_RATE_PER_MPS * speedMps)
+  )
+  const eased = delta * (1 - Math.exp(-dtS / MOTION_HEADING_TIME_S))
+  const limited = Math.sign(delta) * Math.min(Math.abs(eased), maxRate * dtS)
+  return normalizeHeading(current + limited)
+}

@@ -9,7 +9,7 @@ import {
   normalizeMapAngle,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
-import type { DriverLocation, LiveRouteLine } from './LiveTrackingMap';
+import type { DriverLocation, LiveRouteLine } from './live-tracking/types';
 
 const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 const TRUCK_BACK_ICON_URL = '/icons/aab-van-back.png';
@@ -36,6 +36,7 @@ type DropPinMarkerEntry = {
   marker: maplibregl.Marker;
   lat: number;
   lng: number;
+  popupHtml: string;
 };
 
 function escapeHtml(value: unknown) {
@@ -401,7 +402,7 @@ export default function MapLibreNavigationMap({
         const markerElement = marker.getElement();
         markerElement.setAttribute('aria-label', 'Drop point');
 
-        entry = { marker, lat: location.lat, lng: location.lng };
+        entry = { marker, lat: location.lat, lng: location.lng, popupHtml: '' };
         dropPinMarkersRef.current.set(location.id, entry);
       }
       // Fix: live truck updates rebuild `locations`; do not reset a stationary
@@ -411,7 +412,13 @@ export default function MapLibreNavigationMap({
         entry.lat = location.lat;
         entry.lng = location.lng;
       }
-      entry.marker.getPopup()?.setHTML(popupHtml(location));
+      // `locations` changes every animation frame while the truck moves; rebuilding
+      // each pin's popup DOM on every one of them was a steady per-frame cost.
+      const nextPopupHtml = popupHtml(location);
+      if (entry.popupHtml !== nextPopupHtml) {
+        entry.marker.getPopup()?.setHTML(nextPopupHtml);
+        entry.popupHtml = nextPopupHtml;
+      }
     });
     dropPinMarkersRef.current.forEach((entry, id) => {
       if (!activePinIds.has(id)) {

@@ -1,85 +1,48 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { emitDataSync } from '@/lib/data-sync'
-import { speakDriverNavigation, stopDriverNavigationSpeech } from '@/lib/native/driver-speech'
+import { stopDriverNavigationSpeech } from '@/lib/native/driver-speech'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
-import { prepareImageForUpload } from '@/lib/client-image'
-import { burnPodOverlay, formatPodOverlayLines, type PodOverlaySnapshot } from '@/lib/pod-camera-overlay'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
-import { DepositRefundRow, EmptiesChargeNote } from '@/components/shared/empties-charge-note'
+import { EmptiesChargeNote } from '@/components/shared/empties-charge-note'
 import type { AuthUser } from '@/types'
-import {
-  calculateNavigationViewportInsets,
-  projectPointOntoRoute,
-  shouldRefreshDriverRoute,
-  selectFollowedRoute,
-  type NavigationViewportInsets,
-} from '@/lib/map-navigation'
+import { calculateNavigationViewportInsets, type NavigationViewportInsets } from '@/lib/map-navigation'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
+import { DriverGpsLocation, DropPoint, mergeDropPointIntoTrip, stripPhilippinesFromAddress, TERMINAL_DROP_POINT_STATUSES, Trip } from './trip-detail-helpers'
+import { Phone, Navigation, CheckCircle, AlertCircle, Camera, ChevronLeft, Play, Flag, Loader2, Route, LocateFixed, Volume2, VolumeX, Plus, Minus } from 'lucide-react'
+import { NavInstructionsPanel, type OsrmStep } from '@/components/shared/NavInstructionsPanel'
+import { isAutomaticallyRetryableWriteStatus, waitForDriverWriteRetry } from './trip-detail-retry'
 import {
-  checkNativeCameraPermission,
-  DriverGpsLocation,
-  DropPoint,
-  isNativeCapacitorApp,
-  mergeDropPointIntoTrip,
-  openNativeAppSettings,
-  stripPhilippinesFromAddress,
-  TERMINAL_DROP_POINT_STATUSES,
-  Trip,
-} from './trip-detail-helpers'
-import {
-  Truck, Package, Home, User, LogOut, Menu, Phone, Navigation, CheckCircle, Clock, AlertCircle, Camera,
-  ChevronLeft, ChevronRight, Play, Pause, Flag, MessageSquare, Loader2, Route, CalendarClock,
-  LocateFixed, Trophy, RotateCcw, Search, Volume2, VolumeX, Plus, Minus
-} from 'lucide-react'
-
-import { formatDistance, getManeuverLabel, NavInstructionsPanel, type OsrmStep } from '@/components/shared/NavInstructionsPanel'
-import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
-import { buildOrderActionReason, DRIVER_ORDER_REASONS, OrderReasonCheckboxes } from '@/components/portals/shared/order-reason-checkboxes'
+  dropPointStatusColors,
+  formatCurrency,
+  getItemDisplayNameWithSize,
+  getItemCategoryLabel,
+  getOrderQtyWithUnitLabel,
+  getDisplayOrderTotal,
+  formatTripSchedule,
+  isTripScheduledToday,
+  speakNavigationPrompt,
+} from './trip-detail-format'
+import { uploadPodImage } from './trip-detail-camera'
+import { toRecordedAtMs } from './trip-detail-location'
+import { useTripNavigation } from './use-trip-navigation'
+import type { DriverRouteOption } from './trip-navigation-config'
+import { DropPointDetailsDialog } from './drop-point-details-dialog'
+import { FailedDeliveryDialogs } from './failed-delivery-dialogs'
+import { PodCameraDialogs } from './pod-camera-dialogs'
+import { useTripPodCamera } from './use-trip-pod-camera'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
 })
-
-type DriverRouteOption = {
-  id: string
-  points: [number, number][]
-  originPoints: [number, number][]
-  activeLegPoints: [number, number][]
-  futureLegPoints: [number, number][]
-  steps: OsrmStep[]
-}
-
-// Distance from the active route beyond which turn-by-turn stops advancing and
-// waits for the reroute — kept in step with the map's off-route snap budget so
-// the instruction and the vehicle icon agree on when the driver has left it.
-const NAVIGATION_OFF_ROUTE_METERS = 60
-// A maneuver counts as passed only once the driver is this far beyond it, so GPS
-// jitter around a junction cannot flip the instruction back and forth.
-const NAVIGATION_MANEUVER_PASSED_MARGIN_METERS = 8
-
-// Mobile radios can briefly lose a response after the server has accepted it.
-// Only retry transport, timeout, throttling, and server failures automatically.
-const waitForDriverWriteRetry = (attempt: number) => new Promise<void>((resolve) => {
-  window.setTimeout(resolve, Math.min(15_000, 1_000 * 2 ** Math.min(attempt, 4)))
-})
-
-const isAutomaticallyRetryableWriteStatus = (status: number) =>
-  status === 408 || status === 429 || status >= 500
 
 // Main driver trip detail screen: controls stop workflow, map state, and proof-of-delivery capture.
 export function TripDetailView({
@@ -114,7 +77,32 @@ export function TripDetailView({
   // the next render, and the button can be pressed again before that happens.
   const [isCompletingTrip, setIsCompletingTrip] = useState(false)
   const isCompletingTripRef = useRef(false)
-  const [podDraftByDropPoint, setPodDraftByDropPoint] = useState<Record<string, { file: File | null; preview: string | null }>>({})
+  const {
+    cameraError,
+    cameraGps,
+    cameraLocationError,
+    cameraOverlaySnapshot,
+    cameraPermissionHint,
+    cameraPermissionSteps,
+    captureFromCamera,
+    capturedCameraPhoto,
+    closeCameraCapture,
+    continueCapturedPhoto,
+    isCameraAddressLoading,
+    isCameraLoading,
+    isCameraOpen,
+    isCameraPermissionDialogOpen,
+    openCameraCapture,
+    openPodCameraCapture,
+    podDraftByDropPoint,
+    setCapturedCameraPhoto,
+    setIsCameraPermissionDialogOpen,
+    setPodFileForDropPoint,
+    videoRef,
+  } = useTripPodCamera({
+    activeDropPoint,
+    driverUser,
+  })
   const [returnedEmptiesByDropPoint, setReturnedEmptiesByDropPoint] = useState<Record<string, Array<{
     declarationId?: string
     containerTypeId: string
@@ -123,20 +111,6 @@ export function TripDetailView({
     returnedCases?: number
     returnedLooseBottles?: number
   }>>>({})
-  const [podCaptureDropPointId, setPodCaptureDropPointId] = useState<string | null>(null)
-  const [isCameraOpen, setIsCameraOpen] = useState(false)
-  const [capturedCameraPhoto, setCapturedCameraPhoto] = useState<string | null>(null)
-  const [cameraError, setCameraError] = useState<string | null>(null)
-  const [isCameraLoading, setIsCameraLoading] = useState(false)
-  const [isCameraPermissionDialogOpen, setIsCameraPermissionDialogOpen] = useState(false)
-  const [cameraPermissionHint, setCameraPermissionHint] = useState<string>('')
-  const [cameraNow, setCameraNow] = useState(() => new Date())
-  const [cameraGps, setCameraGps] = useState<{ latitude: number; longitude: number } | null>(null)
-  // Fix: keep the address lookup location stable while live GPS coordinates jitter.
-  const [cameraAddressGps, setCameraAddressGps] = useState<{ latitude: number; longitude: number } | null>(null)
-  const [cameraAddress, setCameraAddress] = useState('Resolving current address...')
-  const [isCameraAddressLoading, setIsCameraAddressLoading] = useState(true)
-  const [cameraLocationError, setCameraLocationError] = useState<string | null>(null)
 
   // Failed-delivery decision flow state.
   const [isFailedDeliveryChoiceOpen, setIsFailedDeliveryChoiceOpen] = useState(false)
@@ -209,9 +183,6 @@ export function TripDetailView({
   const [voiceGuidanceEnabled, setVoiceGuidanceEnabled] = useState(true)
   const [previewDriverLocation, setPreviewDriverLocation] = useState<DriverGpsLocation | null>(null)
   // Refs for camera stream lifecycle and gesture handling.
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const cameraStreamRef = useRef<MediaStream | null>(null)
-  const cameraGpsRef = useRef<{ latitude: number; longitude: number } | null>(null)
   const spokenNavigationPromptsRef = useRef<Set<string>>(new Set())
   const mobileMapViewportRef = useRef<HTMLDivElement | null>(null)
   const mobileTopOverlayRef = useRef<HTMLDivElement | null>(null)
@@ -225,20 +196,6 @@ export function TripDetailView({
     [trip.dropPoints]
   )
   const terminalDropPointStatuses = TERMINAL_DROP_POINT_STATUSES
-  const driverFullName = useMemo(() => {
-    const profileName = [driverUser?.firstName, driverUser?.middleName, driverUser?.lastName, driverUser?.suffix]
-      .map((part) => String(part || '').trim())
-      .filter(Boolean)
-      .join(' ')
-    return profileName || String(driverUser?.name || 'Driver').trim() || 'Driver'
-  }, [driverUser])
-  const cameraOverlaySnapshot: PodOverlaySnapshot | null = cameraGps ? {
-    capturedAt: cameraNow,
-    driverName: driverFullName,
-    address: cameraAddress,
-    latitude: cameraGps.latitude,
-    longitude: cameraGps.longitude,
-  } : null
   const effectiveCompletedDropPoints = Math.max(
     Number(trip.completedDropPoints || 0),
     sortedDropPoints.filter((point) => terminalDropPointStatuses.has(String(point.status || '').toUpperCase())).length
@@ -426,151 +383,6 @@ export function TripDetailView({
     setMobileSheetAnimationEpoch((previous) => previous + 1)
   }
 
-  const dropPointStatusColors: Record<string, string> = {
-    PENDING: 'bg-amber-100 text-amber-800 border border-amber-200',
-    IN_TRANSIT: 'bg-cyan-100 text-cyan-800 border border-cyan-200',
-    ARRIVED: 'bg-sky-100 text-sky-800 border border-sky-200',
-    COMPLETED: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-    FAILED: 'bg-rose-100 text-rose-800 border border-rose-200',
-    CANCELLED: 'bg-slate-200 text-slate-800 border border-slate-300',
-  }
-
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-PH', {
-      style: 'currency',
-      currency: 'PHP',
-      maximumFractionDigits: 2,
-    }).format(amount)
-  const formatDateTime = (value: string | null | undefined) => {
-    const raw = String(value || '').trim()
-    if (!raw) return 'Not set'
-    const parsed = new Date(raw)
-    if (Number.isNaN(parsed.getTime())) return raw
-    return parsed.toLocaleString('en-PH', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  const getItemDisplayNameWithSize = (item: any): string => {
-    if (item?.itemType === 'MIXED_CASE') {
-      const components = (item?.components || []).map((component: any) => `${component.productName} ${component.quantityPerCase}/case`).join(', ')
-      return `Mixed Case (${item.caseCapacity || 0} units)${components ? ` — ${components}` : ''}`
-    }
-    const product = item?.product || {}
-    const baseName = String(product?.name || item?.productName || 'Item').trim()
-    const sizeFromArray = Array.isArray(product?.sizes) && product.sizes.length > 0
-      ? product.sizes.map((value: any) => String(value).trim()).filter(Boolean).join(', ')
-      : ''
-    const sizeFromField = String(product?.size || product?.sizeLabel || item?.size || '').trim()
-    // Fix: show the stored size without parentheses, including when it is already in the name.
-    const sizeLabel = (sizeFromArray || sizeFromField).replace(/[()]/g, '').trim()
-    if (!sizeLabel) return baseName
-    const nameWithPlainSize = baseName.replace(/\(([^()]*)\)/g, (match, value: string) =>
-      value.trim().toLowerCase() === sizeLabel.toLowerCase() ? value.trim() : match
-    )
-    return nameWithPlainSize.toLowerCase().includes(sizeLabel.toLowerCase())
-      ? nameWithPlainSize
-      : `${nameWithPlainSize} ${sizeLabel}`
-  }
-  const getItemCategoryLabel = (item: any): string => {
-    const product = item?.product || {}
-    return String(
-      product?.categoryName ||
-      product?.category ||
-      product?.productCategory ||
-      item?.category ||
-      ''
-    ).trim()
-  }
-
-  const getMatchedReplacementLine = (item: any, order?: any): any | null => {
-    const scheduledReplacement = order?.scheduledReplacement || null
-    const replacementLines = Array.isArray(scheduledReplacement?.replacementLines)
-      ? scheduledReplacement.replacementLines
-      : Array.isArray(scheduledReplacement?.replacementItems)
-        ? scheduledReplacement.replacementItems
-        : []
-    const productId = String(item?.product?.id || item?.productId || '').trim()
-    const productName = String(item?.product?.name || item?.productName || '').trim().toLowerCase()
-    return replacementLines.find((line: any) => {
-      const replacementProductId = String(line?.replacementProductId || line?.originalProductId || '').trim()
-      const replacementProductName = String(line?.replacementProductName || line?.originalProductName || line?.productName || '').trim().toLowerCase()
-      return (productId && replacementProductId && productId === replacementProductId) || (productName && replacementProductName && productName === replacementProductName)
-    }) || (replacementLines.length === 1 ? replacementLines[0] : null)
-  }
-
-  const getOrderQtyWithUnitLabel = (item: any, order?: any): string => {
-    if (item?.itemType === 'MIXED_CASE') {
-      const qty = Math.max(0, Number(item?.quantity || 0))
-      return `x${qty} mixed case${qty === 1 ? '' : 's'}`
-    }
-    const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
-    const scheduledReplacement = order?.scheduledReplacement || null
-    const matchedReplacementLine = getMatchedReplacementLine(item, order)
-
-    const itemNotes = String(item?.notes || '')
-    const isBottleFromNotes = /ReplacementUnitMode=BOTTLE/i.test(itemNotes)
-    const bottlesFromNotesMatch = itemNotes.match(/ReplacementRequestedBottles=(\d+)/i)
-    const bottlesFromNotes = bottlesFromNotesMatch ? parseInt(bottlesFromNotesMatch[1], 10) : 0
-
-    const formatCountUnit = (count: number, rawUnitStr: string) => {
-      const u = String(rawUnitStr || '').toLowerCase()
-      const singular = u.includes('bottle') ? 'bottle' : u.includes('case') ? 'case' : u.includes('pack') ? 'pack' : u.includes('bundle') ? 'bundle' : 'unit'
-      // Fix: keep case/bottle labels in the requested form while respecting the recorded unit.
-      const label = count === 1 || singular === 'case' || singular === 'bottle' ? singular : `${singular}s`
-      return `x${count} ${label}`
-    }
-
-    if (orderNumber.startsWith('RPL-') || Boolean((order as any)?.isScheduledReplacement)) {
-      if (isBottleFromNotes && bottlesFromNotes > 0) {
-        return formatCountUnit(bottlesFromNotes, 'bottle')
-      }
-      if (matchedReplacementLine?.quantityToReplaceDisplay) {
-        let display = String(matchedReplacementLine.quantityToReplaceDisplay).trim()
-        const matchNum = display.match(/^(\d+(?:\.\d+)?)/)
-        const numVal = matchNum ? parseFloat(matchNum[1]) : 1
-        display = display.replace(/\(s\)/gi, numVal === 1 ? '' : 's').replace(/\s+/g, ' ')
-        return display.startsWith('x') ? display : `x${display}`
-      }
-      if (matchedReplacementLine) {
-        const lineInputMode = String(matchedReplacementLine?.lineInputMode || matchedReplacementLine?.replacementInputMode || '').trim().toLowerCase()
-        const lineQtyBottles = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceBottles || 0))
-        const lineQty = Math.max(0, Number(matchedReplacementLine?.quantityToReplace || 0))
-        const lineQtyCases = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceCases ?? matchedReplacementLine?.quantityToReplaceUnits ?? 0))
-        const rawUnit = String(
-          matchedReplacementLine?.replacementProductUnit ||
-          matchedReplacementLine?.originalProductUnit ||
-          item?.productUnit ||
-          item?.product?.unit ||
-          ''
-        ).trim().toLowerCase()
-
-        if (lineInputMode === 'bottle' || lineQtyBottles > 0 || rawUnit.includes('bottle')) {
-          const qty = lineQtyBottles > 0 ? lineQtyBottles : lineQty
-          return formatCountUnit(qty, 'bottle')
-        }
-        if (lineQtyCases > 0) {
-          return formatCountUnit(lineQtyCases, rawUnit || 'case')
-        }
-        if (lineQty > 0) {
-          return formatCountUnit(lineQty, rawUnit || 'case')
-        }
-      }
-      if (scheduledReplacement) {
-        if (scheduledReplacement.unitMode === 'BOTTLE' && scheduledReplacement.quantityToReplace > 0) {
-          return formatCountUnit(scheduledReplacement.quantityToReplace, 'bottle')
-        }
-      }
-    }
-    const qty = Math.max(0, Number(item?.quantity || 0))
-    const rawUnit = String(item?.productUnit || item?.product?.unit || '').trim().toLowerCase()
-    return formatCountUnit(qty, rawUnit)
-  }
-
   const getEmptiesShortfallAmount = (dropPoint: any): number => {
     const declaredEmpties = (dropPoint?.declaredEmpties || []) as Array<{
       declarationId?: string
@@ -592,155 +404,6 @@ export function TripDetailView({
       shortfall += (Number(entry.depositValue || 0) * short) / declared
     }
     return Math.round(shortfall * 100) / 100
-  }
-
-  const getDisplayOrderTotal = (order?: any): number => {
-    const orderNumber = String(order?.orderNumber || '').trim().toUpperCase()
-    const items = Array.isArray(order?.items) ? order.items : []
-    const scheduledReplacement = order?.scheduledReplacement || null
-    if (!orderNumber.startsWith('RPL-') || !scheduledReplacement || items.length === 0) {
-      return Number(order?.totalAmount || 0)
-    }
-
-    let computedTotal = 0
-    for (const item of items) {
-      const matchedReplacementLine = getMatchedReplacementLine(item, order)
-      const unitPrice = Number(item?.unitPrice ?? item?.price ?? item?.product?.price ?? 0)
-      if (!matchedReplacementLine || unitPrice <= 0) {
-        computedTotal += Number(item?.totalPrice ?? item?.subtotal ?? (Number(item?.quantity || 0) * unitPrice))
-        continue
-      }
-
-      const lineInputMode = String(matchedReplacementLine?.lineInputMode || matchedReplacementLine?.replacementInputMode || '').trim().toLowerCase()
-      const rawUnit = String(
-        matchedReplacementLine?.replacementProductUnit ||
-        matchedReplacementLine?.originalProductUnit ||
-        item?.productUnit ||
-        item?.product?.unit ||
-        ''
-      ).trim().toLowerCase()
-      const qtyPerUnit = Math.max(
-        1,
-        Number(
-          matchedReplacementLine?.qtyPerUnit ||
-          matchedReplacementLine?.quantityPerCase ||
-          item?.quantityPerCase ||
-          item?.product?.quantityPerCase ||
-          scheduledReplacement?.qtyPerUnit ||
-          1
-        )
-      )
-
-      if (lineInputMode === 'bottle' && !rawUnit.includes('bottle')) {
-        const bottleQty = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceBottles || matchedReplacementLine?.quantityToReplace || 0))
-        computedTotal += unitPrice * (bottleQty / qtyPerUnit)
-        continue
-      }
-
-      const caseQty = Math.max(0, Number(matchedReplacementLine?.quantityToReplaceCases ?? matchedReplacementLine?.quantityToReplaceUnits ?? 0))
-      const fallbackQty = Math.max(0, Number(item?.quantity || 0))
-      computedTotal += unitPrice * (caseQty > 0 ? caseQty : fallbackQty)
-    }
-
-    return computedTotal > 0 ? computedTotal : Number(order?.totalAmount || 0)
-  }
-  const formatTripSchedule = (value: string | null | undefined) => {
-    const raw = String(value || '').trim()
-    if (!raw) return 'Not set'
-    const parsed = new Date(raw)
-    if (Number.isNaN(parsed.getTime())) return raw
-    return parsed.toLocaleDateString('en-PH', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
-  }
-  const isTripScheduledToday = (value: string | null | undefined) => {
-    const scheduledAt = new Date(String(value || '').trim())
-    if (Number.isNaN(scheduledAt.getTime())) return false
-    const today = new Date()
-    return scheduledAt.getFullYear() === today.getFullYear()
-      && scheduledAt.getMonth() === today.getMonth()
-      && scheduledAt.getDate() === today.getDate()
-  }
-
-  // Geospatial helpers used for route/movement calculations.
-  const haversineKm = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
-    const radiusKm = 6371
-    const toRad = (value: number) => (value * Math.PI) / 180
-    const dLat = toRad(to.lat - from.lat)
-    const dLng = toRad(to.lng - from.lng)
-    const lat1 = toRad(from.lat)
-    const lat2 = toRad(to.lat)
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    return radiusKm * c
-  }
-
-  // Shortest distance in meters from a point to a routed polyline — used to
-  // detect when the driver has left the planned road (a missed turn, a
-  // detour) so navigation can reroute immediately instead of waiting for the
-  // periodic recompute distance.
-  const distanceFromRouteMeters = (
-    point: { lat: number; lng: number },
-    routePoints: [number, number][]
-  ) => {
-    if (!Array.isArray(routePoints) || routePoints.length < 2) return null
-    const longitudeScale = Math.cos((point.lat * Math.PI) / 180)
-    const px = point.lng * longitudeScale
-    const py = point.lat
-    let bestDegrees = Infinity
-    for (let index = 0; index < routePoints.length - 1; index += 1) {
-      const [aLat, aLng] = routePoints[index]
-      const [bLat, bLng] = routePoints[index + 1]
-      const ax = aLng * longitudeScale
-      const ay = aLat
-      const bx = bLng * longitudeScale
-      const by = bLat
-      const vx = bx - ax
-      const vy = by - ay
-      const length2 = vx * vx + vy * vy
-      const t = length2 > 1e-12 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / length2)) : 0
-      const projectedX = ax + vx * t
-      const projectedY = ay + vy * t
-      const dx = px - projectedX
-      const dy = py - projectedY
-      const distanceDegrees = Math.sqrt(dx * dx + dy * dy)
-      if (distanceDegrees < bestDegrees) bestDegrees = distanceDegrees
-    }
-    return bestDegrees * 111320
-  }
-
-  const speakNavigationPrompt = (message: string) => {
-    // Fix: Android speaks through its TTS engine; the web retains its existing voice settings.
-    void speakDriverNavigation(message).catch((error) => {
-      toast.error(error instanceof Error ? error.message : 'Voice guidance could not play.', { id: 'driver-voice-error' })
-    })
-  }
-
-  const buildVoicePrompt = (
-    step: OsrmStep,
-    {
-      distanceMeters,
-      immediate = false,
-      finalPrompt = false,
-    }: {
-      distanceMeters?: number
-      immediate?: boolean
-      finalPrompt?: boolean
-    } = {}
-  ) => {
-    const label = getManeuverLabel(step.maneuver.type, step.maneuver.modifier, step.name)
-    if (finalPrompt) {
-      return `Arriving now. ${label}.`
-    }
-    if (immediate || typeof distanceMeters !== 'number') {
-      return label
-    }
-    const roundedDistance = Math.max(10, Math.round(distanceMeters / 10) * 10)
-    return `In ${formatDistance(roundedDistance)}, ${label.charAt(0).toLowerCase()}${label.slice(1)}`
   }
 
   // Starts a trip after location tracking is available and trip is still in a startable state.
@@ -766,8 +429,6 @@ export function TripDetailView({
       toast.error('Confirm Load before starting the trip')
       return false
     }
-
-
 
     setIsUpdating(true)
     try {
@@ -836,34 +497,6 @@ export function TripDetailView({
     setDeliveredTargetDropPointId(String(dropPoint.id || ''))
     setDeliveredTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
     setIsDeliveredWarningOpen(true)
-  }
-
-  const setPodFileForDropPoint = (dropPointId: string, file: File | null) => {
-    const normalizedId = String(dropPointId || '').trim()
-    if (!normalizedId) return
-    setPodDraftByDropPoint((previous) => {
-      const previousPreview = previous[normalizedId]?.preview
-      if (previousPreview) URL.revokeObjectURL(previousPreview)
-      if (!file) {
-        const next = { ...previous }
-        delete next[normalizedId]
-        return next
-      }
-      return {
-        ...previous,
-        [normalizedId]: {
-          file,
-          preview: URL.createObjectURL(file),
-        },
-      }
-    })
-  }
-
-  const openPodCameraCapture = (dropPointId: string) => {
-    const normalizedId = String(dropPointId || '').trim()
-    if (!normalizedId) return
-    setPodCaptureDropPointId(normalizedId)
-    openCameraCapture()
   }
 
   const submitDeliveredForDropPoint = async (dropPoint: DropPoint): Promise<boolean> => {
@@ -1031,194 +664,7 @@ export function TripDetailView({
     }
   }
 
-  const toDataUrl = async (file: File): Promise<string> => {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result || ''))
-      reader.onerror = () => reject(new Error('Failed to prepare damage photo'))
-      reader.readAsDataURL(file)
-    })
-    if (!dataUrl) {
-      throw new Error('Failed to prepare damage photo')
-    }
-    return dataUrl
-  }
-
-
-  const uploadPodImage = async (file: File) => {
-    const preparedFile = await prepareImageForUpload(file)
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        const formData = new FormData()
-        formData.append('file', preparedFile)
-        const response = await fetch('/api/uploads/pod-image', {
-          method: 'POST',
-          body: formData,
-        })
-        const payload = await response.json().catch(() => ({}))
-        if (response.ok && payload?.success !== false && payload?.imageUrl) {
-          return String(payload.imageUrl)
-        }
-
-        const errorMessage = String(payload?.error || 'Failed to upload POD image')
-        if (/upload storage is unavailable/i.test(errorMessage)) {
-          toast('Storage is not configured on this deployment. The image will be saved inline for this record.')
-          return toDataUrl(preparedFile)
-        }
-        if (!isAutomaticallyRetryableWriteStatus(response.status)) throw new Error(errorMessage)
-      } catch (error) {
-        if (error instanceof Error && error.message && !/failed to fetch|networkerror|load failed|network request failed/i.test(error.message)) throw error
-      }
-      // Keep the delivery confirmation loader active until a temporary POD upload succeeds.
-      await waitForDriverWriteRetry(attempt)
-    }
-  }
-
   // POD image input handler with per-drop-point preview generation.
-  const handlePodFileChange = (dropPointId: string, file: File | null) => {
-    setPodFileForDropPoint(dropPointId, file)
-  }
-
-  const dataUrlToFile = (dataUrl: string, filename: string): File => {
-    const [header, encoded] = dataUrl.split(',')
-    if (!header || !encoded) {
-      throw new Error('Invalid captured photo data')
-    }
-    const mimeMatch = header.match(/data:(.*?);base64/)
-    const mimeType = mimeMatch?.[1] || 'image/jpeg'
-    const binary = atob(encoded)
-    const len = binary.length
-    const bytes = new Uint8Array(len)
-    for (let index = 0; index < len; index += 1) {
-      bytes[index] = binary.charCodeAt(index)
-    }
-    return new File([bytes], filename, { type: mimeType })
-  }
-
-  const attachCameraStreamToVideo = async () => {
-    const stream = cameraStreamRef.current
-    const video = videoRef.current
-    if (!stream || !video) return
-
-    if (video.srcObject !== stream) {
-      video.srcObject = stream
-    }
-    await video.play().catch(() => { })
-  }
-
-  const getWebCameraPermissionState = async (): Promise<'granted' | 'denied' | 'prompt' | 'unknown'> => {
-    try {
-      const permissionsApi = (navigator as any)?.permissions
-      if (!permissionsApi?.query) return 'unknown'
-      const result = await permissionsApi.query({ name: 'camera' as PermissionName })
-      const state = String(result?.state || '').toLowerCase()
-      if (state === 'granted' || state === 'denied' || state === 'prompt') {
-        return state
-      }
-      return 'unknown'
-    } catch {
-      return 'unknown'
-    }
-  }
-
-  const insecureCameraMessage = 'Camera requires a secure connection (HTTPS). Open this app over HTTPS to allow camera on mobile.'
-
-  const mapWebCameraErrorToMessage = (error: any) => {
-    const errName = String(error?.name || '')
-    const denied =
-      errName === 'NotAllowedError' ||
-      errName === 'PermissionDeniedError' ||
-      errName === 'SecurityError'
-
-    if (!window.isSecureContext) {
-      return insecureCameraMessage
-    }
-    if (denied) {
-      return 'Camera permission denied. Please enable camera access in browser/app settings.'
-    }
-    if (errName === 'NotFoundError') {
-      return 'No camera device was found on this phone.'
-    }
-    if (errName === 'NotReadableError') {
-      return 'Camera is busy in another app. Close other camera apps and retry.'
-    }
-    if (errName === 'TypeError') {
-      return 'Camera is unavailable for this page. On mobile this is usually due to non-HTTPS access.'
-    }
-    if (errName === 'AbortError') {
-      return 'Unable to start camera. Please retry.'
-    }
-    return 'Unable to access camera on this device/browser.'
-  }
-
-  const ensureWebCameraPermission = async (): Promise<{ granted: boolean; reason?: string }> => {
-    if (!window.isSecureContext) {
-      return { granted: false, reason: insecureCameraMessage }
-    }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      return { granted: false, reason: 'This browser/device does not expose camera APIs for this page.' }
-    }
-
-    const permissionState = await getWebCameraPermissionState()
-    if (permissionState === 'denied') {
-      return { granted: false, reason: 'Camera permission denied. Please enable camera access in browser/app settings.' }
-    }
-
-    // Fix: the modal requests the real stream once; a second preflight stream made
-    // mobile Safari initialize the camera twice before showing the preview.
-    return { granted: true }
-  }
-
-  // Stops active camera tracks to release device resources immediately.
-  const stopCameraStream = () => {
-    if (cameraStreamRef.current) {
-      cameraStreamRef.current.getTracks().forEach((track) => track.stop())
-      cameraStreamRef.current = null
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null
-    }
-  }
-
-  // Opens camera flow and requests permission when needed.
-  const openCameraCapture = () => {
-    if (isNativeCapacitorApp()) {
-      setCapturedCameraPhoto(null)
-      setCameraError(null)
-      setCameraPermissionHint('')
-      void (async () => {
-        try {
-          const permission = await checkNativeCameraPermission()
-          if (!permission.granted) {
-            handleCameraPermissionDenied(permission.reason)
-            return
-          }
-          // Fix: keep the camera inside the portal so the live POD overlay stays visible.
-          setIsCameraOpen(true)
-        } catch (error: any) {
-          const message = String(error?.message || '')
-          if (/cancelled|canceled|user cancelled|user canceled/i.test(message)) {
-            return
-          }
-          handleCameraPermissionDenied(message || 'Unable to access camera on this device.')
-        }
-      })()
-      return
-    }
-
-    void (async () => {
-      const permission = await ensureWebCameraPermission()
-      if (!permission.granted) {
-        handleCameraPermissionDenied(permission.reason)
-        return
-      }
-
-      setCapturedCameraPhoto(null)
-      setCameraError(null)
-      setCameraPermissionHint('')
-      setIsCameraOpen(true)
-    })()
-  }
 
   // Failed-delivery modal open/close helpers.
   const openFailedDeliveryChoice = (dropPointId: string) => {
@@ -1257,290 +703,8 @@ export function TripDetailView({
   }
 
   // Closes camera capture UI and clears camera-related temporary state.
-  const closeCameraCapture = () => {
-    stopCameraStream()
-    setIsCameraOpen(false)
-    setIsCameraLoading(false)
-    setCapturedCameraPhoto(null)
-    setCameraGps(null)
-    setCameraAddressGps(null)
-    cameraGpsRef.current = null
-    setCameraLocationError(null)
-    setCameraAddress('Resolving current address...')
-    setIsCameraAddressLoading(true)
-  }
-
-  // Tries to deep-link users into OS/app settings to unblock camera permission.
-  const openCameraSettings = async () => {
-    if (isNativeCapacitorApp()) {
-      const opened = await openNativeAppSettings()
-      if (!opened) {
-        toast.message('If settings did not open, follow the steps shown below.')
-      }
-      return
-    }
-
-    try {
-      const ua = navigator.userAgent.toLowerCase()
-      const isAndroid = ua.includes('android')
-      const isIOS = ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')
-      const isEdge = ua.includes('edg/')
-      const isChrome = ua.includes('chrome') && !isEdge
-      const isFirefox = ua.includes('firefox')
-
-      if (!isAndroid && !isIOS) {
-        if (isEdge) {
-          window.location.href = 'edge://settings/content/camera'
-          return
-        }
-        if (isChrome) {
-          window.location.href = 'chrome://settings/content/camera'
-          return
-        }
-        if (isFirefox) {
-          window.open('about:preferences#privacy', '_blank')
-          return
-        }
-      }
-
-      if (ua.includes('android')) {
-        window.location.href = 'intent://settings#Intent;scheme=android-app;package=com.android.settings;end'
-        return
-      }
-      if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')) {
-        window.location.href = 'app-settings:'
-        return
-      }
-      window.open('about:preferences#privacy', '_blank')
-    } catch {
-      // best effort only
-    } finally {
-      window.setTimeout(() => {
-        toast.message('If settings did not open, follow the steps shown below.')
-      }, 600)
-    }
-  }
-
-  // Platform-specific permission recovery instructions shown in the dialog.
-  const getCameraPermissionSteps = () => {
-    if (isNativeCapacitorApp()) {
-      return [
-        'Open this app in system settings.',
-        'Allow Camera permission for the app.',
-        'Return to AnnDrive and tap Retry Camera.',
-      ]
-    }
-    const ua = navigator.userAgent.toLowerCase()
-    if (ua.includes('android')) {
-      return [
-        'In browser, tap the lock icon near the address bar.',
-        'Open Site settings/Permissions for this site.',
-        'Set Camera to Allow.',
-        'Return to this page and tap Retry Camera.',
-      ]
-    }
-    if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')) {
-      return [
-        'Open iPhone Settings.',
-        'Find Safari (or your browser app).',
-        'Enable Camera access for that browser.',
-        'Return to this page and tap Retry Camera.',
-      ]
-    }
-    if (ua.includes('edg/')) {
-      return [
-        'Open edge://settings/content/camera',
-        'Allow camera globally and for this site.',
-        'Reload this page and tap Retry Camera.',
-      ]
-    }
-    if (ua.includes('chrome')) {
-      return [
-        'Open chrome://settings/content/camera',
-        'Allow camera globally and for this site.',
-        'Reload this page and tap Retry Camera.',
-      ]
-    }
-    return [
-      'Open browser/site settings for this page.',
-      'Allow Camera permission for this site.',
-      'Reload this page if needed.',
-      'Tap Retry Camera.',
-    ]
-  }
-
-  // Central permission-denied handler to show actionable hints.
-  const handleCameraPermissionDenied = (message?: string) => {
-    closeCameraCapture()
-    setCameraError(message || 'Camera access is required for POD. Please allow camera permission.')
-    setCameraPermissionHint(message || '')
-    setIsCameraPermissionDialogOpen(true)
-    toast.error('Camera permission is required to complete delivery')
-  }
-
-  // Captures a still frame from video stream for POD evidence.
-  const captureFromCamera = () => {
-    const video = videoRef.current
-    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-      toast.error('Camera is not ready yet')
-      return
-    }
-
-    const gps = cameraGpsRef.current
-    if (!gps) {
-      toast.error('Waiting for your current GPS location')
-      return
-    }
-    const snapshot: PodOverlaySnapshot = {
-      capturedAt: new Date(),
-      driverName: driverFullName,
-      address: cameraAddress,
-      latitude: gps.latitude,
-      longitude: gps.longitude,
-    }
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    const context = canvas.getContext('2d')
-    if (!context) {
-      toast.error('Failed to capture photo')
-      return
-    }
-    context.drawImage(video, 0, 0, canvas.width, canvas.height)
-    // Added: the information shown in the preview becomes permanent image pixels.
-    burnPodOverlay(context, canvas.width, canvas.height, snapshot)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
-    setCapturedCameraPhoto(dataUrl)
-  }
-
-  const continueCapturedPhoto = async () => {
-    if (!capturedCameraPhoto) return
-    try {
-      const file = dataUrlToFile(capturedCameraPhoto, `camera-${Date.now()}.jpg`)
-      const targetDropPointId = String(podCaptureDropPointId || activeDropPoint?.id || '').trim()
-      if (!targetDropPointId) {
-        toast.error('Select a drop point first before capturing POD')
-        return
-      }
-      handlePodFileChange(targetDropPointId, file)
-      closeCameraCapture()
-    } catch {
-      toast.error('Failed to use captured photo')
-    }
-  }
 
   // Camera and state cleanup effects.
-  useEffect(() => {
-    return () => {
-      Object.values(podDraftByDropPoint).forEach((entry) => {
-        if (entry?.preview) URL.revokeObjectURL(entry.preview)
-      })
-      stopCameraStream()
-    }
-  }, [podDraftByDropPoint])
-
-  useEffect(() => {
-    if (!isCameraOpen) return
-
-    let mounted = true
-    const startCamera = async () => {
-      setIsCameraLoading(true)
-      setCameraError(null)
-      try {
-        if (!window.isSecureContext && !isNativeCapacitorApp()) {
-          handleCameraPermissionDenied(insecureCameraMessage)
-          return
-        }
-        if (!navigator.mediaDevices?.getUserMedia) {
-          handleCameraPermissionDenied('This browser/device does not expose camera APIs for this page.')
-          return
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        })
-        if (!mounted) {
-          stream.getTracks().forEach((track) => track.stop())
-          return
-        }
-        cameraStreamRef.current = stream
-        await attachCameraStreamToVideo()
-      } catch (error: any) {
-        handleCameraPermissionDenied(mapWebCameraErrorToMessage(error))
-      } finally {
-        if (mounted) {
-          setIsCameraLoading(false)
-        }
-      }
-    }
-
-    void startCamera()
-
-    return () => {
-      mounted = false
-      stopCameraStream()
-    }
-  }, [isCameraOpen])
-
-  useEffect(() => {
-    if (!isCameraOpen || capturedCameraPhoto) return
-    setCameraNow(new Date())
-    const clock = window.setInterval(() => setCameraNow(new Date()), 1000)
-    return () => window.clearInterval(clock)
-  }, [isCameraOpen, capturedCameraPhoto])
-
-  useEffect(() => {
-    if (!isCameraOpen || !navigator.geolocation) return
-    setCameraLocationError(null)
-    // Added: POD capture uses a dedicated, zero-cache GPS watch rather than a saved trip location.
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        const next = { latitude: position.coords.latitude, longitude: position.coords.longitude }
-        cameraGpsRef.current = next
-        setCameraGps(next)
-        // Fix: compare with the lookup origin so small movements accumulate, but
-        // stationary GPS drift cannot cancel an in-flight lookup or block capture.
-        setCameraAddressGps((previous) => {
-          if (previous && haversineKm(
-            { lat: previous.latitude, lng: previous.longitude },
-            { lat: next.latitude, lng: next.longitude },
-          ) * 1000 < 25) return previous
-          return next
-        })
-      },
-      (error) => setCameraLocationError(error.message || 'Current GPS location is required.'),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
-    )
-    return () => navigator.geolocation.clearWatch(watchId)
-  }, [isCameraOpen])
-
-  useEffect(() => {
-    if (!isCameraOpen || !cameraAddressGps) return
-    setIsCameraAddressLoading(true)
-    const controller = new AbortController()
-    const timer = window.setTimeout(async () => {
-      try {
-        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(cameraAddressGps.latitude)}&lon=${encodeURIComponent(cameraAddressGps.longitude)}&addressdetails=1&countrycodes=ph&zoom=18`
-        const response = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } })
-        if (!response.ok) throw new Error('Address lookup failed')
-        const result = await response.json()
-        setCameraAddress(stripPhilippinesFromAddress(String(result?.display_name || '')) || 'Location address unavailable')
-      } catch (error) {
-        if ((error as Error).name !== 'AbortError') setCameraAddress('Location address unavailable')
-      } finally {
-        if (!controller.signal.aborted) setIsCameraAddressLoading(false)
-      }
-    }, 500)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [isCameraOpen, cameraAddressGps])
-
-  useEffect(() => {
-    if (!isCameraOpen || capturedCameraPhoto) return
-    void attachCameraStreamToVideo()
-  }, [isCameraOpen, capturedCameraPhoto])
 
   useEffect(() => {
     const sorted = [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence)
@@ -1550,16 +714,6 @@ export function TripDetailView({
       null
     setActiveDropPoint(nextActionable)
   }, [trip.id, trip.dropPoints])
-
-  const toRecordedAtMs = (value: unknown) => {
-    if (value === null || value === undefined || String(value).trim() === '') return null
-    const numeric = Number(value)
-    if (Number.isFinite(numeric) && numeric > 0) {
-      return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
-    }
-    const parsed = new Date(String(value)).getTime()
-    return Number.isFinite(parsed) ? parsed : null
-  }
 
   useEffect(() => {
     if (currentLocation?.lat && currentLocation?.lng) {
@@ -1616,27 +770,49 @@ export function TripDetailView({
     currentLocation?.recordedAt,
   ])
 
-  const cameraPermissionSteps = getCameraPermissionSteps()
-  // Normalizes unknown inputs to valid numeric coordinates or null.
-  const toCoordinate = (value: unknown) => {
-    // Fix: Number(null) and Number('') are zero, but missing GPS fields are not
-    // real zero values and must not influence route matching or speed display.
-    if (value === null || value === undefined || value === '') return null
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-
-  const mappableDropPoints = sortedDropPoints
-    .map((point) => {
-      const latitude = toCoordinate(point.latitude)
-      const longitude = toCoordinate(point.longitude)
-      return {
-        ...point,
-        latitude,
-        longitude,
-      }
-    })
-    .filter((point) => point.latitude !== null && point.longitude !== null)
+  const {
+    currentVehicleSpeedLabel,
+    driverLocationMarker,
+    exactDriverLocationLabel,
+    handleMobileMapRecenter,
+    handleRouteLineSelect,
+    handleToggleMapPerspective,
+    liveDistanceToManeuverMeters,
+    mapCenter,
+    mapLocations,
+    mapRouteLines,
+    mobileMapCenter,
+  } = useTripNavigation({
+    activeRouteOptionIndex,
+    currentLocation,
+    currentStepIndex,
+    isTracking,
+    mobileMapRecenterCenter,
+    navigationRouteAbortRef,
+    navigationRouteCheckEpoch,
+    navigationRouteLastRequestAtRef,
+    navigationRouteOrigin,
+    navigationRouteRequestInFlightRef,
+    navigationRouteRetryAtRef,
+    navigationRouteSelectionEpochRef,
+    navigationStopsKeyRef,
+    previewDriverLocation,
+    routeOptions,
+    routeSteps,
+    setActiveRouteOptionIndex,
+    setCurrentStepIndex,
+    setIs3DPerspective,
+    setMobileMapRecenterCenter,
+    setMobileMapRecenterSignal,
+    setNavigationRouteOrigin,
+    setPreviewDriverLocation,
+    setRouteOptions,
+    setRouteSteps,
+    sortedDropPoints,
+    spokenNavigationPromptsRef,
+    trip,
+    voiceGuidanceEnabled,
+  })
   const renderEmptiesReturnInput = (dropPoint: DropPoint) => {
     // The customer's checkout declaration is what has to be verified: it already
     // reduced what they pay, and anything short is charged back on the order.
@@ -1828,749 +1004,6 @@ export function TripDetailView({
         })}
       </div>
     )
-  }
-
-  // Shared "done" status predicate for rendering stop progress and route segments.
-  const isDropPointDone = (status: unknown) => {
-    const normalized = String(status || '').toUpperCase()
-    return normalized === 'COMPLETED' || normalized === 'DELIVERED'
-  }
-  const nextPendingIndex = mappableDropPoints.findIndex((point) => !isDropPointDone(point.status))
-  const completedDropPoints =
-    nextPendingIndex === -1 ? mappableDropPoints : mappableDropPoints.slice(0, Math.max(nextPendingIndex, 0))
-  const pendingDropPoints =
-    nextPendingIndex === -1 ? [] : mappableDropPoints.slice(Math.max(nextPendingIndex, 0))
-  // Route/mapping derived values for start point, live driver marker, and waypoints.
-  const warehouseRouteStart = (() => {
-    // Fix: only the assigned warehouse can supply the trip origin.
-    const warehouseLat =
-      toCoordinate(trip.warehouseLatitude) ??
-      toCoordinate(trip.warehouse?.latitude)
-    const warehouseLng =
-      toCoordinate(trip.warehouseLongitude) ??
-      toCoordinate(trip.warehouse?.longitude)
-    if (warehouseLat === null || warehouseLng === null) return null
-    return { lat: warehouseLat, lng: warehouseLng }
-  })()
-  const MAX_REAL_CURRENT_LOCATION_AGE_MS = 2 * 60 * 1000
-  const isValidDeviceCoordinate = (lat: number, lng: number) =>
-    Number.isFinite(lat) &&
-    Number.isFinite(lng) &&
-    lat >= -90 &&
-    lat <= 90 &&
-    lng >= -180 &&
-    lng <= 180
-  const isFreshRecordedAt = (value: unknown, maxAgeMs: number) => {
-    const ts = toRecordedAtMs(value)
-    if (ts === null) return false
-    return Date.now() - ts <= maxAgeMs
-  }
-  const normalizedTripStatus = String(trip.status || '').toUpperCase()
-  useEffect(() => {
-    // Fix: muting or ending navigation must stop native audio as well as browser audio.
-    if (!voiceGuidanceEnabled || normalizedTripStatus !== 'IN_PROGRESS') stopDriverNavigationSpeech()
-  }, [voiceGuidanceEnabled, normalizedTripStatus])
-  const hasNearbyDropPointForWarehouseStart = warehouseRouteStart
-    ? mappableDropPoints.some((point) =>
-      haversineKm(
-        { lat: warehouseRouteStart.lat, lng: warehouseRouteStart.lng },
-        { lat: Number(point.latitude), lng: Number(point.longitude) }
-      ) <= 60
-    )
-    : false
-  const nextDropPoint = mappableDropPoints.find((point) => String(point.status || '').toUpperCase() !== 'COMPLETED' && String(point.status || '').toUpperCase() !== 'DELIVERED') || mappableDropPoints[0] || null
-  const latestTripLocationAny = (() => {
-    const src = (trip as any)?.latestLocation
-    if (!src) return null
-    const lat = toCoordinate(src?.latitude ?? src?.lat)
-    const lng = toCoordinate(src?.longitude ?? src?.lng)
-    if (lat === null || lng === null || !isValidDeviceCoordinate(lat, lng)) return null
-    return {
-      lat,
-      lng,
-      accuracy: toCoordinate(src?.accuracy),
-      heading: toCoordinate(src?.heading),
-      speed: toCoordinate(src?.speed),
-      recordedAt: src?.recordedAt || src?.recorded_at || src?.createdAt || src?.created_at || null,
-    }
-  })()
-  // Use fresh device GPS first, then only the account-scoped latest location
-  // returned by the driver API. Trip waypoints and warehouse coordinates must
-  // never become a fallback driver position.
-  const liveDeviceLocation = currentLocation
-    && isValidDeviceCoordinate(Number(currentLocation.lat), Number(currentLocation.lng))
-    && isFreshRecordedAt(currentLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
-    ? currentLocation
-    : null
-  const livePreviewLocation = previewDriverLocation
-    && isValidDeviceCoordinate(Number(previewDriverLocation.lat), Number(previewDriverLocation.lng))
-    && isFreshRecordedAt(previewDriverLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
-    ? previewDriverLocation
-    : null
-  const effectiveDriverLocation = liveDeviceLocation || livePreviewLocation || latestTripLocationAny || null
-  // Fix: the API row is only a last-known fix - it carries no freshness
-  // guarantee, so once the device stops reporting the truck used to sit on an
-  // hours-old coordinate that looked exactly like a live one.
-  const isLiveDriverLocation = Boolean(liveDeviceLocation || livePreviewLocation)
-    || isFreshRecordedAt(latestTripLocationAny?.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
-  const driverLocationAgeMs = (() => {
-    if (isLiveDriverLocation) return null
-    const ts = toRecordedAtMs(effectiveDriverLocation?.recordedAt)
-    return ts === null ? null : Math.max(Date.now() - ts, 0)
-  })()
-
-  useEffect(() => {
-    if (
-      !voiceGuidanceEnabled ||
-      normalizedTripStatus !== 'IN_PROGRESS' ||
-      routeSteps.length === 0
-    ) {
-      return
-    }
-
-    const currentStep = routeSteps[currentStepIndex] || null
-    const upcomingStep = routeSteps[currentStepIndex + 1] || null
-
-    if (currentStepIndex === 0 && currentStep) {
-      const startKey = `start:${trip.id}:${currentStepIndex}`
-      if (!spokenNavigationPromptsRef.current.has(startKey)) {
-        spokenNavigationPromptsRef.current.add(startKey)
-        speakNavigationPrompt(`Navigation started. ${buildVoicePrompt(currentStep, { immediate: true })}.`)
-      }
-    }
-
-    if (!effectiveDriverLocation) {
-      return
-    }
-
-    if (upcomingStep) {
-      const distanceToUpcomingMeters =
-        haversineKm(effectiveDriverLocation, {
-          lat: upcomingStep.maneuver.location[1],
-          lng: upcomingStep.maneuver.location[0],
-        }) * 1000
-
-      if (distanceToUpcomingMeters <= 180) {
-        const prepKey = `prep:${trip.id}:${currentStepIndex + 1}`
-        if (!spokenNavigationPromptsRef.current.has(prepKey)) {
-          spokenNavigationPromptsRef.current.add(prepKey)
-          speakNavigationPrompt(buildVoicePrompt(upcomingStep, { distanceMeters: distanceToUpcomingMeters }))
-        }
-      }
-
-      if (distanceToUpcomingMeters <= 40) {
-        const nowKey = `now:${trip.id}:${currentStepIndex + 1}`
-        if (!spokenNavigationPromptsRef.current.has(nowKey)) {
-          spokenNavigationPromptsRef.current.add(nowKey)
-          speakNavigationPrompt(buildVoicePrompt(upcomingStep, { immediate: true }))
-        }
-      }
-
-      return
-    }
-
-    if (currentStep) {
-      const distanceToCurrentMeters =
-        haversineKm(effectiveDriverLocation, {
-          lat: currentStep.maneuver.location[1],
-          lng: currentStep.maneuver.location[0],
-        }) * 1000
-      if (distanceToCurrentMeters <= 50) {
-        const finalKey = `final:${trip.id}:${currentStepIndex}`
-        if (!spokenNavigationPromptsRef.current.has(finalKey)) {
-          spokenNavigationPromptsRef.current.add(finalKey)
-          speakNavigationPrompt(buildVoicePrompt(currentStep, { finalPrompt: true }))
-        }
-      }
-    }
-  }, [
-    voiceGuidanceEnabled,
-    normalizedTripStatus,
-    effectiveDriverLocation,
-    routeSteps,
-    currentStepIndex,
-    trip.id,
-  ])
-
-  const driverMarkerHeading =
-    typeof effectiveDriverLocation?.heading === 'number' &&
-    Number.isFinite(effectiveDriverLocation.heading) &&
-    effectiveDriverLocation.heading >= 0
-      ? effectiveDriverLocation.heading
-      : undefined
-
-  const formatLocationAge = (ageMs: number) => {
-    const minutes = Math.round(ageMs / 60000)
-    if (minutes < 1) return 'just now'
-    if (minutes < 60) return `${minutes} min ago`
-    const hours = Math.round(minutes / 60)
-    if (hours < 24) return `${hours} h ago`
-    return `${Math.round(hours / 24)} d ago`
-  }
-
-  // A stale or coarse fix must read as such: a 100 m wifi fix can sit kilometres
-  // from the driver, and unlabelled it looks like a live GPS position.
-  const driverLocationMarkerLabel = (() => {
-    const accuracy = Number(effectiveDriverLocation?.accuracy)
-    const accuracySuffix = Number.isFinite(accuracy) ? ` +- ${Math.round(accuracy)} m` : ''
-    if (!isLiveDriverLocation) {
-      const age = driverLocationAgeMs === null ? '' : ` ${formatLocationAge(driverLocationAgeMs)}`
-      return `Last known location${age}${accuracySuffix}`
-    }
-    return `Current location${accuracySuffix}`
-  })()
-
-  const driverLocationMarker = (() => {
-    const sourceLocation = effectiveDriverLocation
-    // Never represent the warehouse/start point as the driver's live position.
-    if (!sourceLocation) return null
-    const lat = toCoordinate(sourceLocation?.lat)
-    const lng = toCoordinate(sourceLocation?.lng)
-    if (lat === null || lng === null) return null
-    return {
-      id: `driver-${trip.id}`,
-      driverName: 'You (Driver)',
-      vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
-      lat,
-      lng,
-      status: isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
-      markerLabel: driverLocationMarkerLabel,
-      markerType: 'truck' as const,
-      markerHeading: driverMarkerHeading ?? undefined,
-      markerColor: '#1d4ed8',
-      // Added: keep the driver's navigation popup consistent with live tracking.
-      assignedTripNumber: trip.tripNumber || '',
-      destinationCustomer: nextDropPoint?.locationName || nextDropPoint?.contactName || 'N/A',
-      accuracyMeters: Number.isFinite(Number(sourceLocation.accuracy))
-        ? Number(sourceLocation.accuracy)
-        : undefined,
-      // Ground speed lets the map extrapolate between fixes rather than only
-      // animating toward a position the driver has already left.
-      // Fix: an unavailable speed sensor must not freeze a moving GPS position as "parked".
-      speedMps: sourceLocation.speed != null && Number.isFinite(Number(sourceLocation.speed)) && Number(sourceLocation.speed) >= 0
-        ? Number(sourceLocation.speed)
-        : undefined,
-    }
-  })()
-
-  // Do not calculate driver ETA from the warehouse when this account has no location.
-  const etaStartPoint = driverLocationMarker
-    ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
-    : null
-  let etaAnchor = etaStartPoint
-  let pendingPhaseIndex = 0
-  const dropPointMapLocations = mappableDropPoints.map((point) => {
-    const normalizedDropPointStatus = String(point.status || '').toUpperCase()
-    const normalizedOrderStatus = String(point?.order?.status || '').toUpperCase()
-    const isCancelledLike = ['FAILED', 'CANCELLED', 'CANCELED', 'SKIPPED'].includes(normalizedDropPointStatus)
-      || ['FAILED', 'CANCELLED', 'CANCELED'].includes(normalizedOrderStatus)
-    const isRescheduledLike = Boolean(point?.rescheduleRequested)
-      || normalizedDropPointStatus === 'RESCHEDULED'
-      || normalizedOrderStatus === 'RESCHEDULED'
-    const isCompleted = isDropPointDone(point.status)
-    let markerEta: string | undefined
-    let markerEtaPhase: 'completed' | 'next' | 'upcoming' | undefined
-
-    if (isCompleted) {
-      markerEta = 'Arrived'
-      markerEtaPhase = 'completed'
-    } else if (etaAnchor) {
-      const target = { lat: point.latitude as number, lng: point.longitude as number }
-      etaAnchor = target
-      markerEtaPhase = pendingPhaseIndex === 0 ? 'next' : 'upcoming'
-      pendingPhaseIndex += 1
-    }
-
-    return {
-      id: point.id,
-      driverName: point.locationName || `Stop ${point.sequence}`,
-      vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
-      lat: point.latitude as number,
-      lng: point.longitude as number,
-      status: point.status || 'PENDING',
-      markerLabel: `${point.sequence}. ${stripPhilippinesFromAddress(point.address) || point.city || 'Drop Point'}`,
-      markerType: 'pin' as const,
-      markerColor: isCancelledLike ? '#ef4444' : (isRescheduledLike ? '#f59e0b' : '#2563eb'),
-      markerNumber: point.sequence,
-      markerEta,
-      markerEtaPhase,
-      popupCustomerName: point.locationName || point.contactName || `Stop ${point.sequence}`,
-      popupAddress: stripPhilippinesFromAddress(point.address) || point.city || '',
-      popupOrderItems: (point.order?.items || []).map((item: any) => ({
-        name: getItemDisplayNameWithSize(item),
-        qty: getOrderQtyWithUnitLabel(item, point.order),
-      })),
-    }
-  })
-
-  const mapLocations = driverLocationMarker ? [driverLocationMarker, ...dropPointMapLocations] : dropPointMapLocations
-  const exactDriverLocationSource = effectiveDriverLocation
-  const exactDriverLocationLabel = exactDriverLocationSource
-    ? `${Number(exactDriverLocationSource.lat).toFixed(6)}, ${Number(exactDriverLocationSource.lng).toFixed(6)}`
-      + (isLiveDriverLocation
-        ? ''
-        : ` (last known${driverLocationAgeMs === null ? '' : ` ${formatLocationAge(driverLocationAgeMs)}`})`)
-    : null
-  const currentVehicleSpeedMps = toCoordinate(effectiveDriverLocation?.speed)
-  // Geolocation reports speed in m/s; keep unavailable sensor data explicit.
-  const currentVehicleSpeedLabel = currentVehicleSpeedMps !== null && currentVehicleSpeedMps >= 0
-    ? `${Math.round(currentVehicleSpeedMps * 3.6)} km/h`
-    : '-- km/h'
-
-  const navigationStopsKey = pendingDropPoints.map((point) => `${point.id}:${point.latitude},${point.longitude}`).join('|')
-  useEffect(() => {
-    if (!driverLocationMarker) return
-    // Fix: following a light-blue road promotes it before requesting new geometry.
-    const followedIndex = selectFollowedRoute(
-      [driverLocationMarker.lat, driverLocationMarker.lng], routeOptions.map((option) => option.points),
-      activeRouteOptionIndex, driverLocationMarker.markerHeading
-    )
-    if (followedIndex !== activeRouteOptionIndex) {
-      navigationRouteSelectionEpochRef.current += 1
-      navigationRouteAbortRef.current?.abort()
-      navigationRouteRequestInFlightRef.current = false
-      setActiveRouteOptionIndex(followedIndex)
-      return
-    }
-    // Fix: a newly completed or changed stop starts its next route at the current GPS fix.
-    const stopsChanged = navigationStopsKeyRef.current !== navigationStopsKey
-    navigationStopsKeyRef.current = navigationStopsKey
-    const nextOrigin = {
-      tripId: trip.id,
-      lat: driverLocationMarker.lat,
-      lng: driverLocationMarker.lng,
-      revision: (navigationRouteOrigin?.revision || 0) + 1,
-    }
-    setNavigationRouteOrigin((previous) => {
-      if (!previous || previous.tripId !== trip.id || stopsChanged) return nextOrigin
-      const activeRoutePoints = routeOptions[activeRouteOptionIndex]?.points
-      return shouldRefreshDriverRoute({
-        point: [nextOrigin.lat, nextOrigin.lng], route: activeRoutePoints || [],
-        heading: driverLocationMarker.markerHeading, speed: effectiveDriverLocation?.speed,
-        inFlight: navigationRouteRequestInFlightRef.current || Date.now() < navigationRouteRetryAtRef.current,
-        elapsedMs: Date.now() - navigationRouteLastRequestAtRef.current,
-      }) ? nextOrigin : previous
-    })
-  }, [trip.id, driverLocationMarker?.lat, driverLocationMarker?.lng, driverLocationMarker?.markerHeading, navigationStopsKey, navigationRouteCheckEpoch, routeOptions, activeRouteOptionIndex])
-
-  const fullRouteWaypoints = (() => {
-    const start = warehouseRouteStart ? [warehouseRouteStart] : []
-    const completedCoords = completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
-    const pendingCoords = pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
-    if (driverLocationMarker) {
-      return [...start, ...completedCoords, { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }, ...pendingCoords]
-    }
-    return [...start, ...completedCoords, ...pendingCoords]
-  })()
-  const routeWaypoints = fullRouteWaypoints
-  // Keep the origin stable until the driver needs a replacement route.
-  // Must be declared before the route waypoint builders that reference it.
-  const savedNavigationOrigin = navigationRouteOrigin
-  const stableNavigationOrigin = savedNavigationOrigin && savedNavigationOrigin.tripId === trip.id
-    ? { lat: savedNavigationOrigin.lat, lng: savedNavigationOrigin.lng }
-    : driverLocationMarker
-      ? { lat: driverLocationMarker.lat, lng: driverLocationMarker.lng }
-      : null
-  const upcomingRouteWaypoints = (() => {
-    const pendingCoords = pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number }))
-    // Use the stable origin to avoid restarting route requests for every GPS fix.
-    if (stableNavigationOrigin) return [stableNavigationOrigin, ...pendingCoords]
-    return pendingCoords
-  })()
-  // Fix: every trip route starts at the warehouse; GPS is an intermediate waypoint for detours.
-  const navigationRouteWaypoints = warehouseRouteStart ? [
-    warehouseRouteStart,
-    ...completedDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number })),
-    ...(stableNavigationOrigin ? [stableNavigationOrigin] : []),
-    ...pendingDropPoints.map((point) => ({ lat: point.latitude as number, lng: point.longitude as number })),
-  ] : []
-  const navigationWaypointsKey = `${trip.id}:${navigationRouteOrigin?.revision || 0}:` + navigationRouteWaypoints
-    .map((point) => `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`)
-    .join('|')
-
-  useEffect(() => {
-    const uniqueWaypoints = navigationRouteWaypoints.filter((point, index, list) => {
-      if (index === 0) return true
-      const previous = list[index - 1]
-      return !(Math.abs(point.lat - previous.lat) < 0.000001 && Math.abs(point.lng - previous.lng) < 0.000001)
-    })
-
-    if (uniqueWaypoints.length < 2) {
-      setRouteOptions([])
-      setActiveRouteOptionIndex(0)
-      setRouteSteps([])
-      setCurrentStepIndex(0)
-      return
-    }
-
-    let cancelled = false
-    let retryTimeoutId: number | null = null
-    let activeController: AbortController | null = null
-    const selectionEpoch = navigationRouteSelectionEpochRef.current
-
-    const run = async (attemptNumber: number) => {
-      // Fix: a delayed retry must not replace a route selected since this request began.
-      if (cancelled || selectionEpoch !== navigationRouteSelectionEpochRef.current) return
-      // Fix: each retry needs a fresh signal after a previous request times out.
-      const controller = new AbortController()
-      activeController = controller
-      navigationRouteAbortRef.current = controller
-      navigationRouteRequestInFlightRef.current = true
-      navigationRouteRetryAtRef.current = 0
-      navigationRouteLastRequestAtRef.current = Date.now()
-      // Shared fetch owns timeouts and recovery; keep this signal for route changes/unmounts.
-      try {
-        const coordinates = uniqueWaypoints
-          .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
-          .join(';')
-        // Fix: a U-turn must leave the GPS waypoint in the driver's current direction.
-        const gpsWaypointIndex = uniqueWaypoints.findIndex((point) => point.lat === stableNavigationOrigin?.lat && point.lng === stableNavigationOrigin?.lng)
-        const bearingQuery = attemptNumber === 0 && gpsWaypointIndex >= 0 && driverMarkerHeading !== undefined
-          && Number(effectiveDriverLocation?.speed) > 1
-          ? `&bearings=${uniqueWaypoints.map((_, index) => index === gpsWaypointIndex ? `${Math.round(driverMarkerHeading)},60` : '').join(';')}&continue_straight=true`
-          : ''
-        const response = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=3${bearingQuery}`,
-          { signal: controller.signal }
-        )
-        const payload = await response.json().catch(() => ({}))
-        // Fix: a slow response cannot replace a route the driver has already selected/followed.
-        if (cancelled || selectionEpoch !== navigationRouteSelectionEpochRef.current) return
-        const rawRoutes = Array.isArray(payload?.routes) ? [...payload.routes] : []
-
-        // OSRM may return no native alternatives. Ask it for two modestly shaped
-        // road routes while keeping every real delivery coordinate as a waypoint.
-        if (response.ok && rawRoutes.length < 3 && uniqueWaypoints.length >= 2 && !routeOptions.length && !isTracking) {
-          const start = uniqueWaypoints[0]
-          const firstStop = uniqueWaypoints[1]
-          const midpoint = {
-            lat: (start.lat + firstStop.lat) / 2,
-            lng: (start.lng + firstStop.lng) / 2,
-          }
-          const longitudeScale = Math.max(Math.cos((midpoint.lat * Math.PI) / 180), 0.1)
-          const dx = (firstStop.lng - start.lng) * longitudeScale
-          const dy = firstStop.lat - start.lat
-          const straightLength = Math.hypot(dx, dy)
-          const offsetDegrees = Math.min(Math.max(haversineKm(start, firstStop) * 0.18, 0.5), 2.0) / 111
-
-          if (straightLength > 0) {
-            const detourPoints = [-1, 1].map((direction) => ({
-              lat: midpoint.lat + direction * (dx / straightLength) * offsetDegrees,
-              lng: midpoint.lng - direction * (dy / straightLength) * offsetDegrees / longitudeScale,
-            }))
-            const shapedRoutes = await Promise.all(detourPoints.map(async (detourPoint) => {
-              const shapedCoordinates = [start, detourPoint, ...uniqueWaypoints.slice(1)]
-                .map((point) => `${encodeURIComponent(String(point.lng))},${encodeURIComponent(String(point.lat))}`)
-                .join(';')
-              // Index 1 is a silent shaping coordinate, so instructions still reference only actual stops.
-              const waypointIndexes = [0, ...Array.from({ length: uniqueWaypoints.length - 1 }, (_, index) => index + 2)]
-                .join(';')
-              try {
-                const shapedResponse = await fetch(
-                  `https://router.project-osrm.org/route/v1/driving/${shapedCoordinates}?overview=full&geometries=geojson&steps=true&alternatives=true&waypoints=${encodeURIComponent(waypointIndexes)}`,
-                  { signal: controller.signal }
-                )
-                const shapedPayload = await shapedResponse.json().catch(() => ({}))
-                return shapedResponse.ok && Array.isArray(shapedPayload?.routes) ? shapedPayload.routes : null
-              } catch {
-                return null
-              }
-            }))
-            const recommendedDistance = Math.max(Number(rawRoutes[0]?.distance || 0), 1)
-            const routeKeys = new Set(rawRoutes.map((route: any) => JSON.stringify(route?.geometry?.coordinates || [])))
-            shapedRoutes.flat().filter(Boolean).forEach((route: any) => {
-              const routeKey = JSON.stringify(route?.geometry?.coordinates || [])
-              const routeDistance = Number(route?.distance || 0)
-              if (
-                routeKey !== '[]' &&
-                !routeKeys.has(routeKey) &&
-                routeDistance > 0 &&
-                routeDistance <= recommendedDistance * 1.5
-              ) {
-                routeKeys.add(routeKey)
-                rawRoutes.push(route)
-              }
-            })
-          }
-        }
-
-        // Added: keep all returned routes so the driver can choose an alternative without changing the stop order.
-        const normalizedOptions: DriverRouteOption[] = rawRoutes
-          .map((route: any, routeIndex: number) => {
-            const legs = Array.isArray(route?.legs) ? route.legs : []
-            // Fix: warehouse legs remain visible, but only legs ahead of GPS drive the truck and instructions.
-            const navigationLegIndex = Math.max(0, gpsWaypointIndex)
-            const legPoints = (selectedLegs: any[]): [number, number][] => selectedLegs
-              .flatMap((leg: any) => (leg.steps || []).flatMap((step: any) => step.geometry?.coordinates || []))
-              .map((pair: any) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
-              .filter((point: [number, number], index: number, points: [number, number][]) =>
-                Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
-                (index === 0 || point[0] !== points[index - 1][0] || point[1] !== points[index - 1][1]))
-            const points = legPoints(legs.slice(navigationLegIndex))
-            const originPoints = legPoints(legs.slice(0, navigationLegIndex))
-            // Color the next drop independently from the later delivery legs.
-            const activeLegPoints = legPoints(legs.slice(navigationLegIndex, navigationLegIndex + 1))
-            const futureLegPoints = legPoints(legs.slice(navigationLegIndex + 1))
-            const steps: OsrmStep[] = legs.slice(navigationLegIndex)
-              .flatMap((leg: any) => (Array.isArray(leg?.steps) ? leg.steps : []))
-              .map((step: any) => ({
-                maneuver: {
-                  type: String(step?.maneuver?.type || '').trim(),
-                  modifier: step?.maneuver?.modifier ? String(step.maneuver.modifier).trim() : undefined,
-                  location: [
-                    Number(step?.maneuver?.location?.[0]),
-                    Number(step?.maneuver?.location?.[1]),
-                  ] as [number, number],
-                },
-                name: String(step?.name || '').trim(),
-                distance: Number(step?.distance || 0),
-                duration: Number(step?.duration || 0),
-                driving_side: step?.driving_side ? String(step.driving_side).trim() : undefined,
-              }))
-              .filter(
-                (step: OsrmStep) =>
-                  step.maneuver.type &&
-                  Number.isFinite(step.maneuver.location[0]) &&
-                  Number.isFinite(step.maneuver.location[1])
-              )
-            return { id: String(routeIndex), points, originPoints, activeLegPoints, futureLegPoints, steps }
-          })
-          .filter((route: DriverRouteOption) => route.points.length > 1)
-
-        // Keep the last known-good route on an empty/failed response instead of
-        // wiping it — a transient OSRM hiccup should not blank the driver's map
-        // or make the vehicle marker disappear mid-trip.
-        if (!cancelled && selectionEpoch === navigationRouteSelectionEpochRef.current && normalizedOptions.length > 0) {
-          setRouteOptions(normalizedOptions)
-          // Fix: alternative indexes belong to the previous response, not to a rerouted trip.
-          setActiveRouteOptionIndex(0)
-          setCurrentStepIndex(0)
-        } else if (!cancelled && selectionEpoch === navigationRouteSelectionEpochRef.current && attemptNumber < 2) {
-          navigationRouteRetryAtRef.current = Date.now() + 2500
-          // Fix: retry failed reroutes too, even when an older route is still visible.
-          retryTimeoutId = window.setTimeout(() => {
-            if (!cancelled) void run(attemptNumber + 1)
-          }, 2500)
-        }
-      } catch {
-        if (!cancelled && selectionEpoch === navigationRouteSelectionEpochRef.current) navigationRouteRetryAtRef.current = Date.now() + 2500
-        if (!cancelled && selectionEpoch === navigationRouteSelectionEpochRef.current && attemptNumber < 2) {
-          retryTimeoutId = window.setTimeout(() => {
-            if (!cancelled) void run(attemptNumber + 1)
-          }, 2500)
-        }
-      } finally {
-        if (!cancelled && navigationRouteAbortRef.current === controller) navigationRouteRequestInFlightRef.current = false
-      }
-    }
-
-    void run(0)
-
-    return () => {
-      cancelled = true
-      activeController?.abort()
-      navigationRouteRequestInFlightRef.current = false
-      if (retryTimeoutId !== null) window.clearTimeout(retryTimeoutId)
-    }
-  }, [navigationWaypointsKey])
-
-  useEffect(() => {
-    const activeOption = routeOptions[activeRouteOptionIndex]
-    setRouteSteps(activeOption?.steps || [])
-    setCurrentStepIndex(0)
-    spokenNavigationPromptsRef.current.clear()
-  }, [activeRouteOptionIndex, routeOptions])
-
-  const upcomingRoutePoints = navigationRouteWaypoints.map(
-    (point) => [point.lat, point.lng] as [number, number]
-  )
-  const activeRouteOption = routeOptions[activeRouteOptionIndex] || null
-
-  // Along-route distance to each maneuver equals the summed length of every step
-  // before it. Shared by step advancement and the live distance-to-turn readout
-  // so the instruction, its countdown and the vehicle icon read one position.
-  const maneuverCumulativeDistances = useMemo(() => {
-    const distances: number[] = []
-    let cumulative = 0
-    routeSteps.forEach((step, index) => {
-      distances[index] = cumulative
-      cumulative += step.distance || 0
-    })
-    return distances
-  }, [routeSteps])
-
-  // Project the live driver position onto the active route once per render.
-  const navigationRouteProjection = useMemo(() => {
-    const geometry = activeRouteOption?.points
-    if (!effectiveDriverLocation || !geometry || geometry.length < 2) return null
-    return projectPointOntoRoute(
-      [Number(effectiveDriverLocation.lat), Number(effectiveDriverLocation.lng)],
-      geometry
-    )
-  }, [activeRouteOption, effectiveDriverLocation])
-
-  // Advance the active turn-by-turn step from real progress along the route.
-  // Measuring distance travelled along the route — rather than a fixed radius
-  // around the next maneuver — keeps the instruction correct when GPS updates
-  // are sparse and the driver passes a maneuver between fixes, and lets several
-  // maneuvers clear at once instead of lagging a fix behind.
-  useEffect(() => {
-    if (routeSteps.length === 0) return
-    // Only trust a projection taken on the geometry these steps belong to,
-    // otherwise a reroute's new geometry could be measured with old steps.
-    if (!navigationRouteProjection || activeRouteOption?.steps !== routeSteps) return
-    if (navigationRouteProjection.distanceFromRouteMeters > NAVIGATION_OFF_ROUTE_METERS) return
-    const driverDistance = navigationRouteProjection.distanceAlongMeters
-    let travelingIndex = 0
-    for (let index = 0; index < routeSteps.length - 1; index += 1) {
-      const nextManeuverDistance = maneuverCumulativeDistances[index] + (routeSteps[index].distance || 0)
-      if (driverDistance >= nextManeuverDistance - NAVIGATION_MANEUVER_PASSED_MARGIN_METERS) {
-        travelingIndex = index + 1
-      } else {
-        break
-      }
-    }
-    // Never move the instruction backwards on the same route; a reroute resets
-    // the index to 0 when the route options change.
-    setCurrentStepIndex((previous) => (travelingIndex > previous ? travelingIndex : previous))
-  }, [navigationRouteProjection, routeSteps, activeRouteOption, maneuverCumulativeDistances])
-
-  // The prominent instruction is the maneuver ahead of the segment the driver is
-  // on, so a completed turn immediately reveals the next one; its distance
-  // counts down live as the driver approaches.
-  const upcomingManeuverIndex = routeSteps.length > 0
-    ? Math.min(currentStepIndex + 1, routeSteps.length - 1)
-    : currentStepIndex
-  const liveDistanceToManeuverMeters =
-    navigationRouteProjection &&
-    navigationRouteProjection.distanceFromRouteMeters <= NAVIGATION_OFF_ROUTE_METERS &&
-    typeof maneuverCumulativeDistances[upcomingManeuverIndex] === 'number'
-      ? Math.max(0, maneuverCumulativeDistances[upcomingManeuverIndex] - navigationRouteProjection.distanceAlongMeters)
-      : undefined
-
-  const handleRouteLineSelect = useCallback((routeLineId: string) => {
-    const alternativePrefix = `trip-${trip.id}-route-alternative-`
-    if (!routeLineId.startsWith(alternativePrefix)) return
-    const optionId = routeLineId.slice(alternativePrefix.length)
-    const selectedIndex = routeOptions.findIndex((option) => option.id === optionId)
-    if (selectedIndex < 0 || selectedIndex === activeRouteOptionIndex) return
-    // Added: promote the tapped light-blue route and its instructions to the active route.
-    navigationRouteSelectionEpochRef.current += 1
-    navigationRouteAbortRef.current?.abort()
-    navigationRouteRequestInFlightRef.current = false
-    setActiveRouteOptionIndex(selectedIndex)
-  }, [activeRouteOptionIndex, routeOptions, trip.id])
-  const mapRouteLines = [
-    // Fix: keep the warehouse as the fixed trip origin without snapping a detour onto an earlier leg.
-    ...(activeRouteOption && activeRouteOption.originPoints.length > 1 ? [{
-      id: `trip-${trip.id}-route-origin`, points: activeRouteOption.originPoints,
-      color: '#6b7280', label: `${trip.tripNumber} warehouse origin`, opacity: 1, weight: 8,
-      snapToRoad: false, selectable: false,
-    }] : []),
-    // The map splits the active geometry into traveled and upcoming sections.
-    ...routeOptions
-      .filter((_, optionIndex) => optionIndex !== activeRouteOptionIndex)
-      .map((option) => ({
-        id: `trip-${trip.id}-route-alternative-${option.id}`,
-        points: option.points,
-        color: '#93c5fd',
-        label: `${trip.tripNumber} alternative path`,
-        opacity: 0.82,
-        weight: 6,
-        selectable: true,
-        preserveExactEndpoints: false,
-      })),
-    ...(activeRouteOption && activeRouteOption.futureLegPoints.length > 1 ? [{
-      id: `trip-${trip.id}-route-future`, points: activeRouteOption.futureLegPoints,
-      color: '#93c5fd', label: `${trip.tripNumber} future deliveries`, opacity: 0.82, weight: 6,
-      snapToRoad: false, selectable: false,
-    }] : []),
-    ...((activeRouteOption?.points.length || upcomingRoutePoints.length) > 1
-      ? [
-        {
-          id: `trip-${trip.id}-route-upcoming`,
-          // Fix: use the same verified geometry for the truck, route line, and instructions.
-          points: activeRouteOption?.activeLegPoints || upcomingRoutePoints,
-          color: '#2563eb',
-          label: `${trip.tripNumber} upcoming path`,
-          opacity: 1,
-          weight: 8,
-          snapToRoad: !activeRouteOption,
-          selectable: Boolean(activeRouteOption),
-          // Fix: begin the visible path and truck marker at the routed road position.
-          preserveExactEndpoints: false,
-        },
-      ]
-      : []),
-  ]
-  // Center only on a real, fresh driver GPS position.
-  const mapCenter = driverLocationMarker
-    ? [driverLocationMarker.lat, driverLocationMarker.lng] as [number, number]
-    : null
-  const mobileMapCenter = mobileMapRecenterCenter || mapCenter
-
-  // Best-effort live location refresh for recenter button.
-  const getFreshDriverLocation = () =>
-    new Promise<{ lat: number; lng: number } | null>((resolve) => {
-      if (!navigator.geolocation) {
-        resolve(null)
-        return
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = Number(position.coords.latitude)
-          const lng = Number(position.coords.longitude)
-          const acc = Number(position.coords.accuracy)
-          // Reject inaccurate cell-tower fixes (> 150 m) for the recenter action.
-          if (Number.isFinite(lat) && Number.isFinite(lng) && (!Number.isFinite(acc) || acc <= 150)) {
-            resolve({ lat, lng })
-            return
-          }
-          resolve(null)
-        },
-        () => resolve(null),
-        { enableHighAccuracy: true, maximumAge: 4000, timeout: 7000 }
-      )
-    })
-
-  // Recenter behavior for mobile map view.
-  const handleMobileMapRecenter = async () => {
-    // Fix: immediately restore the active 2D/3D default camera on every target
-    // button click, without waiting for an optional fresh GPS lookup.
-    setMobileMapRecenterSignal((previous) => previous + 1)
-
-    const liveLat = toCoordinate(currentLocation?.lat)
-    const liveLng = toCoordinate(currentLocation?.lng)
-    const previewLat = toCoordinate(previewDriverLocation?.lat)
-    const previewLng = toCoordinate(previewDriverLocation?.lng)
-
-    let targetLat = liveLat ?? previewLat ?? driverLocationMarker?.lat ?? null
-    let targetLng = liveLng ?? previewLng ?? driverLocationMarker?.lng ?? null
-
-    if (!Number.isFinite(Number(targetLat)) || !Number.isFinite(Number(targetLng))) {
-      const freshLocation = await getFreshDriverLocation()
-      if (freshLocation) {
-        setPreviewDriverLocation(freshLocation)
-        targetLat = freshLocation.lat
-        targetLng = freshLocation.lng
-      }
-    }
-
-    if (!Number.isFinite(Number(targetLat)) || !Number.isFinite(Number(targetLng))) {
-      toast.error('Current location unavailable. Enable location to recenter map.')
-      return
-    }
-
-    const nextCenter: [number, number] = [Number(targetLat), Number(targetLng)]
-    setMobileMapRecenterCenter(nextCenter)
-  }
-
-  // Added: every perspective toggle resets the map camera instead of preserving
-  // a previously panned or zoomed position from the other mode.
-  const handleToggleMapPerspective = () => {
-    setIs3DPerspective((previous) => !previous)
-    setMobileMapRecenterSignal((previous) => previous + 1)
   }
 
   return (
@@ -3495,472 +1928,60 @@ export function TripDetailView({
         </div>
       </div>
 
-      <Dialog open={isCameraOpen} onOpenChange={(open) => { if (!open) closeCameraCapture() }}>
-        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
-          <DialogHeader>
-            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
-              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Capture POD Photo</DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
-                Take a clear photo of the delivered package or recipient.
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
-            {capturedCameraPhoto ? (
-              <>
-                <img
-                  src={capturedCameraPhoto}
-                  alt="Captured POD"
-                  className="max-h-[60dvh] w-full rounded-xl border border-sky-100 bg-black object-contain shadow-[0_10px_24px_rgba(15,23,42,0.10)]"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={() => setCapturedCameraPhoto(null)}>
-                    Try Again
-                  </Button>
-                  <Button className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]" onClick={() => void continueCapturedPhoto()}>
-                    Continue
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div
-                  className="relative w-full overflow-hidden rounded-xl border border-sky-100 bg-black shadow-[0_10px_24px_rgba(15,23,42,0.10)]"
-                  // Fix: absolute camera content needs an explicit packaged-app height; aspect utilities may collapse in the WebView build.
-                  style={{ height: 'clamp(18rem, 56dvh, 32rem)' }}
-                >
-                  <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />
-                  {cameraOverlaySnapshot ? (
-                    <div
-                      className="absolute bottom-[3%] left-[3%] max-w-[90%] rounded-lg bg-black/45 px-[clamp(0.55rem,2.5vw,0.9rem)] py-[clamp(0.45rem,2vw,0.75rem)] text-[clamp(0.68rem,2.8vw,0.9rem)] font-semibold leading-[1.35] text-white"
-                      style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95)' }}
-                      aria-live="polite"
-                    >
-                      {formatPodOverlayLines(cameraOverlaySnapshot).map((line, index) => (
-                        <p key={`${index}-${line}`} className="break-words">{line}</p>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="absolute bottom-[3%] left-[3%] max-w-[90%] rounded-lg bg-black/55 px-3 py-2 text-xs font-semibold text-white">
-                      Waiting for current GPS location...
-                    </div>
-                  )}
-                </div>
-                {isCameraLoading ? <p className="text-sm text-[#4d6785]">Opening camera...</p> : null}
-                {cameraError ? <p className="text-sm text-red-600">{cameraError}</p> : null}
-                {cameraLocationError ? <p className="text-sm text-red-600">GPS: {cameraLocationError}</p> : null}
-                <Button className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]" onClick={captureFromCamera} disabled={isCameraLoading || Boolean(cameraError) || !cameraGps || isCameraAddressLoading}>
-                  Capture Photo
-                </Button>
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <PodCameraDialogs
+        cameraError={cameraError}
+        cameraGps={cameraGps}
+        cameraLocationError={cameraLocationError}
+        cameraOverlaySnapshot={cameraOverlaySnapshot}
+        cameraPermissionHint={cameraPermissionHint}
+        cameraPermissionSteps={cameraPermissionSteps}
+        captureFromCamera={captureFromCamera}
+        capturedCameraPhoto={capturedCameraPhoto}
+        closeCameraCapture={closeCameraCapture}
+        continueCapturedPhoto={continueCapturedPhoto}
+        isCameraAddressLoading={isCameraAddressLoading}
+        isCameraLoading={isCameraLoading}
+        isCameraOpen={isCameraOpen}
+        isCameraPermissionDialogOpen={isCameraPermissionDialogOpen}
+        openCameraCapture={openCameraCapture}
+        setCapturedCameraPhoto={setCapturedCameraPhoto}
+        setIsCameraPermissionDialogOpen={setIsCameraPermissionDialogOpen}
+        videoRef={videoRef}
+      />
 
-      <Dialog open={isCameraPermissionDialogOpen} onOpenChange={setIsCameraPermissionDialogOpen}>
-        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
-          <DialogHeader>
-            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
-              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Camera Permission Required</DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
-                Driver delivery proof requires live camera access. Enable camera permission in browser/app settings, then retry.
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
-            <p className="text-sm text-red-600">{cameraError || 'Camera permission is currently blocked.'}</p>
-            {cameraPermissionHint ? <p className="text-xs text-[#4d6785]">{cameraPermissionHint}</p> : null}
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant="outline"
-                className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
-                onClick={() => {
-                  openCameraSettings()
-                }}
-              >
-                Try Open Settings
-              </Button>
-              <Button
-                className="h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]"
-                onClick={() => {
-                  setIsCameraPermissionDialogOpen(false)
-                  window.setTimeout(() => {
-                    openCameraCapture()
-                  }, 120)
-                }}
-              >
-                Retry Camera
-              </Button>
-            </div>
-            <div className="rounded-xl border border-sky-100 bg-white/70 p-3">
-              <p className="mb-2 text-xs font-semibold text-[#17365d]">Manual steps</p>
-              <ol className="list-decimal space-y-1 pl-4 text-xs text-[#4d6785]">
-                {cameraPermissionSteps.map((step, index) => (
-                  <li key={`camera-step-${index}`}>{step}</li>
-                ))}
-              </ol>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <FailedDeliveryDialogs
+        closeFailedDeliveryChoice={closeFailedDeliveryChoice}
+        closeFailedDeliveryReschedule={closeFailedDeliveryReschedule}
+        deliveryNote={deliveryNote}
+        failedDeliveryDropPointId={failedDeliveryDropPointId}
+        failedDeliveryOtherDate={failedDeliveryOtherDate}
+        failedDeliveryPendingAction={failedDeliveryPendingAction}
+        failedDeliveryReceiveAgain={failedDeliveryReceiveAgain}
+        failedDeliveryRescheduleDropPointId={failedDeliveryRescheduleDropPointId}
+        handleUpdateDropPoint={handleUpdateDropPoint}
+        isFailedDeliveryActionWarningOpen={isFailedDeliveryActionWarningOpen}
+        isFailedDeliveryChoiceOpen={isFailedDeliveryChoiceOpen}
+        isFailedDeliveryRescheduleOpen={isFailedDeliveryRescheduleOpen}
+        isFailedDeliverySubmitting={isFailedDeliverySubmitting}
+        isUpdating={isUpdating}
+        openFailedDeliveryActionWarning={openFailedDeliveryActionWarning}
+        openFailedDeliveryReschedule={openFailedDeliveryReschedule}
+        otherDriverCancelReason={otherDriverCancelReason}
+        selectedDriverCancelReasons={selectedDriverCancelReasons}
+        setFailedDeliveryOtherDate={setFailedDeliveryOtherDate}
+        setFailedDeliveryPendingAction={setFailedDeliveryPendingAction}
+        setFailedDeliveryReceiveAgain={setFailedDeliveryReceiveAgain}
+        setIsFailedDeliveryActionWarningOpen={setIsFailedDeliveryActionWarningOpen}
+        setIsFailedDeliverySubmitting={setIsFailedDeliverySubmitting}
+        setOtherDriverCancelReason={setOtherDriverCancelReason}
+        setSelectedDriverCancelReasons={setSelectedDriverCancelReasons}
+        trip={trip}
+      />
 
-      <Dialog
-        open={isFailedDeliveryChoiceOpen}
-        onOpenChange={(open) => {
-          if (isFailedDeliverySubmitting) return
-          if (!open) closeFailedDeliveryChoice()
-        }}
-      >
-        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
-          <DialogHeader>
-            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
-              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">Failed Delivery</DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
-                Choose whether to reschedule this delivery or cancel it.
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <Button
-                type="button"
-                className="h-11 rounded-xl bg-amber-600 font-semibold text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-amber-700"
-                onClick={() => {
-                  if (!failedDeliveryDropPointId) return
-                  openFailedDeliveryActionWarning('reschedule')
-                }}
-                disabled={isUpdating || isFailedDeliverySubmitting}
-              >
-                Reschedule
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                className="h-11 rounded-xl font-semibold shadow-[0_12px_24px_rgba(220,38,38,0.22)]"
-                onClick={async () => {
-                  if (!failedDeliveryDropPointId) return
-                  openFailedDeliveryActionWarning('cancel')
-                }}
-                disabled={isUpdating || isFailedDeliverySubmitting}
-              >
-                Cancel Delivery
-              </Button>
-            </div>
-            <Button type="button" variant="outline" className="h-11 w-full rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50" onClick={closeFailedDeliveryChoice} disabled={isUpdating || isFailedDeliverySubmitting}>
-              Close
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={isFailedDeliveryActionWarningOpen}
-        onOpenChange={(open) => {
-          if (isFailedDeliverySubmitting) return
-          setIsFailedDeliveryActionWarningOpen(open)
-        }}
-      >
-        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
-          <DialogHeader>
-            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
-              <DialogTitle className="text-[1.35rem] font-black tracking-[-0.02em] text-amber-700">Confirm Action</DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
-                {failedDeliveryPendingAction === 'reschedule'
-                  ? 'You are about to reschedule this failed delivery.'
-                  : 'You are about to cancel this failed delivery.'}
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
-            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              {failedDeliveryPendingAction === 'reschedule'
-                ? 'Proceed only if customer requested another delivery attempt.'
-                : 'Proceed only if delivery must be cancelled and should not be attempted again.'}
-            </div>
-            {failedDeliveryPendingAction === 'cancel' ? (
-              <OrderReasonCheckboxes
-                options={DRIVER_ORDER_REASONS}
-                selectedReasons={selectedDriverCancelReasons}
-                otherReason={otherDriverCancelReason}
-                onSelectedReasonsChange={setSelectedDriverCancelReasons}
-                onOtherReasonChange={setOtherDriverCancelReason}
-                label="Cancellation reason (required)"
-              />
-            ) : null}
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50"
-                onClick={() => {
-                  setIsFailedDeliveryActionWarningOpen(false)
-                  setFailedDeliveryPendingAction(null)
-                }}
-                disabled={isUpdating || isFailedDeliverySubmitting}
-              >
-                Back
-              </Button>
-              <Button
-                type="button"
-                className={`h-11 rounded-xl font-semibold text-white ${failedDeliveryPendingAction === 'cancel' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}`}
-                onClick={async () => {
-                  if (!failedDeliveryDropPointId || !failedDeliveryPendingAction) return
-                  const action = failedDeliveryPendingAction
-                  if (action === 'reschedule') {
-                    setIsFailedDeliveryActionWarningOpen(false)
-                    setFailedDeliveryPendingAction(null)
-                    openFailedDeliveryReschedule(failedDeliveryDropPointId)
-                    return
-                  }
-                  setIsFailedDeliverySubmitting(true)
-                  try {
-                    const cancellationReason = buildOrderActionReason(selectedDriverCancelReasons, otherDriverCancelReason)
-                    const completed = await handleUpdateDropPoint(
-                      failedDeliveryDropPointId,
-                      'CANCELLED',
-                      cancellationReason
-                    )
-                    if (completed) {
-                      setIsFailedDeliveryActionWarningOpen(false)
-                      setFailedDeliveryPendingAction(null)
-                      closeFailedDeliveryChoice()
-                    }
-                  } finally {
-                    setIsFailedDeliverySubmitting(false)
-                  }
-                }}
-                disabled={
-                  isUpdating
-                  || isFailedDeliverySubmitting
-                  || !failedDeliveryPendingAction
-                  || (failedDeliveryPendingAction === 'cancel' && !buildOrderActionReason(selectedDriverCancelReasons, otherDriverCancelReason))
-                }
-              >
-                {isFailedDeliverySubmitting
-                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</>
-                  : (failedDeliveryPendingAction === 'cancel' ? 'Confirm Cancel' : 'Confirm Reschedule')}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={isFailedDeliveryRescheduleOpen}
-        onOpenChange={(open) => {
-          if (isFailedDeliverySubmitting) return
-          if (!open) closeFailedDeliveryReschedule()
-        }}
-      >
-        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.22)] sm:max-w-md">
-          <DialogHeader>
-            <div className="border-b border-sky-100/80 bg-white/70 px-5 pb-3.5 pt-5 backdrop-blur">
-              <DialogTitle className="text-[1.45rem] font-black tracking-[-0.02em] text-[#123a67]">When should the order be received again?</DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-[#4d6785]">
-                Choose the next attempt window for this rescheduled delivery.
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-          <div className="max-h-[calc(100dvh-10rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-4">
-            <div className="grid grid-cols-1 gap-2">
-              <Button
-                type="button"
-                variant={failedDeliveryReceiveAgain === 'tomorrow' ? 'default' : 'outline'}
-                className={failedDeliveryReceiveAgain === 'tomorrow' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
-                onClick={() => setFailedDeliveryReceiveAgain('tomorrow')}
-                disabled={isUpdating || isFailedDeliverySubmitting}
-              >
-                Tomorrow
-              </Button>
-              <Button
-                type="button"
-                variant={failedDeliveryReceiveAgain === 'other_date' ? 'default' : 'outline'}
-                className={failedDeliveryReceiveAgain === 'other_date' ? 'h-11 rounded-xl bg-[#0d61ad] font-semibold text-white shadow-[0_12px_24px_rgba(2,132,199,0.28)] hover:bg-[#0b579c]' : 'h-11 rounded-xl border border-sky-200 bg-white/85 font-semibold text-[#17365d] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50'}
-                onClick={() => setFailedDeliveryReceiveAgain('other_date')}
-                disabled={isUpdating || isFailedDeliverySubmitting}
-              >
-                Other date
-              </Button>
-            </div>
-            {failedDeliveryReceiveAgain === 'other_date' ? (
-              <div className="rounded-xl border border-sky-200/80 bg-white/80 px-3 py-3">
-                <Label htmlFor="failed-delivery-other-date" className="text-xs font-semibold text-[#17365d]">
-                  Select delivery date
-                </Label>
-                <Input
-                  id="failed-delivery-other-date"
-                  type="date"
-                  className="mt-2"
-                  value={failedDeliveryOtherDate}
-                  min={new Date().toISOString().slice(0, 10)}
-                  onChange={(event) => setFailedDeliveryOtherDate(event.target.value)}
-                  disabled={isUpdating || isFailedDeliverySubmitting}
-                />
-                <p className="mt-2 text-xs text-sky-800">
-                  This order will be removed from this trip and returned to route planning.
-                </p>
-              </div>
-            ) : null}
-            <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-              Inventory will stay reserved for this rescheduled delivery.
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 rounded-xl border-sky-200 bg-white/85 font-semibold text-[#0f3d72] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:bg-sky-50 hover:text-[#0f3d72]"
-                onClick={closeFailedDeliveryReschedule}
-                disabled={isUpdating || isFailedDeliverySubmitting}
-              >
-                Back
-              </Button>
-              <Button
-                type="button"
-                className="h-11 rounded-xl bg-amber-600 font-semibold text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-amber-700"
-                onClick={async () => {
-                  if (!failedDeliveryRescheduleDropPointId) return
-                  if (failedDeliveryReceiveAgain === 'other_date' && !failedDeliveryOtherDate) {
-                    toast.error('Select a date for reschedule')
-                    return
-                  }
-                  const selectedOtherDateIso = failedDeliveryReceiveAgain === 'other_date'
-                    ? new Date(`${failedDeliveryOtherDate}T09:00:00`).toISOString()
-                    : undefined
-                  const label =
-                    failedDeliveryReceiveAgain === 'tomorrow'
-                      ? 'tomorrow'
-                      : `other date (${failedDeliveryOtherDate})`
-                  setIsFailedDeliverySubmitting(true)
-                  try {
-                    const completed = await handleUpdateDropPoint(
-                      failedDeliveryRescheduleDropPointId,
-                      'FAILED',
-                      `${deliveryNote || 'Delivery failed'} - reschedule requested (${label})`,
-                      undefined,
-                      {
-                        releaseInventory: false,
-                        rescheduleRequested: true,
-                        rescheduleWindow: failedDeliveryReceiveAgain,
-                        rescheduleDate:
-                          failedDeliveryReceiveAgain === 'other_date'
-                            ? selectedOtherDateIso
-                            : (() => {
-                              const scheduled = new Date()
-                              if (failedDeliveryReceiveAgain === 'tomorrow') {
-                                scheduled.setDate(scheduled.getDate() + 1)
-                              }
-                              return scheduled.toISOString()
-                            })(),
-                      }
-                    )
-                    if (completed) {
-                      closeFailedDeliveryReschedule()
-                      closeFailedDeliveryChoice()
-                    }
-                  } finally {
-                    setIsFailedDeliverySubmitting(false)
-                  }
-                }}
-                disabled={isUpdating || isFailedDeliverySubmitting}
-              >
-                {isFailedDeliverySubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</> : 'Confirm Reschedule'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={Boolean(selectedDropPointForDetails)}
-        onOpenChange={(open) => {
-          if (!open) setSelectedDropPointForDetails(null)
-        }}
-      >
-        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white p-0 sm:max-w-2xl">
-          <DialogHeader>
-            <div className="border-b border-slate-200 px-5 pb-3 pt-5">
-              <DialogTitle className="text-xl font-black tracking-[-0.02em] text-slate-900">
-                {selectedDropPointForDetails?.order?.orderNumber || 'Purchase Order Details'}
-              </DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-slate-600">
-                Customer and purchase order information for this drop point.
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-          <div className="max-h-[calc(100dvh-11rem)] space-y-4 overflow-y-auto px-5 pb-5 pt-4 text-sm">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Customer Details</p>
-              <div className="mt-2 space-y-1 text-slate-700">
-                <p><span className="font-medium text-slate-900">Name:</span> {selectedDropPointForDetails?.locationName || selectedDropPointForDetails?.contactName || 'Not set'}</p>
-                <p><span className="font-medium text-slate-900">Phone:</span> {selectedDropPointForDetails?.contactPhone || 'Not set'}</p>
-                <p><span className="font-medium text-slate-900">Address:</span> {stripPhilippinesFromAddress(selectedDropPointForDetails?.address) || 'Not set'}</p>
-                <p><span className="font-medium text-slate-900">Coordinates:</span> {selectedDropPointForDetails?.latitude && selectedDropPointForDetails?.longitude ? `${selectedDropPointForDetails.latitude}, ${selectedDropPointForDetails.longitude}` : 'Not set'}</p>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Purchase Order</p>
-              <div className="mt-2 space-y-1 text-slate-700">
-                <p><span className="font-medium text-slate-900">PO Number:</span> {selectedDropPointForDetails?.order?.orderNumber || 'Not set'}</p>
-                <p><span className="font-medium text-slate-900">Order Status:</span> {selectedDropPointForDetails?.order?.status || 'Not set'}</p>
-                <p><span className="font-medium text-slate-900">Created At:</span> {formatDateTime(selectedDropPointForDetails?.order?.createdAt)}</p>
-                <p>
-                  <span className="font-medium text-slate-900">Total Amount:</span>{' '}
-                  {(() => {
-                    const orderNumberKey = String(selectedDropPointForDetails?.order?.orderNumber || '').trim().toUpperCase()
-                    const isReplacementOrder = Boolean((selectedDropPointForDetails?.order as any)?.isScheduledReplacement) || orderNumberKey.startsWith('RPL-')
-                    if (isReplacementOrder) {
-                      return '₱0.00 (Replacement Delivery • No Collection)'
-                    }
-                    return formatCurrency(getDisplayOrderTotal(selectedDropPointForDetails?.order))
-                  })()}
-                </p>
-                <DepositRefundRow order={selectedDropPointForDetails?.order} className="pt-1 text-xs" />
-              </div>
-
-              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2.5">
-                <p className="text-xs font-semibold text-slate-700">Ordered Items</p>
-                <div className="mt-2 space-y-1.5">
-                  {(selectedDropPointForDetails?.order?.items || []).length > 0 ? (
-                    (selectedDropPointForDetails?.order?.items || []).map((item: any, index: number) => (
-                      <div key={`detail-po-item-${index}`} className="rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
-                        <p className="font-medium text-slate-900">{getItemDisplayNameWithSize(item)}</p>
-                        {item?.itemType === 'MIXED_CASE' ? (
-                          <MixedCaseComponents item={item} showImages={false} compact />
-                        ) : null}
-                        <p>Quantity: {getOrderQtyWithUnitLabel(item, selectedDropPointForDetails?.order)}</p>
-                        <p>Price: {(() => {
-                          const isRepl = String(selectedDropPointForDetails?.order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(selectedDropPointForDetails?.order?.isScheduledReplacement)
-                          if (isRepl) return '₱0.00 (Replacement)'
-                          return formatCurrency(Number(item?.price || item?.unitPrice || 0))
-                        })()}</p>
-                        <p>Subtotal: {(() => {
-                          const isRepl = String(selectedDropPointForDetails?.order?.orderNumber || '').trim().toUpperCase().startsWith('RPL-') || Boolean(selectedDropPointForDetails?.order?.isScheduledReplacement)
-                          if (isRepl) return '₱0.00'
-                          return formatCurrency(Number(item?.subtotal || (Number(item?.quantity || 0) * Number(item?.price || item?.unitPrice || 0))))
-                        })()}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-500">No order items available.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <Button type="button" variant="outline" onClick={() => setSelectedDropPointForDetails(null)}>
-                Close
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DropPointDetailsDialog
+        selectedDropPointForDetails={selectedDropPointForDetails}
+        setSelectedDropPointForDetails={setSelectedDropPointForDetails}
+      />
     </div>
   )
 }
-
-// History View
-
-// Profile View

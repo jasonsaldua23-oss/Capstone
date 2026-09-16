@@ -1,382 +1,81 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import MapLibreNavigationMap from './MapLibreNavigationMap';
 import {
-  bearingBetweenMapPoints,
-  navigationReckoningSpeedMps,
   pointAtRouteDistance,
-  predictedRouteProgressMeters,
   projectPointOntoRoute,
   resolveDriverRouteProgress,
   quantizeRouteSplitMeters,
   splitRouteAtDistance,
-  NAVIGATION_DEAD_RECKONING_MAX_MS,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
+import type { DriverLocation, LiveRouteLine, SnappedPointOnRoute } from './live-tracking/types'
+import {
+  type NegrosBoundary,
+  SILAY_TALISAY_FALLBACK_BOUNDS,
+  type ServiceBoundary,
+  WORLD_MASK_RING,
+  geometryToExteriorRings,
+  isPointInNegrosBoundary,
+  loadNegrosBoundary,
+  loadSilayTalisayServiceBoundary,
+} from './live-tracking/boundaries'
+import {
+  approximateDistanceMeters,
+  bearingAtRouteEnd,
+  calculateBearingAlongRoute,
+  clampPointToBounds,
+  dedupeConsecutivePoints,
+  expandBounds,
+  fetchRoadSnappedPoints,
+  nearestPointOnPolyline,
+  normalizeAngle,
+  roadSnappedRouteCache,
+  shortestAngleDelta,
+} from './live-tracking/geometry'
+import { DefaultIcon, getStatusPinIcon, getTruckIcon } from './live-tracking/icons'
+import {
+  TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS,
+  TRUCK_MAX_ROUTE_SNAP_METERS,
+  TRUCK_PARKED_SPEED_MPS,
+  TRUCK_ROUTE_LOOKAHEAD_METERS,
+  TRUCK_SNAP_AFTER_SILENCE_MS,
+} from './live-tracking/tuning'
+import {
+  ManualRecenter,
+  MapBoundsGuard,
+  MapResizeSync,
+  NavigationCamera,
+  NegrosMaskPane,
+  ZoomTracker,
+} from './live-tracking/map-controls'
+import {
+  acceptTruckFix,
+  isTruckMotionSettled,
+  snapTruckMotion,
+  stepTruckMotion,
+  truckMotionPose,
+  type TruckMotion,
+  type TruckMotionContext,
+} from './live-tracking/truck-motion'
 
 const MapContainerUnsafe = MapContainer as any;
+
 const TileLayerUnsafe = TileLayer as any;
+
 const MarkerUnsafe = Marker as any;
+
 const PolylineUnsafe = Polyline as any;
+
 const CircleMarkerUnsafe = CircleMarker as any;
+
 const TooltipUnsafe = Tooltip as any;
+
 const PolygonUnsafe = Polygon as any;
-
-const NEGROS_OCCIDENTAL_LOCAL_BOUNDARY_GEOJSON_URL = '/geo/negros-occidental-maritime-with-bacolod.json?v=3';
-const NEGROS_ISLAND_REGION_BOUNDARY_GEOJSON_URL = '/geo/negros-island-region-boundary.json?v=2';
-const NEGROS_ORIENTAL_BOUNDARY_GEOJSON_URL = '/geo/negros-oriental-boundary.json?v=1';
-const NEGROS_OCCIDENTAL_MUNICIPAL_BOUNDARY_GEOJSON_URL = '/geo/negros-occidental-municipal-maritime.json?v=1';
-const SILAY_TALISAY_FALLBACK_BOUNDS: [[number, number], [number, number]] = [
-  [10.62, 122.86],
-  [10.94, 123.08],
-];
-
-type NegrosIslandGeometry = {
-  type: 'Polygon' | 'MultiPolygon';
-  coordinates: number[][][] | number[][][][];
-};
-
-type NegrosBoundary = {
-  maskGeometries?: NegrosIslandGeometry[];
-  geometries: NegrosIslandGeometry[];
-  bbox: [number, number, number, number];
-};
-type ServiceBoundary = {
-  geometries: NegrosIslandGeometry[];
-  bbox: [number, number, number, number];
-};
-
-let negrosBoundaryCache: NegrosBoundary | null = null;
-let negrosBoundaryPromise: Promise<NegrosBoundary | null> | null = null;
-let serviceBoundaryCache: ServiceBoundary | null = null;
-let serviceBoundaryPromise: Promise<ServiceBoundary | null> | null = null;
-// Keeps the latest successful road geometry available if the map remounts while
-// the external routing service is temporarily unavailable.
-const roadSnappedRouteCache = new Map<string, [number, number][]>();
-
-function getFeatureName(feature: any) {
-  const props = feature?.properties || {};
-  const candidates = [
-    props.display_name,
-    props.name,
-    props.NAME_1,
-    props.NAME_2,
-    props.PROVINCE,
-    props.province,
-    props.ADM1_EN,
-    props.adm1_en,
-  ];
-  const value = candidates.find((entry) => typeof entry === 'string' && entry.trim().length > 0);
-  return String(value || '').toLowerCase();
-}
-
-function scoreBoundaryFeature(feature: any, requiredTerms: string[]) {
-  const name = getFeatureName(feature);
-  const addresstype = String(feature?.properties?.addresstype || '').toLowerCase();
-  const type = String(feature?.properties?.type || '').toLowerCase();
-  const className = String(feature?.properties?.class || '').toLowerCase();
-  const adminLevel = String(feature?.properties?.admin_level || '').toLowerCase();
-
-  let score = 0;
-  const required = requiredTerms.map((term) => term.toLowerCase()).filter(Boolean);
-  const requiredMatches = required.filter((term) => name.includes(term)).length;
-  score += requiredMatches * 20;
-  if (name.includes('philippines')) score += 4;
-  if (name.includes('province')) score += 8;
-  if (addresstype === 'province') score += 16;
-  if (addresstype === 'state') score += 8;
-  if (addresstype === 'city' || addresstype === 'municipality') score -= 8;
-  if (type === 'administrative') score += 10;
-  if (className === 'boundary') score += 10;
-  if (adminLevel === '6') score += 12;
-  if (name.includes('region')) score -= 8;
-  return score;
-}
-
-function computeBBoxFromGeometry(geometry: NegrosIslandGeometry) {
-  let minLng = Infinity;
-  let minLat = Infinity;
-  let maxLng = -Infinity;
-  let maxLat = -Infinity;
-
-  const visitPoint = (pair: any) => {
-    const lng = Number(pair?.[0]);
-    const lat = Number(pair?.[1]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    if (lng < minLng) minLng = lng;
-    if (lat < minLat) minLat = lat;
-    if (lng > maxLng) maxLng = lng;
-    if (lat > maxLat) maxLat = lat;
-  };
-
-  if (geometry.type === 'Polygon') {
-    (geometry.coordinates as number[][][]).forEach((ring) => ring.forEach(visitPoint));
-  } else {
-    (geometry.coordinates as number[][][][]).forEach((polygon) =>
-      polygon.forEach((ring) => ring.forEach(visitPoint))
-    );
-  }
-
-  if (![minLng, minLat, maxLng, maxLat].every(Number.isFinite)) return null;
-  return [minLng, minLat, maxLng, maxLat] as [number, number, number, number];
-}
-
-function bboxAreaScore(bbox: [number, number, number, number]) {
-  const width = Math.max(0, bbox[2] - bbox[0]);
-  const height = Math.max(0, bbox[3] - bbox[1]);
-  return width * height;
-}
-
-function parseFirstBoundaryFeature(
-  payload: any,
-  requiredTerms: string[]
-): { geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } | null {
-  const features = Array.isArray(payload?.features) ? payload.features : [];
-  const candidates = features
-    .map((feature: any) => {
-      const name = getFeatureName(feature);
-      const required = requiredTerms.map((term) => String(term || '').toLowerCase().trim()).filter(Boolean);
-      if (required.length > 0 && !required.every((term) => name.includes(term))) return null;
-
-      const geometry = feature?.geometry as NegrosIslandGeometry | undefined;
-      if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) return null;
-      const bbox =
-        Array.isArray(feature?.bbox) && feature.bbox.length === 4
-          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
-          : computeBBoxFromGeometry(geometry);
-      if (!bbox) return null;
-      if (!bbox.every((value) => Number.isFinite(value))) return null;
-      return { geometry, bbox, score: scoreBoundaryFeature(feature, requiredTerms), area: bboxAreaScore(bbox) };
-    })
-    .filter((candidate: any): candidate is { geometry: NegrosIslandGeometry; bbox: [number, number, number, number]; score: number; area: number } => Boolean(candidate))
-    .sort((left, right) => {
-      if (right.score !== left.score) return right.score - left.score;
-      return right.area - left.area;
-    });
-
-  if (candidates.length === 0) return null;
-  return { geometry: candidates[0].geometry, bbox: candidates[0].bbox };
-}
-
-function parseAllBoundaryFeatures(
-  payload: any,
-  requiredTerms: string[]
-): { geometries: NegrosIslandGeometry[]; bbox: [number, number, number, number] } | null {
-  const features = Array.isArray(payload?.features) ? payload.features : [];
-  const required = requiredTerms.map((term) => String(term || '').toLowerCase().trim()).filter(Boolean);
-
-  const parsed = features
-    .map((feature: any) => {
-      const name = getFeatureName(feature);
-      if (required.length > 0 && !required.every((term) => name.includes(term))) return null;
-
-      const geometry = feature?.geometry as NegrosIslandGeometry | undefined;
-      if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) return null;
-
-      const bbox =
-        Array.isArray(feature?.bbox) && feature.bbox.length === 4
-          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
-          : computeBBoxFromGeometry(geometry);
-      if (!bbox || !bbox.every((value) => Number.isFinite(value))) return null;
-      return { geometry, bbox };
-    })
-    .filter((entry: any): entry is { geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } => Boolean(entry));
-
-  if (parsed.length === 0) return null;
-
-  const bbox = parsed.reduce(
-    (acc, entry) => [
-      Math.min(acc[0], entry.bbox[0]),
-      Math.min(acc[1], entry.bbox[1]),
-      Math.max(acc[2], entry.bbox[2]),
-      Math.max(acc[3], entry.bbox[3]),
-    ],
-    [Infinity, Infinity, -Infinity, -Infinity] as [number, number, number, number]
-  );
-
-  return {
-    geometries: parsed.map((entry) => entry.geometry),
-    bbox,
-  };
-}
-
-function parseBoundaryFeaturesByNames(
-  payload: any,
-  targetNames: string[]
-): { geometries: NegrosIslandGeometry[]; bbox: [number, number, number, number] } | null {
-  const features = Array.isArray(payload?.features) ? payload.features : [];
-  const targets = targetNames.map((name) => String(name || '').toLowerCase().trim()).filter(Boolean);
-  const parsed = features
-    .map((feature: any) => {
-      const name = getFeatureName(feature);
-      if (!targets.some((target) => name.includes(target))) return null;
-      const geometry = feature?.geometry as NegrosIslandGeometry | undefined;
-      if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) return null;
-      const bbox =
-        Array.isArray(feature?.bbox) && feature.bbox.length === 4
-          ? [Number(feature.bbox[0]), Number(feature.bbox[1]), Number(feature.bbox[2]), Number(feature.bbox[3])] as [number, number, number, number]
-          : computeBBoxFromGeometry(geometry);
-      if (!bbox || !bbox.every((value) => Number.isFinite(value))) return null;
-      return { geometry, bbox };
-    })
-    .filter((entry: any): entry is { geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } => Boolean(entry));
-
-  if (parsed.length === 0) return null;
-  const bbox = parsed.reduce(
-    (acc, entry) => [
-      Math.min(acc[0], entry.bbox[0]),
-      Math.min(acc[1], entry.bbox[1]),
-      Math.max(acc[2], entry.bbox[2]),
-      Math.max(acc[3], entry.bbox[3]),
-    ],
-    [Infinity, Infinity, -Infinity, -Infinity] as [number, number, number, number]
-  );
-
-  return {
-    geometries: parsed.map((entry) => entry.geometry),
-    bbox,
-  };
-}
-
-async function loadFirstValidBoundaryFromUrls(
-  urls: string[],
-  requiredTerms: string[]
-): Promise<{ geometry: NegrosIslandGeometry; bbox: [number, number, number, number] } | null> {
-  for (const url of urls) {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) continue;
-      const payload = await response.json().catch(() => ({}));
-      const parsed = parseFirstBoundaryFeature(payload, requiredTerms);
-      if (parsed) return parsed;
-    } catch {
-      // try next URL
-    }
-  }
-  return null;
-}
-
-function loadNegrosBoundary() {
-  if (negrosBoundaryCache) return Promise.resolve(negrosBoundaryCache);
-  if (negrosBoundaryPromise) return negrosBoundaryPromise;
-
-  negrosBoundaryPromise = (async () => {
-    const localBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_OCCIDENTAL_LOCAL_BOUNDARY_GEOJSON_URL], [
-      'negros occidental',
-    ]);
-    if (!localBoundary) {
-      throw new Error('Failed to load local Negros Occidental maritime boundary geometry');
-    }
-
-    const regionBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_ISLAND_REGION_BOUNDARY_GEOJSON_URL], [
-      'negros island region',
-    ]);
-    const orientalBoundary = await loadFirstValidBoundaryFromUrls([NEGROS_ORIENTAL_BOUNDARY_GEOJSON_URL], [
-      'negros oriental',
-    ]);
-
-    negrosBoundaryCache = {
-      geometries: [localBoundary.geometry],
-      bbox: localBoundary.bbox,
-      maskGeometries:
-        regionBoundary && orientalBoundary
-          ? [regionBoundary.geometry, orientalBoundary.geometry]
-          : regionBoundary
-            ? [regionBoundary.geometry]
-            : [localBoundary.geometry],
-    };
-    return negrosBoundaryCache;
-  })()
-    .catch(() => null)
-    .finally(() => {
-      negrosBoundaryPromise = null;
-    });
-
-  return negrosBoundaryPromise;
-}
-
-function loadSilayTalisayServiceBoundary() {
-  if (serviceBoundaryCache) return Promise.resolve(serviceBoundaryCache);
-  if (serviceBoundaryPromise) return serviceBoundaryPromise;
-
-  serviceBoundaryPromise = (async () => {
-    const response = await fetch(NEGROS_OCCIDENTAL_MUNICIPAL_BOUNDARY_GEOJSON_URL);
-    if (!response.ok) throw new Error('Failed to load municipal boundary geometry');
-    const payload = await response.json().catch(() => ({}));
-    const parsed = parseBoundaryFeaturesByNames(payload, ['silay', 'talisay']);
-    if (!parsed) throw new Error('Failed to parse Silay/Talisay service geometry');
-    serviceBoundaryCache = { geometries: parsed.geometries, bbox: parsed.bbox };
-    return serviceBoundaryCache;
-  })()
-    .catch(() => null)
-    .finally(() => {
-      serviceBoundaryPromise = null;
-    });
-
-  return serviceBoundaryPromise;
-}
-
-// Fix for default marker icons in Next.js + Leaflet
-const DefaultIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-
-export type DriverLocationPopupItem = {
-  name: string;
-  qty: string;
-};
-
-export type DriverLocation = {
-  id: string;
-  driverName: string;
-  vehiclePlate: string;
-  lat: number;
-  lng: number;
-  actualLat?: number;
-  actualLng?: number;
-  status: string;
-  markerColor?: string;
-  markerLabel?: string;
-  markerDirection?: 'left' | 'right';
-  markerHeading?: number;
-  markerType?: 'pin' | 'dot' | 'truck' | 'default';
-  markerNumber?: number | string;
-  markerEta?: string;
-  markerEtaPhase?: 'completed' | 'next' | 'upcoming';
-  accuracyMeters?: number;
-  // Ground speed in m/s from the GPS fix. Drives dead reckoning between fixes so
-  // the icon moves with the driver instead of trailing one full update interval.
-  speedMps?: number;
-  routeProgressMeters?: number;
-  popupCustomerName?: string;
-  popupAddress?: string;
-  popupOrderItems?: DriverLocationPopupItem[];
-  assignedTripNumber?: string;
-  destinationCustomer?: string;
-};
-
-export type LiveRouteLine = {
-  id: string;
-  points: [number, number][];
-  color: string;
-  label?: string;
-  opacity?: number;
-  weight?: number;
-  dashArray?: string;
-  snapToRoad?: boolean;
-  preserveExactEndpoints?: boolean;
-  selectable?: boolean;
-};
 
 interface LiveTrackingMapProps {
   locations: DriverLocation[];
@@ -394,563 +93,6 @@ interface LiveTrackingMapProps {
   showDriverSelfBadge?: boolean;
   onRouteLineSelect?: (routeLineId: string) => void;
   className?: string;
-}
-
-type SnappedPointOnRoute = {
-  point: [number, number];
-  t: number;
-  distance2: number;
-  heading: number;
-  segmentIndex: number;
-};
-
-const NEGROS_ISLAND_FALLBACK_BOUNDS = L.latLngBounds([9.0380812, 122.3758966], [11.002995, 123.5688567]);
-const WORLD_MASK_RING: [number, number][] = [
-  [-90, -180],
-  [-90, 180],
-  [90, 180],
-  [90, -180],
-];
-const truckIconCache = new Map<string, L.DivIcon>();
-const statusPinIconCache = new Map<string, L.DivIcon>();
-type TruckIconDirection = 'left' | 'right';
-// Updated: use the Driver Portal's 2D van icon consistently across shared portal maps.
-const TRUCK_ICON_URL = '/icons/aab-van-iso.png';
-// This icon's nose points upper-right (~northeast, 45deg) at 0deg image rotation.
-const TRUCK_ICON_BASE_HEADING = 45;
-const TRUCK_ROTATION_QUANTIZATION_DEG = 1;
-const NAV_CAMERA_LOOKAHEAD_METERS = 95;
-const NAV_CAMERA_ANIMATION_SECONDS = 0.35;
-const TRUCK_DEFAULT_SMOOTHING_DURATION_MS = 1000;
-const TRUCK_MIN_SMOOTHING_DURATION_MS = 450;
-// Fix: follow the GPS cadence, but bound catch-up so stale fixes cannot leave the truck far behind.
-const TRUCK_MAX_SMOOTHING_DURATION_MS = 2000;
-const TRUCK_STATIONARY_THRESHOLD_METERS = 1.5;
-// Beyond this distance from the active route the driver is treated as off-route
-// (a missed turn or a self-chosen detour). The icon then follows the live GPS
-// position instead of being pinned to the stale route — this is what stops the
-// vehicle from freezing when the driver changes roads, until the reroute lands.
-const TRUCK_MAX_ROUTE_SNAP_METERS = 45;
-const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
-const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
-// Stationary clamp: with speed at or below this, route progress is frozen so
-// jitter cannot ratchet a parked vehicle forward through the monotonic clamp.
-// The dead-reckoning constants this pairs with live in `@/lib/map-navigation`.
-const TRUCK_PARKED_SPEED_MPS = 0.6;
-
-function getStatusPinIcon(color: 'green' | 'blue' | 'red' | 'orange', number?: number | string) {
-  const label = number === undefined || number === null || String(number).trim() === '' ? '' : String(number);
-  const cacheKey = `${color}:${label}`;
-  const cached = statusPinIconCache.get(cacheKey);
-  if (cached) return cached;
-
-  const icon = L.divIcon({
-    className: 'status-pin-icon',
-    html: `
-      <div style="position:relative;width:28px;height:44px;display:flex;align-items:flex-start;justify-content:center;">
-        <img
-            src="${color === 'green'
-        ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png'
-        : color === 'red'
-          ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png'
-          : color === 'orange'
-            ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png'
-            : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png'
-      }"
-          alt="pin"
-          style="width:25px;height:41px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.2));"
-          onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';"
-        />
-        ${label ? `<div style="position:absolute;top:9px;left:50%;transform:translateX(-50%);min-width:14px;height:14px;padding:0 3px;border-radius:9999px;background:rgba(255,255,255,0.96);border:1px solid rgba(15,23,42,0.08);color:${color === 'green' ? '#047857' : '#0369a1'};font-size:10px;line-height:14px;font-weight:800;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,0.14);">${label}</div>` : ''}
-      </div>
-    `,
-    iconSize: [28, 44],
-    iconAnchor: [14, 44],
-    popupAnchor: [1, -34],
-  });
-
-  statusPinIconCache.set(cacheKey, icon);
-  return icon;
-}
-
-function normalizeAngle(value: number) {
-  return ((value % 360) + 360) % 360;
-}
-
-function shortestAngleDelta(from: number, to: number) {
-  return ((to - from + 540) % 360) - 180;
-}
-
-function lerp(from: number, to: number, t: number) {
-  return from + (to - from) * t;
-}
-
-function lerpAngle(from: number, to: number, t: number) {
-  return normalizeAngle(from + shortestAngleDelta(from, to) * t);
-}
-
-function toLocalXY(lat: number, lng: number, refLat: number) {
-  const cosRef = Math.cos((refLat * Math.PI) / 180);
-  return { x: lng * cosRef, y: lat };
-}
-
-function fromLocalXY(x: number, y: number, refLat: number) {
-  const cosRef = Math.cos((refLat * Math.PI) / 180) || 1;
-  return { lat: y, lng: x / cosRef };
-}
-
-function approximateDistanceMeters(a: [number, number], b: [number, number]) {
-  const refLat = (a[0] + b[0]) / 2;
-  const p1 = toLocalXY(a[0], a[1], refLat);
-  const p2 = toLocalXY(b[0], b[1], refLat);
-  const dxMeters = (p2.x - p1.x) * 111320;
-  const dyMeters = (p2.y - p1.y) * 110540;
-  return Math.sqrt(dxMeters * dxMeters + dyMeters * dyMeters);
-}
-
-function destinationPoint(lat: number, lng: number, bearingDeg: number, distanceMeters: number) {
-  const R = 6371000;
-  const phi1 = (lat * Math.PI) / 180;
-  const lambda1 = (lng * Math.PI) / 180;
-  const theta = (bearingDeg * Math.PI) / 180;
-  const delta = distanceMeters / R;
-  const sinPhi1 = Math.sin(phi1);
-  const cosPhi1 = Math.cos(phi1);
-  const sinDelta = Math.sin(delta);
-  const cosDelta = Math.cos(delta);
-
-  const sinPhi2 = sinPhi1 * cosDelta + cosPhi1 * sinDelta * Math.cos(theta);
-  const phi2 = Math.asin(Math.max(-1, Math.min(1, sinPhi2)));
-  const y = Math.sin(theta) * sinDelta * cosPhi1;
-  const x = cosDelta - sinPhi1 * Math.sin(phi2);
-  const lambda2 = lambda1 + Math.atan2(y, x);
-
-  return {
-    lat: (phi2 * 180) / Math.PI,
-    lng: ((lambda2 * 180) / Math.PI + 540) % 360 - 180,
-  };
-}
-
-function bearingBetweenPoints(from: [number, number], to: [number, number]) {
-  const refLat = (from[0] + to[0]) / 2;
-  const a = toLocalXY(from[0], from[1], refLat);
-  const b = toLocalXY(to[0], to[1], refLat);
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-
-  if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) return null;
-  return normalizeAngle((Math.atan2(dx, dy) * 180) / Math.PI);
-}
-
-function nearestPointOnSegment(point: [number, number], start: [number, number], end: [number, number]) {
-  const refLat = point[0];
-  const p = toLocalXY(point[0], point[1], refLat);
-  const a = toLocalXY(start[0], start[1], refLat);
-  const b = toLocalXY(end[0], end[1], refLat);
-  const vx = b.x - a.x;
-  const vy = b.y - a.y;
-  const len2 = vx * vx + vy * vy;
-
-  if (len2 <= 1e-12) {
-    return {
-      point: start as [number, number],
-      t: 0,
-      distance2: (p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y),
-      heading: 0,
-    };
-  }
-
-  const tRaw = ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2;
-  const t = Math.max(0, Math.min(1, tRaw));
-  const projX = a.x + vx * t;
-  const projY = a.y + vy * t;
-  const projected = fromLocalXY(projX, projY, refLat);
-
-  return {
-    point: [projected.lat, projected.lng] as [number, number],
-    t,
-    distance2: (p.x - projX) * (p.x - projX) + (p.y - projY) * (p.y - projY),
-    heading: normalizeAngle((Math.atan2(vx, vy) * 180) / Math.PI),
-  };
-}
-
-function nearestPointOnPolyline(point: [number, number], polyline: [number, number][]) {
-  let best: SnappedPointOnRoute | null = null;
-
-  for (let index = 0; index < polyline.length - 1; index += 1) {
-    const start = polyline[index];
-    const end = polyline[index + 1];
-    const candidate = nearestPointOnSegment(point, start, end);
-
-    if (!best || candidate.distance2 < best.distance2) {
-      best = { ...candidate, segmentIndex: index };
-    }
-  }
-
-  return best;
-}
-
-function pointAtDistanceAlongRoute(
-  snapped: SnappedPointOnRoute,
-  polyline: [number, number][],
-  distanceMeters: number
-): [number, number] | null {
-  if (!polyline || polyline.length < 2) return null;
-
-  let currentPoint = snapped.point;
-  let remainingDistance = Math.max(0, distanceMeters);
-  let segmentIndex = snapped.segmentIndex;
-  let startPoint = snapped.point;
-  let endPoint = polyline[segmentIndex + 1];
-
-  while (segmentIndex < polyline.length - 1) {
-    const segmentLength = approximateDistanceMeters(startPoint, endPoint);
-
-    if (segmentLength > 1e-6) {
-      if (remainingDistance <= segmentLength) {
-        const ratio = remainingDistance / segmentLength;
-        return [
-          lerp(startPoint[0], endPoint[0], ratio),
-          lerp(startPoint[1], endPoint[1], ratio),
-        ];
-      }
-
-      remainingDistance -= segmentLength;
-      currentPoint = endPoint;
-    }
-
-    segmentIndex += 1;
-    if (segmentIndex >= polyline.length - 1) break;
-    startPoint = currentPoint;
-    endPoint = polyline[segmentIndex + 1];
-  }
-
-  return polyline[polyline.length - 1] ?? null;
-}
-
-function clampPointToBounds(point: [number, number], bounds: L.LatLngBounds | null): [number, number] {
-  if (!bounds) return point;
-  const southWest = bounds.getSouthWest();
-  const northEast = bounds.getNorthEast();
-  return [
-    Math.min(Math.max(point[0], southWest.lat), northEast.lat),
-    Math.min(Math.max(point[1], southWest.lng), northEast.lng),
-  ];
-}
-
-function expandBounds(bounds: L.LatLngBounds, latPad: number, lngPad: number) {
-  const sw = bounds.getSouthWest();
-  const ne = bounds.getNorthEast();
-  return L.latLngBounds([sw.lat - latPad, sw.lng - lngPad], [ne.lat + latPad, ne.lng + lngPad]);
-}
-
-function geometryToExteriorRings(geometry: NegrosIslandGeometry | null) {
-  if (!geometry) return [] as [number, number][][];
-
-  const sanitizeRing = (ring: number[][]) => {
-    const converted = ring
-      .map((pair) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
-      .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
-
-    const deduped = converted.filter((point, index, list) => {
-      if (index === 0) return true;
-      const previous = list[index - 1];
-      return !(Math.abs(point[0] - previous[0]) < 0.000001 && Math.abs(point[1] - previous[1]) < 0.000001);
-    });
-
-    return deduped.length > 2 ? deduped : [];
-  };
-
-  if (geometry.type === 'Polygon') {
-    const outerRing = (geometry.coordinates[0] || []) as number[][];
-    const sanitized = sanitizeRing(outerRing);
-    return sanitized.length > 0 ? [sanitized] : [];
-  }
-
-  return (geometry.coordinates as number[][][][])
-    .map((polygon) => polygon[0] || [])
-    .filter((ring) => Array.isArray(ring) && ring.length > 0)
-    .map((ring) => sanitizeRing(ring))
-    .filter((ring) => ring.length > 0);
-}
-
-function pointInRing(point: [number, number], ring: [number, number][]) {
-  let inside = false;
-
-  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
-    const current = ring[index];
-    const prior = ring[previous];
-    const intersects =
-      current[1] > point[1] !== prior[1] > point[1] &&
-      point[0] < ((prior[0] - current[0]) * (point[1] - current[1])) / (prior[1] - current[1] || Number.EPSILON) + current[0];
-
-    if (intersects) inside = !inside;
-  }
-
-  return inside;
-}
-
-function isPointInNegrosBoundary(point: [number, number], geometries: NegrosIslandGeometry[]) {
-  return geometries.some((geometry) => {
-    const exteriorRings = geometryToExteriorRings(geometry);
-    return exteriorRings.some((ring) => ring.length > 2 && pointInRing(point, ring));
-  });
-}
-
-function calculateBearingAlongRoute(
-  snapped: SnappedPointOnRoute,
-  polyline: [number, number][],
-  lookAheadMeters = TRUCK_ROUTE_LOOKAHEAD_METERS
-): number | null {
-  if (!polyline || polyline.length < 2) return null;
-
-  const lookAheadPoint = pointAtDistanceAlongRoute(snapped, polyline, lookAheadMeters);
-  if (!lookAheadPoint) return null;
-
-  const lookAheadBearing = bearingBetweenPoints(snapped.point, lookAheadPoint);
-  if (lookAheadBearing !== null) return lookAheadBearing;
-
-  const currentSegmentEnd = polyline[Math.min(snapped.segmentIndex + 1, polyline.length - 1)];
-  const fallbackBearing = currentSegmentEnd ? bearingBetweenPoints(snapped.point, currentSegmentEnd) : null;
-  if (fallbackBearing !== null) return fallbackBearing;
-
-  return Number.isFinite(snapped.heading) ? normalizeAngle(snapped.heading) : null;
-}
-
-function dedupeConsecutivePoints(points: [number, number][]) {
-  return points.filter((point, index, list) => {
-    if (index === 0) return true;
-    const previous = list[index - 1];
-    return !(Math.abs(point[0] - previous[0]) < 0.000001 && Math.abs(point[1] - previous[1]) < 0.000001);
-  });
-}
-
-function bearingAtRouteEnd(points: [number, number][]) {
-  const end = points[points.length - 1];
-  for (let index = points.length - 2; index >= 0; index -= 1) {
-    if (approximateDistanceMeters(points[index], end) >= 12) {
-      return bearingBetweenPoints(points[index], end);
-    }
-  }
-  return null;
-}
-
-async function fetchRoadSnappedPoints(
-  points: [number, number][],
-  signal: AbortSignal,
-  initialBearing?: number | null
-): Promise<[number, number][]> {
-  const uniquePoints = dedupeConsecutivePoints(points);
-  if (uniquePoints.length < 2) return [];
-
-  const coordinates = uniquePoints
-    .map((point) => `${encodeURIComponent(String(point[1]))},${encodeURIComponent(String(point[0]))}`)
-    .join(';');
-
-  const bearings = typeof initialBearing === 'number' && Number.isFinite(initialBearing)
-    ? `&bearings=${Math.round(normalizeAngle(initialBearing))},60${';'.repeat(uniquePoints.length - 1)}&continue_straight=true`
-    : '';
-  const requestRoute = async (bearingQuery: string) => {
-    const response = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false${bearingQuery}`,
-      { signal }
-    );
-    const payload = await response.json().catch(() => ({}));
-    const rawCoordinates = payload?.routes?.[0]?.geometry?.coordinates;
-    return response.ok && Array.isArray(rawCoordinates) && rawCoordinates.length > 1
-      ? rawCoordinates
-      : null;
-  };
-
-  let rawCoordinates = await requestRoute(bearings);
-  if (!rawCoordinates && bearings) {
-    // Fix: retry without the heading constraint so the road path remains available near junctions.
-    rawCoordinates = await requestRoute('');
-  }
-  if (!rawCoordinates) return [];
-
-  const snappedPoints = rawCoordinates
-    .map((pair: any) => [Number(pair?.[1]), Number(pair?.[0])] as [number, number])
-    .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
-
-  return snappedPoints.length > 1 ? snappedPoints : [];
-}
-
-function MapBoundsGuard({ enabled, bounds }: { enabled: boolean; bounds: L.LatLngBounds | null }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!enabled || !bounds) return;
-    const guardedBounds = bounds;
-    map.setMaxBounds(guardedBounds);
-    const minRestrictedZoom = 11;
-    if (map.getZoom() < minRestrictedZoom) {
-      map.setZoom(minRestrictedZoom);
-    }
-
-    const center = map.getCenter();
-    if (!Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return;
-
-    if (!guardedBounds.contains(center)) {
-      map.setView(guardedBounds.getCenter(), Math.max(map.getZoom(), 9), { animate: false });
-    }
-  }, [bounds, enabled, map]);
-
-  return null;
-}
-
-function ZoomTracker({ onZoomChange }: { onZoomChange: (zoom: number) => void }) {
-  const map = useMap();
-  useEffect(() => {
-    onZoomChange(map.getZoom());
-    const onZoom = () => onZoomChange(map.getZoom());
-    map.on('zoom', onZoom);
-    return () => {
-      map.off('zoom', onZoom);
-    };
-  }, [map, onZoomChange]);
-  return null;
-}
-
-function NavigationCamera({
-  enabled,
-  truckPosition,
-  truckHeading,
-}: {
-  enabled: boolean;
-  truckPosition: [number, number] | null;
-  truckHeading: number | null;
-}) {
-  const map = useMap();
-  const lastViewRef = useRef<{ lat: number; lng: number } | null>(null);
-
-  useEffect(() => {
-    if (!enabled || !truckPosition) return;
-    const heading = truckHeading ?? 0;
-    const lookAhead = destinationPoint(truckPosition[0], truckPosition[1], heading, NAV_CAMERA_LOOKAHEAD_METERS);
-    const previous = lastViewRef.current;
-    if (previous) {
-      const latDiff = Math.abs(previous.lat - lookAhead.lat);
-      const lngDiff = Math.abs(previous.lng - lookAhead.lng);
-      if (latDiff < 0.00001 && lngDiff < 0.00001) {
-        return;
-      }
-    }
-    lastViewRef.current = { lat: lookAhead.lat, lng: lookAhead.lng };
-    map.setView([lookAhead.lat, lookAhead.lng], map.getZoom(), { animate: false } as any);
-  }, [enabled, map, truckHeading, truckPosition]);
-
-  return null;
-}
-
-function ManualRecenter({
-  center,
-  recenterSignal,
-  bounds,
-}: {
-  center: [number, number];
-  recenterSignal?: number;
-  bounds: L.LatLngBounds | null;
-}) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (typeof recenterSignal !== 'number') return;
-    if (!Array.isArray(center) || center.length !== 2) return;
-    if (!Number.isFinite(center[0]) || !Number.isFinite(center[1])) return;
-    map.setView(clampPointToBounds(center, bounds), map.getZoom(), { animate: true } as any);
-  }, [bounds, center, map, recenterSignal]);
-
-  return null;
-}
-
-function MapResizeSync() {
-  const map = useMap();
-
-  useEffect(() => {
-    let cancelled = false;
-    let firstFrame = 0;
-    let secondFrame = 0;
-
-    const invalidate = () => {
-      if (cancelled) return;
-      map.invalidateSize({ animate: false });
-    };
-
-    firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(invalidate);
-    });
-
-    const container = map.getContainer();
-    const observer = 'ResizeObserver' in window
-      ? new ResizeObserver(() => {
-        window.requestAnimationFrame(invalidate);
-      })
-      : null;
-
-    observer?.observe(container);
-
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(firstFrame);
-      window.cancelAnimationFrame(secondFrame);
-      observer?.disconnect();
-    };
-  }, [map]);
-
-  return null;
-}
-
-function NegrosMaskPane() {
-  const map = useMap();
-
-  useEffect(() => {
-    const paneName = 'negros-mask-pane';
-    if (!map.getPane(paneName)) {
-      const pane = map.createPane(paneName);
-      pane.style.zIndex = '650';
-      pane.style.pointerEvents = 'none';
-    }
-  }, [map]);
-
-  return null;
-}
-
-function getTruckIcon(options: { direction?: TruckIconDirection; heading?: number; showSelfBadge?: boolean } = {}) {
-  const direction = options.direction || 'right';
-  const showSelfBadge = Boolean(options.showSelfBadge);
-  const heading = typeof options.heading === 'number' && Number.isFinite(options.heading) ? options.heading : null;
-  const quantizedHeading =
-    heading === null
-      ? null
-      : Math.round(heading / TRUCK_ROTATION_QUANTIZATION_DEG) * TRUCK_ROTATION_QUANTIZATION_DEG;
-
-  // Rotate around center so heading matches road tangent consistently.
-  const iconAnchor: [number, number] = [36, 36];
-  const popupAnchor: [number, number] = [0, -36];
-  const rotation =
-    quantizedHeading !== null
-      ? normalizeAngle(quantizedHeading - TRUCK_ICON_BASE_HEADING)
-      : direction === 'left'
-        ? 180
-        : 0;
-  const cacheKey = `${direction}:${rotation.toFixed(1)}:${showSelfBadge ? 'self' : 'driver'}`;
-  const cached = truckIconCache.get(cacheKey);
-  if (cached) return cached;
-
-  const icon = L.divIcon({
-    className: 'custom-truck-marker',
-    html: `<div style="position:relative;width:72px;height:72px;display:flex;align-items:center;justify-content:center;overflow:visible;">
-      ${showSelfBadge ? '<div style="position:absolute;left:50%;top:-8px;transform:translateX(-50%);border-radius:9999px;background:#ffffff;border:1px solid rgba(15,23,42,0.18);padding:1px 6px;color:#0f3d72;font-size:10px;line-height:14px;font-weight:900;letter-spacing:0;">YOU</div>' : ''}
-      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:9999px;background:#1d4ed8;border:2px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>
-      <img src="${TRUCK_ICON_URL}" alt="truck" style="position:relative;z-index:1;width:72px;height:72px;display:block;object-fit:contain;image-rendering:auto;transform:rotate(${rotation}deg);transform-origin:36px 36px;will-change:transform;filter:drop-shadow(0 4px 10px rgba(15,23,42,0.38)) contrast(1.08) saturate(1.08);" onerror="this.onerror=null;this.src='/icons/driver-location-cropped.png';" />
-    </div>`,
-    iconSize: [72, 72],
-    iconAnchor,
-    popupAnchor,
-  });
-  truckIconCache.set(cacheKey, icon);
-  return icon;
 }
 
 export default function LiveTrackingMap({
@@ -1013,6 +155,9 @@ export default function LiveTrackingMap({
   const [serviceBoundary, setServiceBoundary] = useState<ServiceBoundary | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastTruckTargetAtRef = useRef<number | null>(null);
+  // Motion model per truck. It outlives fixes and effects so the icon's velocity
+  // and heading stay continuous from one fix to the next.
+  const truckMotionRef = useRef<Map<string, TruckMotion>>(new Map());
   const acceptedRouteProgressRef = useRef<{ routeKey: string; distanceMeters: number } | null>(null);
 
   useEffect(() => {
@@ -1349,7 +494,7 @@ export default function LiveTrackingMap({
   }, [completedRouteHeading, navigationPerspective, safeLocations, renderedRouteLines]);
 
   // Fix: unrelated portal renders must not restart the interpolation clock.
-  const truckTargetSignature = JSON.stringify(snappedLocations);
+  const truckTargetSignature = useMemo(() => JSON.stringify(snappedLocations), [snappedLocations]);
   const [mapVisibilityEpoch, setMapVisibilityEpoch] = useState(0);
   useEffect(() => {
     const refresh = () => setMapVisibilityEpoch((value) => value + 1);
@@ -1363,16 +508,8 @@ export default function LiveTrackingMap({
     }
 
     const receivedAt = performance.now();
-    const observedUpdateInterval = lastTruckTargetAtRef.current === null
-      ? TRUCK_DEFAULT_SMOOTHING_DURATION_MS
-      : receivedAt - lastTruckTargetAtRef.current;
+    const observedUpdateInterval = lastTruckTargetAtRef.current === null ? 0 : receivedAt - lastTruckTargetAtRef.current;
     lastTruckTargetAtRef.current = receivedAt;
-    const animationDurationMs = navigationPerspective
-      ? Math.max(
-        TRUCK_MIN_SMOOTHING_DURATION_MS,
-        Math.min(TRUCK_MAX_SMOOTHING_DURATION_MS, observedUpdateInterval * 0.9)
-      )
-      : TRUCK_DEFAULT_SMOOTHING_DURATION_MS;
     const stabilizedTargets = snappedLocations.map((location) => {
       if (location.markerType !== 'truck' || navigationRouteGeometry.length < 2) {
         return location;
@@ -1413,176 +550,80 @@ export default function LiveTrackingMap({
     });
 
     // One effect owns one animation loop; React state updaters must not schedule side effects.
-    const previousLocations = smoothedLocationsRef.current;
-    {
-      const previousById = new Map(previousLocations.map((loc) => [loc.id, loc]));
-      const hasMovement = stabilizedTargets.some((loc) => {
-        if (loc.markerType !== 'truck') return false;
-        const previous = previousById.get(loc.id);
-        if (!previous) return true;
-        const distanceMoved = approximateDistanceMeters([previous.lat, previous.lng], [loc.lat, loc.lng]);
-        const headingChanged =
-          typeof loc.markerHeading === 'number' &&
-          typeof previous.markerHeading === 'number' &&
-          Math.abs(shortestAngleDelta(previous.markerHeading, loc.markerHeading)) > 1;
-        const progressChanged =
-          typeof loc.routeProgressMeters === 'number' &&
-          typeof previous.routeProgressMeters === 'number' &&
-          Math.abs(loc.routeProgressMeters - previous.routeProgressMeters) > 0.05;
-        return distanceMoved > 0.05 || headingChanged || progressChanged;
-      });
-
-      if (document.hidden || observedUpdateInterval > 15000) {
-        // Browsers suspend painting in the background. Keep actual progress current instead of replaying a stale journey.
-        smoothedLocationsRef.current = stabilizedTargets;
-        setSmoothedLocations(stabilizedTargets);
-        return;
-      }
-      if (!hasMovement) {
-        const nextLocations = stabilizedTargets.map((targetLocation) => {
-          if (targetLocation.markerType !== 'truck') return targetLocation;
-          const previous = previousById.get(targetLocation.id);
-          return previous
-            ? {
-              ...targetLocation,
-              // On first route load, adopt the projected road point once;
-              // subsequent sub-threshold GPS fixes retain the prior position.
-              lat: previous.lat,
-              lng: previous.lng,
-              markerHeading: previous.markerHeading ?? targetLocation.markerHeading,
-              routeProgressMeters: targetLocation.routeProgressMeters,
-            }
-            : targetLocation;
-        });
-        smoothedLocationsRef.current = nextLocations;
-        setSmoothedLocations(nextLocations);
-        return;
-      }
-
-      const startTime = performance.now();
-      // Ground speed the icon may be advanced with between fixes. Dead reckoning
-      // is a navigation-view behaviour: other maps keep showing reported
-      // positions only. Zero disables prediction for that vehicle entirely.
-      const deadReckoningSpeedFor = (location: DriverLocation) => {
-        if (!navigationPerspective || navigationRouteGeometry.length < 2) return 0;
-        if (typeof location.routeProgressMeters !== 'number') return 0;
-        return navigationReckoningSpeedMps(location.speedMps);
-      };
-      const hasDeadReckoning = stabilizedTargets.some(
-        (location) => location.markerType === 'truck' && deadReckoningSpeedFor(location) > 0
-      );
-      // With prediction on, the loop outlives the catch-up so a late fix does not
-      // strand the icon; without it the loop still ends when the catch-up does.
-      const totalLoopDurationMs = animationDurationMs + (hasDeadReckoning ? NAVIGATION_DEAD_RECKONING_MAX_MS : 0);
-
-      const animate = (now: number) => {
-        const elapsedMs = now - startTime;
-        const progress = Math.min(1, elapsedMs / animationDurationMs);
-        // Linear progress avoids decelerating to a stop at every GPS sample.
-        const easedProgress = progress;
-        // Time the next fix is overdue by, which is how far past the predicted
-        // position the icon is allowed to keep coasting.
-        const overdueMs = Math.max(0, elapsedMs - animationDurationMs);
-
-        {
-          const nextLocations = stabilizedTargets.map((targetLoc) => {
-            if (targetLoc.markerType !== 'truck') {
-              return targetLoc;
-            }
-
-            const previous = previousById.get(targetLoc.id);
-            if (!previous) {
-              return targetLoc;
-            }
-
-            const movementMeters = approximateDistanceMeters(
-              [previous.lat, previous.lng],
-              [targetLoc.lat, targetLoc.lng]
-            );
-            // Movement bearing is useful only when routed geometry has no tangent.
-            // Prefer the road-derived target heading so the icon stays lane-aligned.
-            const movementHeading = movementMeters >= TRUCK_STATIONARY_THRESHOLD_METERS
-              ? bearingBetweenMapPoints([previous.lat, previous.lng], [targetLoc.lat, targetLoc.lng])
-              : null;
-            const startHeading =
-              typeof previous.markerHeading === 'number' && Number.isFinite(previous.markerHeading)
-                ? previous.markerHeading
-                : typeof targetLoc.markerHeading === 'number' && Number.isFinite(targetLoc.markerHeading)
-                  ? targetLoc.markerHeading
-                  : undefined;
-            const endHeading =
-              typeof targetLoc.markerHeading === 'number' && Number.isFinite(targetLoc.markerHeading)
-                ? targetLoc.markerHeading
-                : movementHeading ?? startHeading;
-            // A prior frame may belong to replaced route geometry. Reproject its
-            // visible coordinate onto the current road before interpolating.
-            const startRouteProgress =
-              navigationRouteGeometry.length >= 2
-                ? projectPointOntoRoute([previous.lat, previous.lng], navigationRouteGeometry)?.distanceAlongMeters
-                : previous.routeProgressMeters;
-            const endRouteProgress = targetLoc.routeProgressMeters;
-            // Dead reckoning. Animating to the received fix always leaves the
-            // icon one full update interval behind the driver, so it aims at
-            // where the measured ground speed says the driver will be when this
-            // animation lands, and keeps coasting while the next fix is overdue.
-            // The next accepted fix corrects whatever the prediction got wrong.
-            const animatedRouteProgress =
-              typeof startRouteProgress === 'number' && typeof endRouteProgress === 'number'
-                ? predictedRouteProgressMeters({
-                  startProgressMeters: startRouteProgress,
-                  targetProgressMeters: endRouteProgress,
-                  easedProgress,
-                  reckoningSpeedMps: deadReckoningSpeedFor(targetLoc),
-                  catchUpDurationMs: animationDurationMs,
-                  overdueMs,
-                })
-                : endRouteProgress;
-            const animatedRoadPoint =
-              navigationRouteGeometry.length >= 2 && typeof animatedRouteProgress === 'number'
-                ? pointAtRouteDistance(navigationRouteGeometry, animatedRouteProgress)
-                : null;
-
-            // Fix: orientation follows the segment under this animation frame,
-            // rather than blending headings across a bend before reaching it.
-            const animatedSegment = animatedRoadPoint
-              ? nearestPointOnPolyline(animatedRoadPoint, navigationRouteGeometry)
-              : null;
-            const roadHeading = animatedSegment && Number.isFinite(animatedSegment.heading)
-              ? normalizeAngle(animatedSegment.heading)
-              : null;
-            const alignedHeading = roadHeading !== null && typeof endHeading === 'number'
-              && Math.abs(shortestAngleDelta(roadHeading, endHeading)) > 90
-              ? normalizeAngle(roadHeading + 180)
-              : roadHeading;
-
-            return {
-              ...targetLoc,
-              // In navigation mode interpolate distance along the routed road,
-              // never a straight chord between two GPS fixes.
-              lat: animatedRoadPoint?.[0] ?? lerp(previous.lat, targetLoc.lat, easedProgress),
-              lng: animatedRoadPoint?.[1] ?? lerp(previous.lng, targetLoc.lng, easedProgress),
-              routeProgressMeters: animatedRouteProgress,
-              markerHeading: alignedHeading ?? (
-                typeof startHeading === 'number' && typeof endHeading === 'number'
-                  ? lerpAngle(startHeading, endHeading, easedProgress)
-                  : endHeading),
-            };
-          });
-          // Keep reroute continuity synchronized with the exact interpolated
-          // frame that also drives the grey/active route split.
-          smoothedLocationsRef.current = nextLocations;
-          setSmoothedLocations(nextLocations);
-        }
-
-        if (elapsedMs < totalLoopDurationMs) {
-          animationFrameRef.current = window.requestAnimationFrame(animate);
-        } else {
-          animationFrameRef.current = null;
-        }
-      };
-
-      animationFrameRef.current = window.requestAnimationFrame(animate);
+    const motionById = truckMotionRef.current;
+    const contextAt = (nowMs: number): TruckMotionContext => ({
+      route: navigationRouteGeometry,
+      routeKey: navigationRouteKey,
+      predict: navigationPerspective,
+      nowMs,
+    });
+    const liveTruckIds = new Set(
+      stabilizedTargets.filter((location) => location.markerType === 'truck').map((location) => location.id)
+    );
+    for (const id of Array.from(motionById.keys())) {
+      if (!liveTruckIds.has(id)) motionById.delete(id);
     }
+
+    // Browsers suspend painting in the background, and a fix that is a minute
+    // late describes a journey worth no replay. Snap to the fix in either case;
+    // otherwise fold it into the motion model, which moves the icon over the
+    // following frames without ever jumping it.
+    const snapToFix = document.hidden || observedUpdateInterval > TRUCK_SNAP_AFTER_SILENCE_MS;
+    const arrival = contextAt(receivedAt);
+    for (const target of stabilizedTargets) {
+      if (target.markerType !== 'truck') continue;
+      const previous = motionById.get(target.id);
+      motionById.set(
+        target.id,
+        snapToFix ? snapTruckMotion(previous, target, arrival) : acceptTruckFix(previous, target, arrival)
+      );
+    }
+
+    // Re-render only when a truck has actually moved or turned; the loop also
+    // runs frames in which nothing changes by a visible amount.
+    let lastPublishedKey = '';
+    const publish = () => {
+      const poses: string[] = [];
+      const nextLocations = stabilizedTargets.map((target) => {
+        if (target.markerType !== 'truck') return target;
+        const motion = motionById.get(target.id);
+        if (!motion) return target;
+        const pose = truckMotionPose(motion, navigationRouteGeometry);
+        poses.push(`${target.id}:${pose.point[0].toFixed(7)},${pose.point[1].toFixed(7)},${pose.heading?.toFixed(2) ?? ''}`);
+        return {
+          ...target,
+          lat: pose.point[0],
+          lng: pose.point[1],
+          routeProgressMeters: pose.routeProgressMeters ?? target.routeProgressMeters,
+          markerHeading: pose.heading ?? target.markerHeading,
+        };
+      });
+      const key = poses.join('|');
+      if (key === lastPublishedKey) return;
+      lastPublishedKey = key;
+      // Keep reroute continuity synchronized with the exact interpolated
+      // frame that also drives the grey/active route split.
+      smoothedLocationsRef.current = nextLocations;
+      setSmoothedLocations(nextLocations);
+    };
+
+    publish();
+    if (snapToFix) return;
+
+    const animate = (now: number) => {
+      const frame = contextAt(now);
+      let settled = true;
+      for (const [id, motion] of motionById) {
+        const next = stepTruckMotion(motion, frame);
+        motionById.set(id, next);
+        if (!isTruckMotionSettled(next, frame)) settled = false;
+      }
+      publish();
+      // The loop ends when every icon has stopped moving and turning, and the
+      // next fix starts it again.
+      animationFrameRef.current = settled ? null : window.requestAnimationFrame(animate);
+    };
+    animationFrameRef.current = window.requestAnimationFrame(animate);
 
     return () => {
       if (animationFrameRef.current !== null) {

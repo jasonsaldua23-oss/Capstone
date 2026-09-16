@@ -139,26 +139,47 @@ type NavState = {
 function buildNavState(
   steps: OsrmStep[],
   currentStepIndex: number,
-  showUpcomingManeuver: boolean
+  showUpcomingManeuver: boolean,
+  liveManeuverDistanceMeters?: number
 ): NavState | null {
   const travelingStep = steps[currentStepIndex] || null
   if (!travelingStep || steps.length === 0) return null
 
   // The prominent instruction is the maneuver ahead of the segment the driver is
-  // currently on, so completing a turn immediately reveals the next one. Totals
-  // still count from the traveling segment, keeping remaining distance/ETA whole.
+  // currently on, so completing a turn immediately reveals the next one.
   const promptStepIndex = showUpcomingManeuver
     ? Math.min(currentStepIndex + 1, steps.length - 1)
     : currentStepIndex
   const promptStep = steps[promptStepIndex]
   const promptNextStep = steps[promptStepIndex + 1] || null
   const remainingSteps = steps.slice(promptStepIndex + 1)
-  const remainingDistance = steps
-    .slice(currentStepIndex)
+
+  // Everything after the segment the driver is on is fixed by the route; what
+  // changes as they move is how much of that segment is left. When the shown
+  // maneuver is the end of the segment (upcoming mode), the live distance to it is
+  // exactly the part still to drive, and the segment's time scales with it. With
+  // no live fix (no projection yet, or off-route) count the whole segment, which
+  // is what the totals showed before they went live.
+  const afterTravelingDistance = steps
+    .slice(currentStepIndex + 1)
     .reduce((sum, step) => sum + (step.distance || 0), 0)
-  const remainingDuration = steps
-    .slice(currentStepIndex)
+  const afterTravelingDuration = steps
+    .slice(currentStepIndex + 1)
     .reduce((sum, step) => sum + (step.duration || 0), 0)
+  const travelingDistance = travelingStep.distance || 0
+  const travelingDuration = travelingStep.duration || 0
+  const liveDistanceEndsTravelingSegment =
+    promptStepIndex === currentStepIndex + 1 &&
+    typeof liveManeuverDistanceMeters === 'number' &&
+    Number.isFinite(liveManeuverDistanceMeters)
+  // The live value may slightly exceed the segment (the instruction advances a few
+  // metres before the turn); that is a real measurement, so it is not capped.
+  const travelingLeftDistance = liveDistanceEndsTravelingSegment
+    ? Math.max(0, liveManeuverDistanceMeters)
+    : travelingDistance
+  const travelingLeftFraction = travelingDistance > 0 ? travelingLeftDistance / travelingDistance : 1
+  const remainingDistance = afterTravelingDistance + travelingLeftDistance
+  const remainingDuration = afterTravelingDuration + travelingDuration * travelingLeftFraction
 
   return {
     promptStep,
@@ -184,7 +205,7 @@ export interface NavInstructionsPanelProps {
   variant?: NavInstructionsVariant
   /** Show the maneuver ahead of the current segment (Google-Maps style). */
   showUpcomingManeuver?: boolean
-  /** Live along-route distance to the shown maneuver; counts down continuously. */
+  /** Live along-route distance to the shown maneuver; drives the count-down and keeps remaining distance/ETA live. */
   liveManeuverDistanceMeters?: number
   onSpeak?: (message: string) => void
 }
@@ -200,8 +221,8 @@ export function NavInstructionsPanel({
 }: NavInstructionsPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const navState = useMemo(
-    () => buildNavState(steps, currentStepIndex, showUpcomingManeuver),
-    [steps, currentStepIndex, showUpcomingManeuver]
+    () => buildNavState(steps, currentStepIndex, showUpcomingManeuver, liveManeuverDistanceMeters),
+    [steps, currentStepIndex, showUpcomingManeuver, liveManeuverDistanceMeters]
   )
 
   if (!navState) return null

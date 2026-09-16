@@ -4,19 +4,16 @@ import {
   bearingBetweenMapPoints,
   calculateNavigationViewportInsets,
   calculateTruckScreenRotation,
-  navigationReckoningSpeedMps,
   pointAtRouteDistance,
-  predictedRouteProgressMeters,
   projectPointOntoRoute,
   shouldRefreshDriverRoute,
   selectFollowedRoute,
   resolveDriverRouteProgress,
   quantizeRouteSplitMeters,
   resolveNavigationHeading,
+  routePoseAtDistance,
   shortestMapAngleDelta,
   splitRouteAtDistance,
-  NAVIGATION_DEAD_RECKONING_MAX_MS,
-  NAVIGATION_DEAD_RECKONING_SPEED_FACTOR,
   NAVIGATION_ROUTE_SPLIT_QUANTIZATION_METERS,
 } from './map-navigation.ts';
 
@@ -146,84 +143,6 @@ test('arrival never restores the completed route as an upcoming blue line', () =
   assert.deepEqual(splitRouteAtDistance(route, 0).remaining, route);
 });
 
-test('a crawling or absent speed reading never drives prediction', () => {
-  // Below the noise floor a reported speed says nothing about real movement.
-  assert.equal(navigationReckoningSpeedMps(0), 0);
-  assert.equal(navigationReckoningSpeedMps(1.4), 0);
-  assert.equal(navigationReckoningSpeedMps(null), 0);
-  assert.equal(navigationReckoningSpeedMps(undefined), 0);
-  assert.equal(navigationReckoningSpeedMps(Number.NaN), 0);
-  // Above it the vehicle is advanced at a deliberately conservative fraction.
-  assert.equal(navigationReckoningSpeedMps(10), 10 * NAVIGATION_DEAD_RECKONING_SPEED_FACTOR);
-  assert.ok(NAVIGATION_DEAD_RECKONING_SPEED_FACTOR < 1);
-});
-
-test('without a usable speed the vehicle only interpolates toward the fix', () => {
-  const frame = {
-    startProgressMeters: 100,
-    targetProgressMeters: 200,
-    reckoningSpeedMps: 0,
-    catchUpDurationMs: 1000,
-    overdueMs: 0,
-  };
-  assert.equal(predictedRouteProgressMeters({ ...frame, easedProgress: 0 }), 100);
-  assert.equal(predictedRouteProgressMeters({ ...frame, easedProgress: 0.5 }), 150);
-  assert.equal(predictedRouteProgressMeters({ ...frame, easedProgress: 1 }), 200);
-  // A late fix must not move a vehicle that has no speed to move it with.
-  assert.equal(predictedRouteProgressMeters({ ...frame, easedProgress: 1, overdueMs: 2500 }), 200);
-});
-
-test('prediction lands the vehicle ahead of the fix it animated toward', () => {
-  const frame = {
-    startProgressMeters: 100,
-    targetProgressMeters: 200,
-    reckoningSpeedMps: 9,
-    catchUpDurationMs: 1000,
-    overdueMs: 0,
-  };
-  // Over a 1s catch-up at 9 m/s the driver covers 9m more than the fix reported,
-  // which is exactly the lag this replaces.
-  assert.equal(predictedRouteProgressMeters({ ...frame, easedProgress: 1 }), 209);
-  // The lead is applied through the easing, not bolted on at the end, so the
-  // vehicle never jumps forward as the animation completes.
-  assert.equal(predictedRouteProgressMeters({ ...frame, easedProgress: 0 }), 100);
-  assert.equal(predictedRouteProgressMeters({ ...frame, easedProgress: 0.5 }), 154.5);
-});
-
-test('an overdue fix keeps the vehicle coasting, but only to the budget', () => {
-  const frame = {
-    startProgressMeters: 100,
-    targetProgressMeters: 100,
-    easedProgress: 1,
-    reckoningSpeedMps: 10,
-    catchUpDurationMs: 0,
-  };
-  assert.equal(predictedRouteProgressMeters({ ...frame, overdueMs: 0 }), 100);
-  assert.equal(predictedRouteProgressMeters({ ...frame, overdueMs: 1000 }), 110);
-  // Past the budget a stale fix stops moving the vehicle rather than running it
-  // off down the road on a position nothing has confirmed.
-  const atBudget = predictedRouteProgressMeters({ ...frame, overdueMs: NAVIGATION_DEAD_RECKONING_MAX_MS });
-  assert.equal(atBudget, 130);
-  assert.equal(predictedRouteProgressMeters({ ...frame, overdueMs: 60_000 }), atBudget);
-  // Negative clock drift must not drag it backwards either.
-  assert.equal(predictedRouteProgressMeters({ ...frame, overdueMs: -500 }), 100);
-});
-
-test('a long catch-up cannot lead the vehicle past the extrapolation budget', () => {
-  const frame = {
-    startProgressMeters: 0,
-    targetProgressMeters: 0,
-    easedProgress: 1,
-    reckoningSpeedMps: 10,
-    overdueMs: 0,
-  };
-  // The 9s smoothing span a very sparse fix can produce would otherwise lead the
-  // vehicle 90m ahead of anything measured.
-  assert.equal(predictedRouteProgressMeters({ ...frame, catchUpDurationMs: 9000 }), 30);
-  assert.equal(predictedRouteProgressMeters({ ...frame, catchUpDurationMs: 3000 }), 30);
-  assert.equal(predictedRouteProgressMeters({ ...frame, catchUpDurationMs: 1000 }), 10);
-});
-
 test('the route split snaps to a fixed step so the payload stays stable', () => {
   const step = NAVIGATION_ROUTE_SPLIT_QUANTIZATION_METERS;
   // Sub-step movement, which is what most animation frames produce, resolves to
@@ -236,4 +155,19 @@ test('the route split snaps to a fixed step so the payload stays stable', () => 
   for (const distance of [0, 1.1, 37.9, 512.5, 1234.6]) {
     assert.ok(Math.abs(quantizeRouteSplitMeters(distance) - distance) <= step / 2);
   }
+});
+
+test('a route pose gives the same point as the distance lookup plus the road bearing there', () => {
+  const route: [number, number][] = [[10.7, 122.9], [10.7, 122.91], [10.71, 122.91]];
+  for (const distance of [0, 500, 1100, 1500, 5000]) {
+    const pose = routePoseAtDistance(route, distance);
+    assert.ok(pose);
+    assert.deepEqual(pose.point, pointAtRouteDistance(route, distance));
+  }
+  // Eastbound on the first leg, northbound on the second, and the last bearing holds past the end.
+  assert.equal(Math.round(routePoseAtDistance(route, 100)!.heading!), 90);
+  assert.equal(Math.round(routePoseAtDistance(route, 1500)!.heading!), 0);
+  assert.equal(Math.round(routePoseAtDistance(route, 5000)!.heading!), 0);
+  assert.equal(routePoseAtDistance([], 10), null);
+  assert.equal(routePoseAtDistance([[1, 2]], 10)!.heading, null);
 });
