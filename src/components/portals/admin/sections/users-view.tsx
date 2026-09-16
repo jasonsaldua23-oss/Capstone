@@ -726,6 +726,7 @@ export function UsersView() {
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-700">Suffix <span className="text-gray-400 font-normal">(Optional)</span></label>
               <Input
+                placeholder="Jr., Sr., III"
                 placeholder="e.g. Jr., Sr., III"
                 value={form.suffix}
                 onChange={(e) => updateField('suffix', e.target.value)}
