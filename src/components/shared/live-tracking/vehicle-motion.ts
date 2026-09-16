@@ -65,8 +65,11 @@ export const MOTION_REVERSE_ERROR_METERS = 25
 export const MOTION_REPORTED_SPEED_WEIGHT = 0.85
 /** While parked, fixes closer than this to the drawn position are treated as no movement. */
 export const MOTION_PARKED_DEADBAND_METERS = 6
-/** A parked phone whose Doppler speed is zero is believed unless the position moves faster than this. */
-export const MOTION_PARKED_TRUST_MPS = 5
+/** While the phone itself reports a standstill the icon holds through this much position
+ * noise, and doubts the reading once the fixes leave that radius: beyond it they are not
+ * noise but a vehicle that has moved - a tow, a ferry, a cold fix, or a phone reporting
+ * a standstill it is not at. */
+export const MOTION_PARKED_HOLD_METERS = 25
 /** Heading turn-rate limits, degrees per second, scaling with speed between the two. */
 export const MOTION_TURN_RATE_MIN_DPS = 45
 export const MOTION_TURN_RATE_MAX_DPS = 240
@@ -95,6 +98,10 @@ export type VehicleMotionState = {
   /** Change in Doppler speed between the last two fixes; lets the prediction brake and pull away with the vehicle. */
   accelMps2: number
   reportedSpeedMps: number | null
+  /** The last speed the phone actually reported was a standstill. A fix that carries
+   * no reading at all (a network fix, a weak sky) leaves this standing rather than
+   * refuting it, so alternating readings cannot keep a parked vehicle unrecognised. */
+  reportedStill: boolean
   /** Smoothed gap between fixes. Without prediction it is how long the icon has to cover one. */
   fixIntervalMs: number
   /** Drawn position minus predicted position; worked off toward zero. */
@@ -115,13 +122,14 @@ export type MotionOptions = {
 }
 
 export function createMotionState(fix: VehicleFix): VehicleMotionState {
-  const speed = finiteSpeed(fix.reportedSpeedMps) ?? 0
+  const reported = finiteSpeed(fix.reportedSpeedMps)
   return {
     fixProgressMeters: fix.progressMeters,
     fixAtMs: fix.atMs,
-    speedMps: speed,
+    speedMps: reported ?? 0,
     accelMps2: 0,
-    reportedSpeedMps: finiteSpeed(fix.reportedSpeedMps),
+    reportedSpeedMps: reported,
+    reportedStill: reported !== null && reported < MOTION_STATIONARY_SPEED_MPS,
     fixIntervalMs: MOTION_MIN_FIX_INTERVAL_MS * 2,
     offsetMeters: 0,
     offsetVelocityMps: 0,
@@ -226,37 +234,66 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
   // Distance over time is only meaningful once fixes are far enough apart, and
   // even then it inherits the position noise: 3 m of error on a 1 s gap is 3 m/s.
   // The phone's Doppler speed is far steadier, so it leads when available.
-  const measuredRaw = dtS >= 0.25 ? Math.max(0, (fix.progressMeters - state.fixProgressMeters) / dtS) : null
+  const movedMeters = fix.progressMeters - state.fixProgressMeters
+  const measuredRaw = dtS >= 0.25 ? Math.max(0, movedMeters / dtS) : null
   const jumpMeters = fix.progressMeters - state.displayedMeters
 
   // A parked vehicle's fixes wander by metres per second though nothing moves.
-  // Doppler says so directly; without it, staying inside the deadband says the
-  // same. Such a fix contributes no speed, and if it is close it is held at the
-  // drawn position so the icon does not fidget.
+  // Doppler says so directly, and it is the one reading the wandering cannot
+  // fake, so the model's own estimate is not asked to confirm it: where there is
+  // no Doppler that estimate is measured from these same fixes, and a distance is
+  // never negative, so noise rectifies into a speed that never falls to zero and
+  // a parked vehicle would never be recognised as one.
+  //
+  // A phone is believed once it has reported a standstill twice running, or once
+  // the model already had the vehicle stopped, and only while its fixes stay within
+  // the hold radius of the anchor. That anchor is frozen for as long as the hold
+  // lasts, so a parked vehicle's wandering is measured from one fixed point and
+  // stays inside the radius, while a vehicle that has really pulled away walks out
+  // of it within a fix or two. A single bad reading therefore cannot freeze a
+  // moving vehicle, and a phone that keeps insisting on a standstill it is not at
+  // is released as soon as its own positions say otherwise.
+  //
+  // Where the phone has never said anything about its speed, staying inside the
+  // deadband is all there is to go on. Such a fix contributes no speed, and the
+  // icon is held where it is drawn rather than fidgeting after the noise.
   const wasParked = state.speedMps < MOTION_STATIONARY_SPEED_MPS
   const insideDeadband = Math.abs(jumpMeters) < MOTION_PARKED_DEADBAND_METERS
-  const stationary = wasParked && (
-    reported === null
-      ? insideDeadband
-      : reported < MOTION_STATIONARY_SPEED_MPS && (measuredRaw ?? 0) < MOTION_PARKED_TRUST_MPS
-  )
+  const readingStill = reported !== null && reported < MOTION_STATIONARY_SPEED_MPS
+  // A fix carrying no speed at all is no news about speed - a network fix, a weak
+  // sky - so the phone's last word on it stands rather than being read as movement.
+  const phoneSaysStill = reported === null ? state.reportedStill : readingStill
+  const stationary = phoneSaysStill
+    ? (state.reportedStill || wasParked) && Math.abs(movedMeters) < MOTION_PARKED_HOLD_METERS
+    : reported === null && wasParked && insideDeadband
+  // A standstill the positions agree with contributes no speed at all: the distance
+  // beside it is the wandering, and letting even a fifteenth of it through keeps the
+  // estimate off zero fix after fix.
   const measured = stationary ? 0 : measuredRaw
-  const raw = reported !== null && measured !== null
-    ? reported * MOTION_REPORTED_SPEED_WEIGHT + measured * (1 - MOTION_REPORTED_SPEED_WEIGHT)
-    : reported ?? measured ?? state.speedMps
-  const filterTimeS = reported !== null ? MOTION_SPEED_FILTER_TIME_S : MOTION_MEASURED_SPEED_FILTER_TIME_S
+  // A standstill they flatly contradict is not a speed reading at all. Left in the
+  // blend it would carry most of the weight and pace the icon at a fraction of a
+  // vehicle that is plainly covering ground, dropping it further behind at every fix.
+  const trusted = phoneSaysStill && Math.abs(movedMeters) >= MOTION_PARKED_HOLD_METERS ? null : reported
+  const raw = trusted !== null && measured !== null
+    ? trusted * MOTION_REPORTED_SPEED_WEIGHT + measured * (1 - MOTION_REPORTED_SPEED_WEIGHT)
+    : trusted ?? measured ?? state.speedMps
+  const filterTimeS = trusted !== null ? MOTION_SPEED_FILTER_TIME_S : MOTION_MEASURED_SPEED_FILTER_TIME_S
   const alpha = dtS > 0 ? 1 - Math.exp(-dtS / filterTimeS) : 1
   const speedMps = Math.max(0, state.speedMps + (raw - state.speedMps) * alpha)
   // Two Doppler readings give the vehicle's acceleration, which the prediction
   // carries forward so that braking and pulling away are followed rather than
   // discovered a fix late. Position-derived speeds are far too noisy for this.
-  const accelMps2 = reported !== null && state.reportedSpeedMps !== null && dtS >= 0.5 && !stationary
-    ? Math.max(-MOTION_MAX_DECEL_MPS2, Math.min(MOTION_MAX_ACCEL_MPS2, (reported - state.reportedSpeedMps) / dtS))
+  const accelMps2 = trusted !== null && state.reportedSpeedMps !== null && dtS >= 0.5 && !stationary
+    ? Math.max(-MOTION_MAX_DECEL_MPS2, Math.min(MOTION_MAX_ACCEL_MPS2, (trusted - state.reportedSpeedMps) / dtS))
     : 0
   // Holding freezes the anchor under the icon, so only do it when the icon is
-  // still enough to stop within half a metre of where it is.
+  // still enough to stop within half a metre of where it is. A phone reporting
+  // its own standstill is worth holding through far more noise than the deadband:
+  // a network or cold fix lands tens of metres away, and gliding out to meet it
+  // is the drifting-while-parked that the deadband exists to prevent.
   const stoppingMeters = (state.offsetVelocityMps * state.offsetVelocityMps) / (2 * state.correctionAccelMps2)
-  const held = stationary && insideDeadband && stoppingMeters < 0.5
+  const held = stationary && stoppingMeters < 0.5 &&
+    Math.abs(jumpMeters) < (phoneSaysStill ? MOTION_PARKED_HOLD_METERS : MOTION_PARKED_DEADBAND_METERS)
   const progressMeters = held ? state.displayedMeters : fix.progressMeters
 
   // How long the icon has to cover one fix's worth of ground, learned rather than
@@ -270,6 +307,7 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
     speedMps,
     accelMps2,
     reportedSpeedMps: reported,
+    reportedStill: phoneSaysStill,
     fixIntervalMs: state.fixIntervalMs + (gapMs - state.fixIntervalMs) * 0.5,
   }
   // Re-anchor without a visible jump. The drawn position is as of the last frame,

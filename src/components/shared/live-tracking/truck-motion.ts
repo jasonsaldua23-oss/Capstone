@@ -188,12 +188,23 @@ export function acceptTruckFix(previous: TruckMotion | undefined, target: Driver
   const desiredHeading = fixHeading ?? movementHeading ?? previous.desiredHeading
   if (previous.mode === 'planar') {
     const local = toLocalMeters(previous.origin, fixPoint)
-    // Each axis covers only its share of the ground speed, so the reported speed
-    // is withheld here and each model measures its own from the positions it sees.
+    // Each axis covers only its share of the ground speed, so the phone's reading
+    // is split between them along the direction the fix moved in rather than
+    // handed to both whole. Withholding it instead left each axis to measure its
+    // own speed from the positions, and a parked vehicle's positions wander: the
+    // measurement is a distance, never negative, so the wandering rectifies into
+    // a speed of its own that never reaches zero and the icon spends the stop
+    // chasing noise around the yard. A standstill splits to zero on both axes,
+    // and that is the reading the wandering cannot fake.
+    const eastMeters = local.east - previous.east.fixProgressMeters
+    const northMeters = local.north - previous.north.fixProgressMeters
+    const spanMeters = Math.hypot(eastMeters, northMeters)
+    const shareOf = (axisMeters: number) =>
+      reportedSpeedMps === null ? null : spanMeters > 0 ? (Math.abs(axisMeters) / spanMeters) * reportedSpeedMps : 0
     return {
       ...previous,
-      east: acceptFix(previous.east, { progressMeters: local.east, atMs: ctx.nowMs, reportedSpeedMps: null }, NO_PREDICT),
-      north: acceptFix(previous.north, { progressMeters: local.north, atMs: ctx.nowMs, reportedSpeedMps: null }, NO_PREDICT),
+      east: acceptFix(previous.east, { progressMeters: local.east, atMs: ctx.nowMs, reportedSpeedMps: shareOf(eastMeters) }, NO_PREDICT),
+      north: acceptFix(previous.north, { progressMeters: local.north, atMs: ctx.nowMs, reportedSpeedMps: shareOf(northMeters) }, NO_PREDICT),
       fixSignature: signature, fixPoint, desiredHeading,
     }
   }

@@ -58,6 +58,15 @@ const AddressMapPicker = dynamic(
 const recordedAtMs = (point: any) =>
   new Date(point?.recordedAt || point?.recorded_at || point?.createdAt || point?.created_at || 0).getTime()
 
+// The phone's own ground speed in m/s, forwarded to the map so its motion model
+// can tell a parked vehicle from GPS noise: without it the icon reads the wander
+// of a standing vehicle as movement and drifts around the stop. A missing or
+// negative reading (iOS reports -1 for "unknown") is no reading, not a standstill.
+const reportedSpeedMps = (point: any) => {
+  const speed = Number(point?.speed)
+  return Number.isFinite(speed) && speed >= 0 ? speed : undefined
+}
+
 export function TrackingView() {
   const [trips, setTrips] = useState<any[]>([])
   const [driverLocations, setDriverLocations] = useState<any[]>([])
@@ -247,6 +256,7 @@ export function TrackingView() {
       markerDirection?: 'left' | 'right'
       markerHeading?: number
       markerNumber?: number | string
+      speedMps?: number
       assignedTripNumber?: string
       destinationCustomer?: string
     }> = []
@@ -398,6 +408,7 @@ export function TrackingView() {
           markerLabel: 'Current location',
           markerType: 'truck',
           markerHeading: markerHeading ?? undefined,
+          speedMps: reportedSpeedMps(freshestPoint),
           // Added: provide the assignment details rendered by the shared truck popup.
           assignedTripNumber: String(trip?.tripNumber || ''),
           destinationCustomer: String(nextDropPoint?.locationName || 'N/A'),
@@ -529,6 +540,7 @@ export function TrackingView() {
         markerLabel: 'Driver last known location',
         markerType: 'truck',
         markerHeading: Number.isFinite(Number(location?.heading)) ? Number(location.heading) : undefined,
+        speedMps: reportedSpeedMps(location),
         // Added: preserve known assignment data for last-known driver markers.
         assignedTripNumber: String(assignedTrip?.tripNumber || ''),
         destinationCustomer: String(destinationPoint?.locationName || 'N/A'),

@@ -162,6 +162,7 @@ class TripsCollectionTrackingContractTests(TestCase):
             trip=None,
             latitude=10.7999,
             longitude=122.9787,
+            speed=0.0,
             recorded_at=timezone.now(),
         )
 
@@ -180,6 +181,10 @@ class TripsCollectionTrackingContractTests(TestCase):
         self.assertEqual(location["driverId"], self.driver.id)
         self.assertEqual(location["driverName"], self.driver.name)
         self.assertIsNone(location["tripId"])
+        # The tracking maps read the GPS speed to tell a parked vehicle from the
+        # wander of its fixes, so a standstill has to survive the payload as 0.0
+        # rather than being dropped for being falsy.
+        self.assertEqual(location["speed"], 0.0)
 
 
 class RoutePlanContractTests(TestCase):

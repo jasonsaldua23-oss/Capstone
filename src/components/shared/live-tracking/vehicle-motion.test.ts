@@ -27,6 +27,7 @@ function noise(seed: number) {
 const FPS = 60
 const FRAME_MS = 1000 / FPS
 const PREDICT = { predict: true }
+const NO_PREDICT = { predict: false }
 
 type Frame = { t: number; truth: number; shown: number; velocity: number }
 
@@ -98,6 +99,43 @@ function simulateOldModel(opts: Parameters<typeof simulate>[0]): Frame[] {
   }
   return frames
 }
+
+/**
+ * The other portals' case: reported positions only, no prediction, fixes as sparse
+ * as their polling, and a phone whose speed reading may be steady Doppler, a
+ * standstill, or nothing at all.
+ */
+function simulateReported(opts: {
+  truthAt: (tMs: number) => number
+  reportedAt: (tMs: number) => number | null
+  durationMs: number
+  fixEveryMs: number
+  noiseMeters: number
+  seed?: number
+}): Frame[] {
+  const rand = noise(opts.seed ?? 11)
+  const fixAt = (t: number): VehicleFix => ({
+    progressMeters: opts.truthAt(t) + rand() * 2 * opts.noiseMeters,
+    atMs: t,
+    reportedSpeedMps: opts.reportedAt(t),
+  })
+  let state = createMotionState(fixAt(0))
+  let nextFix = opts.fixEveryMs
+  const frames: Frame[] = []
+  for (let t = FRAME_MS; t <= opts.durationMs; t += FRAME_MS) {
+    if (t >= nextFix) {
+      state = acceptFix(state, fixAt(nextFix), NO_PREDICT)
+      nextFix += opts.fixEveryMs
+    }
+    state = stepMotion(state, t, NO_PREDICT)
+    frames.push({ t, truth: opts.truthAt(t), shown: state.displayedMeters, velocity: state.displayedVelocityMps })
+  }
+  return frames
+}
+
+/** How far the drawn position moved over these frames, in either direction. */
+const distanceDrawn = (frames: Frame[]) =>
+  frames.reduce((total, frame, i) => (i === 0 ? 0 : total + Math.abs(frame.shown - frames[i - 1].shown)), 0)
 
 const settled = (frames: Frame[], fromMs = 4000) => frames.filter((f) => f.t >= fromMs)
 const maxVelocityJump = (frames: Frame[]) => {
@@ -307,6 +345,56 @@ test('without prediction the icon keeps moving between sparse fixes instead of d
   assert.ok(maxVelocityJump(settledFrames) < 0.2)
   // ...and never runs away: without prediction it must stay behind the last report.
   for (const f of settledFrames) assert.ok(f.shown <= f.truth + 0.5, `ran ahead of the reported position at t=${f.t}`)
+})
+
+test('a parked vehicle whose phone says so holds still instead of touring the jitter', () => {
+  // The portal maps again: 5 s fixes, no prediction, 8 m of urban jitter, and a
+  // vehicle that drives for 30 s and then stops. Where speed can only be measured
+  // from the positions it is measured as a distance, and a distance is never
+  // negative, so the wandering of a standing vehicle rectifies into a speed that
+  // never reaches zero: the icon paces after every wander and never settles. The
+  // phone's own reading is the one thing the wandering cannot fake.
+  const frames = simulateReported({
+    truthAt: (t) => (11 * Math.min(t, 30_000)) / 1000,
+    reportedAt: (t) => (t < 30_000 ? 11 : 0),
+    durationMs: 120_000, fixEveryMs: 5000, noiseMeters: 8,
+  })
+  const afterStop = frames.filter((f) => f.t > 30_000)
+  const parked = frames.filter((f) => f.t > 45_000)
+  const movingFor = (afterStop.filter((f) => f.velocity > 0.3).at(-1)!.t - 30_000) / 1000
+  console.log(`    parked and reported: covered the last report's ${fmt(distanceDrawn(afterStop))} m in ${fmt(movingFor)} s, then drifted ${fmt(distanceDrawn(parked))} m in 75 s`)
+  assert.ok(distanceDrawn(parked) < 2, `drifted ${distanceDrawn(parked)} m while parked`)
+  // ...having stopped where the vehicle did, to within the noise it stopped in.
+  assert.ok(Math.abs(parked[0].shown - 330) < 12, `settled ${fmt(parked[0].shown - 330)} m from the stopping point`)
+})
+
+test('a fix carrying no speed at all does not refute the standstill reported before it', () => {
+  // Weak sky: every other fix is a network one with no Doppler behind it. Read as
+  // "no longer stopped" they would keep a parked vehicle unrecognised for good.
+  const frames = simulateReported({
+    truthAt: () => 100,
+    reportedAt: (t) => (t % 10_000 === 0 ? null : 0),
+    durationMs: 60_000, fixEveryMs: 5000, noiseMeters: 8,
+  })
+  const parked = frames.filter((f) => f.t > 20_000)
+  console.log(`    half the fixes without a reading: drifted ${fmt(distanceDrawn(parked))} m in 40 s`)
+  assert.ok(distanceDrawn(parked) < 2, `drifted ${distanceDrawn(parked)} m while parked`)
+})
+
+test('a phone reporting a standstill it is not at is released by its own positions', () => {
+  // A zero is believed, but only while the fixes stay put: a vehicle that keeps
+  // covering ground must keep being drawn covering it, whatever its phone says.
+  const frames = simulateReported({
+    truthAt: (t) => (11 * t) / 1000,
+    reportedAt: () => 0,
+    durationMs: 60_000, fixEveryMs: 5000, noiseMeters: 3,
+  })
+  const end = frames.at(-1)!
+  const lag = end.truth - end.shown
+  console.log(`    phone stuck at 0 m/s: icon ${fmt(lag)} m behind a vehicle ${fmt(end.truth)} m down the road`)
+  // The icon is meant to trail about one report, which at this speed is 55 m.
+  assert.ok(lag < 90, `fell ${fmt(lag)} m behind`)
+  assert.ok(frames.filter((f) => f.t > 20_000).every((f) => f.velocity > 0), 'kept moving')
 })
 
 test('extrapolation caps at the window and its speed ramps to zero smoothly', () => {
