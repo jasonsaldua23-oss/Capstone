@@ -236,11 +236,9 @@ export function deriveOrderFulfillmentSummaryImpl(order: any, deps: DeriveOrderF
     ? 'PENDING'
     : deliveredCount === total
       ? 'FULFILLED'
-      : deliveredCount > 0
-        ? 'PARTIALLY_FULFILLED'
-        : failedCount === total
-          ? 'FAILED'
-          : 'IN_PROGRESS'
+      : failedCount === total
+        ? 'FAILED'
+        : 'IN_PROGRESS'
   return {
     legs: validLegs,
     totalLegs: total,
@@ -292,7 +290,6 @@ export function getWarehouseDisplayOrderStatusImpl(order: any, deps: GetWarehous
   const { trips } = deps
   const summary = deriveOrderFulfillmentSummaryImpl(order, { trips })
   if (summary.totalLegs > 1) {
-    if (summary.fulfillmentStatus === 'PARTIALLY_FULFILLED') return 'PARTIALLY FULFILLED'
     if (summary.fulfillmentStatus === 'FULFILLED') return 'FULFILLED'
     if (summary.fulfillmentStatus === 'IN_PROGRESS') return 'IN PROGRESS'
   }

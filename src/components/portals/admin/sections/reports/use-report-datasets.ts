@@ -45,7 +45,6 @@ export type ReportDatasetsInputs = {
   selectedOrderStatus: string
   selectedReplacementStatus: string
   selectedTripStatus: string
-  selectedWarehouse: string
   stockBatches: any[]
   trips: any[]
   warehouseDateFrom: string
@@ -73,7 +72,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     selectedOrderStatus,
     selectedReplacementStatus,
     selectedTripStatus,
-    selectedWarehouse,
     stockBatches,
     trips,
     warehouseDateFrom,
@@ -163,16 +161,14 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   const orderRows = useMemo(() => {
     return buildOrderReportRows(orders, {
       rangeStart,
-      selectedWarehouse,
       selectedOrderStatus,
       getWarehouseIdFromRow,
     })
-  }, [orders, rangeStart, selectedWarehouse, selectedOrderStatus])
+  }, [orders, rangeStart, selectedOrderStatus])
 
   const transportRows = useMemo(() => {
     return trips
       .filter((trip) => withinRange(trip.createdAt || trip.plannedStartAt, rangeStart))
-      .filter((trip) => selectedWarehouse === 'all' || getWarehouseIdFromRow(trip) === selectedWarehouse)
       .filter((trip) => selectedDriver === 'all' || String(trip.driver?.id || '') === selectedDriver)
       .filter((trip) => selectedTripStatus === 'all' || normalizeTripStatus(trip.status) === selectedTripStatus)
       .map((trip) => {
@@ -192,16 +188,15 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
           actualEndAt: trip.actualEndAt,
         }
       })
-  }, [trips, rangeStart, selectedWarehouse, selectedDriver, selectedTripStatus])
+  }, [trips, rangeStart, selectedDriver, selectedTripStatus])
 
   const inventoryMovementRows = useMemo(() => {
     return buildInventoryMovementRows(inventoryTransactions, {
       rangeStart,
-      selectedWarehouse,
       selectedMovementType,
       getWarehouseIdFromRow,
     })
-  }, [inventoryTransactions, rangeStart, selectedWarehouse, selectedMovementType])
+  }, [inventoryTransactions, rangeStart, selectedMovementType])
 
   const replacementRows = useMemo(() => {
     const ordersById = new Map<string, any>()
@@ -419,7 +414,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   const stockExpiryRows = useMemo(() => {
     const now = new Date()
     return stockBatches
-      .filter((batch) => selectedWarehouse === 'all' || String(batch.inventory?.warehouse?.id || '') === selectedWarehouse)
       .map((batch) => {
         // The backend persists manufactured date in `receipt_date`, so the report exposes it with the correct business label.
         const manufacturedDateValue = batch.manufacturedDate || batch.manufactured_date || batch.receiptDate || batch.receipt_date || batch.createdAt || null
@@ -450,7 +444,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
         const bDays = typeof b.daysUntilExpiry === 'number' ? b.daysUntilExpiry : Infinity
         return aDays - bDays
       })
-  }, [selectedWarehouse, stockBatches])
+  }, [stockBatches])
 
   // Driver Performance Report Rows - tracks driver metrics
   const driverPerformanceRows = useMemo(() => {
@@ -528,7 +522,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   // Low Stock Alert Rows - tracks products below minimum stock levels
   const lowStockRows = useMemo(() => {
     return inventory
-      .filter((item) => selectedWarehouse === 'all' || String(item.warehouse?.id) === selectedWarehouse)
       .map((item) => {
         // Low-stock reporting needs to use available stock after reservations or the report hides real shortages.
         const quantity = getInventoryAvailableQty(item)
@@ -558,29 +551,27 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       })
       .filter((row) => row.status !== 'OK')
       .sort((a, b) => a.currentStock - b.currentStock)
-  }, [inventory, selectedWarehouse])
+  }, [inventory])
 
   const transportStatusOptions = useMemo(() => {
     return Array.from(
       new Set(
         trips
           .filter((trip) => withinRange(trip.createdAt || trip.plannedStartAt, rangeStart))
-          .filter((trip) => selectedWarehouse === 'all' || getWarehouseIdFromRow(trip) === selectedWarehouse)
           .filter((trip) => selectedDriver === 'all' || String(trip.driver?.id || '') === selectedDriver)
           .map((row) => String(normalizeTripStatus(row.status) || '').toUpperCase())
       )
     )
       .filter(Boolean)
       .sort()
-  }, [trips, rangeStart, selectedWarehouse, selectedDriver])
+  }, [trips, rangeStart, selectedDriver])
 
   const inventoryMovementTypeOptions = useMemo(() => {
     return buildInventoryMovementTypeOptions(inventoryTransactions, {
       rangeStart,
-      selectedWarehouse,
       getWarehouseIdFromRow,
     })
-  }, [inventoryTransactions, rangeStart, selectedWarehouse])
+  }, [inventoryTransactions, rangeStart])
 
   const replacementStatusOptions = useMemo(() => {
     return Array.from(
@@ -604,11 +595,10 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   const orderStatusOptions = useMemo(() => buildOrderReportStatusOptions(
     buildOrderReportRows(orders, {
       rangeStart,
-      selectedWarehouse,
       selectedOrderStatus: 'all',
       getWarehouseIdFromRow,
     })
-  ), [orders, rangeStart, selectedWarehouse])
+  ), [orders, rangeStart])
 
   const orderStatusChart = useMemo(() => {
     return buildOrderReportStatusBreakdown(orderRows)
@@ -690,15 +680,12 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
 
   const warehouseCapacityVsUsedChart = useMemo(() => {
     return buildWarehouseCapacityVsUsedChart(warehouses, inventory, {
-      selectedWarehouse,
       getWarehouseIdFromRow,
     })
-  }, [warehouses, selectedWarehouse, inventory])
+  }, [warehouses, inventory])
 
   const warehouseCapacityTrendPoints = useMemo(() => {
-    const scopedWarehouses = warehouses.filter((warehouse) =>
-      selectedWarehouse === 'all' || String(warehouse?.id || '') === selectedWarehouse
-    )
+    const scopedWarehouses = warehouses
     const scopedWarehouseIds = new Set(scopedWarehouses.map((warehouse) => String(warehouse?.id || '')).filter(Boolean))
     const scopedInventoryItems = inventory.filter((item) => scopedWarehouseIds.has(String(item?.warehouse?.id || item?.warehouseId || '')))
     const currentUsedUnits = scopedInventoryItems.reduce((sum, item) => sum + Math.max(0, Number(getInventoryQuantity(item) || 0)), 0)
@@ -745,7 +732,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     }
 
     return points
-  }, [warehouses, inventory, inventoryTransactions, selectedWarehouse, warehouseDateWindow])
+  }, [warehouses, inventory, inventoryTransactions, warehouseDateWindow])
 
   const warehouseCapacityTrendSummaryLines = useMemo(() => {
     if (warehouseCapacityTrendPoints.length === 0) {
@@ -772,8 +759,8 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   }, [warehouseCapacityTrendPoints, warehouseDateWindow])
 
   const scopedInventory = useMemo(() => {
-    return inventory.filter((item) => selectedWarehouse === 'all' || getWarehouseIdFromRow(item) === selectedWarehouse)
-  }, [inventory, selectedWarehouse])
+    return inventory
+  }, [inventory])
 
   const scopedInventoryHealth = useMemo(() => summarizeStockHealth(scopedInventory), [scopedInventory])
 

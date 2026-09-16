@@ -58,8 +58,6 @@ const AddressMapPicker = dynamic(
 export function ReplacementsView({ notificationReferenceId = '', notificationFocusKey }: { notificationReferenceId?: string; notificationFocusKey?: number } = {}) {
   const [replacements, setReplacements] = useState<any[]>([])
   const [ordersForPricing, setOrdersForPricing] = useState<any[]>([])
-  const [warehouses, setWarehouses] = useState<any[]>([])
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
   const [selectedStatus, setSelectedStatus] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [updatingReplacementId, setUpdatingReplacementId] = useState<string | null>(null)
@@ -97,20 +95,8 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
     }
   }
 
-  const fetchWarehouses = async () => {
-    try {
-      const response = await fetch('/api/warehouses?page=1&pageSize=200', { cache: 'no-store', credentials: 'include' })
-      if (!response.ok) return
-      const data = await response.json().catch(() => ({}))
-      setWarehouses(getCollection(data, ['warehouses']))
-    } catch (error) {
-      console.error('Failed to fetch warehouses for replacements filter:', error)
-    }
-  }
-
   useEffect(() => {
     fetchReplacements()
-    fetchWarehouses()
     fetchOrdersForPricing()
   }, [])
 
@@ -755,14 +741,10 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
     }
   }
 
-  const warehouseFilteredReplacements = useMemo(() => {
-    return replacements
-  }, [replacements])
-
   const filteredReplacements = useMemo(() => {
-    if (selectedStatus === 'all') return warehouseFilteredReplacements
-    return warehouseFilteredReplacements.filter((item) => getNormalizedIssueStatus(item) === selectedStatus)
-  }, [warehouseFilteredReplacements, selectedStatus])
+    if (selectedStatus === 'all') return replacements
+    return replacements.filter((item) => getNormalizedIssueStatus(item) === selectedStatus)
+  }, [replacements, selectedStatus])
 
   const replacementsBySource = useMemo(() => {
     const customerRequests: any[] = []

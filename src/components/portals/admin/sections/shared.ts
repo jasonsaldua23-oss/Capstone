@@ -269,11 +269,9 @@ export function deriveOrderFulfillmentSummary(order: any) {
     ? 'PENDING'
     : deliveredCount === total
       ? 'FULFILLED'
-      : deliveredCount > 0
-        ? 'PARTIALLY_FULFILLED'
-        : failedCount === total
-          ? 'FAILED'
-          : 'IN_PROGRESS'
+      : failedCount === total
+        ? 'FAILED'
+        : 'IN_PROGRESS'
   return {
     legs,
     totalLegs: total,

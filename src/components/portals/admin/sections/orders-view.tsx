@@ -44,7 +44,6 @@ import {
   formatDateTime,
   formatDayLabel,
   withinRange,
-  getWarehouseIdFromRow,
   formatRoleLabel,
   fetchAllPaginatedCollection,
   safeFetchJson,
@@ -80,7 +79,6 @@ function formatRequestStatus(value: string) {
 export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '', notificationReferenceId = '', notificationFocusKey }: { mode?: string; onOpenTransportation?: () => void; globalSearchQuery?: string; notificationReferenceId?: string; notificationFocusKey?: number } = {}) {
   const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
-  const [warehouseDirectory, setWarehouseDirectory] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
   const [orderDetailsById, setOrderDetailsById] = useState<Record<string, any>>({})
@@ -90,7 +88,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
   const [selectedRejectReasons, setSelectedRejectReasons] = useState<string[]>([])
   const [otherRejectReason, setOtherRejectReason] = useState('')
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
-  const [warehouseFilterId, setWarehouseFilterId] = useState('all')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
   const [orderDatePreset, setOrderDatePreset] = useState('all')
   const [orderCustomDateFilter, setOrderCustomDateFilter] = useState('')
@@ -263,15 +260,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
       return marker
     }
 
-    const fetchWarehouses = async () => {
-      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=200', { cache: 'no-store' }, { retries: 2, timeoutMs: 12000 })
-      if (!result.ok) return
-      const list = getCollection<any>(result.data, ['warehouses'])
-      if (isMounted) {
-        setWarehouseDirectory(list.filter((warehouse) => warehouse?.isActive !== false))
-      }
-    }
-
     async function fetchOrdersFull(silent = false) {
       if (isFetchingOrders) return
       isFetchingOrders = true
@@ -392,7 +380,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     }
 
     const hasCachedOrders = loadCachedOrders()
-    void fetchWarehouses()
     // Fix: cached rows only need the changed-order delta; a full item-heavy reload
     // blocks status polling and makes driver delivery updates appear delayed.
     if (hasCachedOrders) {
@@ -472,7 +459,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
   const getDisplayOrderStatus = (order: any) => {
     const summary = deriveOrderFulfillmentSummary(order)
     if (summary.totalLegs > 1) {
-      if (summary.fulfillmentStatus === 'PARTIALLY_FULFILLED') return 'PARTIALLY FULFILLED'
       if (summary.fulfillmentStatus === 'FULFILLED') return 'FULFILLED'
       if (summary.fulfillmentStatus === 'IN_PROGRESS') return 'IN PROGRESS'
     }
@@ -556,13 +542,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     return { ids, names, hasMultipleWarehouses: ids.length > 1 || names.length > 1 }
   }
 
-  const getOrderWarehouseIds = (order: any): string[] => {
-    const meta = getOrderWarehouseMeta(order)
-    if (meta.ids.length > 0) return meta.ids
-    const fallbackId = String(getWarehouseIdFromRow(order) || '').trim()
-    return fallbackId ? [fallbackId] : []
-  }
-
   const getOrderWarehouseNames = (order: any): string[] => {
     const meta = getOrderWarehouseMeta(order)
     if (meta.names.length > 0) return meta.names
@@ -578,48 +557,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     return !orderDetailsById[key]
   }
 
-  const warehouseFilterOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    warehouseDirectory.forEach((warehouse) => {
-      const warehouseId = String(warehouse?.id || '').trim()
-      if (!warehouseId) return
-      const label = String(warehouse?.name || warehouse?.code || warehouseId).trim()
-      if (!map.has(warehouseId)) {
-        map.set(warehouseId, label)
-      }
-    })
-    orders.forEach((order) => {
-      if (isReplacementOrder(order)) return
-      const summary = deriveOrderFulfillmentSummary(order)
-      summary.legs.forEach((leg: any) => {
-        const warehouseId = String(leg?.warehouseId || '').trim()
-        if (!warehouseId) return
-        const label =
-          String(leg?.warehouseName || '').trim() ||
-          String(order?.warehouseName || '').trim() ||
-          String(order?.warehouseCode || '').trim() ||
-          warehouseId
-        if (!map.has(warehouseId)) {
-          map.set(warehouseId, label)
-        }
-      })
-      const meta = getOrderWarehouseMeta(order)
-      meta.ids.forEach((warehouseId) => {
-        if (!warehouseId) return
-        if (!map.has(warehouseId)) {
-          const fallbackLabel = meta.names[0] || warehouseId
-          map.set(warehouseId, fallbackLabel)
-        }
-      })
-    })
-    return Array.from(map.entries())
-      .map(([id, label]) => ({ id, label }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  }, [orders, warehouseDirectory])
-
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
-    statuses.add('PARTIALLY FULFILLED')
     orders.forEach((order) => {
       if (isReplacementOrder(order)) return
       statuses.add(getDisplayOrderStatus(order))
@@ -664,11 +603,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
         if (!haystack.includes(search)) return false
       }
 
-      if (warehouseFilterId !== 'all') {
-        const warehouseIds = getOrderWarehouseIds(order)
-        if (!warehouseIds.includes(warehouseFilterId)) return false
-      }
-
       const normalizedStatus = getDisplayOrderStatus(order)
       if (orderStatusFilter !== 'all' && normalizedStatus !== orderStatusFilter) return false
 
@@ -688,7 +622,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
 
       return true
     })
-  }, [orders, mode, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery])
+  }, [orders, mode, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery])
   const totalOrdersPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPageSize))
   const paginatedOrders = useMemo(() => {
     const start = (ordersPage - 1) * ordersPageSize
@@ -697,7 +631,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
 
   useEffect(() => {
     setOrdersPage(1)
-  }, [mode, warehouseFilterId, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery, orders.length])
+  }, [mode, orderStatusFilter, orderDatePreset, orderCustomDateFilter, orderMinPriceFilter, orderMaxPriceFilter, orderSearchQuery, orders.length])
 
   useEffect(() => {
     if (ordersPage > totalOrdersPages) {
@@ -749,14 +683,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
       })()
     })
   }, [orders, orderDetailsById])
-
-  useEffect(() => {
-    if (warehouseFilterId === 'all') return
-    const exists = warehouseFilterOptions.some((warehouse) => warehouse.id === warehouseFilterId)
-    if (!exists) {
-      setWarehouseFilterId('all')
-    }
-  }, [warehouseFilterId, warehouseFilterOptions])
 
   const mergeOrderState = (orderId: string, updatedOrder: any, fallbackStatus?: string) => {
     setOrders((prev) =>
@@ -1146,22 +1072,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
 
           <Card>
             <CardContent className="pt-4">
-              {/* Fix: wrap filters before warehouse/date labels become too narrow to read. */}
+              {/* Fix: wrap filters before status/date labels become too narrow to read. */}
               <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] gap-2">
-                <select
-                  aria-label="Filter orders by warehouse"
-                  title="Filter by warehouse"
-                  value={warehouseFilterId}
-                  onChange={(event) => setWarehouseFilterId(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-                >
-                  <option value="all">All warehouses</option>
-                  {warehouseFilterOptions.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouse.label}
-                    </option>
-                  ))}
-                </select>
                 <select
                   aria-label="Filter orders by status"
                   value={orderStatusFilter}
@@ -1220,7 +1132,6 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                   variant="outline"
                   className="h-10"
                   onClick={() => {
-                    setWarehouseFilterId('all')
                     setOrderStatusFilter('all')
                     setOrderDatePreset('all')
                     setOrderCustomDateFilter('')

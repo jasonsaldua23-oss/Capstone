@@ -56,7 +56,6 @@ export function WarehousePurchaseRequestsView({
   updateWarehouseOrderStatus,
 }: WarehousePurchaseRequestsViewProps) {
   const [search, setSearch] = useState('')
-  const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('')
   const [minAmount, setMinAmount] = useState('')

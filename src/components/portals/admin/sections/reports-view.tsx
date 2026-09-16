@@ -58,7 +58,6 @@ export function ReportsView() {
   const { user } = useAuth()
   const [activeReportTab, setActiveReportTab] = useState('purchase_requests')
   const [rangeDays, setRangeDays] = useState<'today' | '7' | '30' | '90'>('30')
-  const [selectedWarehouse, setSelectedWarehouse] = useState('all')
   const [selectedDriver, setSelectedDriver] = useState('all')
   const [selectedOrderStatus, setSelectedOrderStatus] = useState('all')
   const [selectedTripStatus, setSelectedTripStatus] = useState('all')
@@ -234,7 +233,6 @@ export function ReportsView() {
     selectedOrderStatus,
     selectedReplacementStatus,
     selectedTripStatus,
-    selectedWarehouse,
     stockBatches,
     trips,
     warehouseDateFrom,
@@ -249,7 +247,7 @@ export function ReportsView() {
     rows: Array<Record<string, unknown>>,
     options?: ReportPdfOptions,
   ) => downloadReportPdf(
-    { driverPerformanceKpi, feedbackExportRows, inventoryMovementSummary, replacementRows, selectedWarehouse, stockExpiryKpi, stockExpiryRows, transportDriverRows, warehouses },
+    { driverPerformanceKpi, feedbackExportRows, inventoryMovementSummary, replacementRows, stockExpiryKpi, stockExpiryRows, transportDriverRows, warehouses },
     filename,
     title,
     rows,
@@ -301,7 +299,6 @@ export function ReportsView() {
     setWarehouseDatePreset('30')
     setWarehouseDateFrom('')
     setWarehouseDateTo('')
-    setSelectedWarehouse('all')
     setSelectedDriver('all')
     setSelectedOrderStatus('all')
     setSelectedTripStatus('all')

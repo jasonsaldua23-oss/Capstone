@@ -31,7 +31,6 @@ export function StocksView() {
   const [expiryFilter, setExpiryFilter] = useState('all')
   const [stockBatches, setStockBatches] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<any[]>([])
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const cacheAtRef = useRef(0)
   const refreshInFlightRef = useRef<Promise<void> | null>(null)
@@ -57,9 +56,6 @@ export function StocksView() {
           const nextWarehouses = getCollection<any>(warehouseData, ['warehouses'])
           setStockBatches(nextStockBatches)
           setWarehouses(nextWarehouses)
-          setSelectedWarehouseId((current) =>
-            current !== 'all' && !nextWarehouses.some((warehouse) => warehouse?.id === current) ? 'all' : current
-          )
           // Cache batches and their warehouse labels as one consistent Stocks snapshot.
           writePortalCache(ADMIN_STOCK_BATCH_CACHE_KEY, {
             stockBatches: nextStockBatches,

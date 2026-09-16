@@ -127,7 +127,6 @@ export function WarehouseOrdersView({
   onOpenTransportation,
 }: WarehouseOrdersViewProps) {
   const [search, setSearch] = useState('')
-  const [warehouseFilter, setWarehouseFilter] = useState('all')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
   const [dateApprovedFilter, setDateApprovedFilter] = useState('')
   const [minAmount, setMinAmount] = useState('')

@@ -45,7 +45,6 @@ export type ReportPdfContext = {
   feedbackExportRows: any[]
   inventoryMovementSummary: InventoryMovementSummary
   replacementRows: any[]
-  selectedWarehouse: string
   stockExpiryKpi: { total: number; critical: number; warning: number; expired: number }
   stockExpiryRows: any[]
   transportDriverRows: any[]
@@ -64,7 +63,6 @@ export async function downloadReportPdf(
     feedbackExportRows,
     inventoryMovementSummary,
     replacementRows,
-    selectedWarehouse,
     stockExpiryKpi,
     stockExpiryRows,
     transportDriverRows,
@@ -507,9 +505,7 @@ export async function downloadReportPdf(
     const gap = 12
     const cardW = (contentW - gap * 3) / 4
     const cardH = 64
-    const totalWarehouses = selectedWarehouse === 'all'
-      ? warehouses.length
-      : warehouses.filter((wh) => String(wh?.id || '') === selectedWarehouse).length
+    const totalWarehouses = warehouses.length
     const dataPoints = sanitizedRows.length
     const latest = sanitizedRows[sanitizedRows.length - 1] as any
     const currentUsed = Number(String(latest?.usedUnits || '0').replace(/,/g, '')) || 0

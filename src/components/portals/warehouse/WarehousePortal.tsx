@@ -1085,7 +1085,6 @@ export function WarehousePortal() {
 
   const orderStatusOptions = useMemo(() => {
     const statuses = new Set<string>()
-    statuses.add('PARTIALLY FULFILLED')
     scopedOrders.forEach((order) => {
       statuses.add(getWarehouseDisplayOrderStatus(order))
     })

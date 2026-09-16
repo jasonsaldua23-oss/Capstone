@@ -96,19 +96,14 @@ const getProductDisplayName = (item: any) => {
 
 export function RetailTransactionsView() {
   const [sales, setSales] = useState<RetailSale[]>([])
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string; code: string }>>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [warehouseFilter, setWarehouseFilter] = useState('ALL')
   const [selectedReceipt, setSelectedReceipt] = useState<RetailSale | null>(null)
 
   const fetchSales = useCallback(async () => {
     setLoading(true)
     try {
-      const url = warehouseFilter && warehouseFilter !== 'ALL'
-        ? `/api/retail/sales?warehouseId=${encodeURIComponent(warehouseFilter)}&pageSize=50`
-        : '/api/retail/sales?pageSize=50'
-      const result = await safeFetchJson(url, { cache: 'no-store' })
+      const result = await safeFetchJson('/api/retail/sales?pageSize=50', { cache: 'no-store' })
       if (result.ok) {
         setSales(getCollection<RetailSale>(result.data, ['sales']))
       } else if (!result.data?.aborted) {
@@ -121,22 +116,7 @@ export function RetailTransactionsView() {
     } finally {
       setLoading(false)
     }
-  }, [warehouseFilter])
-
-  const fetchWarehouses = useCallback(async () => {
-    try {
-      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=100', { cache: 'no-store' })
-      if (result.ok) {
-        setWarehouses(getCollection<any>(result.data, ['warehouses']))
-      }
-    } catch {
-      // ignore
-    }
   }, [])
-
-  useEffect(() => {
-    void fetchWarehouses()
-  }, [fetchWarehouses])
 
   useEffect(() => {
     void fetchSales()
@@ -231,20 +211,6 @@ export function RetailTransactionsView() {
                   className="pl-8 h-9 text-xs bg-slate-50 border-slate-200"
                 />
               </div>
-
-              {/* Warehouse selector */}
-              <select
-                value={warehouseFilter}
-                onChange={(e) => setWarehouseFilter(e.target.value)}
-                className="h-9 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
-              >
-                <option value="ALL">All Warehouses</option>
-                {warehouses.map((wh) => (
-                  <option key={wh.id} value={wh.id}>
-                    {wh.name} ({wh.code})
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
         </CardHeader>

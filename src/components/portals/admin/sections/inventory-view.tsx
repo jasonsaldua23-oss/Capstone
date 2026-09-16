@@ -34,7 +34,6 @@ export function InventoryView() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [inventory, setInventory] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<any[]>([])
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState('all')
   const [products, setProducts] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showArchivedProducts, setShowArchivedProducts] = useState(false)
@@ -71,9 +70,6 @@ export function InventoryView() {
       const list = getCollection<any>(result.data, ['warehouses'])
       const activeWarehouses = list.filter((warehouse) => warehouse?.isActive !== false)
       setWarehouses(activeWarehouses)
-      if (selectedWarehouseId !== 'all' && !activeWarehouses.some((warehouse) => warehouse?.id === selectedWarehouseId)) {
-        setSelectedWarehouseId('all')
-      }
       return activeWarehouses
     } catch (error) {
       console.error(error)
