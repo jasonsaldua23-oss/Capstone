@@ -178,6 +178,10 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
     return availableVehicleIdSet.has(assignedId) ? assigned : undefined
   }
   const getDriverProfileCompletenessIssue = (driver: DriverOption | undefined) => getDriverProfileIssue(driver)
+  const getDriverDisplayName = (driverId: string) => {
+    const driver = drivers.find((item) => String(item?.id || '') === String(driverId || ''))
+    return driver?.user?.name || driver?.name || driver?.email || 'the assigned driver'
+  }
 
   const getDriverAreaIssue = (driver: DriverOption | undefined): string => {
     const status = String(driver?.status || driver?.driverStatus || 'ACTIVE').replace(/_/g, '').toUpperCase()
@@ -725,8 +729,14 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
       if (!response.ok || data?.success === false) {
         throw new Error(parseApiErrorMessage(response, data, 'Failed to create trip'))
       }
-      toast.success('Trip created from route')
       const createdTrip = data?.trip
+      const createdTripNumber = createdTrip?.tripNumber || createdTrip?.id
+      const assignedDriverName = getDriverDisplayName(selectedRouteDriverId)
+      toast.success(
+        createdTripNumber
+          ? `Trip ${createdTripNumber} created and assigned to ${assignedDriverName}`
+          : 'Trip created from route'
+      )
       if (createdTrip) {
         setTrips((prev) => [createdTrip, ...prev.filter((trip) => trip.id !== createdTrip.id)])
       }
@@ -852,7 +862,13 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
         fetchTripsData({ showLoading: false }),
         fetchOrdersData({ showLoading: false, silent: true }),
       ])
-      toast.success('Trip created and assigned successfully')
+      const createdTripNumber = createdTrip?.tripNumber || createdTrip?.id
+      const assignedDriverName = getDriverDisplayName(selectedRouteDriverId)
+      toast.success(
+        createdTripNumber
+          ? `Trip ${createdTripNumber} created and assigned to ${assignedDriverName}`
+          : 'Trip created and assigned successfully'
+      )
     } catch (error: any) {
       toast.error(error?.message || 'Failed to create trip')
     } finally {

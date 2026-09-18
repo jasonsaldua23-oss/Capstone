@@ -12,6 +12,8 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso } from '../shared'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
@@ -39,6 +41,18 @@ export function ReplacementReportTab({
   selectedReplacementStatus,
   setSelectedReplacementStatus,
 }: ReplacementReportTabProps) {
+  // Peso amounts read better through the report's own formatter than the generic one.
+  const lossInterpretation = describeTrend(
+    toPoints(replacementLossTrendChart, (row: any) => row.label, (row: any) => row.loss),
+    {
+      noun: 'replacement loss',
+      nounIsPlural: false,
+      periodNoun: 'day',
+      format: (value) => formatPeso(value),
+      emptyMessage: 'No replacement loss falls inside the selected range, so there is nothing to interpret yet.',
+    }
+  )
+
   return (
     <>
       {reportToolbar({
@@ -88,6 +102,13 @@ export function ReplacementReportTab({
               </ResponsiveContainer>
             )}
           </div>
+          <ChartInterpretation
+            text={
+              replacementLossTrendChart.length === 0
+                ? 'No replacement loss falls inside the selected range, so there is nothing to interpret yet.'
+                : `${lossInterpretation} ${replacementKpi.completed} of ${replacementKpi.total} cases are processed and ${replacementKpi.open} remain open.`
+            }
+          />
         </CardContent>
       </Card>
       <Card className="rounded-2xl border border-slate-200 shadow-sm">

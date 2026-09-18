@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ChartContainer } from '@/components/ui/chart'
 import { Loader2 } from 'lucide-react'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import type { WarehouseWarehousesViewProps } from '../shared/types'
 
 export function WarehouseWarehousesView({
@@ -14,6 +16,31 @@ export function WarehouseWarehousesView({
   warehouseOverviewStats,
   getStockHealthDotClass,
 }: WarehouseWarehousesViewProps) {
+  // Each chart on this screen gets its reading from the same stats object it draws.
+  const capacityInterpretation = describeComposition(
+    toPoints(warehouseOverviewStats.capacityBreakdown, (row: any) => row.name, (row: any) => row.value),
+    { noun: 'units of capacity', entityNoun: 'segment', emptyMessage: 'This warehouse has no capacity recorded yet, so the split cannot be read.' }
+  )
+  const utilizationInterpretation = describeTrend(
+    toPoints(warehouseOverviewStats.utilizationTrend, (row: any) => row.day, (row: any) => row.utilization),
+    {
+      noun: 'utilization',
+      nounIsPlural: false,
+      periodNoun: 'day',
+      measure: 'level',
+      format: (value) => `${value.toFixed(1)}%`,
+      emptyMessage: 'No utilization has been recorded over the last 7 days, so there is no trend to read.',
+    }
+  )
+  const velocityInterpretation = describeRanking(
+    toPoints(warehouseOverviewStats.skuVelocityData, (row: any) => row.sku, (row: any) => row.velocity),
+    { noun: 'velocity', entityNoun: 'charted SKU', emptyMessage: 'No SKU has moved recently, so there is no velocity ranking to read.' }
+  )
+  const stockHealthInterpretation = describeComposition(
+    toPoints(warehouseOverviewStats.stockHealthDistribution, (row: any) => row.name, (row: any) => row.value),
+    { noun: 'SKUs', entityNoun: 'health band', emptyMessage: 'No SKU is stocked in this warehouse yet, so stock health cannot be read.' }
+  )
+
   return (
     <div className="space-y-5">
       <Card>
@@ -104,6 +131,7 @@ export function WarehouseWarehousesView({
                       <Tooltip formatter={(value: any, name: any) => [Number(value).toLocaleString(), name]} />
                     </PieChart>
                   </ChartContainer>
+                  <ChartInterpretation text={capacityInterpretation} />
                 </div>
                 <div className="grid grid-cols-1 gap-3 text-sm items-start content-start auto-rows-min self-start sm:grid-cols-3">
                   <div className="rounded-xl border bg-white p-3 shadow-sm h-fit self-start">
@@ -141,6 +169,7 @@ export function WarehouseWarehousesView({
                     <Line type="monotone" dataKey="utilization" stroke="#2563eb" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                   </LineChart>
                 </ChartContainer>
+                <ChartInterpretation text={utilizationInterpretation} />
               </CardContent>
             </Card>
 
@@ -191,6 +220,7 @@ export function WarehouseWarehousesView({
                     </BarChart>
                   </ChartContainer>
                 )}
+                <ChartInterpretation text={velocityInterpretation} />
               </CardContent>
             </Card>
 
@@ -236,6 +266,7 @@ export function WarehouseWarehousesView({
                     </div>
                   ))}
                 </div>
+                <ChartInterpretation text={stockHealthInterpretation} />
               </CardContent>
             </Card>
           </div>

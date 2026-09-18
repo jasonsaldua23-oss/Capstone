@@ -26,6 +26,7 @@ export type EditProfileScreenProps = {
   profileFirstName: string
   profileLastName: string
   profileMiddleName: string
+  profileNoMiddleName: boolean
   profileName: string
   profilePhone: string
   profileSuffix: string | undefined
@@ -36,6 +37,7 @@ export type EditProfileScreenProps = {
   setProfileFirstName: (value: string) => void
   setProfileLastName: (value: string) => void
   setProfileMiddleName: (value: string) => void
+  setProfileNoMiddleName: (value: boolean) => void
   setProfilePhone: (value: string) => void
   setProfileSuffix: ((value: string) => void) | undefined
   setSubView: Dispatch<SetStateAction<'menu' | 'edit' | 'empties-deposits' | 'security' | 'account-security' | 'change-password' | 'change-password-otp' | 'security-settings' | 'notifications' | 'real-notifications'>>
@@ -59,6 +61,7 @@ export function EditProfileScreen({
   profileFirstName,
   profileLastName,
   profileMiddleName,
+  profileNoMiddleName,
   profileName,
   profilePhone,
   profileSuffix,
@@ -69,6 +72,7 @@ export function EditProfileScreen({
   setProfileFirstName,
   setProfileLastName,
   setProfileMiddleName,
+  setProfileNoMiddleName,
   setProfilePhone,
   setProfileSuffix,
   setSubView,
@@ -139,8 +143,21 @@ export function EditProfileScreen({
             <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name <span className="text-red-500">*</span></Label>
-            <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
+            <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name {!profileNoMiddleName && <span className="text-red-500">*</span>}</Label>
+            <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile || profileNoMiddleName} />
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                checked={profileNoMiddleName}
+                onChange={(e) => {
+                  setProfileNoMiddleName(e.target.checked)
+                  if (e.target.checked) setProfileMiddleName('')
+                }}
+                disabled={!isEditingProfile}
+                className="h-3.5 w-3.5 rounded border-slate-300"
+              />
+              No middle name
+            </label>
           </div>
           <div className="space-y-2">
             <Label htmlFor="customer-profile-suffix" className="text-sm font-semibold text-slate-700">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>

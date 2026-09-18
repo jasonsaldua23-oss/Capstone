@@ -29,6 +29,7 @@ export type CustomerProfileAvatarInputs = {
   profileFirstName: CustomerPortalState['profileFirstName']
   profileLastName: CustomerPortalState['profileLastName']
   profileMiddleName: CustomerPortalState['profileMiddleName']
+  profileNoMiddleName: CustomerPortalState['profileNoMiddleName']
   profilePhone: CustomerPortalState['profilePhone']
   profileSuffix: CustomerPortalState['profileSuffix']
   setActiveView: CustomerPortalState['setActiveView']
@@ -46,6 +47,7 @@ export type CustomerProfileAvatarInputs = {
   setProfileFirstName: CustomerPortalState['setProfileFirstName']
   setProfileLastName: CustomerPortalState['setProfileLastName']
   setProfileMiddleName: CustomerPortalState['setProfileMiddleName']
+  setProfileNoMiddleName: CustomerPortalState['setProfileNoMiddleName']
   setProfileName: CustomerPortalState['setProfileName']
   setProfilePhone: CustomerPortalState['setProfilePhone']
   setProfileSuffix: CustomerPortalState['setProfileSuffix']
@@ -74,6 +76,7 @@ export function useCustomerProfileAvatar(inputs: CustomerProfileAvatarInputs) {
     profileFirstName,
     profileLastName,
     profileMiddleName,
+    profileNoMiddleName,
     profilePhone,
     profileSuffix,
     setActiveView,
@@ -91,6 +94,7 @@ export function useCustomerProfileAvatar(inputs: CustomerProfileAvatarInputs) {
     setProfileFirstName,
     setProfileLastName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     setProfileName,
     setProfilePhone,
     setProfileSuffix,
@@ -128,7 +132,7 @@ export function useCustomerProfileAvatar(inputs: CustomerProfileAvatarInputs) {
       toast.error('Unable to save profile right now')
       return false
     }
-    if (!profileFirstName.trim() || !profileLastName.trim() || !profileMiddleName.trim()) {
+    if (!profileFirstName.trim() || !profileLastName.trim() || (!profileNoMiddleName && !profileMiddleName.trim())) {
       toast.error('First name, last name, and middle name are required.')
       return false
     }
@@ -156,7 +160,7 @@ export function useCustomerProfileAvatar(inputs: CustomerProfileAvatarInputs) {
       }
       const { response, payload } = await updateCustomerProfile(customerId, {
         firstName: profileFirstName.trim(),
-        middleName: profileMiddleName.trim(),
+        middleName: profileNoMiddleName ? null : profileMiddleName.trim(),
         lastName: profileLastName.trim(),
         suffix: profileSuffix.trim(),
         email: profileEmail.trim(),
@@ -172,6 +176,7 @@ export function useCustomerProfileAvatar(inputs: CustomerProfileAvatarInputs) {
         setProfileName(String(updatedCustomer.name || '').trim())
         setProfileFirstName(String(updatedCustomer.firstName || '').trim())
         setProfileMiddleName(String(updatedCustomer.middleName || '').trim())
+        setProfileNoMiddleName(!String(updatedCustomer.middleName || '').trim())
         setProfileLastName(String(updatedCustomer.lastName || '').trim())
         setProfileSuffix(String(updatedCustomer.suffix || '').trim())
         setProfileEmail(String(updatedCustomer.email || '').trim())

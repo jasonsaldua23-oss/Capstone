@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEffect, useState } from 'react'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { getCollection } from '@/components/portals/admin/sections/shared'
 import { fetchFeedbackMeta } from './feedback-api'
 
 interface FeedbackItem {
@@ -22,9 +23,9 @@ export function CustomerFeedbackView() {
     const loadFeedback = async () => {
       try {
         const result = await fetchFeedbackMeta()
-        if (result.data?.results) {
-          setFeedbackItems(result.data.results)
-        }
+        // Fix: /api/feedback returns { feedback, feedbacks, ... } and never `results`,
+        // so this list rendered empty no matter how many reviews the customer had sent.
+        setFeedbackItems(getCollection<FeedbackItem>(result.data, ['feedbacks', 'feedback']))
       } catch (error) {
         console.error('Failed to load feedback:', error)
       } finally {

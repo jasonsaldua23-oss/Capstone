@@ -31,6 +31,8 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeRanking, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDateTime, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
@@ -217,6 +219,16 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
       rank: i + 1,
     }))
   }, [rankedClients])
+
+  // The leaderboard is capped at eight clients, so the reading describes that same slice.
+  const chartInterpretation = useMemo(() => {
+    const orders = chartData.reduce((sum: number, row: any) => sum + Number(row.orders || 0), 0)
+    return `${describeRanking(toPoints(chartData, (row: any) => row.name, (row: any) => row.amount), {
+      noun: 'revenue',
+      entityNoun: 'listed client',
+      format: (value) => formatPeso(value),
+    })} The ${chartData.length} charted clients placed ${orders.toLocaleString('en-US')} orders between them.`
+  }, [chartData])
 
   // Top 3 Podium
   const topThree = rankedClients.slice(0, 3)
@@ -476,6 +488,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={chartInterpretation} />
           </CardContent>
         </Card>
       )}

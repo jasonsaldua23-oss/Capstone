@@ -33,6 +33,8 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDateTime, formatDayKey, withinRange, toIsoDateTime } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
@@ -179,6 +181,22 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
       .slice(-14)
       .map(([, values]) => values)
   }, [filteredPRs])
+
+  // The area carries daily volume; the lines split it into approval outcomes.
+  const chartInterpretation = useMemo(() => {
+    const day = (row: any) => row.date
+    return `${describeTrend(toPoints(chartData, day, (row: any) => row.total), {
+      noun: 'purchase requests',
+      periodNoun: 'day',
+    })} ${describeSeriesMix(
+      [
+        { name: 'Approved', points: toPoints(chartData, day, (row: any) => row.approved) },
+        { name: 'Pending', points: toPoints(chartData, day, (row: any) => row.pending) },
+        { name: 'Rejected', points: toPoints(chartData, day, (row: any) => row.rejected) },
+      ],
+      { noun: 'purchase requests', entityNoun: 'status' }
+    )}`
+  }, [chartData])
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredPRs.length / pageSize))
@@ -358,6 +376,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={chartInterpretation} />
           </CardContent>
         </Card>
       )}

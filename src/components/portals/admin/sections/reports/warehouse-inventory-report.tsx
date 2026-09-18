@@ -39,6 +39,8 @@ import {
   Area,
   Line,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeRanking, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDateTime, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
@@ -602,6 +604,16 @@ export function WarehouseInventoryReport({
     }))
   }, [rankedProducts])
 
+  // Units here are the normalized comparable quantity the ranking itself uses.
+  const chartInterpretation = useMemo(() => {
+    const fastest = top10ChartData[0]
+    const velocity = fastest ? ` ${fastest.fullName} moves fastest at ${Number(fastest.velocity || 0).toFixed(1)} units per day.` : ''
+    return `${describeRanking(toPoints(top10ChartData, (row: any) => row.fullName, (row: any) => row.units), {
+      noun: 'dispatched units',
+      entityNoun: 'charted product',
+    })}${velocity}`
+  }, [top10ChartData])
+
   // Pagination
   const totalPages = Math.max(1, Math.ceil(rankedProducts.length / pageSize))
   const paginatedProducts = useMemo(() => {
@@ -852,6 +864,7 @@ export function WarehouseInventoryReport({
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={chartInterpretation} />
           </CardContent>
         </Card>
       )}

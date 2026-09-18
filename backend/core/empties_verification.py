@@ -257,7 +257,13 @@ def declared_empties_by_container(
 
     # Additional order-credit claims may refer to products that are not being
     # purchased in this order; they are still collected at the same delivery.
-    for claim in order.deposit_refund_claims.select_related("container_type", "product").all():
+    prefetched_claims = getattr(order, "_serialized_refund_claims", None)
+    claims = (
+        prefetched_claims
+        if prefetched_claims is not None
+        else order.deposit_refund_claims.select_related("container_type", "product").all()
+    )
+    for claim in claims:
         if claim.status != OrderDepositRefundClaim.ClaimStatus.PENDING:
             continue
         containers_per_case = max(1, _int(claim.containers_per_case, 1))

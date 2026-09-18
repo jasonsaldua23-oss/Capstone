@@ -29,7 +29,9 @@ export function CustomerEditAddressPage(props: any) {
     profileFirstName,
     setProfileFirstName,
     profileMiddleName,
+    profileNoMiddleName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     profileLastName,
     setProfileLastName,
     profileSuffix,
@@ -118,7 +120,20 @@ export function CustomerEditAddressPage(props: any) {
                 className="h-10 rounded-lg border-slate-200"
                 value={profileMiddleName}
                 onChange={(e) => setProfileMiddleName(e.target.value)}
+                disabled={profileNoMiddleName}
               />
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={profileNoMiddleName}
+                  onChange={(e) => {
+                    setProfileNoMiddleName(e.target.checked)
+                    if (e.target.checked) setProfileMiddleName('')
+                  }}
+                  className="h-3.5 w-3.5 rounded border-slate-300"
+                />
+                No middle name
+              </label>
             </div>
 
             <div className="space-y-1.5">

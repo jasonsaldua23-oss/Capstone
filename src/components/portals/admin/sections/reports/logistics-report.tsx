@@ -30,6 +30,8 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatDateTime, formatDayKey, withinRange, normalizeTripStatus, toArray } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
@@ -205,6 +207,20 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
 
     return Object.values(map).slice(-14)
   }, [filteredLogistics])
+
+  // The stacked bars read as a daily volume plus a mix of trip outcomes.
+  const chartInterpretation = useMemo(() => {
+    const day = (row: any) => row.date
+    const totals = toPoints(chartData, day, (row: any) => row.completed + row.inProgress + row.planned)
+    return `${describeTrend(totals, { noun: 'trips', periodNoun: 'day' })} ${describeSeriesMix(
+      [
+        { name: 'Completed', points: toPoints(chartData, day, (row: any) => row.completed) },
+        { name: 'In transit', points: toPoints(chartData, day, (row: any) => row.inProgress) },
+        { name: 'Planned', points: toPoints(chartData, day, (row: any) => row.planned) },
+      ],
+      { noun: 'trips', entityNoun: 'status' }
+    )}`
+  }, [chartData])
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredLogistics.length / pageSize))
@@ -386,6 +402,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={chartInterpretation} />
           </CardContent>
         </Card>
       )}

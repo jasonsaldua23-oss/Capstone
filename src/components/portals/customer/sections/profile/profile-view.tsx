@@ -33,7 +33,9 @@ type CustomerProfileViewProps = {
   profileFirstName: string
   setProfileFirstName: (value: string) => void
   profileMiddleName: string
+  profileNoMiddleName: boolean
   setProfileMiddleName: (value: string) => void
+  setProfileNoMiddleName: (value: boolean) => void
   profileLastName: string
   setProfileLastName: (value: string) => void
   profileSuffix?: string
@@ -68,7 +70,9 @@ export function CustomerProfileView({
   profileFirstName,
   setProfileFirstName,
   profileMiddleName,
+  profileNoMiddleName,
   setProfileMiddleName,
+  setProfileNoMiddleName,
   profileLastName,
   setProfileLastName,
   profileSuffix = '',
@@ -413,8 +417,8 @@ export function CustomerProfileView({
   }, [profilePhone])
 
   const canSaveProfile = useMemo(() => {
-    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0 && profileMiddleName.trim().length > 0
-  }, [phoneError, profilePhone, profileFirstName, profileLastName, profileMiddleName])
+    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0 && (profileNoMiddleName || profileMiddleName.trim().length > 0)
+  }, [phoneError, profilePhone, profileFirstName, profileLastName, profileMiddleName, profileNoMiddleName])
 
   const handleSaveProfile = async () => {
     if (!canSaveProfile) return
@@ -542,6 +546,7 @@ export function CustomerProfileView({
         profileFirstName={profileFirstName}
         profileLastName={profileLastName}
         profileMiddleName={profileMiddleName}
+        profileNoMiddleName={profileNoMiddleName}
         profileName={profileName}
         profilePhone={profilePhone}
         profileSuffix={profileSuffix}
@@ -552,6 +557,7 @@ export function CustomerProfileView({
         setProfileFirstName={setProfileFirstName}
         setProfileLastName={setProfileLastName}
         setProfileMiddleName={setProfileMiddleName}
+        setProfileNoMiddleName={setProfileNoMiddleName}
         setProfilePhone={setProfilePhone}
         setProfileSuffix={setProfileSuffix}
         setSubView={setSubView}

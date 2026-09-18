@@ -34,6 +34,8 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDateTime, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
@@ -261,6 +263,17 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
 
     return Object.values(map).sort((a, b) => a.dateSort - b.dateSort)
   }, [currentPeriodItems, periodMode])
+
+  // Revenue is read in pesos; the bucket is a day for short ranges and a month for long ones.
+  const chartInterpretation = useMemo(() => {
+    const bucket = ['7', '30', 'custom'].includes(periodMode) ? 'day' : 'month'
+    const transactions = trendChartData.reduce((sum: number, row: any) => sum + Number(row.count || 0), 0)
+    return `${describeTrend(toPoints(trendChartData, (row: any) => row.label, (row: any) => row.sales), {
+      noun: 'retail sales',
+      periodNoun: bucket,
+      format: (value) => formatPeso(value),
+    })} That came from ${transactions.toLocaleString('en-US')} transactions in the period.`
+  }, [trendChartData, periodMode])
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredCurrentItems.length / pageSize))
@@ -508,6 +521,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
                 </AreaChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={chartInterpretation} />
           </CardContent>
         </Card>
       )}

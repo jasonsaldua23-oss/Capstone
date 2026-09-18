@@ -29,6 +29,8 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDateTime, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
@@ -202,6 +204,17 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
 
     return Object.values(map).slice(-14)
   }, [filteredTransactions])
+
+  // Cancelled and rejected rows are already excluded upstream, so this reads booked value only.
+  const chartInterpretation = useMemo(() => {
+    const count = chartData.reduce((sum: number, row: any) => sum + Number(row.count || 0), 0)
+    return `${describeTrend(toPoints(chartData, (row: any) => row.date, (row: any) => row.amount), {
+      noun: 'transaction value',
+      nounIsPlural: false,
+      periodNoun: 'day',
+      format: (value) => formatPeso(value),
+    })} That spans ${count.toLocaleString('en-US')} settled transactions.`
+  }, [chartData])
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
@@ -391,6 +404,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
                 </AreaChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={chartInterpretation} />
           </CardContent>
         </Card>
       )}

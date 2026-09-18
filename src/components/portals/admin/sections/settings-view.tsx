@@ -58,6 +58,7 @@ export function SettingsView() {
   const [name, setName] = useState(user?.name || '')
   const [firstName, setFirstName] = useState(String((user as any)?.firstName || ''))
   const [middleName, setMiddleName] = useState(String((user as any)?.middleName || ''))
+  const [noMiddleName, setNoMiddleName] = useState(!(user as any)?.middleName)
   const [lastName, setLastName] = useState(String((user as any)?.lastName || ''))
   const [suffix, setSuffix] = useState(String((user as any)?.suffix || ''))
   const [email, setEmail] = useState(user?.email || '')
@@ -138,6 +139,7 @@ export function SettingsView() {
     const nameParts = String((user as any)?.name || '').trim().split(/\s+/).filter(Boolean)
     setFirstName(String((user as any)?.firstName || nameParts[0] || ''))
     setMiddleName(String((user as any)?.middleName || ''))
+    setNoMiddleName(!(user as any)?.middleName)
     setLastName(String((user as any)?.lastName || nameParts.slice(1).join(' ') || ''))
     setSuffix(String((user as any)?.suffix || ''))
     setEmail(String((user as any)?.email || ''))
@@ -273,7 +275,7 @@ export function SettingsView() {
       toast.error('Unable to resolve account email')
       return
     }
-    if (!firstName.trim() || !lastName.trim() || !middleName.trim()) {
+    if (!firstName.trim() || !lastName.trim() || (!noMiddleName && !middleName.trim())) {
       toast.error('First name, last name, and middle name are required.')
       return
     }
@@ -302,9 +304,9 @@ export function SettingsView() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: formatFullName(firstName, middleName, lastName, suffix, name),
+          name: formatFullName(firstName, noMiddleName ? '' : middleName, lastName, suffix, name),
           firstName,
-          middleName,
+          middleName: noMiddleName ? null : middleName,
           lastName,
           suffix: suffix.trim() || null,
           email,
@@ -539,8 +541,21 @@ export function SettingsView() {
                     <Input id="last-name" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Last name" disabled={!isEditingProfile} />
                   </div>
                   <div>
-                    <label htmlFor="middle-name" className="text-xs font-semibold text-slate-600">Middle Name <span className="text-red-500">*</span></label>
-                    <Input id="middle-name" value={middleName} onChange={(e) => setMiddleName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Middle name" disabled={!isEditingProfile} />
+                    <label htmlFor="middle-name" className="text-xs font-semibold text-slate-600">Middle Name {!noMiddleName && <span className="text-red-500">*</span>}</label>
+                    <Input id="middle-name" value={middleName} onChange={(e) => setMiddleName(e.target.value)} className="mt-1 h-10 text-sm" placeholder="Middle name" disabled={!isEditingProfile || noMiddleName} />
+                    <label className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={noMiddleName}
+                        onChange={(e) => {
+                          setNoMiddleName(e.target.checked)
+                          if (e.target.checked) setMiddleName('')
+                        }}
+                        disabled={!isEditingProfile}
+                        className="h-3.5 w-3.5 rounded border-slate-300"
+                      />
+                      No middle name
+                    </label>
                   </div>
                   <div>
                     <label htmlFor="suffix" className="text-xs font-semibold text-slate-600">Suffix <span className="font-normal text-slate-400">(Optional)</span></label>

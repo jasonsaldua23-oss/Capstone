@@ -60,6 +60,7 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
   const [confirmPassword, setConfirmPassword] = useState('')
   const [firstName, setFirstName] = useState('')
   const [middleName, setMiddleName] = useState('')
+  const [noMiddleName, setNoMiddleName] = useState(false)
   const [lastName, setLastName] = useState('')
   const [suffix, setSuffix] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>(initialAuthMode)
@@ -421,7 +422,7 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
       return
     }
 
-    if (!firstName.trim() || !middleName.trim() || !lastName.trim()) {
+    if (!firstName.trim() || (!noMiddleName && !middleName.trim()) || !lastName.trim()) {
       toast.error('Please enter your first, middle, and last name.')
       return
     }
@@ -432,7 +433,7 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
       return
     }
 
-    const fullName = [firstName.trim(), middleName.trim(), lastName.trim(), suffix.trim()].filter(Boolean).join(' ')
+    const fullName = [firstName.trim(), noMiddleName ? '' : middleName.trim(), lastName.trim(), suffix.trim()].filter(Boolean).join(' ')
 
     setIsLoading(true)
 
@@ -442,7 +443,7 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           firstName: firstName.trim(),
-          middleName: middleName.trim(),
+          middleName: noMiddleName ? null : middleName.trim(),
           lastName: lastName.trim(),
           suffix: suffix.trim() || null,
           name: fullName,
@@ -752,11 +753,11 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
                     />
                   </div>
                 </div>
-                {/* Updated: middle name is required; suffix remains an optional structured name part. */}
+                {/* Middle name is required unless the person ticks that they have none; suffix remains optional. */}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="reg-middle-name" className="text-sm font-semibold text-[#1f3566]">
-                      Middle Name <span className="text-red-500">*</span>
+                      Middle Name {!noMiddleName && <span className="text-red-500">*</span>}
                     </Label>
                     <Input
                       id="reg-middle-name"
@@ -764,9 +765,22 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
                       value={middleName}
                       onChange={(e) => setMiddleName(e.target.value)}
                       placeholder="e.g. Santos"
-                      required
+                      required={!noMiddleName}
+                      disabled={noMiddleName}
                       className="h-11 rounded-xl border-[#d6deea] bg-white px-3 text-sm text-slate-900 shadow-none placeholder:text-[#9aa8bf] focus-visible:border-[#0f4fd3] focus-visible:ring-2 focus-visible:ring-[#dce9ff]"
                     />
+                    <label className="flex items-center gap-2 text-[12px] text-[#4e5f79] sm:text-sm">
+                      <input
+                        type="checkbox"
+                        checked={noMiddleName}
+                        onChange={(e) => {
+                          setNoMiddleName(e.target.checked)
+                          if (e.target.checked) setMiddleName('')
+                        }}
+                        className="h-4 w-4 rounded border-slate-300 text-[#3e9f34] focus:ring-[#3e9f34]"
+                      />
+                      No middle name
+                    </label>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">

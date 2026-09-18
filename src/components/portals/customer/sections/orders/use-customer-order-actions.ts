@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { buildOrderActionReason } from '@/components/portals/shared/order-reason-checkboxes'
 import { cancelCustomerReplacementRequest, cancelCustomerOrder, submitCustomerReplacementRequest, uploadReplacementEvidence } from './orders-api'
 import { submitOrderFeedback } from '../feedback/feedback-api'
+import { buildFeedbackReasonMessage, isOtherFeedbackReason } from '@shared/customer-logic/feedback-reasons'
 import type { DeliveryIssueRecord, Order } from '../shared/customer-types'
 import type { Dispatch, SetStateAction } from 'react'
 import type { CustomerPortalState } from '../layout/portal-state'
@@ -34,7 +35,8 @@ export type CustomerOrderActionsInputs = {
   setOtherCancellationReason: Dispatch<SetStateAction<string>>
   setPendingCancelOrder: Dispatch<SetStateAction<{ id: string; orderNumber: string } | null>>
   setPendingCancelReplacement: Dispatch<SetStateAction<{ id: string; replacementNumber: string } | null>>
-  setRatingComment: CustomerPortalState['setRatingComment']
+  otherReasonText: CustomerPortalState['otherReasonText']
+  setOtherReasonText: CustomerPortalState['setOtherReasonText']
   setRatingDialogOrder: CustomerPortalState['setRatingDialogOrder']
   setReviewDetailsOrder: Dispatch<SetStateAction<Order | null>>
   setReviewedOrderIds: CustomerPortalState['setReviewedOrderIds']
@@ -66,7 +68,8 @@ export function useCustomerOrderActions(inputs: CustomerOrderActionsInputs) {
     setOtherCancellationReason,
     setPendingCancelOrder,
     setPendingCancelReplacement,
-    setRatingComment,
+    otherReasonText,
+    setOtherReasonText,
     setRatingDialogOrder,
     setReviewDetailsOrder,
     setReviewedOrderIds,
@@ -185,7 +188,7 @@ export function useCustomerOrderActions(inputs: CustomerOrderActionsInputs) {
     }
     setRatingDialogOrder(order)
     setDeliveryRatingValue(Math.max(1, Math.min(5, Math.round(initialDeliveryRating))))
-    setRatingComment('')
+    setOtherReasonText('')
   }
   const submitRating = async (selectedFeedbackOptions: string[] = []) => {
     if (!ratingDialogOrder?.id) return false
@@ -205,6 +208,11 @@ export function useCustomerOrderActions(inputs: CustomerOrderActionsInputs) {
       toast.error('Please select at least one feedback option')
       return false
     }
+    // "Other" replaces the preset phrases, so the typed description IS the feedback.
+    if (selectedReasons.some(isOtherFeedbackReason) && !otherReasonText.trim()) {
+      toast.error('Please describe what happened')
+      return false
+    }
     if (reviewedOrderIds.has(ratingDialogOrder.id)) {
       toast.info('You already rated this order')
       setRatingDialogOrder(null)
@@ -214,7 +222,7 @@ export function useCustomerOrderActions(inputs: CustomerOrderActionsInputs) {
     setIsSubmittingRating(true)
     try {
       const overallRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)))
-      const composedMessage = selectedReasons.map((reason) => `- ${reason}`).join('\n')
+      const composedMessage = buildFeedbackReasonMessage(selectedReasons, otherReasonText)
       const { response, payload } = await submitOrderFeedback({
         orderId: ratingDialogOrder.id,
         rating: overallRating,
@@ -231,7 +239,7 @@ export function useCustomerOrderActions(inputs: CustomerOrderActionsInputs) {
         void fetchOrderMeta()
         toast.info('This order is already rated')
         setRatingDialogOrder(null)
-        setRatingComment('')
+        setOtherReasonText('')
         setDeliveryRatingValue(5)
         return true
       }
@@ -250,7 +258,7 @@ export function useCustomerOrderActions(inputs: CustomerOrderActionsInputs) {
       void fetchOrderMeta()
       toast.success('Review submitted successfully')
       setRatingDialogOrder(null)
-      setRatingComment('')
+      setOtherReasonText('')
       setDeliveryRatingValue(5)
       return true
     } catch (error: any) {

@@ -3,29 +3,21 @@
 // line before the dialog closes itself.
 import { CheckCircle2, Star, X } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from "react-native";
 
+import {
+  MOBILE_DELIVERY_FEEDBACK_OPTIONS_BY_RATING as FEEDBACK_OPTIONS_BY_RATING,
+  MOBILE_REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING as REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING,
+  OTHER_REASON_MAX_LENGTH,
+  OTHER_FEEDBACK_REASON,
+  OTHER_REASON_LABEL,
+  OTHER_REASON_PLACEHOLDER,
+  getFeedbackOptionsForRating,
+  isOtherFeedbackReason,
+} from "../../lib/customer-logic";
 import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
-
-// Replacement reviews rate how the claim was handled, not the original delivery, so
-// they get their own checkbox options per star — the same set the web uses.
-const REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
-  1: ["Issue was not resolved", "Replacement arrived damaged", "Very slow handling", "Poor communication"],
-  2: ["Resolution was incomplete", "Redelivery was delayed", "Updates were unclear", "Replacement quality issue"],
-  3: ["Issue was resolved", "Handling time was acceptable", "Updates could improve", "Replacement was acceptable"],
-  4: ["Fast replacement handling", "Good replacement condition", "Clear status updates", "Smooth redelivery"],
-  5: ["Excellent replacement service", "Perfect replacement condition", "Very fast resolution", "Excellent communication"],
-};
-
-const FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
-  1: ["Missing items", "Damaged unit", "Wrong order", "Poor driver attitude"],
-  2: ["Packaging issue", "Incomplete order", "Hard to contact driver", "Item condition problem"],
-  3: ["Minor packaging issue", "Communication could improve", "Acceptable service", "Minor inconvenience"],
-  4: ["Friendly driver", "Good unit", "Accurate order", "Smooth transaction"],
-  5: ["Professional driver", "Perfect packaging", "Complete order", "Great overall experience"],
-};
 
 const RATING_LABELS: Record<number, string> = {
   1: "Poor",
@@ -43,6 +35,8 @@ export function RatingDialog() {
     setDeliveryRatingValue,
     submittingFeedback,
     submitRating,
+    otherReasonText,
+    setOtherReasonText,
   } = useCustomerPortal();
 
   // A replacement order under review switches both the copy and the option set.
@@ -52,16 +46,24 @@ export function RatingDialog() {
   const [selectedFeedbackOptions, setSelectedFeedbackOptions] = useState<string[]>([]);
 
   const visibleFeedbackOptions = useMemo(
-    () => {
-      const options = isReplacementReview ? REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING : FEEDBACK_OPTIONS_BY_RATING;
-      return options[Math.max(1, Math.min(5, Math.round(deliveryRatingValue || 0)))] || [];
-    },
+    () => getFeedbackOptionsForRating(
+      isReplacementReview ? REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING : FEEDBACK_OPTIONS_BY_RATING,
+      deliveryRatingValue
+    ),
     [deliveryRatingValue, isReplacementReview]
   );
+
+  const hasOtherSelected = selectedFeedbackOptions.some(isOtherFeedbackReason);
+  // Describing the problem and ticking preset phrases are alternatives: a review that
+  // says both cannot be attributed to either, so one disables the other.
+  const canSubmitFeedback = hasOtherSelected
+    ? otherReasonText.trim().length > 0
+    : selectedFeedbackOptions.length > 0;
 
   const close = () => {
     setRatingDialogOrder(null);
     setSelectedFeedbackOptions([]);
+    setOtherReasonText("");
     setShowSuccess(false);
   };
 
@@ -137,15 +139,28 @@ export function RatingDialog() {
           <View style={styles.ratingOptionsWrap}>
             {visibleFeedbackOptions.map((option) => {
               const selected = selectedFeedbackOptions.includes(option);
+              const isOther = isOtherFeedbackReason(option);
+              const blocked = isOther
+                ? selectedFeedbackOptions.length > 0 && !selected
+                : hasOtherSelected;
               return (
                 <Pressable
                   key={option}
-                  style={[styles.ratingOption, selected ? styles.ratingOptionActive : null]}
-                  onPress={() =>
-                    setSelectedFeedbackOptions((current) =>
-                      selected ? current.filter((item) => item !== option) : [...current, option]
-                    )
-                  }
+                  style={[
+                    styles.ratingOption,
+                    selected ? styles.ratingOptionActive : null,
+                    blocked ? styles.ratingOptionDisabled : null,
+                  ]}
+                  onPress={() => {
+                    setSelectedFeedbackOptions((current) => {
+                      if (selected) return current.filter((item) => item !== option);
+                      // Other stands alone; picking it clears the preset phrases.
+                      if (isOther) return [OTHER_FEEDBACK_REASON];
+                      return [...current.filter((item) => !isOtherFeedbackReason(item)), option];
+                    });
+                    if (isOther && selected) setOtherReasonText("");
+                  }}
+                  disabled={blocked}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
                 >
@@ -156,8 +171,34 @@ export function RatingDialog() {
               );
             })}
           </View>
-          {selectedFeedbackOptions.length === 0 ? (
-            <Text style={styles.ratingHint}>Select at least one feedback option to submit your review.</Text>
+          {hasOtherSelected ? (
+            <>
+              <Text style={styles.otherReasonLabel}>{OTHER_REASON_LABEL}</Text>
+              <TextInput
+                style={styles.otherReasonInput}
+                value={otherReasonText}
+                onChangeText={setOtherReasonText}
+                placeholder={OTHER_REASON_PLACEHOLDER}
+                placeholderTextColor={theme.colors.slate300}
+                maxLength={OTHER_REASON_MAX_LENGTH}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                editable={!submittingFeedback}
+                autoFocus
+              />
+              <Text style={styles.otherReasonCounter}>
+                {otherReasonText.length}/{OTHER_REASON_MAX_LENGTH}
+              </Text>
+            </>
+          ) : null}
+
+          {!canSubmitFeedback ? (
+            <Text style={styles.ratingHint}>
+              {hasOtherSelected
+                ? "Describe what happened to submit your review."
+                : "Select at least one feedback option to submit your review."}
+            </Text>
           ) : null}
 
           {showSuccess ? (

@@ -20,7 +20,7 @@ import {
   summarizeStockHealth,
 } from '@/lib/report-metrics'
 import { formatPesoCompact, formatReportDateOnly } from './report-pdf'
-import { formatReportDateRangeLabel, type ReportDatePreset } from '../report-date-utils'
+import { buildReportDateWindow, formatReportDateRangeLabel, type ReportDatePreset } from '../report-date-utils'
 
 /**
  * Every dataset, chart series, KPI and export row the admin Reports screen derives
@@ -95,31 +95,10 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     return formatReportDateRangeLabel(start, end)
   }, [rangeStart])
 
-  const feedbackDateWindow = useMemo(() => {
-    if (feedbackDatePreset === 'all') return { start: null, end: null, label: 'All Time' }
-    if (feedbackDatePreset === 'custom') {
-      const start = feedbackDateFrom ? new Date(`${feedbackDateFrom}T00:00:00`) : null
-      const end = feedbackDateTo ? new Date(`${feedbackDateTo}T23:59:59.999`) : null
-      return {
-        start,
-        end,
-        label: feedbackDateFrom || feedbackDateTo
-          ? `${feedbackDateFrom || 'Start'} to ${feedbackDateTo || 'Today'}`
-          : 'Custom Date Range',
-      }
-    }
-
-    const end = new Date()
-    end.setHours(23, 59, 59, 999)
-    const start = new Date()
-    if (feedbackDatePreset !== 'today') start.setDate(start.getDate() - Number(feedbackDatePreset))
-    start.setHours(0, 0, 0, 0)
-    return {
-      start,
-      end,
-      label: feedbackDatePreset === 'today' ? 'Today' : feedbackDatePreset === '365' ? 'Past 1 Year' : `Past ${feedbackDatePreset} Days`,
-    }
-  }, [feedbackDatePreset, feedbackDateFrom, feedbackDateTo])
+  const feedbackDateWindow = useMemo(
+    () => buildReportDateWindow(feedbackDatePreset, feedbackDateFrom, feedbackDateTo),
+    [feedbackDatePreset, feedbackDateFrom, feedbackDateTo]
+  )
 
   const warehouseDateWindow = useMemo(() => {
     const today = new Date()
@@ -1138,6 +1117,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     transportExportRows,
     transportSummaryLines,
     transportTopDrivers,
+    warehouseCapacityTrendPoints,
     warehouseCapacityTrendSummaryLines,
     warehouseCapacityVsUsedChart,
     warehouseDateWindow,

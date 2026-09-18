@@ -25,6 +25,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
   const [profileName, setProfileName] = useState('')
   const [profileFirstName, setProfileFirstName] = useState('')
   const [profileMiddleName, setProfileMiddleName] = useState('')
+  const [profileNoMiddleName, setProfileNoMiddleName] = useState(false)
   const [profileLastName, setProfileLastName] = useState('')
   const [profileSuffix, setProfileSuffix] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
@@ -71,6 +72,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
     const nameParts = String((user as any)?.name || '').trim().split(/\s+/).filter(Boolean)
     setProfileFirstName(String((user as any)?.firstName || nameParts[0] || ''))
     setProfileMiddleName(String((user as any)?.middleName || ''))
+    setProfileNoMiddleName(!(user as any)?.middleName)
     setProfileLastName(String((user as any)?.lastName || nameParts.slice(1).join(' ') || ''))
     setProfileSuffix(String((user as any)?.suffix || ''))
     setProfileEmail(String((user as any)?.email || ''))
@@ -204,7 +206,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
       toast.error('Unable to resolve account ID')
       return
     }
-    if (!profileFirstName.trim() || !profileLastName.trim() || !profileMiddleName.trim() || !profileEmail.trim()) {
+    if (!profileFirstName.trim() || !profileLastName.trim() || (!profileNoMiddleName && !profileMiddleName.trim()) || !profileEmail.trim()) {
       toast.error('First name, last name, middle name, and email are required.')
       return
     }
@@ -240,7 +242,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
         body: JSON.stringify({
           name: formatFullName(profileFirstName, profileMiddleName, profileLastName, profileSuffix, profileName),
           firstName: profileFirstName.trim(),
-          middleName: profileMiddleName.trim(),
+          middleName: profileNoMiddleName ? null : profileMiddleName.trim(),
           lastName: profileLastName.trim(),
           suffix: profileSuffix.trim() || null,
           email: profileEmail.trim(),
@@ -402,6 +404,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
     profileFirstName,
     profileLastName,
     profileMiddleName,
+    profileNoMiddleName,
     profileName,
     profileOtpSent,
     profileOtpVerified,
@@ -421,6 +424,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
     setProfileFirstName,
     setProfileLastName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     setProfileOtp,
     setProfileOtpSent,
     setProfileOtpToken,

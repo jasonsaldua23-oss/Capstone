@@ -241,6 +241,7 @@ export function WarehousePortal() {
     profileFirstName,
     profileLastName,
     profileMiddleName,
+    profileNoMiddleName,
     profileName,
     profileOtpSent,
     profileOtpVerified,
@@ -260,6 +261,7 @@ export function WarehousePortal() {
     setProfileFirstName,
     setProfileLastName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     setProfileOtp,
     setProfileOtpSent,
     setProfileOtpToken,
@@ -1246,7 +1248,9 @@ export function WarehousePortal() {
       const nextStatus = String(nextReplacement?.status || status || '').toUpperCase()
       const schedulingFlow = Boolean(options?.createReplacementOrder && options?.replacementDeliveryDate)
       if (schedulingFlow) {
-        toast.success('Replacement delivery scheduled')
+        toast.success(`Replacement delivery scheduled for ${options?.replacementDeliveryDate}. It's now ready to be assigned to a trip.`)
+      } else if (nextStatus === 'IN_PROGRESS') {
+        toast.success('Replacement is now being processed by the warehouse.')
       } else {
         toast.success(`Replacement updated to ${nextStatus.replace(/_/g, ' ')}`)
       }
@@ -1616,6 +1620,7 @@ export function WarehousePortal() {
               profileFirstName={profileFirstName}
               profileLastName={profileLastName}
               profileMiddleName={profileMiddleName}
+              profileNoMiddleName={profileNoMiddleName}
               profileName={profileName}
               profileOtpSent={profileOtpSent}
               profileOtpVerified={profileOtpVerified}
@@ -1633,6 +1638,7 @@ export function WarehousePortal() {
               setProfileFirstName={setProfileFirstName}
               setProfileLastName={setProfileLastName}
               setProfileMiddleName={setProfileMiddleName}
+              setProfileNoMiddleName={setProfileNoMiddleName}
               setProfileOtp={setProfileOtp}
               setProfileOtpSent={setProfileOtpSent}
               setProfileOtpToken={setProfileOtpToken}

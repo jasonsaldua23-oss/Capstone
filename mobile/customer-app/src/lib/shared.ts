@@ -123,3 +123,15 @@ export {
   OTP_RESEND_COOLDOWN_SECONDS,
   formatOtpCountdown,
 } from "../../../../shared/customer-logic/src/otp.ts";
+
+export {
+  MOBILE_DELIVERY_FEEDBACK_OPTIONS_BY_RATING,
+  MOBILE_REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING,
+  OTHER_REASON_MAX_LENGTH,
+  OTHER_FEEDBACK_REASON,
+  OTHER_REASON_LABEL,
+  OTHER_REASON_PLACEHOLDER,
+  buildFeedbackReasonMessage,
+  getFeedbackOptionsForRating,
+  isOtherFeedbackReason,
+} from "../../../../shared/customer-logic/src/feedback-reasons.ts";

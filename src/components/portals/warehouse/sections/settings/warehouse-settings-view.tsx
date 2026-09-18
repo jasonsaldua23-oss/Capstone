@@ -52,6 +52,7 @@ export type WarehouseSettingsViewProps = {
   profileFirstName: WarehouseProfileSettings['profileFirstName']
   profileLastName: WarehouseProfileSettings['profileLastName']
   profileMiddleName: WarehouseProfileSettings['profileMiddleName']
+  profileNoMiddleName: WarehouseProfileSettings['profileNoMiddleName']
   profileName: WarehouseProfileSettings['profileName']
   profileOtpSent: WarehouseProfileSettings['profileOtpSent']
   profileOtpVerified: WarehouseProfileSettings['profileOtpVerified']
@@ -69,6 +70,7 @@ export type WarehouseSettingsViewProps = {
   setProfileFirstName: WarehouseProfileSettings['setProfileFirstName']
   setProfileLastName: WarehouseProfileSettings['setProfileLastName']
   setProfileMiddleName: WarehouseProfileSettings['setProfileMiddleName']
+  setProfileNoMiddleName: WarehouseProfileSettings['setProfileNoMiddleName']
   setProfileOtp: WarehouseProfileSettings['setProfileOtp']
   setProfileOtpSent: WarehouseProfileSettings['setProfileOtpSent']
   setProfileOtpToken: WarehouseProfileSettings['setProfileOtpToken']
@@ -109,6 +111,7 @@ export function WarehouseSettingsView({
   profileFirstName,
   profileLastName,
   profileMiddleName,
+  profileNoMiddleName,
   profileName,
   profileOtpSent,
   profileOtpVerified,
@@ -126,6 +129,7 @@ export function WarehouseSettingsView({
   setProfileFirstName,
   setProfileLastName,
   setProfileMiddleName,
+  setProfileNoMiddleName,
   setProfileOtp,
   setProfileOtpSent,
   setProfileOtpToken,
@@ -191,8 +195,21 @@ export function WarehouseSettingsView({
                     <Input id="warehouse-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} disabled={!isEditingProfile} />
                   </div>
                   <div>
-                    <Label htmlFor="warehouse-profile-middle-name" className="text-xs font-semibold text-slate-600">Middle Name <span className="text-red-500">*</span></Label>
-                    <Input id="warehouse-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} disabled={!isEditingProfile} />
+                    <Label htmlFor="warehouse-profile-middle-name" className="text-xs font-semibold text-slate-600">Middle Name {!profileNoMiddleName && <span className="text-red-500">*</span>}</Label>
+                    <Input id="warehouse-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} disabled={!isEditingProfile || profileNoMiddleName} />
+                    <label className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={profileNoMiddleName}
+                        onChange={(e) => {
+                          setProfileNoMiddleName(e.target.checked)
+                          if (e.target.checked) setProfileMiddleName('')
+                        }}
+                        disabled={!isEditingProfile}
+                        className="h-3.5 w-3.5 rounded border-slate-300"
+                      />
+                      No middle name
+                    </label>
                   </div>
                   <div>
                     <Label htmlFor="warehouse-profile-suffix" className="text-xs font-semibold text-slate-600">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>

@@ -152,3 +152,14 @@ dist-apk/
 # Retain the reviewed recovery implementations outside deployable application routes.
 !/scripts/local-recovery/
 !/scripts/local-recovery/*
+
+# User-guide screenshot annotation: scripts, raw captures and generated figures.
+output/Screenshot*.png
+output/replacements-src/
+output/user-guide-annotated/
+output/pdf-check/
+output/pdf-pages/
+output/pdf/ANN-ANNS-LMS-USER-GUIDE-WITH-SCREENSHOTS.pdf
+scripts/guide_annotate.py
+scripts/annotate_*.py
+scripts/build_user_guide_pdf.py

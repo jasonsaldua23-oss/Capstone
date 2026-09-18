@@ -272,8 +272,8 @@ export function CustomerPortal() {
     setRatingDialogOrder,
     deliveryRatingValue,
     setDeliveryRatingValue,
-    ratingComment,
-    setRatingComment,
+    otherReasonText,
+    setOtherReasonText,
     isSubmittingRating,
     setIsSubmittingRating,
     isProfileDialogOpen,
@@ -283,7 +283,9 @@ export function CustomerPortal() {
     profileFirstName,
     setProfileFirstName,
     profileMiddleName,
+    profileNoMiddleName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     profileLastName,
     setProfileLastName,
     profileSuffix,
@@ -363,6 +365,7 @@ export function CustomerPortal() {
     profileFirstName,
     profileLastName,
     profileMiddleName,
+    profileNoMiddleName,
     profileSuffix,
     setAddressSearchResults,
     setCustomerDiscountAmountPerCase,
@@ -378,6 +381,7 @@ export function CustomerPortal() {
     setProfileFirstName,
     setProfileLastName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     setProfileName,
     setProfilePhone,
     setProfileSuffix,
@@ -410,6 +414,7 @@ export function CustomerPortal() {
     setProfileName(user?.name || '')
     setProfileFirstName(String((user as any)?.firstName || '').trim())
     setProfileMiddleName(String((user as any)?.middleName || '').trim())
+    setProfileNoMiddleName(!String((user as any)?.middleName || '').trim())
     setProfileLastName(String((user as any)?.lastName || '').trim())
     setProfileSuffix(String((user as any)?.suffix || '').trim())
     setProfileEmail(user?.email || '')
@@ -1087,7 +1092,8 @@ export function CustomerPortal() {
     setOtherCancellationReason,
     setPendingCancelOrder,
     setPendingCancelReplacement,
-    setRatingComment,
+    otherReasonText,
+    setOtherReasonText,
     setRatingDialogOrder,
     setReviewDetailsOrder,
     setReviewedOrderIds,
@@ -1122,6 +1128,7 @@ export function CustomerPortal() {
     profileFirstName,
     profileLastName,
     profileMiddleName,
+    profileNoMiddleName,
     profilePhone,
     profileSuffix,
     setActiveView,
@@ -1139,6 +1146,7 @@ export function CustomerPortal() {
     setProfileFirstName,
     setProfileLastName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     setProfileName,
     setProfilePhone,
     setProfileSuffix,
@@ -1344,7 +1352,9 @@ export function CustomerPortal() {
                     profileFirstName={profileFirstName}
                     setProfileFirstName={setProfileFirstName}
                     profileMiddleName={profileMiddleName}
+                    profileNoMiddleName={profileNoMiddleName}
                     setProfileMiddleName={setProfileMiddleName}
+                    setProfileNoMiddleName={setProfileNoMiddleName}
                     profileLastName={profileLastName}
                     setProfileLastName={setProfileLastName}
                     profileSuffix={profileSuffix}
@@ -1433,7 +1443,9 @@ export function CustomerPortal() {
                     profileFirstName={profileFirstName}
                     setProfileFirstName={setProfileFirstName}
                     profileMiddleName={profileMiddleName}
+                    profileNoMiddleName={profileNoMiddleName}
                     setProfileMiddleName={setProfileMiddleName}
+                    setProfileNoMiddleName={setProfileNoMiddleName}
                     profileLastName={profileLastName}
                     setProfileLastName={setProfileLastName}
                     profileSuffix={profileSuffix}
@@ -1528,7 +1540,9 @@ export function CustomerPortal() {
             profileFirstName={profileFirstName}
             setProfileFirstName={setProfileFirstName}
             profileMiddleName={profileMiddleName}
+            profileNoMiddleName={profileNoMiddleName}
             setProfileMiddleName={setProfileMiddleName}
+            setProfileNoMiddleName={setProfileNoMiddleName}
             profileLastName={profileLastName}
             setProfileLastName={setProfileLastName}
             profileSuffix={profileSuffix}
@@ -1599,7 +1613,9 @@ export function CustomerPortal() {
               profileFirstName={profileFirstName}
               setProfileFirstName={setProfileFirstName}
               profileMiddleName={profileMiddleName}
+              profileNoMiddleName={profileNoMiddleName}
               setProfileMiddleName={setProfileMiddleName}
+              setProfileNoMiddleName={setProfileNoMiddleName}
               profileLastName={profileLastName}
               setProfileLastName={setProfileLastName}
               profileSuffix={profileSuffix}
@@ -1644,8 +1660,8 @@ export function CustomerPortal() {
             setRatingDialogOrder={setRatingDialogOrder}
             deliveryRatingValue={deliveryRatingValue}
             setDeliveryRatingValue={setDeliveryRatingValue}
-            ratingComment={ratingComment}
-            setRatingComment={setRatingComment}
+            otherReasonText={otherReasonText}
+            setOtherReasonText={setOtherReasonText}
             isSubmittingRating={isSubmittingRating}
             submitRating={submitRating}
           />

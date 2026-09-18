@@ -12,6 +12,20 @@ import {
 export { formatPeso, formatOrderStatus, isRescheduledOrder } from "./shared.ts";
 // The customer cancellation reasons live in shared/customer-logic.
 export { CUSTOMER_ORDER_REASONS, OTHER_ORDER_REASON, buildOrderActionReason } from "./shared.ts";
+// The rating checkbox catalogs live in shared/customer-logic so the web and Expo
+// dialogs cannot drift apart again - and so the admin summary can map every phrase
+// onto a service dimension.
+export {
+  MOBILE_DELIVERY_FEEDBACK_OPTIONS_BY_RATING,
+  MOBILE_REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING,
+  OTHER_REASON_MAX_LENGTH,
+  OTHER_FEEDBACK_REASON,
+  OTHER_REASON_LABEL,
+  OTHER_REASON_PLACEHOLDER,
+  buildFeedbackReasonMessage,
+  getFeedbackOptionsForRating,
+  isOtherFeedbackReason,
+} from "./shared.ts";
 
 export const REPLACEMENT_REASONS = [
   "Damaged unit",

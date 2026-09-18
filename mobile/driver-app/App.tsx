@@ -197,6 +197,7 @@ export default function App() {
   const [startingTripId, setStartingTripId] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState<DriverProfileUpdateInput>(initialProfileForm);
+  const [noMiddleName, setNoMiddleName] = useState(false);
   const [profileAvatarUri, setProfileAvatarUri] = useState<string | null>(null);
   const [activeProfileModal, setActiveProfileModal] = useState<DriverProfileModal>(null);
   const [confirmLogoutVisible, setConfirmLogoutVisible] = useState(false);
@@ -442,6 +443,8 @@ export default function App() {
 
   function hydrateProfileForm(nextProfile: DriverProfile) {
     const fallbackNameParts = String(nextProfile.name || "").trim().split(/\s+/).filter(Boolean);
+    setNoMiddleName(!String(nextProfile.middleName || "").trim());
+    setNoMiddleName(!String(nextProfile.middleName || "").trim());
     setProfileForm({
       firstName: nextProfile.firstName || fallbackNameParts[0] || "",
       middleName: nextProfile.middleName || "",
@@ -848,6 +851,10 @@ export default function App() {
   }
 
   async function handleSaveProfile() {
+    if (!profileForm.firstName.trim() || !profileForm.lastName.trim() || (!noMiddleName && !profileForm.middleName.trim())) {
+      setError("First name, last name, and middle name are required.");
+      return;
+    }
     const nameError = validatePersonName(profileForm.firstName, profileForm.middleName, profileForm.lastName, profileForm.suffix);
     if (nameError) {
       // Fix: reject numeric driver names before the mobile app submits them.
@@ -858,7 +865,7 @@ export default function App() {
     setError(null);
     try {
       const avatar = profileAvatarUri ? await uploadProfileAvatar(profileAvatarUri) : profile?.avatar;
-      const nextProfile = await updateDriverProfile({ ...profileForm, avatar });
+      const nextProfile = await updateDriverProfile({ ...profileForm, middleName: noMiddleName ? "" : profileForm.middleName, avatar });
       setProfile(nextProfile);
       setUser(nextProfile);
       hydrateProfileForm(nextProfile);
@@ -1802,8 +1809,23 @@ export default function App() {
                 onChangeText={(value) => setProfileForm((current) => ({ ...current, firstName: value }))} />
               <Field label="Last Name" value={profileForm.lastName} placeholder="Last name"
                 onChangeText={(value) => setProfileForm((current) => ({ ...current, lastName: value }))} />
-              <Field label="Middle Name" value={profileForm.middleName} placeholder="Middle name"
+              <Field label="Middle Name" value={profileForm.middleName} placeholder="Middle name" editable={!noMiddleName}
                 onChangeText={(value) => setProfileForm((current) => ({ ...current, middleName: value }))} />
+              <Pressable
+                style={styles.rememberRow}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: noMiddleName }}
+                onPress={() => {
+                  const next = !noMiddleName;
+                  setNoMiddleName(next);
+                  if (next) setProfileForm((current) => ({ ...current, middleName: "" }));
+                }}
+              >
+                <View style={[styles.checkbox, noMiddleName && styles.checkboxChecked]}>
+                  {noMiddleName ? <Text style={styles.checkboxGlyph}>✓</Text> : null}
+                </View>
+                <Text style={styles.rememberText}>No middle name</Text>
+              </Pressable>
               <Field label="Suffix" optional value={profileForm.suffix} placeholder="e.g. Jr., Sr., III"
                 onChangeText={(value) => setProfileForm((current) => ({ ...current, suffix: value }))} />
               <Field label="Phone Number" value={profileForm.phone} placeholder="09XX XXX XXXX"

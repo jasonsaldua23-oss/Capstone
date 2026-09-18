@@ -6,7 +6,12 @@ services:
     autoDeploy: true
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python manage.py migrate --noinput
-    startCommand: python -m gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - --capture-output --log-level info
+    # A single sync worker serves one request at a time, so one slow endpoint stalls
+    # every other request behind it. The work is I/O bound (waiting on Supabase), so
+    # gthread buys real concurrency without a second interpreter's memory. Raise
+    # --workers above 1 only after checking the plan's memory headroom.
+    # --timeout 120 keeps a slow request from being SIGKILLed into a 502 mid-response.
+    startCommand: python -m gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --worker-class gthread --workers 1 --threads 8 --timeout 120 --graceful-timeout 30 --max-requests 500 --max-requests-jitter 50 --access-logfile - --error-logfile - --capture-output --log-level info
     healthCheckPath: /api/health
     envVars:
       - key: DJANGO_SECRET_KEY

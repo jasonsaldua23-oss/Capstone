@@ -59,6 +59,7 @@ interface FormState {
   lastName: string
   firstName: string
   middleName: string
+  noMiddleName: boolean
   suffix: string
   email: string
   phone: string
@@ -73,6 +74,7 @@ const initialFormState: FormState = {
   lastName: '',
   firstName: '',
   middleName: '',
+  noMiddleName: false,
   suffix: '',
   email: '',
   phone: '',
@@ -157,7 +159,7 @@ export function UsersView() {
     return (
       form.lastName.trim() !== '' &&
       form.firstName.trim() !== '' &&
-      form.middleName.trim() !== '' &&
+      (form.noMiddleName || form.middleName.trim() !== '') &&
       isValidEmail(form.email.trim()) &&
       emailVerified &&
       isValidPhone(form.phone) &&
@@ -239,6 +241,7 @@ export function UsersView() {
       lastName: user.lastName || user.name?.split(' ').slice(-1)[0] || '',
       firstName: user.firstName || user.name?.split(' ')[0] || '',
       middleName: user.middleName || '',
+      noMiddleName: !user.middleName,
       suffix: user.suffix || '',
       email: user.email || '',
       phone: user.phone || '',
@@ -309,6 +312,7 @@ export function UsersView() {
     ]
     let hasNameFieldError = false
     for (const { key, label } of requiredNameFields) {
+      if (key === 'middleName' && form.noMiddleName) continue
       if (!form[key].trim()) {
         setTouched((prev) => ({ ...prev, [key]: true }))
         setFormErrors((prev) => ({ ...prev, [key]: `${label} is required.` }))
@@ -350,7 +354,7 @@ export function UsersView() {
       const endpoint = mode === 'create' ? '/api/users' : `/api/users/${editingUser.id}`
       const method = mode === 'create' ? 'POST' : 'PUT'
 
-      const fullName = [form.firstName.trim(), form.middleName.trim(), form.lastName.trim()]
+      const fullName = [form.firstName.trim(), form.noMiddleName ? '' : form.middleName.trim(), form.lastName.trim()]
         .filter(Boolean)
         .join(' ') + (form.suffix.trim() ? `, ${form.suffix.trim()}` : '')
 
@@ -361,7 +365,7 @@ export function UsersView() {
           name: fullName || form.firstName.trim() + ' ' + form.lastName.trim(),
           firstName: form.firstName.trim(),
           lastName: form.lastName.trim(),
-          middleName: form.middleName.trim() || null,
+          middleName: form.noMiddleName ? null : form.middleName.trim() || null,
           suffix: form.suffix.trim() || null,
           email: form.email.trim(),
           phone: form.phone.trim() || null,
@@ -713,13 +717,23 @@ export function UsersView() {
 
             {/* Middle Name */}
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-700">Middle Name <span className="text-red-500">*</span></label>
+              <label className="text-xs font-medium text-gray-700">Middle Name {!form.noMiddleName && <span className="text-red-500">*</span>}</label>
               <Input
                 placeholder="Middle Name"
                 value={form.middleName}
                 onChange={(e) => updateField('middleName', e.target.value)}
                 className="h-8 text-sm"
+                disabled={form.noMiddleName}
               />
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={form.noMiddleName}
+                  onChange={(e) => setForm((f) => ({ ...f, noMiddleName: e.target.checked, middleName: e.target.checked ? '' : f.middleName }))}
+                  className="h-3.5 w-3.5 rounded border-gray-300"
+                />
+                No middle name
+              </label>
             </div>
 
             {/* Suffix */}
@@ -1118,8 +1132,17 @@ export function UsersView() {
                   <Input value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} className="h-11" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700">Middle Name <span className="text-red-500">*</span></label>
-                  <Input value={form.middleName} onChange={(e) => setForm((f) => ({ ...f, middleName: e.target.value }))} className="h-11" />
+                  <label className="text-sm font-medium text-gray-700">Middle Name {!form.noMiddleName && <span className="text-red-500">*</span>}</label>
+                  <Input value={form.middleName} onChange={(e) => setForm((f) => ({ ...f, middleName: e.target.value }))} className="h-11" disabled={form.noMiddleName} />
+                  <label className="flex items-center gap-2 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={form.noMiddleName}
+                      onChange={(e) => setForm((f) => ({ ...f, noMiddleName: e.target.checked, middleName: e.target.checked ? '' : f.middleName }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300"
+                    />
+                    No middle name
+                  </label>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-gray-700">Suffix <span className="text-gray-400 font-normal">(Optional)</span></label>

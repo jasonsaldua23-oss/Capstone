@@ -32,6 +32,8 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatDateTime, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
@@ -365,6 +367,18 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     return Object.values(map).sort((a, b) => a.dateKey.localeCompare(b.dateKey)).slice(-14)
   }, [filteredReplacements])
 
+  // Reported volume first, then how much of it has actually been closed out.
+  const chartInterpretation = useMemo(() => {
+    const day = (row: any) => row.date
+    const reported = chartData.reduce((sum: number, row: any) => sum + Number(row.total || 0), 0)
+    const resolved = chartData.reduce((sum: number, row: any) => sum + Number(row.resolved || 0), 0)
+    const resolutionRate = reported > 0 ? ((resolved / reported) * 100).toFixed(1) : '0.0'
+    return `${describeTrend(toPoints(chartData, day, (row: any) => row.total), {
+      noun: 'replacement reports',
+      periodNoun: 'day',
+    })} ${resolved.toLocaleString('en-US')} of the ${reported.toLocaleString('en-US')} reported cases are resolved, a ${resolutionRate}% resolution rate.`
+  }, [chartData])
+
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredReplacements.length / pageSize))
   const paginatedReplacements = useMemo(() => {
@@ -564,6 +578,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={chartInterpretation} />
           </CardContent>
         </Card>
       )}

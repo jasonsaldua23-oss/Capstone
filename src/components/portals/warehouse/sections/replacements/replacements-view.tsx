@@ -6,6 +6,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import type { WarehouseReplacementsViewProps } from '../shared/types'
@@ -33,6 +43,8 @@ export function WarehouseReplacementsView({
   const [rowScheduleDates, setRowScheduleDates] = useState<Record<string, string>>({})
   const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({})
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [scheduleConfirmId, setScheduleConfirmId] = useState<string | null>(null)
+  const [processConfirmId, setProcessConfirmId] = useState<string | null>(null)
   const todayDateInput = useMemo(() => {
     const now = new Date()
     const year = now.getFullYear()
@@ -699,7 +711,7 @@ export function WarehouseReplacementsView({
                             <div className="flex flex-col items-start gap-2" aria-busy={updatingReplacementId === ret.id}>
                               <div key={rawStatus} className="flex flex-col items-start gap-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
                                 {rawStatus === 'APPROVED' ? (
-                                  <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => void updateIssueStatus(ret.id, 'IN_PROGRESS', { notes: 'Warehouse started processing the approved replacement' })}>
+                                  <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => setProcessConfirmId(ret.id)}>
                                     {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                     Start Processing
                                   </Button>
@@ -712,7 +724,7 @@ export function WarehouseReplacementsView({
                                     <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId) || !rowScheduleDates[ret.id] || isPastScheduleDate(rowScheduleDates[ret.id])} onClick={() => {
                                       const deliveryDate = rowScheduleDates[ret.id]
                                       if (!deliveryDate || isPastScheduleDate(deliveryDate)) return
-                                      void updateIssueStatus(ret.id, 'IN_PROGRESS', { notes: `Replacement delivery scheduled on ${deliveryDate}`, createReplacementOrder: true, replacementDeliveryDate: deliveryDate, manualScheduleConfirmed: true })
+                                      setScheduleConfirmId(ret.id)
                                     }}>
                                       {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                       Schedule Delivery
@@ -1006,6 +1018,57 @@ export function WarehouseReplacementsView({
           })() : null}
         </DialogContent>
       </Dialog>
+      <AlertDialog open={!!processConfirmId} onOpenChange={(open) => !open && setProcessConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start processing this replacement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This marks the approved replacement as being worked on by the warehouse.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!processConfirmId) return
+                void updateIssueStatus(processConfirmId, 'IN_PROGRESS', { notes: 'Warehouse started processing the approved replacement' })
+                setProcessConfirmId(null)
+              }}
+            >
+              Start Processing
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!scheduleConfirmId} onOpenChange={(open) => !open && setScheduleConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Schedule this delivery?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {scheduleConfirmId && rowScheduleDates[scheduleConfirmId]
+                ? `This schedules the replacement delivery for ${rowScheduleDates[scheduleConfirmId]}. It will then be ready to assign to a trip.`
+                : 'It will then be ready to assign to a trip.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!scheduleConfirmId) return
+                const deliveryDate = rowScheduleDates[scheduleConfirmId]
+                if (!deliveryDate || isPastScheduleDate(deliveryDate)) {
+                  setScheduleConfirmId(null)
+                  return
+                }
+                void updateIssueStatus(scheduleConfirmId, 'IN_PROGRESS', { notes: `Replacement delivery scheduled on ${deliveryDate}`, createReplacementOrder: true, replacementDeliveryDate: deliveryDate, manualScheduleConfirmed: true })
+                setScheduleConfirmId(null)
+              }}
+            >
+              Schedule Delivery
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

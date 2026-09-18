@@ -20,6 +20,7 @@ from .models import (
     InventoryTransaction,
     MixedCaseComponent,
     Order,
+    OrderDepositRefundClaim,
     OrderItem,
     OrderStatus,
     OrderTimeline,
@@ -234,7 +235,7 @@ def _select_best_warehouse_for_order_items(*, items: list[dict[str, Any]], shipp
     return legacy._select_best_warehouse_for_order_items(items=items, shipping_latitude=shipping_latitude, shipping_longitude=shipping_longitude)
 
 
-def _serialize_order(order: Order, include_items: bool=True, include_progress: bool=False, *, warehouse_lookup: dict[str, Warehouse] | None=None, assigned_trip: Trip | None=None, fulfillment_legs: list[dict[str, Any]] | None=None, warehouse_allocations: list[dict[str, Any]] | None=None, item_warehouse_allocations: dict[str, list[dict[str, Any]]] | None=None, item_trip_assignments: dict[str, list[dict[str, Any]]] | None=None, empties_adjustment: Any=_NOT_PROVIDED, packaging_cache: dict[str, ProductPackaging] | None=None, delivery_transactions: dict[str, list[str]] | None=None, pod_drop_point: TripDropPoint | None=None, primary_admin_phone: Any=_NOT_PROVIDED) -> dict[str, Any]:
+def _serialize_order(order: Order, include_items: bool=True, include_progress: bool=False, *, warehouse_lookup: dict[str, Warehouse] | None=None, assigned_trip: Any=_NOT_PROVIDED, fulfillment_legs: list[dict[str, Any]] | None=None, warehouse_allocations: list[dict[str, Any]] | None=None, item_warehouse_allocations: dict[str, list[dict[str, Any]]] | None=None, item_trip_assignments: dict[str, list[dict[str, Any]]] | None=None, empties_adjustment: Any=_NOT_PROVIDED, packaging_cache: dict[str, ProductPackaging] | None=None, delivery_transactions: dict[str, list[str]] | None=None, pod_drop_point: TripDropPoint | None=None, primary_admin_phone: Any=_NOT_PROVIDED) -> dict[str, Any]:
     return legacy._serialize_order(order, include_items, include_progress, warehouse_lookup=warehouse_lookup, assigned_trip=assigned_trip, fulfillment_legs=fulfillment_legs, warehouse_allocations=warehouse_allocations, item_warehouse_allocations=item_warehouse_allocations, item_trip_assignments=item_trip_assignments, empties_adjustment=empties_adjustment, packaging_cache=packaging_cache, delivery_transactions=delivery_transactions, pod_drop_point=pod_drop_point, primary_admin_phone=primary_admin_phone)
 
 
@@ -321,6 +322,23 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 to_attr="_serialized_order_items",
             )
             orders_qs = orders_qs.prefetch_related(serialized_items)
+        else:
+            # Items are not serialized here, but their ids and product ids are still
+            # read. Deliberately no .only(): deferring the rest costs one lazy load per
+            # item the moment anything else is touched, which is worse than one batched
+            # query for whole rows.
+            orders_qs = orders_qs.prefetch_related(
+                Prefetch("items", queryset=OrderItem.objects.all(), to_attr="_serialized_item_ids")
+            )
+        # Every order serializes its deposit refund claims, so they are batched for the
+        # whole page rather than fetched one order at a time.
+        orders_qs = orders_qs.prefetch_related(
+            Prefetch(
+                "deposit_refund_claims",
+                queryset=OrderDepositRefundClaim.objects.select_related("product", "container_type"),
+                to_attr="_serialized_refund_claims",
+            )
+        )
         order_by_field = "-updated_at" if sort in {"updated", "updated_at"} else "-created_at"
         oqs = _real_orders(orders_qs).order_by(order_by_field)
         total = oqs.count() if include_orders else 0
@@ -354,7 +372,11 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         page_product_ids = {
             str(item.product_id)
             for order in orders
-            for item in (getattr(order, "_serialized_order_items", None) or order.items.all())
+            for item in (
+                getattr(order, "_serialized_order_items", None)
+                or getattr(order, "_serialized_item_ids", None)
+                or order.items.all()
+            )
             if getattr(item, "product_id", None)
         }
         packaging_cache = {

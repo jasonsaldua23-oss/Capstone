@@ -12,6 +12,8 @@ import {
   ResponsiveContainer,
   LabelList,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeComposition, toPoints } from '@/lib/chart-interpretation'
 import { formatDateTime } from '../shared'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
@@ -37,6 +39,16 @@ export function FeedbackReportTab({
   feedbackRows,
   reportToolbar,
 }: FeedbackReportTabProps) {
+  // The spread reads as a mix of star buckets rather than a series, since the x-axis is a scale.
+  const ratingInterpretation = describeComposition(
+    toPoints(feedbackRatingChart, (row: any) => `${row.rating}-star`, (row: any) => row.count),
+    {
+      noun: 'ratings',
+      entityNoun: 'star level',
+      emptyMessage: 'No rated feedback falls inside the selected range, so there is nothing to interpret yet.',
+    }
+  )
+
   return (
     <>
       {reportToolbar({
@@ -101,6 +113,13 @@ export function FeedbackReportTab({
               </ResponsiveContainer>
             )}
           </div>
+          <ChartInterpretation
+            text={
+              feedbackRatingTotal === 0
+                ? 'No rated feedback falls inside the selected range, so there is nothing to interpret yet.'
+                : `${ratingInterpretation} The average rating is ${feedbackKpi.avgRating.toFixed(2)}, with ${feedbackKpi.positiveRate}% positive and ${feedbackKpi.negativeRate}% negative.`
+            }
+          />
         </CardContent>
       </Card>
       <Card className="rounded-2xl border border-slate-200 shadow-sm">

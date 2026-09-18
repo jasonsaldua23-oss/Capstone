@@ -8,6 +8,8 @@ import { ChartContainer } from '@/components/ui/chart'
 import { PortalDashboardSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, BarChart, Bar, PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeComparison, describeComposition, toPoints } from '@/lib/chart-interpretation'
 import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shared'
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
@@ -182,6 +184,18 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     ]
   }, [dashboardOrderStats.delivered, stats?.failedOrders])
 
+  // Both dashboard charts carry a reading so the numbers are not left to the eye alone.
+  const ordersInterpretation = useMemo(() => describeComparison(
+    { name: 'This week', points: toPoints(ordersComparisonData, (row) => row.day, (row) => row.thisWeek) },
+    { name: 'Last week', points: toPoints(ordersComparisonData, (row) => row.day, (row) => row.lastWeek) },
+    { noun: 'approved orders', periodNoun: 'day', emptyMessage: 'No approved orders landed in either week, so there is nothing to compare yet.' }
+  ), [ordersComparisonData])
+
+  const deliveryInterpretation = useMemo(() => describeComposition(
+    toPoints(deliveryPerformance, (row) => row.name, (row) => row.value),
+    { noun: 'closed orders', entityNoun: 'outcome', emptyMessage: 'No order has been delivered or failed yet, so there is nothing to interpret.' }
+  ), [deliveryPerformance])
+
   return (
     <>
       <WelcomePopup
@@ -314,6 +328,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
                 <Area type="monotone" dataKey="lastWeek" stroke="#1d4ed8" strokeWidth={2} fill="url(#fillLastWeekAdmin)" dot={false} />
               </AreaChart>
             </ChartContainer>
+            <ChartInterpretation text={ordersInterpretation} />
           </CardContent>
         </Card>
         <Card className="rounded-2xl border-0 shadow-sm">
@@ -337,6 +352,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={deliveryInterpretation} />
           </CardContent>
         </Card>
       </div>

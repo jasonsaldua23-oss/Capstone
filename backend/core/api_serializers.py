@@ -169,13 +169,25 @@ def _serialize_driver_vehicle_link(vehicle: Vehicle) -> dict[str, Any]:
     }
 
 
+def _order_refund_claims(order):
+    """Deposit refund claims for an order, preferring rows the caller prefetched.
+
+    Chaining .select_related() on the related manager builds a fresh queryset and
+    silently bypasses prefetch_related, which is how this became one query per order.
+    """
+    prefetched = getattr(order, "_serialized_refund_claims", None)
+    if prefetched is not None:
+        return prefetched
+    return order.deposit_refund_claims.select_related("product", "container_type").all()
+
+
 def _serialize_order(
     order: Order,
     include_items: bool = True,
     include_progress: bool = False,
     *,
     warehouse_lookup: dict[str, Warehouse] | None = None,
-    assigned_trip: Trip | None = None,
+    assigned_trip: Any = _NOT_PROVIDED,
     fulfillment_legs: list[dict[str, Any]] | None = None,
     warehouse_allocations: list[dict[str, Any]] | None = None,
     item_warehouse_allocations: dict[str, list[dict[str, Any]]] | None = None,
@@ -265,7 +277,10 @@ def _serialize_order(
     }
     # Keep the requested product empties visible on the order for customer,
     # warehouse, admin, and driver workflows.
-    refund_claims = order.deposit_refund_claims.select_related("product", "container_type").all()
+    # Chaining .select_related() here would build a fresh queryset and bypass any
+    # prefetch, so list views hand the rows over on a serializer-only attribute
+    # instead - the same pattern as _serialized_order_items below.
+    refund_claims = _order_refund_claims(order)
     data["depositRefundClaims"] = [
         {
             "id": claim.id,
@@ -350,7 +365,10 @@ def _serialize_order(
     if normalized_order_status == OrderStatus.RESCHEDULED:
         assigned_trip = None
 
-    if assigned_trip is None:
+    # A caller that resolved trips for the whole page passes None for "this order has
+    # none". Treating that as "not supplied" sent every trip-less order back to the
+    # database one at a time.
+    if assigned_trip is _NOT_PROVIDED:
         assigned_trip = None if normalized_order_status == OrderStatus.RESCHEDULED else _select_trip_for_order(order.id, require_driver=True)
     assigned_driver = getattr(assigned_trip, "driver", None)
     assigned_driver_name = ""
@@ -413,7 +431,14 @@ def _serialize_order(
             if str(row.get("id") or "").strip()
         ]
         if not order_item_ids:
-            order_item_ids = [str(item_id) for item_id in order.items.values_list("id", flat=True)]
+            # includeItems=none still needs the ids; the view prefetches them so this
+            # does not become one query per delivered order.
+            prefetched_item_ids = getattr(order, "_serialized_item_ids", None)
+            order_item_ids = (
+                [str(item.id) for item in prefetched_item_ids]
+                if prefetched_item_ids is not None
+                else [str(item_id) for item_id in order.items.values_list("id", flat=True)]
+            )
         if order_item_ids and delivery_transactions is not None:
             # Prebuilt for the whole page: one query instead of one per delivered order.
             for item_id in order_item_ids:
@@ -950,7 +975,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                             "requestedAmount": float(claim.requested_amount),
                             "status": claim.status,
                         }
-                        for claim in dp.order.deposit_refund_claims.all()
+                        for claim in _order_refund_claims(dp.order)
                     ],
                     "scheduledReplacement": _get_scheduled_replacement_payload(dp.order),
                     "items": [

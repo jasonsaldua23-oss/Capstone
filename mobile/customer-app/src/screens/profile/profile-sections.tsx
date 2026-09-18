@@ -66,6 +66,8 @@ export function ProfileSections() {
     pushRoute,
     profileForm,
     setProfileForm,
+    profileNoMiddleName,
+    setProfileNoMiddleName,
     addressForm,
     handlePickAvatar,
     uploadingAvatar,
@@ -140,10 +142,25 @@ export function ProfileSections() {
         <TextInput
           style={styles.addressInput}
           value={profileForm.middleName || ""}
+          editable={!profileNoMiddleName}
           onChangeText={(value) => setProfileForm((current) => ({ ...current, middleName: value }))}
           placeholder="Middle name"
           placeholderTextColor={theme.colors.textFaint}
         />
+        <Pressable
+          style={styles.authRememberRow}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: profileNoMiddleName }}
+          onPress={() => {
+            setProfileNoMiddleName(!profileNoMiddleName);
+            if (!profileNoMiddleName) setProfileForm((current) => ({ ...current, middleName: "" }));
+          }}
+        >
+          <View style={[styles.authCheckbox, profileNoMiddleName ? styles.authCheckboxChecked : null]}>
+            {profileNoMiddleName ? <Check size={12} color="#ffffff" strokeWidth={3} /> : null}
+          </View>
+          <Text style={styles.addressFieldLabel}>No middle name</Text>
+        </Pressable>
         <Text style={styles.addressFieldLabel}>Last Name</Text>
         <TextInput
           style={styles.addressInput}

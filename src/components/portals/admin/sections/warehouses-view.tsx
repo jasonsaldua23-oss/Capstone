@@ -31,6 +31,8 @@ import {
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import {
   toArray,
   getCollection,
@@ -553,6 +555,31 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
     { name: 'Overstocked', value: stockHealthSummary.overstocked, color: '#3b82f6' },
   ]
 
+  // One reading per chart on the selected warehouse's analytics row.
+  const capacityInterpretation = describeComposition(
+    toPoints(capacityBreakdown, (row: any) => row.name, (row: any) => row.value),
+    { noun: 'units of capacity', entityNoun: 'segment', emptyMessage: 'This warehouse has no capacity recorded yet, so the split cannot be read.' }
+  )
+  const utilizationInterpretation = describeTrend(
+    toPoints(usageTrend, (row: any) => row.day, (row: any) => row.utilization),
+    {
+      noun: 'utilization',
+      nounIsPlural: false,
+      periodNoun: 'day',
+      measure: 'level',
+      format: (value) => `${value.toFixed(1)}%`,
+      emptyMessage: 'No utilization has been recorded over the last 7 days, so there is no trend to read.',
+    }
+  )
+  const velocityInterpretation = describeRanking(
+    toPoints(skuVelocityData, (row: any) => row.sku, (row: any) => row.velocity),
+    { noun: 'velocity', entityNoun: 'charted SKU', emptyMessage: 'No SKU has moved recently, so there is no velocity ranking to read.' }
+  )
+  const stockHealthInterpretation = describeComposition(
+    toPoints(stockHealthDistribution, (row: any) => row.name, (row: any) => row.value),
+    { noun: 'SKUs', entityNoun: 'health band', emptyMessage: 'No SKU is stocked in this warehouse yet, so stock health cannot be read.' }
+  )
+
   const getStockHealthDotClass = (name: string) => {
     const key = name.toLowerCase()
     if (key === 'healthy') return 'bg-emerald-500'
@@ -866,6 +893,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
                         <p className="text-base font-bold text-slate-800">{totalCapacity.toLocaleString()}</p>
                       </div>
                     </div>
+                    <ChartInterpretation text={capacityInterpretation} />
                   </CardContent>
                 </Card>
 
@@ -888,6 +916,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
                         <Line type="monotone" dataKey="utilization" stroke="#2563eb" strokeWidth={3} dot={{ r: 4, fill: '#2563eb' }} activeDot={{ r: 6 }} />
                       </LineChart>
                     </ChartContainer>
+                    <ChartInterpretation text={utilizationInterpretation} />
                   </CardContent>
                 </Card>
               </div>
@@ -925,6 +954,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
                         </BarChart>
                       </ChartContainer>
                     )}
+                    <ChartInterpretation text={velocityInterpretation} />
                   </CardContent>
                 </Card>
 
@@ -973,6 +1003,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
                         </div>
                       ))}
                     </div>
+                    <ChartInterpretation text={stockHealthInterpretation} />
                   </CardContent>
                 </Card>
               </div>

@@ -216,6 +216,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const [walkInFirstName, setWalkInFirstName] = useState('')
   const [walkInLastName, setWalkInLastName] = useState('')
   const [walkInMiddleName, setWalkInMiddleName] = useState('')
+  const [walkInNoMiddleName, setWalkInNoMiddleName] = useState(false)
   const [walkInSuffix, setWalkInSuffix] = useState('')
   const [walkInContact, setWalkInContact] = useState('')
   const [walkInNotes, setWalkInNotes] = useState('')
@@ -458,7 +459,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       toast.error('First name is required for walk-in customer')
       return false
     }
-    if (!walkInMiddleName.trim()) {
+    if (!walkInNoMiddleName && !walkInMiddleName.trim()) {
       toast.error('Middle name is required for walk-in customer')
       return false
     }
@@ -545,6 +546,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       setWalkInFirstName('')
       setWalkInLastName('')
       setWalkInMiddleName('')
+      setWalkInNoMiddleName(false)
       setWalkInSuffix('')
       setWalkInContact('')
       setWalkInNotes('')
@@ -1128,7 +1130,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
 
                     <div>
                       <Label htmlFor="walk-in-middle-name" className="text-xs font-semibold text-slate-700">
-                        Middle Name <span className="text-rose-500">*</span>
+                        Middle Name {!walkInNoMiddleName && <span className="text-rose-500">*</span>}
                       </Label>
                       <Input
                         id="walk-in-middle-name"
@@ -1136,7 +1138,20 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                         onChange={(e) => setWalkInMiddleName(e.target.value)}
                         placeholder="e.g. Santos"
                         className="mt-1 h-9 rounded-xl text-xs border-slate-200 bg-white"
+                        disabled={walkInNoMiddleName}
                       />
+                      <label className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={walkInNoMiddleName}
+                          onChange={(e) => {
+                            setWalkInNoMiddleName(e.target.checked)
+                            if (e.target.checked) setWalkInMiddleName('')
+                          }}
+                          className="h-3.5 w-3.5 rounded border-slate-300"
+                        />
+                        No middle name
+                      </label>
                     </div>
 
                     <div>

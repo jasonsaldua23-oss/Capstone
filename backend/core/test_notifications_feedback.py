@@ -307,3 +307,62 @@ class FeedbackRatingContractTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"], "Feedback is required when submitting a rating")
         self.assertFalse(Feedback.objects.filter(order=self.order, customer=self.customer).exists())
+
+class FeedbackDescribedReasonTests(TestCase):
+    """A review described in the client's own words still satisfies the API contract."""
+
+    def setUp(self) -> None:
+        self.client = Client()
+        self.customer = Customer.objects.create(
+            email="described.feedback.customer@example.com",
+            password="hashed",
+            name="Described Feedback Customer",
+            is_active=True,
+        )
+        self.order = Order.objects.create(
+            order_number="ORD-DESCRIBED-FEEDBACK-001",
+            customer=self.customer,
+            status=OrderStatus.DELIVERED,
+            subtotal=100,
+            total_amount=100,
+        )
+        self.token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+
+    def _submit(self, message):
+        return self.client.post(
+            "/api/feedback",
+            data={
+                "orderId": self.order.id,
+                "rating": 1,
+                "type": "COMPLAINT",
+                "subject": f"Order Review - {self.order.order_number}",
+                "message": message,
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+    def test_other_reason_is_stored_verbatim(self) -> None:
+        # The "Other: " marker is what tells the admin analytics to classify the words
+        # by keyword instead of looking them up in the checkbox catalog.
+        response = self._submit("- Other: The driver shouted at my staff")
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        saved = Feedback.objects.get(order=self.order, customer=self.customer)
+        self.assertEqual(saved.message, "- Other: The driver shouted at my staff")
+
+    def test_other_with_nothing_typed_is_rejected(self) -> None:
+        # Both clients block this, but the composed message is empty either way.
+        response = self._submit("   ")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "Feedback is required when submitting a rating")
+        self.assertFalse(Feedback.objects.filter(order=self.order, customer=self.customer).exists())

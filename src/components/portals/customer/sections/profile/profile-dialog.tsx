@@ -21,7 +21,9 @@ export function CustomerProfileDialog(props: any) {
     profileFirstName,
     setProfileFirstName,
     profileMiddleName,
+    profileNoMiddleName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     profileLastName,
     setProfileLastName,
     profileSuffix,
@@ -53,8 +55,8 @@ export function CustomerProfileDialog(props: any) {
   }, [profilePhone])
 
   const canSaveProfile = useMemo(() => {
-    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0 && profileMiddleName.trim().length > 0
-  }, [phoneError, profilePhone, profileFirstName, profileLastName, profileMiddleName])
+    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0 && (profileNoMiddleName || profileMiddleName.trim().length > 0)
+  }, [phoneError, profilePhone, profileFirstName, profileLastName, profileMiddleName, profileNoMiddleName])
 
   return (
     <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
@@ -115,8 +117,20 @@ export function CustomerProfileDialog(props: any) {
                 <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="customer-profile-middle-name" className="text-slate-800">Middle Name <span className="text-red-500">*</span></Label>
-                <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" />
+                <Label htmlFor="customer-profile-middle-name" className="text-slate-800">Middle Name {!profileNoMiddleName && <span className="text-red-500">*</span>}</Label>
+                <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" disabled={profileNoMiddleName} />
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={profileNoMiddleName}
+                    onChange={(e) => {
+                      setProfileNoMiddleName(e.target.checked)
+                      if (e.target.checked) setProfileMiddleName('')
+                    }}
+                    className="h-3.5 w-3.5 rounded border-slate-300"
+                  />
+                  No middle name
+                </label>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="customer-profile-suffix" className="text-slate-800">Suffix <span className="text-slate-400 font-normal text-xs">(Optional)</span></Label>

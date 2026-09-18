@@ -1,9 +1,19 @@
 'use client'
 
-import { type Dispatch, type SetStateAction } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { DriverOption, SavedRouteDraft, WarehouseOrderItem } from '../../warehouse-portal-types'
 import { Warehouse, Loader2, Route } from 'lucide-react'
 import { TripLoadSummary } from '@/components/shared/trip-load-summary'
@@ -59,7 +69,13 @@ export function WarehouseCreateTripDialog({
   setSelectedRouteDriverId,
   setSelectedSavedRouteId,
 }: WarehouseCreateTripDialogProps) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const selectedDriverName = drivers.find((driver) => driver.id === selectedRouteDriverId)?.user?.name
+    || drivers.find((driver) => driver.id === selectedRouteDriverId)?.name
+    || drivers.find((driver) => driver.id === selectedRouteDriverId)?.email
+    || ''
   return (
+    <>
     <Dialog open={createTripOpen} onOpenChange={setCreateTripOpen}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
@@ -136,7 +152,7 @@ export function WarehouseCreateTripDialog({
             </Button>
             <Button
               className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
-              onClick={createTripFromRoute}
+              onClick={() => setConfirmOpen(true)}
               disabled={creatingTripFromRoute || !selectedSavedRouteId || !selectedRouteDriverId || Boolean(selectedDriverEligibilityIssue) || !selectedDriverAssignedVehicle?.id || isSelectedVehicleCapacityMissing || isSelectedSavedRouteOverloaded}
             >
               {creatingTripFromRoute ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
@@ -146,5 +162,29 @@ export function WarehouseCreateTripDialog({
         </div>
       </DialogContent>
     </Dialog>
+    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create this trip?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {selectedSavedRoute
+              ? `This will create a trip for ${selectedSavedRoute.city} on ${new Date(selectedSavedRoute.date).toLocaleDateString()} with ${selectedSavedRoute.orderIds.length} order(s), and assign it to ${selectedDriverName || 'the selected driver'}.`
+              : 'This will create the trip and assign it to the selected driver.'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setConfirmOpen(false)
+              createTripFromRoute()
+            }}
+          >
+            Create Trip
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

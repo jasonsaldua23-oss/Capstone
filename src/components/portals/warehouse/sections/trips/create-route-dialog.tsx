@@ -1,10 +1,20 @@
 'use client'
 
-import { type Dispatch, type SetStateAction } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { DriverOption, RoutePlanCityGroup, TripEditorState, WarehouseItem, WarehouseOrderItem } from '../../warehouse-portal-types'
 import { getLocalTodayDayKey } from '../../warehouse-portal-utils'
 import { Warehouse, Loader2 } from 'lucide-react'
@@ -99,7 +109,13 @@ export function WarehouseCreateRouteDialog({
   setSelectedRouteOrderIds,
   warehouses,
 }: WarehouseCreateRouteDialogProps) {
+  const [confirmCreateOpen, setConfirmCreateOpen] = useState(false)
+  const selectedRouteDriverName = drivers.find((driver) => driver.id === selectedRouteDriverId)?.user?.name
+    || drivers.find((driver) => driver.id === selectedRouteDriverId)?.name
+    || drivers.find((driver) => driver.id === selectedRouteDriverId)?.email
+    || ''
   return (
+    <>
     <Dialog
       open={createRouteOpen}
       onOpenChange={(open) => {
@@ -316,7 +332,7 @@ export function WarehouseCreateRouteDialog({
                   if (editingTripState) {
                     void saveTripEditsFromCurrentRoutePlan()
                   } else {
-                    void createTripFromCurrentRoutePlan()
+                    setConfirmCreateOpen(true)
                   }
                 }}
                 disabled={
@@ -451,5 +467,29 @@ export function WarehouseCreateRouteDialog({
         </div>
       </DialogContent>
     </Dialog>
+    <AlertDialog open={confirmCreateOpen} onOpenChange={setConfirmCreateOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create this trip?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {selectedRouteCity
+              ? `This will create a trip for ${selectedRouteCity} with ${selectedRouteOrderIds.length} order(s), and assign it to ${selectedRouteDriverName || 'the selected driver'}.`
+              : 'This will create the trip and assign it to the selected driver.'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setConfirmCreateOpen(false)
+              void createTripFromCurrentRoutePlan()
+            }}
+          >
+            Create Trip
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

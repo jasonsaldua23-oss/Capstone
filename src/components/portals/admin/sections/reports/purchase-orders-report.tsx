@@ -31,6 +31,8 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDateTime, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 
@@ -199,6 +201,22 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
       .slice(-14)
       .map(([, values]) => values)
   }, [filteredPOs])
+
+  // The area carries daily volume; the lines split it into the stages the report tracks.
+  const chartInterpretation = useMemo(() => {
+    const day = (row: any) => row.date
+    return `${describeTrend(toPoints(chartData, day, (row: any) => row.total), {
+      noun: 'purchase orders',
+      periodNoun: 'day',
+    })} ${describeSeriesMix(
+      [
+        { name: 'Delivered', points: toPoints(chartData, day, (row: any) => row.delivered) },
+        { name: 'Processing', points: toPoints(chartData, day, (row: any) => row.processing) },
+        { name: 'Cancelled', points: toPoints(chartData, day, (row: any) => row.cancelled) },
+      ],
+      { noun: 'stage-tagged purchase orders', entityNoun: 'stage' }
+    )}`
+  }, [chartData])
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredPOs.length / pageSize))
@@ -377,6 +395,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={chartInterpretation} />
           </CardContent>
         </Card>
       )}

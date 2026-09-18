@@ -5,6 +5,8 @@ import { AlertTriangle, Boxes, Warehouse, TrendingUp, Package, ShoppingCart, Cir
 import { useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeComparison, toPoints } from '@/lib/chart-interpretation'
 import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 import type { WarehouseDashboardViewProps } from '../shared/types'
 
@@ -52,6 +54,12 @@ export function WarehouseDashboardView({
       ticks,
     }
   }, [weeklyTrendData])
+
+  const weeklyTrendInterpretation = useMemo(() => describeComparison(
+    { name: 'This week', points: toPoints(weeklyTrendData, (row: any) => row.day, (row: any) => row.thisWeek) },
+    { name: 'Last week', points: toPoints(weeklyTrendData, (row: any) => row.day, (row: any) => row.lastWeek) },
+    { noun: 'orders', periodNoun: 'day', emptyMessage: 'No orders landed in either week, so there is nothing to compare yet.' }
+  ), [weeklyTrendData])
 
   // Calculate stock health percentage
   const stockHealthPercentage = useMemo(() => {
@@ -287,6 +295,7 @@ export function WarehouseDashboardView({
                 <Area type="monotone" dataKey="lastWeek" stroke="#1d4ed8" strokeWidth={2} fill="url(#fillLastWeekWh)" dot={false} />
               </AreaChart>
             </ChartContainer>
+            <ChartInterpretation text={weeklyTrendInterpretation} />
           </CardContent>
         </Card>
 

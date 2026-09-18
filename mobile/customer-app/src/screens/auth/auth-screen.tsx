@@ -172,8 +172,19 @@ export function AuthScreen() {
               </View>
               <View style={styles.row}>
                 <View style={styles.authFieldColumn}>
-                  <Text style={styles.authLabel}>Middle Name (Optional)</Text>
-                  <TextInput style={styles.authInput} value={registration.middleName} onChangeText={(value) => setRegistration((current) => ({ ...current, middleName: value }))} placeholder="e.g. Santos" placeholderTextColor="#8a99b3" />
+                  <Text style={styles.authLabel}>Middle Name</Text>
+                  <TextInput style={styles.authInput} value={registration.middleName} editable={!registration.noMiddleName} onChangeText={(value) => setRegistration((current) => ({ ...current, middleName: value }))} placeholder="e.g. Santos" placeholderTextColor="#8a99b3" />
+                  <Pressable
+                    style={styles.authRememberRow}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: registration.noMiddleName }}
+                    onPress={() => setRegistration((current) => ({ ...current, noMiddleName: !current.noMiddleName, middleName: current.noMiddleName ? current.middleName : "" }))}
+                  >
+                    <View style={[styles.authCheckbox, registration.noMiddleName ? styles.authCheckboxChecked : null]}>
+                      {registration.noMiddleName ? <Check size={12} color="#ffffff" strokeWidth={3} /> : null}
+                    </View>
+                    <Text style={styles.authRememberText}>No middle name</Text>
+                  </Pressable>
                 </View>
                 <View style={styles.authSuffixColumn}>
                   <Text style={styles.authLabel}>Suffix</Text>

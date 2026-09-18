@@ -66,6 +66,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
   // Added: row rejection has its own target so it does not open the details dialog.
   const [rejectTargetId, setRejectTargetId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [approveConfirmId, setApproveConfirmId] = useState<string | null>(null)
 
   const fetchReplacements = async () => {
     setIsLoading(true)
@@ -733,7 +734,12 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
           ? (updatedReplacement ? { ...prev, ...updatedReplacement } : { ...prev, status })
           : prev
       )
-      toast.success(`Replacement updated to ${status.replace(/_/g, ' ')}`)
+      const confirmationMessages: Record<string, string> = {
+        APPROVED: 'Replacement approved. It is now ready for warehouse processing.',
+        REJECTED: 'Replacement rejected.',
+        UNDER_REVIEW: 'Replacement moved to Under Review.',
+      }
+      toast.success(confirmationMessages[status] || `Replacement updated to ${status.replace(/_/g, ' ')}`)
     } catch (error: any) {
       toast.error(error?.message || 'Failed to update replacement')
     } finally {
@@ -1108,7 +1114,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                             <div key={rawStatus} className="flex flex-wrap gap-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
                               {rawStatus === 'UNDER_REVIEW' ? (
                                 <>
-                                  <Button size="sm" className="h-9 bg-emerald-600 text-white transition-colors hover:bg-emerald-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => void updateIssueStatus(item.id, 'APPROVED', { notes: 'Replacement approved for processing' })}>
+                                  <Button size="sm" className="h-9 bg-emerald-600 text-white transition-colors hover:bg-emerald-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => setApproveConfirmId(item.id)}>
                                     {updatingReplacementId === item.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                     Approve
                                   </Button>
@@ -1359,9 +1365,9 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Reject Replacement Request</DialogTitle>
+            <DialogTitle>Confirm Rejection</DialogTitle>
             <DialogDescription>
-              Provide a clear reason for rejection. This will be saved in the replacement record.
+              Provide a clear reason for rejection. This will be saved in the replacement record and cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1401,6 +1407,28 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
           </div>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={!!approveConfirmId} onOpenChange={(open) => !open && setApproveConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Approve this replacement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This marks the replacement as approved and sends it to the warehouse for processing.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!approveConfirmId) return
+                void updateIssueStatus(approveConfirmId, 'APPROVED', { notes: 'Replacement approved for processing' })
+                setApproveConfirmId(null)
+              }}
+            >
+              Approve
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

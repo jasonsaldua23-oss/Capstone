@@ -129,6 +129,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   const [driverForm, setDriverForm] = useState({
     firstName: '',
     middleName: '',
+    noMiddleName: false,
     lastName: '',
     suffix: '',
     email: '',
@@ -420,7 +421,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     }
 
     const firstName = (driverForm.firstName || '').trim()
-    const middleName = (driverForm.middleName || '').trim()
+    const middleName = driverForm.noMiddleName ? '' : (driverForm.middleName || '').trim()
     const lastName = (driverForm.lastName || '').trim()
     const suffix = (driverForm.suffix || '').trim()
     const email = (driverForm.email || '').trim()
@@ -602,6 +603,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     setDriverForm({
       firstName: '',
       middleName: '',
+      noMiddleName: false,
       lastName: '',
       suffix: '',
       email: '',
@@ -636,6 +638,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     setDriverForm({
       firstName: source?.firstName || source?.first_name || fallbackParts.firstName,
       middleName: source?.middleName || source?.middle_name || '',
+      noMiddleName: !(source?.middleName || source?.middle_name),
       lastName: source?.lastName || source?.last_name || fallbackParts.lastName,
       suffix: source?.suffix || '',
       email: driver.user?.email || driver.email || '',
@@ -1290,7 +1293,16 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Middle Name</label>
-                      <Input placeholder="Optional" value={driverForm.middleName} onChange={(e) => setDriverForm({...driverForm, middleName: e.target.value})} />
+                      <Input placeholder="Middle Name" value={driverForm.middleName} onChange={(e) => setDriverForm({...driverForm, middleName: e.target.value})} disabled={driverForm.noMiddleName} />
+                      <label className="flex items-center gap-2 text-xs text-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={driverForm.noMiddleName}
+                          onChange={(e) => setDriverForm({ ...driverForm, noMiddleName: e.target.checked, middleName: e.target.checked ? '' : driverForm.middleName })}
+                          className="h-3.5 w-3.5 rounded border-gray-300"
+                        />
+                        No middle name
+                      </label>
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Last Name</label>

@@ -68,6 +68,8 @@ import {
   validatePasswordPolicy,
   validatePersonName,
   withinNegrosOccidental,
+  buildFeedbackReasonMessage,
+  isOtherFeedbackReason,
 } from "../lib/customer-logic";
 import { buildReceiptHtml, formatAddress, getInitials } from "../lib/format";
 import {
@@ -191,7 +193,8 @@ function useCustomerPortalState() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [showPassword, setShowPassword] = useState(false);
   const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
-  const [registration, setRegistration] = useState({ firstName: "", middleName: "", lastName: "", suffix: "", confirmPassword: "" });
+  const [registration, setRegistration] = useState({ firstName: "", middleName: "", lastName: "", suffix: "", confirmPassword: "", noMiddleName: false });
+  const [profileNoMiddleName, setProfileNoMiddleName] = useState(false);
   const [emailOtp, setEmailOtp] = useState("");
   const [emailVerificationToken, setEmailVerificationToken] = useState("");
   const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
@@ -259,6 +262,7 @@ function useCustomerPortalState() {
   const [feedbackOrderId, setFeedbackOrderId] = useState<string | null>(null);
   const [ratingDialogOrder, setRatingDialogOrder] = useState<CustomerOrder | null>(null);
   const [deliveryRatingValue, setDeliveryRatingValue] = useState(5);
+  const [otherReasonText, setOtherReasonText] = useState("");
   const [feedbackItems, setFeedbackItems] = useState<CustomerFeedbackItem[]>([]);
   const [feedbackRatingValue, setFeedbackRatingValue] = useState(5);
   const [selectedFeedbackOptions, setSelectedFeedbackOptions] = useState<string[]>([]);
@@ -405,6 +409,7 @@ function useCustomerPortalState() {
   }
 
   function hydrateProfileForm(nextProfile: CustomerProfile) {
+    setProfileNoMiddleName(!String(nextProfile.middleName || "").trim());
     setProfileForm({
       name: nextProfile.name || "",
       phone: nextProfile.phone || "",
@@ -699,6 +704,7 @@ function useCustomerPortalState() {
     try {
       const registered = await registerCustomer({
         ...registration,
+        middleName: registration.noMiddleName ? "" : registration.middleName,
         email: email.trim().toLowerCase(),
         password,
         emailVerificationToken,
@@ -1067,6 +1073,8 @@ function useCustomerPortalState() {
     const order = ratingDialogOrder;
     if (!order) return false;
     if (selectedFeedbackOptions.length === 0) return false;
+    // "Other" replaces the preset phrases, so the typed description IS the feedback.
+    if (selectedFeedbackOptions.some(isOtherFeedbackReason) && !otherReasonText.trim()) return false;
     setSubmittingFeedback(true);
     setError(null);
     try {
@@ -1078,8 +1086,9 @@ function useCustomerPortalState() {
         rating: overallRating,
         type: overallRating <= 2 ? "COMPLAINT" : overallRating === 3 ? "SUGGESTION" : "COMPLIMENT",
         subject: `Order Review - ${order.orderNumber}`,
-        message: selectedFeedbackOptions.map((reason) => `- ${reason}`).join("\n"),
+        message: buildFeedbackReasonMessage(selectedFeedbackOptions, otherReasonText),
       });
+      setOtherReasonText("");
       if (user) await refreshData(false, user.userId);
       return true;
     } catch (e) {
@@ -1130,7 +1139,7 @@ function useCustomerPortalState() {
     setSavingProfile(true);
     setError(null);
     try {
-      const nextProfile = await updateCustomerProfile(user.userId, profileForm);
+      const nextProfile = await updateCustomerProfile(user.userId, { ...profileForm, middleName: profileNoMiddleName ? "" : profileForm.middleName });
       setProfile(nextProfile);
       setUser(nextProfile);
       hydrateProfileForm(nextProfile);
@@ -1762,6 +1771,8 @@ function useCustomerPortalState() {
     ratingDialogOrder,
     setRatingDialogOrder,
     deliveryRatingValue,
+    otherReasonText,
+    setOtherReasonText,
     setDeliveryRatingValue,
     submitRating,
     addressForm,
@@ -1824,6 +1835,8 @@ function useCustomerPortalState() {
     forgotPasswordVisible,
     setForgotPasswordVisible,
     registration,
+    profileNoMiddleName,
+    setProfileNoMiddleName,
     setRegistration,
     emailOtp,
     setEmailOtp,

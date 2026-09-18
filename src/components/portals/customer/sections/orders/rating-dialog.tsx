@@ -5,25 +5,18 @@ import { Loader2, Star, CheckCircle2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { useMemo, useState } from 'react'
-
-// Each rating uses the same delivery dimensions so admin summaries remain comparable and actionable.
-const FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
-  1: ['Delivery was severely delayed', 'Order had missing or wrong items', 'Damaged cases or leaking bottles', 'Driver conduct was unprofessional', 'No clear delivery updates were provided'],
-  2: ['Delivery was delayed', 'Order was incomplete or had quantity errors', 'Some products or packaging were damaged', 'Driver service needs improvement', 'Delivery updates were unclear'],
-  3: ['Delivery timing was acceptable', 'Order was mostly complete and correct', 'Product condition was acceptable', 'Driver service was acceptable', 'Communication could improve'],
-  4: ['Delivery was on time', 'Order was complete and accurate', 'Products arrived in good condition', 'Driver was courteous and professional', 'Communication was clear'],
-  5: ['Delivery was on time as scheduled', 'Order was complete and exactly correct', 'Products and packaging were in excellent condition', 'Driver was highly professional', 'Communication was excellent'],
-}
-
-// Replacement choices focus on the resolution itself rather than repeating general delivery feedback.
-const REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING: Record<number, string[]> = {
-  1: ['Issue was not resolved', 'Replacement was incomplete or incorrect', 'Replacement items arrived damaged', 'Redelivery was severely delayed', 'No clear updates were provided'],
-  2: ['Issue was only partly resolved', 'Replacement quantity was incomplete', 'Replacement item condition was poor', 'Redelivery was delayed', 'Updates were unclear'],
-  3: ['Issue was resolved', 'Handling time was acceptable', 'Replacement condition was acceptable', 'Updates could improve', 'Overall replacement service was acceptable'],
-  4: ['Issue was fully resolved', 'Replacement was complete and correct', 'Replacement arrived in good condition', 'Redelivery was prompt', 'Updates were clear'],
-  5: ['Issue was resolved efficiently', 'Replacement was complete and exactly correct', 'Replacement arrived in excellent condition', 'Resolution was very fast', 'Communication was excellent'],
-}
+import {
+  DELIVERY_FEEDBACK_OPTIONS_BY_RATING as FEEDBACK_OPTIONS_BY_RATING,
+  REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING,
+  OTHER_REASON_MAX_LENGTH,
+  OTHER_FEEDBACK_REASON,
+  OTHER_REASON_LABEL,
+  OTHER_REASON_PLACEHOLDER,
+  getFeedbackOptionsForRating,
+  isOtherFeedbackReason,
+} from '@shared/customer-logic/feedback-reasons'
 
 export function CustomerRatingDialog(props: any) {
   const {
@@ -33,18 +26,28 @@ export function CustomerRatingDialog(props: any) {
     setDeliveryRatingValue,
     isSubmittingRating,
     submitRating,
+    otherReasonText,
+    setOtherReasonText,
   } = props
 
   const [showSuccess, setShowSuccess] = useState(false)
   const [selectedFeedbackOptions, setSelectedFeedbackOptions] = useState<string[]>([])
   const isReplacementReview = Boolean(ratingDialogOrder?.isReplacementReview)
   const visibleFeedbackOptions = useMemo(
-    () => {
-      const options = isReplacementReview ? REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING : FEEDBACK_OPTIONS_BY_RATING
-      return options[Math.max(1, Math.min(5, Math.round(deliveryRatingValue || 0)))] || []
-    },
+    () => getFeedbackOptionsForRating(
+      isReplacementReview ? REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING : FEEDBACK_OPTIONS_BY_RATING,
+      deliveryRatingValue
+    ),
     [deliveryRatingValue, isReplacementReview]
   )
+
+  const hasOtherSelected = selectedFeedbackOptions.some(isOtherFeedbackReason)
+  const otherText = String(otherReasonText || '')
+  // Describing the problem and ticking preset phrases are alternatives: a review that
+  // says both cannot be attributed to either, so one disables the other.
+  const canSubmitFeedback = hasOtherSelected
+    ? otherText.trim().length > 0
+    : selectedFeedbackOptions.length > 0
 
   const handleSubmit = async () => {
     const submitted = await submitRating(selectedFeedbackOptions)
@@ -139,29 +142,66 @@ export function CustomerRatingDialog(props: any) {
               <Label className="text-xs font-semibold text-slate-900 md:text-sm">Select Feedback <span className="text-red-600">*</span></Label>
               <div className="grid grid-cols-1 gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-2.5">
                 {visibleFeedbackOptions.map((option) => {
+                  const isOther = isOtherFeedbackReason(option)
                   const checked = selectedFeedbackOptions.includes(option)
+                  const blocked = isOther
+                    ? selectedFeedbackOptions.length > 0 && !checked
+                    : hasOtherSelected
                   return (
-                    <label key={option} className="flex items-start gap-2 text-xs text-slate-700 md:text-sm">
+                    <label
+                      key={option}
+                      className={`flex items-start gap-2 text-xs md:text-sm ${blocked ? 'text-slate-400' : 'text-slate-700'}`}
+                    >
                       <input
                         type="checkbox"
                         className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300"
                         checked={checked}
-                        disabled={isSubmittingRating}
+                        disabled={isSubmittingRating || blocked}
                         onChange={(event) => {
                           const isChecked = event.target.checked
                           setSelectedFeedbackOptions((prev) => {
-                            if (isChecked) return [...prev, option]
-                            return prev.filter((item) => item !== option)
+                            if (!isChecked) return prev.filter((item) => item !== option)
+                            // Other stands alone; picking it clears the preset phrases.
+                            if (isOther) return [OTHER_FEEDBACK_REASON]
+                            return [...prev.filter((item) => !isOtherFeedbackReason(item)), option]
                           })
+                          if (isOther && !isChecked) setOtherReasonText?.('')
                         }}
                       />
-                      <span>{option}</span>
+                      <span className={isOther ? 'font-medium' : undefined}>{option}</span>
                     </label>
                   )
                 })}
               </div>
-              {selectedFeedbackOptions.length === 0 ? (
-                <p className="text-xs text-red-600">Select at least one feedback option to submit your review.</p>
+
+              {hasOtherSelected ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="rating-other" className="text-xs font-medium md:text-sm">
+                    {OTHER_REASON_LABEL} <span className="text-red-600">*</span>
+                  </Label>
+                  <Textarea
+                    id="rating-other"
+                    value={otherText}
+                    onChange={(event) => setOtherReasonText?.(event.target.value)}
+                    placeholder={OTHER_REASON_PLACEHOLDER}
+                    maxLength={OTHER_REASON_MAX_LENGTH}
+                    rows={3}
+                    disabled={isSubmittingRating}
+                    autoFocus
+                    className="resize-none text-xs md:text-sm"
+                  />
+                  <p className="text-right text-[11px] text-gray-400">
+                    {otherText.length}/{OTHER_REASON_MAX_LENGTH}
+                  </p>
+                </div>
+              ) : null}
+
+              {!canSubmitFeedback ? (
+                <p className="text-xs text-red-600">
+                  {hasOtherSelected
+                    ? 'Describe what happened to submit your review.'
+                    : 'Select at least one feedback option to submit your review.'}
+                </p>
               ) : null}
             </div>
 
@@ -189,7 +229,7 @@ export function CustomerRatingDialog(props: any) {
               </Button>
               <Button
                 onClick={() => void handleSubmit()}
-                disabled={isSubmittingRating || deliveryRatingValue === 0 || selectedFeedbackOptions.length === 0}
+                disabled={isSubmittingRating || deliveryRatingValue === 0 || !canSubmitFeedback}
                 className="h-9 flex-1 bg-emerald-600 text-xs hover:bg-emerald-700 md:h-10 md:text-sm"
               >
                 {isSubmittingRating ? (

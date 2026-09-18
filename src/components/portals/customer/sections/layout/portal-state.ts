@@ -89,12 +89,13 @@ export function useCustomerPortalState(user: any) {
   const [deliveryIssueRecords, setDeliveryIssueRecords] = useState<any[]>([])
   const [ratingDialogOrder, setRatingDialogOrder] = useState<any | null>(null)
   const [deliveryRatingValue, setDeliveryRatingValue] = useState(5)
-  const [ratingComment, setRatingComment] = useState('')
+  const [otherReasonText, setOtherReasonText] = useState('')
   const [isSubmittingRating, setIsSubmittingRating] = useState(false)
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false)
   const [profileName, setProfileName] = useState('')
   const [profileFirstName, setProfileFirstName] = useState('')
   const [profileMiddleName, setProfileMiddleName] = useState('')
+  const [profileNoMiddleName, setProfileNoMiddleName] = useState(false)
   const [profileLastName, setProfileLastName] = useState('')
   const [profileSuffix, setProfileSuffix] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
@@ -242,8 +243,8 @@ export function useCustomerPortalState(user: any) {
     setRatingDialogOrder,
     deliveryRatingValue,
     setDeliveryRatingValue,
-    ratingComment,
-    setRatingComment,
+    otherReasonText,
+    setOtherReasonText,
     isSubmittingRating,
     setIsSubmittingRating,
     isProfileDialogOpen,
@@ -253,7 +254,9 @@ export function useCustomerPortalState(user: any) {
     profileFirstName,
     setProfileFirstName,
     profileMiddleName,
+    profileNoMiddleName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     profileLastName,
     setProfileLastName,
     profileSuffix,

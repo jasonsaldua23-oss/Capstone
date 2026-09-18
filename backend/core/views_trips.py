@@ -23,6 +23,7 @@ from .models import (
     InventoryTransaction,
     LocationLog,
     Order,
+    OrderDepositRefundClaim,
     OrderItem,
     ProductPackaging,
     Replacement,
@@ -162,6 +163,14 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 Prefetch(
                     "order__items",
                     queryset=OrderItem.objects.select_related("product").prefetch_related("mixed_case_components__product"),
+                ),
+                # Every stop serializes its order's deposit refund claims, and the
+                # empties counter reads them again. One batched query for the page
+                # replaces two per stop.
+                Prefetch(
+                    "order__deposit_refund_claims",
+                    queryset=OrderDepositRefundClaim.objects.select_related("product", "container_type"),
+                    to_attr="_serialized_refund_claims",
                 ),
             ).order_by("sequence"),
         )

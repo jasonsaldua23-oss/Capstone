@@ -223,6 +223,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     licenseType: '',
     licenseExpiry: '',
   })
+  const [draftNoMiddleName, setDraftNoMiddleName] = useState(false)
   const [draft, setDraft] = useState({
     name: '',
     firstName: '',
@@ -343,6 +344,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   }
 
   const openEdit = () => {
+    setDraftNoMiddleName(!form.middleName.trim())
     setDraft({
       name: form.name,
       firstName: form.firstName,
@@ -402,7 +404,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   }
 
   const onSave = async (mode: 'profile' | 'license' = 'profile') => {
-    if (mode === 'profile' && (!draft.firstName.trim() || !draft.lastName.trim() || !draft.middleName.trim())) {
+    if (mode === 'profile' && (!draft.firstName.trim() || !draft.lastName.trim() || (!draftNoMiddleName && !draft.middleName.trim()))) {
       toast.error('First name, last name, and middle name are required.')
       return
     }
@@ -453,7 +455,7 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           }
         : {
             firstName: draft.firstName,
-            middleName: draft.middleName,
+            middleName: draftNoMiddleName ? '' : draft.middleName,
             lastName: draft.lastName,
             suffix: draft.suffix,
             email: draft.email.trim().toLowerCase(),
@@ -932,8 +934,21 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               <Input id="driver-last-name" value={draft.lastName} onChange={(e) => onChange('lastName', e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="driver-middle-name" className="text-sm font-semibold text-slate-700">Middle Name <span className="text-red-500">*</span></Label>
-              <Input id="driver-middle-name" value={draft.middleName} onChange={(e) => onChange('middleName', e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile} />
+              <Label htmlFor="driver-middle-name" className="text-sm font-semibold text-slate-700">Middle Name {!draftNoMiddleName && <span className="text-red-500">*</span>}</Label>
+              <Input id="driver-middle-name" value={draft.middleName} onChange={(e) => onChange('middleName', e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200 bg-white text-slate-800" disabled={!isEditingProfile || draftNoMiddleName} />
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={draftNoMiddleName}
+                  onChange={(e) => {
+                    setDraftNoMiddleName(e.target.checked)
+                    if (e.target.checked) onChange('middleName', '')
+                  }}
+                  disabled={!isEditingProfile}
+                  className="h-3.5 w-3.5 rounded border-slate-300"
+                />
+                No middle name
+              </label>
             </div>
             <div className="space-y-2">
               <Label htmlFor="driver-suffix" className="text-sm font-semibold text-slate-700">Suffix <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>

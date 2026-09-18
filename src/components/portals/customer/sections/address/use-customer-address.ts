@@ -23,6 +23,7 @@ export type CustomerAddressInputs = {
   profileFirstName: CustomerPortalState['profileFirstName']
   profileLastName: CustomerPortalState['profileLastName']
   profileMiddleName: CustomerPortalState['profileMiddleName']
+  profileNoMiddleName: CustomerPortalState['profileNoMiddleName']
   profileSuffix: CustomerPortalState['profileSuffix']
   setAddressSearchResults: CustomerPortalState['setAddressSearchResults']
   setCustomerDiscountAmountPerCase: Dispatch<SetStateAction<number>>
@@ -38,6 +39,7 @@ export type CustomerAddressInputs = {
   setProfileFirstName: CustomerPortalState['setProfileFirstName']
   setProfileLastName: CustomerPortalState['setProfileLastName']
   setProfileMiddleName: CustomerPortalState['setProfileMiddleName']
+  setProfileNoMiddleName: CustomerPortalState['setProfileNoMiddleName']
   setProfileName: CustomerPortalState['setProfileName']
   setProfilePhone: CustomerPortalState['setProfilePhone']
   setProfileSuffix: CustomerPortalState['setProfileSuffix']
@@ -77,6 +79,7 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
     profileFirstName,
     profileLastName,
     profileMiddleName,
+    profileNoMiddleName,
     profileSuffix,
     setAddressSearchResults,
     setCustomerDiscountAmountPerCase,
@@ -92,6 +95,7 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
     setProfileFirstName,
     setProfileLastName,
     setProfileMiddleName,
+    setProfileNoMiddleName,
     setProfileName,
     setProfilePhone,
     setProfileSuffix,
@@ -222,6 +226,7 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
     setProfileName(String(customer?.name || '').trim())
     setProfileFirstName(String(customer?.firstName || customerNameParts[0] || '').trim())
     setProfileMiddleName(String(customer?.middleName || '').trim())
+    setProfileNoMiddleName(!String(customer?.middleName || '').trim())
     setProfileLastName(String(customer?.lastName || customerNameParts.slice(1).join(' ') || '').trim())
     setProfileSuffix(String(customer?.suffix || '').trim())
     setProfileEmail(String(customer?.email || '').trim())
@@ -277,7 +282,7 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
       toast.error('Unable to save address right now')
       return false
     }
-    if (!profileFirstName.trim() || !profileLastName.trim() || !profileMiddleName.trim()) {
+    if (!profileFirstName.trim() || !profileLastName.trim() || (!profileNoMiddleName && !profileMiddleName.trim())) {
       toast.error('First name, last name, and middle name are required.')
       return false
     }
@@ -314,7 +319,7 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
       const { response, payload: data } = await updateCustomerProfile(customerId, {
         // Keep Contact Information and Profile backed by the same structured name fields.
         firstName: profileFirstName.trim(),
-        middleName: profileMiddleName.trim(),
+        middleName: profileNoMiddleName ? null : profileMiddleName.trim(),
         lastName: profileLastName.trim(),
         suffix: profileSuffix.trim(),
         address: composedShippingAddress,

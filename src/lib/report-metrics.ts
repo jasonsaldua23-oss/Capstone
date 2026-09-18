@@ -1,3 +1,14 @@
+import {
+  FEEDBACK_DIMENSION_LABELS,
+  FEEDBACK_SERVICE_DIMENSIONS,
+  inferFeedbackDimension,
+  inferFeedbackDimensions,
+  lookupFeedbackReason,
+  normalizeFeedbackReasonText,
+  stripOtherReasonPrefix,
+  type FeedbackServiceDimension,
+} from '../../shared/customer-logic/src/feedback-reasons.ts'
+
 export type InventoryAlertLevel = 'healthy' | 'low' | 'critical' | 'out_of_stock' | 'overstocked'
 
 export type StockHealthSummary = {
@@ -860,4 +871,585 @@ export function buildWarehouseCapacityVsUsedChart(
         totalCapacity: capacitySummary.totalCapacity,
       }
     })
+}
+
+// ==== Client feedback ====
+//
+// The admin feedback summary used to report an average rating and little else, which
+// cannot say WHY clients scored a delivery the way they did. Every rating also carries
+// the checkbox reasons the client ticked, stored as a bullet list in `message`, and
+// those reasons map onto fixed service dimensions. These helpers turn that stored text
+// back into structure so the summary can name the weak dimension, rank recurring
+// complaints, and compare a period against the one before it.
+
+export type FeedbackPolarity = 'positive' | 'neutral' | 'negative' | 'unrated'
+
+/** A date range. `null` on either side means unbounded. */
+export type FeedbackDateWindow = {
+  start: Date | null
+  end: Date | null
+}
+
+export type FeedbackReasonHit = {
+  reason: string
+  canonicalReason: string
+  /** The strongest dimension, used wherever a single label is needed. */
+  dimension: FeedbackServiceDimension
+  /** Every dimension the text covers - free text often spans more than one. */
+  dimensions: FeedbackServiceDimension[]
+  dimensionLabel: string
+  /** True for an exact catalog hit; false when the keyword fallback resolved it. */
+  matched: boolean
+  polarity: FeedbackPolarity
+  rating: number
+}
+
+export type FeedbackRow = {
+  id: string
+  createdAt: unknown
+  createdAtDate: Date | null
+  customerName: string
+  customerAvatar: string
+  orderId: string
+  orderNumber: string
+  isReplacement: boolean
+  rating: number
+  polarity: FeedbackPolarity
+  type: string
+  subject: string
+  message: string
+  reasons: FeedbackReasonHit[]
+  dimensions: FeedbackServiceDimension[]
+}
+
+export type FeedbackKpiSummary = {
+  total: number
+  ratedCount: number
+  avgRating: number
+  positiveCount: number
+  neutralCount: number
+  negativeCount: number
+  positiveRate: number
+  neutralRate: number
+  negativeRate: number
+  /** Reviews the client described in their own words instead of ticking a phrase. */
+  describedCount: number
+}
+
+export type FeedbackKpiComparison = {
+  current: FeedbackKpiSummary
+  previous: FeedbackKpiSummary
+  hasPreviousPeriod: boolean
+  totalDelta: number
+  avgRatingDelta: number
+  positiveRateDelta: number
+  neutralRateDelta: number
+  negativeRateDelta: number
+}
+
+export type FeedbackDimensionRow = {
+  dimension: FeedbackServiceDimension
+  label: string
+  /** Feedback rows citing this dimension at least once. */
+  mentions: number
+  /** Raw reason hits, which can exceed `mentions` when one review ticks two phrases. */
+  reasonCount: number
+  positive: number
+  neutral: number
+  negative: number
+  avgRating: number
+  negativeRate: number
+  coverage: number
+  hasSignal: boolean
+}
+
+export type FeedbackTopIssueRow = {
+  rank: number
+  reason: string
+  dimension: FeedbackServiceDimension
+  dimensionLabel: string
+  count: number
+  share: number
+  avgRating: number
+  lastSeenAt: unknown
+}
+
+export type FeedbackTrendPoint = {
+  key: string
+  label: string
+  sortDate: Date
+  avgScore: number | null
+  responses: number
+}
+
+export type FeedbackAttentionRow = {
+  id: string
+  createdAt: unknown
+  ageDays: number
+  ageLabel: string
+  customerName: string
+  customerAvatar: string
+  orderNumber: string
+  isReplacement: boolean
+  rating: number
+  reasons: string[]
+  dimensions: FeedbackServiceDimension[]
+  /** What the client typed, when they described the issue instead of ticking a phrase. */
+  describedText: string
+}
+
+export type FeedbackDeltaDisplay = {
+  text: string
+  direction: 'up' | 'down' | 'flat'
+  tone: 'good' | 'bad' | 'neutral'
+}
+
+const roundRate = (value: number) => Math.round(value * 10) / 10
+
+/** Split a stored bullet list back into individual reasons, preserving order. */
+export function parseFeedbackReasons(message: unknown): string[] {
+  const raw = String(message ?? '')
+  if (!raw.trim()) return []
+  const seen = new Set<string>()
+  const reasons: string[] = []
+  // A legacy free-text message with no newlines yields a single entry rather than
+  // being dropped, so no feedback disappears from the counts.
+  for (const line of raw.split(/\r?\n/)) {
+    const normalized = normalizeFeedbackReasonText(line)
+    if (!normalized) continue
+    const key = normalized.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    reasons.push(normalized)
+  }
+  return reasons
+}
+
+/**
+ * Polarity comes from the parent star rating rather than the phrase wording. Every
+ * catalog phrase sits under exactly one star, so this is lossless for known phrases
+ * and still works for legacy text - and it cannot be fooled by "Issue was resolved"
+ * against "Issue was not resolved".
+ */
+export function getFeedbackPolarity(rating: unknown): FeedbackPolarity {
+  const value = Math.round(asNumber(rating))
+  if (value >= 4 && value <= 5) return 'positive'
+  if (value === 3) return 'neutral'
+  if (value >= 1 && value <= 2) return 'negative'
+  return 'unrated'
+}
+
+export function classifyFeedbackReason(reason: unknown, rating?: unknown): FeedbackReasonHit {
+  const text = normalizeFeedbackReasonText(reason)
+  const entry = lookupFeedbackReason(text)
+  // An "Other: ..." reason is the client's own words. Classify the words, not the marker.
+  const described = stripOtherReasonPrefix(text)
+  const dimensions = entry ? [entry.dimension] : inferFeedbackDimensions(described)
+  const dimension = entry ? entry.dimension : (dimensions[0] || inferFeedbackDimension(described))
+  const ratingValue = Math.round(asNumber(rating))
+  // Fall back to the star the phrase sits under when the caller has no rating.
+  const effectiveRating = ratingValue >= 1 && ratingValue <= 5
+    ? ratingValue
+    : (entry ? entry.catalogRating : 0)
+  return {
+    reason: text,
+    canonicalReason: entry ? entry.reason : text,
+    dimension,
+    dimensions,
+    dimensionLabel: FEEDBACK_DIMENSION_LABELS[dimension],
+    matched: Boolean(entry),
+    polarity: getFeedbackPolarity(effectiveRating),
+    rating: effectiveRating,
+  }
+}
+
+/**
+ * Normalize the raw /api/feedback payload once. Deliberately window-independent so the
+ * parse stays out of the filter-dependent memos in the admin view.
+ */
+export function buildFeedbackRows(feedback: any[], options: { orders?: any[] } = {}): FeedbackRow[] {
+  const orders = Array.isArray(options.orders) ? options.orders : []
+  const orderNumberById = new Map<string, string>()
+  orders.forEach((order) => {
+    const id = String(order?.id || '').trim()
+    const number = String(order?.orderNumber || '').trim()
+    if (id && number) orderNumberById.set(id, number)
+  })
+
+  return (Array.isArray(feedback) ? feedback : []).map((item) => {
+    const orderId = String(item?.orderId || item?.order_id || item?.order?.id || '').trim()
+    const orderNumber = String(
+      item?.order?.orderNumber || item?.orderNumber || orderNumberById.get(orderId) || ''
+    ).trim()
+    const rating = Math.round(asNumber(item?.rating))
+    const message = String(item?.message ?? '')
+    const reasons = parseFeedbackReasons(message).map((reason) => classifyFeedbackReason(reason, rating))
+    const dimensions = FEEDBACK_SERVICE_DIMENSIONS.filter((dimension) =>
+      reasons.some((hit) => hit.dimensions.includes(dimension))
+    )
+    return {
+      id: String(item?.id || ''),
+      createdAt: item?.createdAt ?? item?.created_at ?? null,
+      createdAtDate: toDate(item?.createdAt ?? item?.created_at),
+      customerName: String(item?.customer?.name || 'Customer'),
+      customerAvatar: String(item?.customer?.avatar || ''),
+      orderId,
+      orderNumber,
+      isReplacement: orderNumber.toUpperCase().startsWith('RPL-'),
+      rating: rating >= 1 && rating <= 5 ? rating : 0,
+      polarity: getFeedbackPolarity(rating),
+      type: String(item?.type || ''),
+      subject: String(item?.subject || ''),
+      message,
+      reasons,
+      dimensions: [...dimensions],
+    }
+  })
+}
+
+export function filterFeedbackRowsByWindow(
+  rows: FeedbackRow[],
+  window?: FeedbackDateWindow | null
+): FeedbackRow[] {
+  if (!window || (!window.start && !window.end)) return rows
+  const startMs = window.start ? window.start.getTime() : Number.NEGATIVE_INFINITY
+  const endMs = window.end ? window.end.getTime() : Number.POSITIVE_INFINITY
+  return rows.filter((row) => {
+    if (!row.createdAtDate) return false
+    const time = row.createdAtDate.getTime()
+    return time >= startMs && time <= endMs
+  })
+}
+
+/**
+ * The equally long period immediately before `window`. Returns null for an unbounded
+ * window, which is what drives `hasPreviousPeriod: false` - the UI then shows
+ * "No prior period" rather than a meaningless +0.
+ */
+export function buildFeedbackComparisonWindow(
+  window: FeedbackDateWindow,
+  now: Date = new Date()
+): FeedbackDateWindow | null {
+  if (!window?.start) return null
+  const end = window.end || now
+  const durationMs = end.getTime() - window.start.getTime()
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return null
+  return {
+    start: new Date(window.start.getTime() - durationMs - 1),
+    end: new Date(window.start.getTime() - 1),
+  }
+}
+
+/**
+ * The single definition of every feedback KPI. The admin cards previously mixed two
+ * row sets - a total over all feedback beside percentages over delivered-order
+ * feedback only - so the numbers contradicted each other.
+ */
+export function summarizeFeedbackKpis(rows: FeedbackRow[]): FeedbackKpiSummary {
+  const total = rows.length
+  const rated = rows.filter((row) => row.rating >= 1 && row.rating <= 5)
+  const ratedCount = rated.length
+  const positiveCount = rated.filter((row) => row.polarity === 'positive').length
+  const neutralCount = rated.filter((row) => row.polarity === 'neutral').length
+  const negativeCount = rated.filter((row) => row.polarity === 'negative').length
+  const describedCount = rows.filter((row) => row.reasons.some((hit) => !hit.matched)).length
+  const avgRating = ratedCount > 0
+    ? rated.reduce((sum, row) => sum + row.rating, 0) / ratedCount
+    : 0
+  const rate = (count: number) => (ratedCount > 0 ? roundRate((count / ratedCount) * 100) : 0)
+  return {
+    total,
+    ratedCount,
+    avgRating: Math.round(avgRating * 100) / 100,
+    positiveCount,
+    neutralCount,
+    negativeCount,
+    positiveRate: rate(positiveCount),
+    neutralRate: rate(neutralCount),
+    negativeRate: rate(negativeCount),
+    describedCount,
+  }
+}
+
+export function compareFeedbackKpis(
+  currentRows: FeedbackRow[],
+  previousRows: FeedbackRow[] | null
+): FeedbackKpiComparison {
+  const current = summarizeFeedbackKpis(currentRows)
+  const previous = summarizeFeedbackKpis(previousRows || [])
+  const hasPreviousPeriod = Array.isArray(previousRows)
+  return {
+    current,
+    previous,
+    hasPreviousPeriod,
+    totalDelta: current.total - previous.total,
+    avgRatingDelta: Math.round((current.avgRating - previous.avgRating) * 100) / 100,
+    positiveRateDelta: roundRate(current.positiveRate - previous.positiveRate),
+    neutralRateDelta: roundRate(current.neutralRate - previous.neutralRate),
+    negativeRateDelta: roundRate(current.negativeRate - previous.negativeRate),
+  }
+}
+
+export function describeFeedbackDelta(
+  delta: number,
+  options: { unit?: 'rating' | 'percent' | 'count'; higherIsBetter?: boolean } = {}
+): FeedbackDeltaDisplay {
+  const unit = options.unit || 'count'
+  const higherIsBetter = options.higherIsBetter !== false
+  const value = Number.isFinite(delta) ? delta : 0
+  const direction: FeedbackDeltaDisplay['direction'] = value > 0 ? 'up' : value < 0 ? 'down' : 'flat'
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  const magnitude = Math.abs(value)
+  const text = unit === 'rating'
+    ? `${sign}${magnitude.toFixed(1)}`
+    : unit === 'percent'
+      ? `${sign}${Math.round(magnitude)} pts`
+      : `${sign}${Math.round(magnitude)}`
+  // Tone is semantic, not directional: a falling negative rate is good news.
+  const tone: FeedbackDeltaDisplay['tone'] = direction === 'flat'
+    ? 'neutral'
+    : (value > 0) === higherIsBetter ? 'good' : 'bad'
+  return { text, direction, tone }
+}
+
+export function buildFeedbackRatingDistribution(rows: FeedbackRow[]) {
+  const rated = rows.filter((row) => row.rating >= 1 && row.rating <= 5)
+  return [5, 4, 3, 2, 1].map((rating) => {
+    const value = rated.filter((row) => row.rating === rating).length
+    return {
+      rating,
+      label: `${rating} Star${rating > 1 ? 's' : ''}`,
+      value,
+      share: rated.length > 0 ? roundRate((value / rated.length) * 100) : 0,
+    }
+  })
+}
+
+/**
+ * Always returns every dimension in canonical order, so the chart keeps a stable shape
+ * and a dimension nobody mentioned can render as "no data" rather than as a full
+ * positive bar - which matters because the Expo delivery catalog offers no timeliness
+ * option at all.
+ */
+export function buildFeedbackDimensionBreakdown(rows: FeedbackRow[]): FeedbackDimensionRow[] {
+  const total = rows.length
+  return FEEDBACK_SERVICE_DIMENSIONS.map((dimension) => {
+    const mentioningRows = rows.filter((row) => row.dimensions.includes(dimension))
+    const hits = rows.flatMap((row) => row.reasons.filter((hit) => hit.dimensions.includes(dimension)))
+    const positive = mentioningRows.filter((row) => row.polarity === 'positive').length
+    const neutral = mentioningRows.filter((row) => row.polarity === 'neutral').length
+    const negative = mentioningRows.filter((row) => row.polarity === 'negative').length
+    const ratedMentions = mentioningRows.filter((row) => row.rating >= 1 && row.rating <= 5)
+    const avgRating = ratedMentions.length > 0
+      ? Math.round((ratedMentions.reduce((sum, row) => sum + row.rating, 0) / ratedMentions.length) * 100) / 100
+      : 0
+    return {
+      dimension,
+      label: FEEDBACK_DIMENSION_LABELS[dimension],
+      mentions: mentioningRows.length,
+      reasonCount: hits.length,
+      positive,
+      neutral,
+      negative,
+      avgRating,
+      negativeRate: mentioningRows.length > 0 ? roundRate((negative / mentioningRows.length) * 100) : 0,
+      coverage: total > 0 ? roundRate((mentioningRows.length / total) * 100) : 0,
+      hasSignal: mentioningRows.length > 0,
+    }
+  })
+}
+
+export function buildFeedbackTopIssues(
+  rows: FeedbackRow[],
+  options: { limit?: number } = {}
+): FeedbackTopIssueRow[] {
+  const limit = options.limit ?? 5
+  const grouped = new Map<string, {
+    reason: string
+    dimension: FeedbackServiceDimension
+    count: number
+    ratingSum: number
+    ratingCount: number
+    lastSeenAt: unknown
+    lastSeenMs: number
+  }>()
+
+  rows.forEach((row) => {
+    row.reasons
+      .filter((hit) => hit.polarity === 'negative' && hit.matched)
+      .forEach((hit) => {
+        const key = hit.canonicalReason.toLowerCase()
+        const current = grouped.get(key) || {
+          reason: hit.canonicalReason,
+          dimension: hit.dimension,
+          count: 0,
+          ratingSum: 0,
+          ratingCount: 0,
+          lastSeenAt: row.createdAt,
+          lastSeenMs: Number.NEGATIVE_INFINITY,
+        }
+        current.count += 1
+        if (row.rating >= 1 && row.rating <= 5) {
+          current.ratingSum += row.rating
+          current.ratingCount += 1
+        }
+        const seenMs = row.createdAtDate ? row.createdAtDate.getTime() : Number.NEGATIVE_INFINITY
+        if (seenMs > current.lastSeenMs) {
+          current.lastSeenMs = seenMs
+          current.lastSeenAt = row.createdAt
+        }
+        grouped.set(key, current)
+      })
+  })
+
+  const totalHits = Array.from(grouped.values()).reduce((sum, entry) => sum + entry.count, 0)
+
+  return Array.from(grouped.values())
+    .map((entry) => ({
+      reason: entry.reason,
+      dimension: entry.dimension,
+      dimensionLabel: FEEDBACK_DIMENSION_LABELS[entry.dimension],
+      count: entry.count,
+      share: totalHits > 0 ? roundRate((entry.count / totalHits) * 100) : 0,
+      avgRating: entry.ratingCount > 0
+        ? Math.round((entry.ratingSum / entry.ratingCount) * 100) / 100
+        : 0,
+      lastSeenAt: entry.lastSeenAt,
+    }))
+    // Deterministic ordering: most frequent, then worst rated, then alphabetical.
+    .sort((a, b) => (b.count - a.count) || (a.avgRating - b.avgRating) || a.reason.localeCompare(b.reason))
+    .slice(0, limit)
+    .map((entry, index) => ({ rank: index + 1, ...entry }))
+}
+
+/**
+ * Trailing months only. The previous implementation centred the window on the current
+ * month, so half the chart was always-empty future months.
+ */
+export function buildFeedbackSatisfactionTrend(
+  rows: FeedbackRow[],
+  options: { months?: number; now?: Date } = {}
+): FeedbackTrendPoint[] {
+  const months = Math.max(1, options.months ?? 6)
+  const now = options.now || new Date()
+  const anchor = new Date(now.getFullYear(), now.getMonth(), 1)
+
+  return Array.from({ length: months }).map((_, index) => {
+    const date = new Date(anchor.getFullYear(), anchor.getMonth() - (months - 1) + index, 1)
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const monthRatings = rows
+      .filter((row) => {
+        if (!row.createdAtDate || row.rating < 1 || row.rating > 5) return false
+        return row.createdAtDate.getFullYear() === date.getFullYear()
+          && row.createdAtDate.getMonth() === date.getMonth()
+      })
+      .map((row) => row.rating)
+    return {
+      key,
+      label: date.toLocaleString('en-US', { month: 'short' }),
+      sortDate: date,
+      avgScore: monthRatings.length > 0
+        ? Math.round((monthRatings.reduce((sum, value) => sum + value, 0) / monthRatings.length) * 100) / 100
+        : null,
+      responses: monthRatings.length,
+    }
+  })
+}
+
+export function buildFeedbackAttentionQueue(
+  rows: FeedbackRow[],
+  options: { limit?: number; maxRating?: number; now?: Date } = {}
+): FeedbackAttentionRow[] {
+  const limit = options.limit ?? 8
+  const maxRating = options.maxRating ?? 2
+  const now = options.now || new Date()
+
+  return rows
+    .filter((row) => row.rating >= 1 && row.rating <= maxRating)
+    .slice()
+    .sort((a, b) => {
+      const aMs = a.createdAtDate ? a.createdAtDate.getTime() : Number.NEGATIVE_INFINITY
+      const bMs = b.createdAtDate ? b.createdAtDate.getTime() : Number.NEGATIVE_INFINITY
+      return bMs - aMs
+    })
+    .slice(0, limit)
+    .map((row) => {
+      const ageDays = row.createdAtDate
+        ? Math.max(0, Math.floor((now.getTime() - row.createdAtDate.getTime()) / 86400000))
+        : 0
+      const ageLabel = !row.createdAtDate
+        ? 'Unknown date'
+        : ageDays === 0
+          ? 'Today'
+          : ageDays === 1
+            ? 'Yesterday'
+            : ageDays < 7
+              ? `${ageDays}d ago`
+              : ageDays < 30
+                ? `${Math.floor(ageDays / 7)}w ago`
+                : `${Math.floor(ageDays / 30)}mo ago`
+      return {
+        id: row.id,
+        createdAt: row.createdAt,
+        ageDays,
+        ageLabel,
+        customerName: row.customerName,
+        customerAvatar: row.customerAvatar,
+        orderNumber: row.orderNumber,
+        isReplacement: row.isReplacement,
+        rating: row.rating,
+        // Free text appears in the quote block below the chips, so it is not repeated here.
+        reasons: row.reasons.filter((hit) => hit.polarity === 'negative' && hit.matched).map((hit) => hit.canonicalReason),
+        dimensions: row.dimensions,
+        describedText: row.reasons
+          .filter((hit) => !hit.matched)
+          .map((hit) => stripOtherReasonPrefix(hit.reason))
+          .join(' '),
+      }
+    })
+}
+
+/**
+ * Participation keeps a delivered-order denominator - it is the only KPI that should
+ * have one - and honours the same window so a 30-day view is not divided by every
+ * delivered order ever recorded.
+ */
+export function summarizeFeedbackParticipation(
+  rows: FeedbackRow[],
+  orders: any[],
+  options: { window?: FeedbackDateWindow | null } = {}
+) {
+  const window = options.window
+  const bounded = Boolean(window && (window.start || window.end))
+  const startMs = window?.start ? window.start.getTime() : Number.NEGATIVE_INFINITY
+  const endMs = window?.end ? window.end.getTime() : Number.POSITIVE_INFINITY
+
+  const deliveredIds = new Set<string>()
+  const orderList = Array.isArray(orders) ? orders : []
+  orderList.forEach((order) => {
+    const status = String(order?.status || '').toUpperCase()
+    const deliveryStatus = String(order?.deliveryStatus || '').toUpperCase()
+    if (status !== 'DELIVERED' && deliveryStatus !== 'DELIVERED') return
+    const id = String(order?.id || '').trim()
+    if (!id) return
+    if (bounded) {
+      const when = toDate(order?.deliveredAt) || toDate(order?.createdAt)
+      if (!when) return
+      const time = when.getTime()
+      if (time < startMs || time > endMs) return
+    }
+    deliveredIds.add(id)
+  })
+
+  const reviewedIds = new Set(
+    rows.map((row) => row.orderId).filter((id) => id && deliveredIds.has(id))
+  )
+
+  return {
+    deliveredOrders: deliveredIds.size,
+    reviewedOrders: reviewedIds.size,
+    participationRate: deliveredIds.size > 0
+      ? Math.round((reviewedIds.size / deliveredIds.size) * 100)
+      : 0,
+  }
 }

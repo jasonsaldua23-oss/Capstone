@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Store,
   Trophy,
+  Package,
 } from 'lucide-react'
 import {
   PurchaseRequestsReport,
@@ -210,6 +211,7 @@ export function ReportsView() {
     transportExportRows,
     transportSummaryLines,
     transportTopDrivers,
+    warehouseCapacityTrendPoints,
     warehouseCapacityTrendSummaryLines,
     warehouseCapacityVsUsedChart,
     warehouseDateWindow,
@@ -316,6 +318,7 @@ export function ReportsView() {
     const reportMap: Record<string, { filename: string; rows: Array<Record<string, unknown>> }> = {
       orders: { filename: 'orders-report', rows: orderExportRows },
       transport: { filename: 'transport-report', rows: transportExportRows },
+      warehouse: { filename: 'warehouse-report', rows: warehouseUtilizationRowsForExport },
       inventory: { filename: 'inventory-report', rows: inventoryExportRows },
       replacement: { filename: 'replacement-report', rows: replacementRows },
       feedback: { filename: 'feedback-report', rows: feedbackExportRows },
@@ -460,29 +463,14 @@ export function ReportsView() {
         <Button variant="outline" className="gap-2 rounded-lg border-slate-200" onClick={resetFilters}>
           Reset Filters
         </Button>
-        {title === 'Warehouse' ? (
-          <>
-            <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportWarehousePdf(buildReportStamp())} disabled={isLoading}>
-              <Download className="h-4 w-4" />
-              Export Warehouse PDF
-            </Button>
-            <Button variant="outline" className="gap-2 rounded-lg border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => void exportInventoryPdf(buildReportStamp())} disabled={isLoading}>
-              <Download className="h-4 w-4" />
-              Export Inventory PDF
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button variant="outline" className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50" onClick={exportCurrentCsv} disabled={isLoading}>
-              <FileSpreadsheet className="h-4 w-4" />
-              Export CSV
-            </Button>
-            <Button variant="outline" className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
-              <Download className="h-4 w-4" />
-              {`Export ${title} PDF`}
-            </Button>
-          </>
-        )}
+        <Button variant="outline" className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50" onClick={exportCurrentCsv} disabled={isLoading}>
+          <FileSpreadsheet className="h-4 w-4" />
+          Export CSV
+        </Button>
+        <Button variant="outline" className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
+          <Download className="h-4 w-4" />
+          {`Export ${title} PDF`}
+        </Button>
       </div>
     </div>
   )
@@ -661,7 +649,8 @@ export function ReportsView() {
               <TabsTrigger value="replacement_records" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><RotateCcw className="h-4 w-4" />Replacement Records</TabsTrigger>
               <TabsTrigger value="retail_sales" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Store className="h-4 w-4" />Retail Sales</TabsTrigger>
               <TabsTrigger value="top_clients" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Trophy className="h-4 w-4" />Top Clients</TabsTrigger>
-              <TabsTrigger value="warehouse" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse & Inventory</TabsTrigger>
+              <TabsTrigger value="warehouse" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Building2 className="h-4 w-4" />Warehouse</TabsTrigger>
+              <TabsTrigger value="inventory" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><Package className="h-4 w-4" />Inventory</TabsTrigger>
               <TabsTrigger value="feedback" className="h-10 gap-2 rounded-xl text-[13px] font-semibold data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700"><MessageSquare className="h-4 w-4" />Feedback</TabsTrigger>
             </TabsList>
           </div>
@@ -701,6 +690,15 @@ export function ReportsView() {
 
           <TabsContent value="warehouse" className="report-design-system space-y-8">
             <WarehouseReportTab
+              reportToolbar={reportToolbar}
+              warehouseCapacityTrendPoints={warehouseCapacityTrendPoints}
+              warehouseCapacityVsUsedChart={warehouseCapacityVsUsedChart}
+              warehouses={warehouses}
+            />
+          </TabsContent>
+
+          <TabsContent value="inventory" className="report-design-system space-y-8">
+            <InventoryReportTab
               inventory={inventory}
               inventoryKpi={inventoryKpi}
               inventoryMovementByProductChart={inventoryMovementByProductChart}
@@ -719,23 +717,7 @@ export function ReportsView() {
               stockExpiryKpi={stockExpiryKpi}
               stockExpiryRows={stockExpiryRows}
               stockTrendSummary={stockTrendSummary}
-              warehouseCapacityVsUsedChart={warehouseCapacityVsUsedChart}
               warehouses={warehouses}
-            />
-          </TabsContent>
-
-          <TabsContent value="inventory" className="space-y-4">
-            <InventoryReportTab
-              inventory={inventory}
-              inventoryKpi={inventoryKpi}
-              inventoryMovementByProductChart={inventoryMovementByProductChart}
-              inventoryMovementRows={inventoryMovementRows}
-              inventoryMovementTypeOptions={inventoryMovementTypeOptions}
-              lowStockKpi={lowStockKpi}
-              lowStockRows={lowStockRows}
-              reportToolbar={reportToolbar}
-              selectedMovementType={selectedMovementType}
-              setSelectedMovementType={setSelectedMovementType}
             />
           </TabsContent>
 

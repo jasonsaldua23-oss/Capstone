@@ -15,6 +15,8 @@ import {
   PieChart,
   Pie,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeComposition, describeRanking, toPoints } from '@/lib/chart-interpretation'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
@@ -55,6 +57,25 @@ export function TransportReportTab({
   transportTopDrivers,
   trips,
 }: TransportReportTabProps) {
+  const bandInterpretation = describeComposition(
+    toPoints(transportCompletionBandChart, (row: any) => `the ${row.name} band`, (row: any) => row.count),
+    {
+      noun: 'drivers',
+      entityNoun: 'band',
+      emptyMessage: 'No driver has completion data under the selected filters, so the bands are empty.',
+    }
+  )
+  // Completion rate is a percentage per driver, so the ranking reads the leader rather than a total.
+  const topDriverInterpretation = describeRanking(
+    toPoints(transportTopDrivers, (row: any) => row.name, (row: any) => row.completionRate),
+    {
+      noun: 'completion',
+      entityNoun: 'driver',
+      format: (value) => `${value.toFixed(1)}%`,
+      emptyMessage: 'No driver matches the selected filters, so there is no ranking to interpret yet.',
+    }
+  )
+
   return (
     <>
       {reportToolbar({
@@ -136,6 +157,7 @@ export function TransportReportTab({
                 </ResponsiveContainer>
               )}
             </div>
+            <ChartInterpretation text={bandInterpretation} />
           </CardContent>
         </Card>
         <Card className={chartCardClassName}>
@@ -166,6 +188,13 @@ export function TransportReportTab({
                 </ResponsiveContainer>
               )}
             </div>
+            <ChartInterpretation
+              text={
+                transportTopDrivers.length === 0
+                  ? 'No driver matches the selected filters, so there is no ranking to interpret yet.'
+                  : `${topDriverInterpretation} The ranked drivers carry ${transportTopDrivers.reduce((sum, row) => sum + Number(row.totalTrips || 0), 0).toLocaleString('en-US')} of the ${Number(driverPerformanceKpi.totalTrips || 0).toLocaleString('en-US')} trips in the period.`
+              }
+            />
           </CardContent>
         </Card>
       </div>

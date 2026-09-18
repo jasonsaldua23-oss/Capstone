@@ -16,6 +16,8 @@ import {
   PieChart,
   Pie,
 } from 'recharts'
+import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { describeComposition, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso } from '../shared'
 import { formatOrderReportStatus } from '@/lib/report-metrics'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, formatOrderCountLabel, previewRows } from './chart-styles'
@@ -48,6 +50,16 @@ export function OrdersReportTab({
   selectedOrderStatus,
   setSelectedOrderStatus,
 }: OrdersReportTabProps) {
+  // Both readings come off the same arrays the charts draw, so they follow the filters.
+  const volumeInterpretation = describeTrend(
+    toPoints(orderOutcomeTrendChart, (row: any) => row.label, (row: any) => row.orders),
+    { noun: 'orders', periodNoun: 'day', emptyMessage: 'No orders fall inside the selected range, so there is nothing to interpret yet.' }
+  )
+  const statusInterpretation = describeComposition(
+    toPoints(orderStatusChart, (row: any) => row.name, (row: any) => row.value),
+    { noun: 'orders', entityNoun: 'status', emptyMessage: 'No orders fall inside the selected range, so the status mix is empty.' }
+  )
+
   return (
     <>
       {reportToolbar({
@@ -93,6 +105,7 @@ export function OrdersReportTab({
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            <ChartInterpretation text={volumeInterpretation} />
           </CardContent>
         </Card>
 
@@ -146,6 +159,7 @@ export function OrdersReportTab({
                 <span>{orderKpi.totalOrders} (100%)</span>
               </div>
             </div>
+            <ChartInterpretation text={statusInterpretation} className="mt-0" />
           </CardContent>
         </Card>
       </div>
