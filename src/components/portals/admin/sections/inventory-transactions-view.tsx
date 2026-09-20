@@ -172,6 +172,10 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('pageSize', String(pageSize))
+      // This screen lists physical stock movements only. Asking the server for
+      // that set is what keeps the row count honest: filtering reservations out
+      // after paging is what once left "Showing 1-20 of 672" above two rows.
+      params.set('stockMovementsOnly', '1')
       if (search) params.set('search', search)
       if (dateFrom) params.set('dateFrom', dateFrom)
       if (dateTo) params.set('dateTo', dateTo)
@@ -188,15 +192,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
         throw new Error(data?.error || 'Failed to fetch transactions')
       }
       const rows = Array.isArray(data?.transactions ?? data?.data ?? data) ? (data?.transactions ?? data?.data ?? data) : []
-      const stockInOutOnly = (rows as TransactionRow[]).filter((tx) => {
-        // Internal loose-bottle remainders are reconciliation records, not stock-in rows for this screen.
-        if (String(tx.referenceType || '').toLowerCase() === 'replacement_bottle_remainder') return false
-        const t = String(tx.stockType || tx.type || '').toUpperCase()
-        // Fix: reservation consumption does not deduct physical stock a second time.
-        return ['STOCK_IN', 'IN', 'RETURN'].includes(t) || ['STOCK_OUT', 'OUT'].includes(t)
-      })
-      setTransactions(stockInOutOnly)
-      setTotal(data?.total ?? stockInOutOnly.length)
+      setTransactions(rows as TransactionRow[])
+      setTotal(Number(data?.total ?? rows.length))
     } catch (err: any) {
       if (requestId !== searchRequestRef.current) return
       toast.error(err?.message || 'Failed to load transaction history')
@@ -414,7 +411,9 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
           {totalPages > 1 && (
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-t border-gray-100">
               <p className="text-xs text-gray-500">
-                Showing {Math.min((page - 1) * pageSize + 1, total)}-{Math.min(page * pageSize, total)} of {total}
+                {/* Counted from the rows actually rendered, so the label cannot
+                    drift from the table the way a page-window calculation can. */}
+                Showing {transactions.length === 0 ? 0 : (page - 1) * pageSize + 1}-{(page - 1) * pageSize + transactions.length} of {total}
               </p>
               <div className="flex flex-wrap gap-1">
                 <Button

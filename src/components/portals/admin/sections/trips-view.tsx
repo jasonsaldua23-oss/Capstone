@@ -691,7 +691,7 @@ export function TripsView() {
             <>
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b pb-3">
               <p className="text-xs text-slate-500">
-                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, filteredTrips.length)} of {filteredTrips.length}
+                Showing {paginatedTrips.length === 0 ? 0 : (tripsPage - 1) * tripsPageSize + 1}-{(tripsPage - 1) * tripsPageSize + paginatedTrips.length} of {filteredTrips.length}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -783,7 +783,7 @@ export function TripsView() {
             </div>
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t pt-3">
               <p className="text-xs text-slate-500">
-                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, trips.length)} of {trips.length}
+                Showing {paginatedTrips.length === 0 ? 0 : (tripsPage - 1) * tripsPageSize + 1}-{(tripsPage - 1) * tripsPageSize + paginatedTrips.length} of {filteredTrips.length}
               </p>
               <div className="flex items-center gap-2">
                 <Button

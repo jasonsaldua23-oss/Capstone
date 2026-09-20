@@ -566,7 +566,7 @@ export function WarehouseTripsSection({
             <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-1 pb-3">
               <p className="text-xs text-slate-500">
-                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, filteredTrips.length)} of {filteredTrips.length}
+                Showing {paginatedTrips.length === 0 ? 0 : (tripsPage - 1) * tripsPageSize + 1}-{(tripsPage - 1) * tripsPageSize + paginatedTrips.length} of {filteredTrips.length}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -680,7 +680,7 @@ export function WarehouseTripsSection({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t px-1 pt-3">
               <p className="text-xs text-slate-500">
-                Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, scopedTrips.length)} of {scopedTrips.length}
+                Showing {paginatedTrips.length === 0 ? 0 : (tripsPage - 1) * tripsPageSize + 1}-{(tripsPage - 1) * tripsPageSize + paginatedTrips.length} of {filteredTrips.length}
               </p>
               <div className="flex items-center gap-2">
                 <Button

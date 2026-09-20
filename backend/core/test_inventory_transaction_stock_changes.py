@@ -201,6 +201,62 @@ class InventoryTransactionStockChangeTests(TestCase):
         self.assertEqual(payload["total"], 1)
         self.assertEqual(payload["transactions"][0]["type"], "OUT")
 
+    def test_stock_movement_paging_counts_only_the_rows_the_screen_lists(self):
+        """The history screen pages physical movements, so its total must count those."""
+        # One page worth of bookkeeping rows in front of the movements: this is the
+        # shape that showed "Showing 1-20 of 672" above two rendered rows.
+        for index in range(20):
+            InventoryTransaction.objects.create(
+                warehouse=self.warehouse, product=self.product,
+                type="RESERVE" if index % 2 else "UNRESERVE", quantity=1,
+            )
+        for movement in ["IN", "OUT", "RETURN"]:
+            InventoryTransaction.objects.create(
+                warehouse=self.warehouse, product=self.product, type=movement, quantity=2,
+            )
+        with patch("core.views_api._require_staff", return_value=({"role": "ADMIN", "userId": "staff"}, None)):
+            request = RequestFactory().get(
+                "/api/inventory-transactions", {"stockMovementsOnly": "1", "pageSize": 20}
+            )
+            payload = json.loads(inventory_transactions_list(request).content)
+        # The count and the rows agree, so "Showing 1-3 of 3" is the truth.
+        self.assertEqual(payload["total"], 3)
+        self.assertEqual(payload["totalPages"], 1)
+        self.assertEqual(len(payload["transactions"]), 3)
+        self.assertEqual(
+            sorted(row["type"] for row in payload["transactions"]), ["IN", "OUT", "RETURN"]
+        )
+
+    def test_direction_filter_matches_every_type_shown_under_that_heading(self):
+        """"Stock In" on screen covers IN and RETURN, so the filter must too."""
+        for movement in ["IN", "RETURN", "OUT", "RESERVE"]:
+            InventoryTransaction.objects.create(
+                warehouse=self.warehouse, product=self.product, type=movement, quantity=2,
+            )
+        with patch("core.views_api._require_staff", return_value=({"role": "ADMIN", "userId": "staff"}, None)):
+            incoming = json.loads(inventory_transactions_list(RequestFactory().get(
+                "/api/inventory-transactions", {"type": "IN", "stockMovementsOnly": "1"}
+            )).content)
+            outgoing = json.loads(inventory_transactions_list(RequestFactory().get(
+                "/api/inventory-transactions", {"type": "OUT", "stockMovementsOnly": "1"}
+            )).content)
+        self.assertEqual(sorted(row["type"] for row in incoming["transactions"]), ["IN", "RETURN"])
+        self.assertEqual(incoming["total"], 2)
+        self.assertEqual([row["type"] for row in outgoing["transactions"]], ["OUT"])
+        self.assertEqual(outgoing["total"], 1)
+
+    def test_other_callers_still_see_every_transaction_type(self):
+        """Only the history screens opt in; the report feeds must not lose rows."""
+        for movement in ["IN", "OUT", "RESERVE", "CONSUME_EMPTY"]:
+            InventoryTransaction.objects.create(
+                warehouse=self.warehouse, product=self.product, type=movement, quantity=2,
+            )
+        with patch("core.views_api._require_staff", return_value=({"role": "ADMIN", "userId": "staff"}, None)):
+            payload = json.loads(inventory_transactions_list(
+                RequestFactory().get("/api/inventory-transactions", {"limit": 1000})
+            ).content)
+        self.assertEqual(payload["total"], 4)
+
     def setUp(self) -> None:
         self.warehouse = Warehouse.objects.create(
             name="Transaction Warehouse",

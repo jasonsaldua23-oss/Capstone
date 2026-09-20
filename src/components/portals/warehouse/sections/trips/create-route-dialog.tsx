@@ -468,7 +468,8 @@ export function WarehouseCreateRouteDialog({
       </DialogContent>
     </Dialog>
     <AlertDialog open={confirmCreateOpen} onOpenChange={setConfirmCreateOpen}>
-      <AlertDialogContent>
+      {/* Fix: keep this nested confirmation and its backdrop above the z-60 route planner. */}
+      <AlertDialogContent className="z-[70]" overlayClassName="z-[70]">
         <AlertDialogHeader>
           <AlertDialogTitle>Create this trip?</AlertDialogTitle>
           <AlertDialogDescription>

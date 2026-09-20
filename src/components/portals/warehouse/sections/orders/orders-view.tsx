@@ -239,12 +239,9 @@ export function WarehouseOrdersView({
               <option value="all">All order statuses</option>
               <option value="APPROVED">Approved</option>
               <option value="PROCESSING">Processing</option>
-              <option value="READY_FOR_DELIVERY">Ready for Delivery</option>
-              <option value="FOR_DELIVERY">For Delivery</option>
               <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
               <option value="RESCHEDULED">Rescheduled</option>
               <option value="DELIVERED">Delivered</option>
-              <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
             </select>
             <Input type="date" value={dateApprovedFilter} onChange={(event) => setDateApprovedFilter(event.target.value)} />
@@ -362,8 +359,9 @@ export function WarehouseOrdersView({
                                     <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>
                                   </td>
                                   <td rowSpan={displayItems.length} className="px-4 py-3">
-                                    {/* Fix: action labels vary, so keep every control aligned to one column width. */}
-                                    <div className="flex w-[172px] max-w-full flex-col gap-2">
+                                    {/* Action labels vary by stage, so `table-actions` gives the column
+                                        one width and every control in it the same width. */}
+                                    <div className="table-actions">
                             <Button variant="outline" size="sm" className="w-full" onClick={() => void openOrderDetail(order)}>
                               <Eye className="mr-2 h-4 w-4" />
                               View Details

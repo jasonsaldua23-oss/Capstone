@@ -1161,7 +1161,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b pb-3">
                 <p className="text-xs text-slate-500">
-                  Showing {(safeTripsPage - 1) * tripsPageSize + 1}-{Math.min(safeTripsPage * tripsPageSize, trips.length)} of {trips.length}
+                  Showing {paginatedTrips.length === 0 ? 0 : (safeTripsPage - 1) * tripsPageSize + 1}-{(safeTripsPage - 1) * tripsPageSize + paginatedTrips.length} of {trips.length}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -1229,7 +1229,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
               })}
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t pt-3">
                 <p className="text-xs text-slate-500">
-                  Showing {(safeTripsPage - 1) * tripsPageSize + 1}-{Math.min(safeTripsPage * tripsPageSize, trips.length)} of {trips.length}
+                  Showing {paginatedTrips.length === 0 ? 0 : (safeTripsPage - 1) * tripsPageSize + 1}-{(safeTripsPage - 1) * tripsPageSize + paginatedTrips.length} of {trips.length}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button

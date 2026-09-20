@@ -1108,10 +1108,10 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                         <td className="p-4 text-gray-500">
                           {scheduledDate ? new Date(scheduledDate).toLocaleDateString() : statusLabel === 'Completed' ? 'Not recorded' : 'Not scheduled'}
                         </td>
-                        <td className="p-4 min-w-[220px]">
+                        <td className="p-4">
                           {/* Added: expose the next workflow step directly in the row. */}
-                          <div className="flex flex-col items-start gap-2" aria-busy={updatingReplacementId === item.id}>
-                            <div key={rawStatus} className="flex flex-wrap gap-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+                          <div className="table-actions" aria-busy={updatingReplacementId === item.id}>
+                            <div key={rawStatus} className="table-actions motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
                               {rawStatus === 'UNDER_REVIEW' ? (
                                 <>
                                   <Button size="sm" className="h-9 bg-emerald-600 text-white transition-colors hover:bg-emerald-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => setApproveConfirmId(item.id)}>

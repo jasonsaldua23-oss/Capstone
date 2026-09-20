@@ -482,6 +482,20 @@ def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTra
             payload["updatedStock"] = values[1]
     return data
 
+# Physical stock movements, as the transaction-history screens define them:
+# what actually entered or left the warehouse. Reservations, their consumption
+# and internal transfers are bookkeeping and are not listed there.
+_STOCK_MOVEMENT_IN_TYPES = ["IN", "STOCK_IN", "RETURN"]
+_STOCK_MOVEMENT_OUT_TYPES = ["OUT", "STOCK_OUT"]
+_STOCK_MOVEMENT_TYPES = _STOCK_MOVEMENT_IN_TYPES + _STOCK_MOVEMENT_OUT_TYPES
+_TRANSACTION_TYPE_ALIASES = {
+    "IN": _STOCK_MOVEMENT_IN_TYPES,
+    "STOCK_IN": _STOCK_MOVEMENT_IN_TYPES,
+    "OUT": _STOCK_MOVEMENT_OUT_TYPES,
+    "STOCK_OUT": _STOCK_MOVEMENT_OUT_TYPES,
+}
+
+
 
 @require_GET
 def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
@@ -511,7 +525,16 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
 
     tx_type = str(request.GET.get("type") or "").strip().upper()
     if tx_type and tx_type != "ALL":
-        qs = qs.filter(type__iexact=tx_type)
+        # "IN"/"OUT" name a direction on this screen, not one stored value: a
+        # RETURN is stock coming in. Match the aliases the screen groups under
+        # each heading so its own filter and the server agree.
+        qs = qs.filter(type__in=_TRANSACTION_TYPE_ALIASES.get(tx_type, [tx_type]))
+
+    # The stock-in/out screens page these rows, so the rows they hide must be
+    # excluded before the count: paginating over reservations and then dropping
+    # them client-side is what left "Showing 1-20 of 672" above two rows.
+    if str(request.GET.get("stockMovementsOnly") or "").strip().lower() in {"1", "true", "yes"}:
+        qs = qs.filter(type__in=_STOCK_MOVEMENT_TYPES)
 
     # Filter return history before pagination, retaining the staff warehouse scope above.
     reference_type = str(request.GET.get("referenceType") or "").strip()

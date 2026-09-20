@@ -624,12 +624,15 @@ export function WarehouseReplacementsView({
                     const nextDate = rowRescheduleDates[ret.id] || ''
                     return (
                       <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
-                        <td className="p-4 font-medium">{ret.replacementNumber}</td>
-                        <td className="p-4">{replacementOrderNumber || 'N/A'}</td>
-                        <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
+                        {/* Reference numbers are one token: broken across two lines they are
+                            hard to read and to quote back. Keeping them whole can make the
+                            table too wide for its card, and it then stacks instead. */}
+                        <td className="p-4 font-medium whitespace-nowrap">{ret.replacementNumber}</td>
+                        <td className="p-4 whitespace-nowrap">{replacementOrderNumber || 'N/A'}</td>
+                        <td className="p-4 whitespace-nowrap">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
                         <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
                         <td className="p-4">
-                          <span className={isOverdue ? 'font-medium text-amber-700' : undefined}>{scheduledDate || 'N/A'}</span>
+                          <span className={`whitespace-nowrap ${isOverdue ? 'font-medium text-amber-700' : ''}`}>{scheduledDate || 'N/A'}</span>
                           {isOverdue ? (
                             <Badge className="ml-2 bg-amber-100 text-amber-700 hover:bg-amber-100">Overdue</Badge>
                           ) : null}
@@ -637,10 +640,12 @@ export function WarehouseReplacementsView({
                         <td className="p-4">
                           <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">{statusLabel}</Badge>
                         </td>
-                        <td className="p-4 min-w-[220px]">
-                          <div className="flex flex-col items-start gap-2" aria-busy={updatingReplacementId === ret.id}>
+                        <td className="p-4">
+                          {/* The date field is a control like the buttons beside it, so it
+                              shares their column width instead of setting its own. */}
+                          <div className="table-actions" aria-busy={updatingReplacementId === ret.id}>
                             {isOverdue ? (
-                              <div className="flex flex-wrap items-center gap-2">
+                              <>
                                 <input
                                   type="date"
                                   min={todayDateInput}
@@ -648,7 +653,7 @@ export function WarehouseReplacementsView({
                                   disabled={Boolean(updatingReplacementId)}
                                   onChange={(event) => setRowRescheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))}
                                   aria-label={`New delivery date for ${ret.replacementNumber}`}
-                                  className="h-9 w-[170px] rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                                  className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                                 />
                                 <Button
                                   size="sm"
@@ -662,7 +667,7 @@ export function WarehouseReplacementsView({
                                   {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                   Reschedule
                                 </Button>
-                              </div>
+                              </>
                             ) : null}
                             <Button size="sm" variant="outline" onClick={() => openReplacementDetails(ret)}>
                               View Details
@@ -744,10 +749,10 @@ export function WarehouseReplacementsView({
                         <td className="p-4 text-gray-500">
                           {ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'N/A'}
                         </td>
-                        <td className="p-4 min-w-[220px]">
+                        <td className="p-4">
                             {/* Added: keep processing and scheduling beside the request they update. */}
-                            <div className="flex flex-col items-start gap-2" aria-busy={updatingReplacementId === ret.id}>
-                              <div key={rawStatus} className="flex flex-col items-start gap-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+                            <div className="table-actions" aria-busy={updatingReplacementId === ret.id}>
+                              <div key={rawStatus} className="table-actions motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
                                 {rawStatus === 'APPROVED' ? (
                                   <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => setProcessConfirmId(ret.id)}>
                                     {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -757,7 +762,7 @@ export function WarehouseReplacementsView({
                                   <>
                                     <label className="space-y-1 text-xs font-medium text-slate-600">
                                       <span className="block">Delivery date</span>
-                                      <input type="date" min={todayDateInput} value={rowScheduleDates[ret.id] || ''} disabled={Boolean(updatingReplacementId)} onChange={(event) => setRowScheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))} className="h-9 w-[170px] rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
+                                      <input type="date" min={todayDateInput} value={rowScheduleDates[ret.id] || ''} disabled={Boolean(updatingReplacementId)} onChange={(event) => setRowScheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
                                     </label>
                                     <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId) || !rowScheduleDates[ret.id] || isPastScheduleDate(rowScheduleDates[ret.id])} onClick={() => {
                                       const deliveryDate = rowScheduleDates[ret.id]
