@@ -1212,7 +1212,7 @@ export function WarehousePortal() {
   const updateIssueStatus = async (
     replacementId: string,
     status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'IN_PROGRESS' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
-    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
+    options?: { notes?: string; createReplacementOrder?: boolean; rescheduleReplacementDelivery?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
   ) => {
     setUpdatingReplacementId(replacementId)
     try {
@@ -1225,6 +1225,7 @@ export function WarehousePortal() {
           status,
           notes: options?.notes,
           createReplacementOrder: options?.createReplacementOrder,
+          rescheduleReplacementDelivery: options?.rescheduleReplacementDelivery,
           replacementDeliveryDate: options?.replacementDeliveryDate,
           manualScheduleConfirmed: options?.manualScheduleConfirmed,
         }),
@@ -1247,7 +1248,10 @@ export function WarehousePortal() {
       const nextReplacement = payload?.replacement || {}
       const nextStatus = String(nextReplacement?.status || status || '').toUpperCase()
       const schedulingFlow = Boolean(options?.createReplacementOrder && options?.replacementDeliveryDate)
-      if (schedulingFlow) {
+      const reschedulingFlow = Boolean(options?.rescheduleReplacementDelivery && options?.replacementDeliveryDate)
+      if (reschedulingFlow) {
+        toast.success(`Replacement delivery moved to ${options?.replacementDeliveryDate}.`)
+      } else if (schedulingFlow) {
         toast.success(`Replacement delivery scheduled for ${options?.replacementDeliveryDate}. It's now ready to be assigned to a trip.`)
       } else if (nextStatus === 'IN_PROGRESS') {
         toast.success('Replacement is now being processed by the warehouse.')
@@ -1517,24 +1521,24 @@ export function WarehousePortal() {
 
           {activeView === 'inventory' && (
             <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks' | 'empties')} className="space-y-4">
-              <TabsList className="h-auto w-full flex-nowrap gap-2 overflow-x-auto rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+              <TabsList className="h-auto w-full flex-wrap gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
                 <TabsTrigger
                   value="inventory"
-                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-3 py-2.5 text-sm font-semibold sm:px-5 sm:text-[15px] text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
                 >
                   <Package className="h-4 w-4" />
                   Inventory
                 </TabsTrigger>
                 <TabsTrigger
                   value="stocks"
-                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-3 py-2.5 text-sm font-semibold sm:px-5 sm:text-[15px] text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
                 >
                   <Archive className="h-4 w-4" />
                   Stock batches
                 </TabsTrigger>
                 <TabsTrigger
                   value="empties"
-                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-5 py-2.5 text-[15px] font-semibold text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-3 py-2.5 text-sm font-semibold sm:px-5 sm:text-[15px] text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
                 >
                   <Recycle className="h-4 w-4" />
                   Empties
@@ -1544,7 +1548,7 @@ export function WarehousePortal() {
               <TabsContent value="inventory" className="mt-0">
                 {/* Added: keep the selected search result visible with an explicit way to restore all stock. */}
                 {searchInventoryId && (
-                  <div className="mb-3 flex items-center justify-between text-sm text-slate-600">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm text-slate-600">
                     <span>Showing inventory search result</span>
                     <Button variant="outline" size="sm" onClick={() => setSearchInventoryId('')}>Show all inventory</Button>
                   </div>

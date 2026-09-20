@@ -83,7 +83,7 @@ export type WarehouseReplacementsViewProps = {
   updateIssueStatus: (
     replacementId: string,
     status: 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'IN_PROGRESS' | 'COMPLETED' | 'NEEDS_FOLLOW_UP',
-    options?: { notes?: string; createReplacementOrder?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
+    options?: { notes?: string; createReplacementOrder?: boolean; rescheduleReplacementDelivery?: boolean; replacementDeliveryDate?: string; manualScheduleConfirmed?: boolean }
   ) => Promise<void>
   updatingReplacementId: string | null
   selectedReplacement: any | null

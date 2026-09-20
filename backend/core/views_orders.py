@@ -223,6 +223,10 @@ def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonRes
     return legacy._require_staff(request)
 
 
+def _reschedule_replacement_delivery(replacement: Replacement, *, scheduled_date: date, staff_user_id: str | None) -> Order:
+    return legacy._reschedule_replacement_delivery(replacement, scheduled_date=scheduled_date, staff_user_id=staff_user_id)
+
+
 def _reserve_order_inventory(order: Order, performed_by: str | None) -> None:
     return legacy._reserve_order_inventory(order, performed_by)
 
@@ -645,6 +649,9 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             return _err("Invalid replacementDeliveryDate. Expected YYYY-MM-DD", 400)
 
     create_replacement_order = bool(body.get("createReplacementOrder"))
+    # Added: moving an already-scheduled delivery is its own action, because
+    # scheduling refuses to run twice on the same replacement.
+    reschedule_replacement_delivery = bool(body.get("rescheduleReplacementDelivery"))
     manual_schedule_confirmed = bool(body.get("manualScheduleConfirmed"))
     staff_role = str(staff.get("role") or "").strip().upper()
     is_admin_role = staff_role in {RoleType.ADMIN, RoleType.SUPER_ADMIN}
@@ -661,15 +668,29 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         return _err("Manual schedule confirmation is required", 400)
     if create_replacement_order and not is_warehouse_role:
         return _err("Only warehouse staff can schedule replacement deliveries", 403)
+    if create_replacement_order and reschedule_replacement_delivery:
+        return _err("Schedule and reschedule cannot be requested together", 400)
+    if reschedule_replacement_delivery:
+        if not is_warehouse_role:
+            return _err("Only warehouse staff can reschedule replacement deliveries", 403)
+        if not replacement_delivery_date:
+            return _err("replacementDeliveryDate is required when rescheduleReplacementDelivery is true", 400)
+        if not manual_schedule_confirmed:
+            return _err("Manual schedule confirmation is required", 400)
+        if replacement_delivery_date < timezone.localdate():
+            return _err("The new replacement delivery date cannot be in the past", 400)
+        if normalized_status != ReplacementStatus.IN_PROGRESS or current_status_normalized != ReplacementStatus.IN_PROGRESS:
+            return _err("Only a scheduled replacement delivery can be rescheduled", 400)
     # Added: warehouse staff may perform exactly one status-only transition:
     # APPROVED -> IN_PROGRESS. Scheduling is unlocked only after this step.
     is_warehouse_start_processing = (
         not create_replacement_order
+        and not reschedule_replacement_delivery
         and is_warehouse_role
         and current_status_normalized == ReplacementStatus.APPROVED
         and normalized_status == ReplacementStatus.IN_PROGRESS
     )
-    if not create_replacement_order and not is_admin_role and not is_warehouse_start_processing:
+    if not create_replacement_order and not reschedule_replacement_delivery and not is_admin_role and not is_warehouse_start_processing:
         return _err("Only admin can set replacement UNDER_REVIEW, APPROVED, or REJECTED", 403)
     if is_admin_role and normalized_status not in {ReplacementStatus.UNDER_REVIEW, ReplacementStatus.APPROVED, ReplacementStatus.REJECTED}:
         return _err("Admin can only set replacement to UNDER_REVIEW, APPROVED, or REJECTED here", 400)
@@ -686,7 +707,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
     status_notes = str(body.get("notes") or "").strip()
     if normalized_status == ReplacementStatus.REJECTED and not status_notes:
         return _err("Rejection reason is required in notes", 400)
-    if normalized_status == ReplacementStatus.IN_PROGRESS:
+    if normalized_status == ReplacementStatus.IN_PROGRESS and not reschedule_replacement_delivery:
         r.pickup_completed = timezone.now()
     if normalized_status in {ReplacementStatus.RESOLVED_ON_DELIVERY, ReplacementStatus.COMPLETED}:
         r.processed_at = timezone.now()
@@ -711,6 +732,31 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
             message=(
                 f"{str(staff.get('name') or 'Staff').strip() or 'Staff'} scheduled {r.replacement_number} "
                 f"as order {replacement_order.order_number} for {replacement_delivery_date.isoformat()}."
+            ),
+            notification_type="REPLACEMENT",
+            reference_type="order",
+            reference_id=replacement_order.id,
+        )
+    if reschedule_replacement_delivery and replacement_delivery_date:
+        try:
+            replacement_order = _reschedule_replacement_delivery(
+                r,
+                scheduled_date=replacement_delivery_date,
+                staff_user_id=str(staff.get("userId") or "").strip() or None,
+            )
+        except ValueError as e:
+            return _err(str(e), 400)
+        except Exception:
+            logger.exception("Failed to reschedule replacement delivery for %s", r.id)
+            return _err("Unable to reschedule replacement delivery right now", 500)
+        r.status = ReplacementStatus.IN_PROGRESS
+        if not status_notes:
+            status_notes = f"Replacement delivery moved to {replacement_delivery_date.isoformat()}"
+        _create_staff_notifications(
+            title="Replacement delivery rescheduled",
+            message=(
+                f"{str(staff.get('name') or 'Staff').strip() or 'Staff'} moved {r.replacement_number} "
+                f"(order {replacement_order.order_number}) to {replacement_delivery_date.isoformat()}."
             ),
             notification_type="REPLACEMENT",
             reference_type="order",

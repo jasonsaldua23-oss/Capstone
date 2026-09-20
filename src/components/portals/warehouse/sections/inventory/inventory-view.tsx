@@ -95,7 +95,7 @@ export function WarehouseInventoryView({
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[1000px] text-sm">
+              <table className="stack-table w-full min-w-[1000px] text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-center p-2.5 font-medium text-gray-600 whitespace-nowrap">SKU</th>

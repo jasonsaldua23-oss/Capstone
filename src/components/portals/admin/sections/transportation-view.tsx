@@ -693,13 +693,13 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         {Array.from({ length: 3 }).map((_, index) => (
           <Card key={`transport-skeleton-row-${index}`}>
             <CardContent className="pt-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-3">
-                  <div className="h-5 w-40 rounded-lg bg-slate-300/80" />
-                  <div className="h-4 w-56 rounded-lg bg-slate-200/70" />
-                  <div className="h-4 w-32 rounded-lg bg-slate-200/70" />
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 space-y-3">
+                  <div className="h-5 w-40 max-w-full rounded-lg bg-slate-300/80" />
+                  <div className="h-4 w-56 max-w-full rounded-lg bg-slate-200/70" />
+                  <div className="h-4 w-32 max-w-full rounded-lg bg-slate-200/70" />
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <div className="h-9 w-20 rounded-lg bg-slate-200/80" />
                   <div className="h-9 w-20 rounded-lg bg-slate-200/80" />
                 </div>
@@ -1040,7 +1040,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
             </Card>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 bg-white shadow-sm">
-              <table className="w-full min-w-[1100px] text-left text-sm">
+              <table className="stack-table w-full min-w-[1100px] text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700 uppercase tracking-wider">
                   <tr>
                     <th className="px-4 py-3.5">License Plate</th>
@@ -1159,7 +1159,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
             </Card>
           ) : (
             <div className="space-y-3">
-              <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b pb-3">
                 <p className="text-xs text-slate-500">
                   Showing {(safeTripsPage - 1) * tripsPageSize + 1}-{Math.min(safeTripsPage * tripsPageSize, trips.length)} of {trips.length}
                 </p>
@@ -1227,7 +1227,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                   </Card>
                 )
               })}
-              <div className="flex items-center justify-between border-t pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t pt-3">
                 <p className="text-xs text-slate-500">
                   Showing {(safeTripsPage - 1) * tripsPageSize + 1}-{Math.min(safeTripsPage * tripsPageSize, trips.length)} of {trips.length}
                 </p>
@@ -1258,12 +1258,6 @@ export function TransportationView({ notificationReferenceType = '', notificatio
         </TabsContent>
 
         <TabsContent value="drivers" className="space-y-4 mt-4">
-          <Card>
-            <CardContent className="pt-6 text-sm text-gray-600">
-              New drivers are created from Users (Add User). Use this section to review, edit, and remove existing drivers.
-            </CardContent>
-          </Card>
-
           <Dialog open={addDriverOpen} onOpenChange={setAddDriverOpen}>
             <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader>

@@ -631,15 +631,6 @@ export function TripsView() {
     () => trips.filter((trip) => tripStatusFilter === 'ALL' || normalizeTripStatus(trip.status) === tripStatusFilter),
     [trips, tripStatusFilter],
   )
-  // Completed trip totals are finalized by the backend after all delivery adjustments.
-  const completedTrips = useMemo(
-    () => trips.filter((trip) => normalizeTripStatus(trip.status) === 'COMPLETED'),
-    [trips],
-  )
-  const totalCashCollected = useMemo(
-    () => completedTrips.reduce((sum, trip) => sum + Number(trip.cashCollectedTotal || 0), 0),
-    [completedTrips],
-  )
   const totalTripsPages = Math.max(1, Math.ceil(filteredTrips.length / tripsPageSize))
   const paginatedTrips = useMemo(() => {
     const start = (tripsPage - 1) * tripsPageSize
@@ -675,7 +666,6 @@ export function TripsView() {
             <option value="PLANNED">Planned</option>
             <option value="IN_PROGRESS">In Progress</option>
             <option value="COMPLETED">Completed</option>
-            <option value="CANCELLED">Cancelled</option>
           </select>
           <Button
             onClick={() => setCreateRouteOpen(true)}
@@ -685,13 +675,6 @@ export function TripsView() {
             Create Trip
           </Button>
         </div>
-      </div>
-
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-        {/* Added: make completed-trip cash visible without opening every trip. */}
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total cash collected from completed trips</p>
-        <p className="mt-1 text-xl font-bold text-emerald-900">{formatPeso(totalCashCollected)}</p>
-        <p className="mt-0.5 text-xs text-emerald-700">{completedTrips.length} completed {completedTrips.length === 1 ? 'trip' : 'trips'}</p>
       </div>
 
       <Card>
@@ -706,7 +689,7 @@ export function TripsView() {
             </div>
           ) : (
             <>
-            <div className="flex items-center justify-between border-b pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b pb-3">
               <p className="text-xs text-slate-500">
                 Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, filteredTrips.length)} of {filteredTrips.length}
               </p>
@@ -798,7 +781,7 @@ export function TripsView() {
                 )
               })}
             </div>
-            <div className="flex items-center justify-between border-t pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t pt-3">
               <p className="text-xs text-slate-500">
                 Showing {(tripsPage - 1) * tripsPageSize + 1}-{Math.min(tripsPage * tripsPageSize, trips.length)} of {trips.length}
               </p>

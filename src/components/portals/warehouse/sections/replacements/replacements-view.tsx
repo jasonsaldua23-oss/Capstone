@@ -45,6 +45,9 @@ export function WarehouseReplacementsView({
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [scheduleConfirmId, setScheduleConfirmId] = useState<string | null>(null)
   const [processConfirmId, setProcessConfirmId] = useState<string | null>(null)
+  // Added: a scheduled delivery whose date has gone by needs a new one.
+  const [rowRescheduleDates, setRowRescheduleDates] = useState<Record<string, string>>({})
+  const [rescheduleConfirmId, setRescheduleConfirmId] = useState<string | null>(null)
   const todayDateInput = useMemo(() => {
     const now = new Date()
     const year = now.getFullYear()
@@ -598,7 +601,7 @@ export function WarehouseReplacementsView({
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[980px]">
+              <table className="stack-table w-full min-w-[980px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
@@ -616,20 +619,55 @@ export function WarehouseReplacementsView({
                     const scheduledDate = String(ret?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
                     const replacementOrderNumber = String(ret?.replacementOrderNumber || meta?.replacementOrderNumber || '').trim()
                     const statusLabel = getWarehouseStatusLabel(ret, meta)
+                    // Dates are stored as YYYY-MM-DD, so the day part alone decides overdue.
+                    const isOverdue = isPastScheduleDate(scheduledDate.slice(0, 10))
+                    const nextDate = rowRescheduleDates[ret.id] || ''
                     return (
                       <tr key={ret.id} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="p-4 font-medium">{ret.replacementNumber}</td>
                         <td className="p-4">{replacementOrderNumber || 'N/A'}</td>
                         <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
                         <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
-                        <td className="p-4">{scheduledDate || 'N/A'}</td>
+                        <td className="p-4">
+                          <span className={isOverdue ? 'font-medium text-amber-700' : undefined}>{scheduledDate || 'N/A'}</span>
+                          {isOverdue ? (
+                            <Badge className="ml-2 bg-amber-100 text-amber-700 hover:bg-amber-100">Overdue</Badge>
+                          ) : null}
+                        </td>
                         <td className="p-4">
                           <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">{statusLabel}</Badge>
                         </td>
                         <td className="p-4 min-w-[220px]">
-                          <Button size="sm" variant="outline" onClick={() => openReplacementDetails(ret)}>
-                            View Details
-                          </Button>
+                          <div className="flex flex-col items-start gap-2" aria-busy={updatingReplacementId === ret.id}>
+                            {isOverdue ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="date"
+                                  min={todayDateInput}
+                                  value={nextDate}
+                                  disabled={Boolean(updatingReplacementId)}
+                                  onChange={(event) => setRowRescheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))}
+                                  aria-label={`New delivery date for ${ret.replacementNumber}`}
+                                  className="h-9 w-[170px] rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                                />
+                                <Button
+                                  size="sm"
+                                  className="h-9 bg-amber-600 text-white transition-colors hover:bg-amber-700 motion-reduce:transition-none"
+                                  disabled={Boolean(updatingReplacementId) || !nextDate || isPastScheduleDate(nextDate)}
+                                  onClick={() => {
+                                    if (!nextDate || isPastScheduleDate(nextDate)) return
+                                    setRescheduleConfirmId(ret.id)
+                                  }}
+                                >
+                                  {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                  Reschedule
+                                </Button>
+                              </div>
+                            ) : null}
+                            <Button size="sm" variant="outline" onClick={() => openReplacementDetails(ret)}>
+                              View Details
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -655,7 +693,7 @@ export function WarehouseReplacementsView({
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[1120px]">
+              <table className="stack-table w-full min-w-[1120px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
@@ -862,7 +900,7 @@ export function WarehouseReplacementsView({
                     <p className="text-xs font-medium text-slate-500">Replacement Items</p>
                   </div>
                   <div className="max-w-full overflow-x-auto overscroll-x-contain">
-                    <table className="w-full min-w-[720px] text-sm">
+                    <table className="stack-table w-full min-w-[720px] text-sm">
                       <thead className="bg-slate-50 text-xs text-slate-500">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Original Product</th>
@@ -1065,6 +1103,36 @@ export function WarehouseReplacementsView({
               }}
             >
               Schedule Delivery
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!rescheduleConfirmId} onOpenChange={(open) => !open && setRescheduleConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move this replacement delivery?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {rescheduleConfirmId && rowRescheduleDates[rescheduleConfirmId]
+                ? `The missed delivery date is replaced with ${rowRescheduleDates[rescheduleConfirmId]}. The same replacement order is kept, so it stays ready to assign to a trip.`
+                : 'Pick a new delivery date first.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!rescheduleConfirmId) return
+                const deliveryDate = rowRescheduleDates[rescheduleConfirmId]
+                if (!deliveryDate || isPastScheduleDate(deliveryDate)) {
+                  setRescheduleConfirmId(null)
+                  return
+                }
+                void updateIssueStatus(rescheduleConfirmId, 'IN_PROGRESS', { notes: `Replacement delivery moved to ${deliveryDate}`, rescheduleReplacementDelivery: true, replacementDeliveryDate: deliveryDate, manualScheduleConfirmed: true })
+                setRescheduleConfirmId(null)
+              }}
+            >
+              Reschedule Delivery
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

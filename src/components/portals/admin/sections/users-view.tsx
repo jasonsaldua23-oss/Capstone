@@ -625,7 +625,7 @@ export function UsersView() {
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[920px]">
+              <table className="stack-table w-full min-w-[920px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">User</th>

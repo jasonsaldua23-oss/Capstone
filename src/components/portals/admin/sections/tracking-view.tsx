@@ -286,6 +286,11 @@ export function TrackingView() {
     )
     const tripOrderIds = new Set<string>()
     const shownDriverIds = new Set<string>()
+    // A driver can hold several IN_PROGRESS trips at once but is only ever in one
+    // place, so the trip loop below must emit a single marker for them. Without
+    // this, every extra trip pushed another marker with the same `driver-<id>`
+    // key and React discarded all but one of them.
+    const driverMarkerSlots = new Map<string, { index: number; recordedAt: number }>()
     const latestDriverPointById = new Map<string, any>(
       driverLocations
         .map((location: any) => [String(location?.driverId || location?.driver_id || '').trim(), location] as const)
@@ -397,8 +402,9 @@ export function TrackingView() {
 
       if (hasDriverPosition && ['IN_PROGRESS'].includes(normalizedTripStatus)) {
         if (driverId) shownDriverIds.add(driverId)
-        locations.push({
-          id: `driver-${driverId || trip.id}`,
+        const driverMarkerId = `driver-${driverId || trip.id}`
+        const driverMarker = {
+          id: driverMarkerId,
           driverName,
           vehiclePlate,
           lat: driverLat,
@@ -406,13 +412,25 @@ export function TrackingView() {
           status: String(trip?.status || 'IN_PROGRESS'),
           markerColor: '#1d4ed8',
           markerLabel: 'Current location',
-          markerType: 'truck',
+          markerType: 'truck' as const,
           markerHeading: markerHeading ?? undefined,
           speedMps: reportedSpeedMps(freshestPoint),
           // Added: provide the assignment details rendered by the shared truck popup.
           assignedTripNumber: String(trip?.tripNumber || ''),
           destinationCustomer: String(nextDropPoint?.locationName || 'N/A'),
-        })
+        }
+        // Keep whichever of this driver's trips carries their most recent fix, so
+        // the marker shows where they actually are rather than whichever trip the
+        // API happened to return first.
+        const markerRecordedAt = recordedAtMs(freshestPoint)
+        const existingSlot = driverMarkerSlots.get(driverMarkerId)
+        if (!existingSlot) {
+          driverMarkerSlots.set(driverMarkerId, { index: locations.length, recordedAt: markerRecordedAt })
+          locations.push(driverMarker)
+        } else if (markerRecordedAt > existingSlot.recordedAt) {
+          locations[existingSlot.index] = driverMarker
+          existingSlot.recordedAt = markerRecordedAt
+        }
       }
 
       dropPoints.forEach((dropPoint: any, index: number) => {
@@ -665,7 +683,7 @@ export function TrackingView() {
                 </div>
               )}
               {!isLoading && activeTrips.length > 0 ? (
-                <div className="mt-3 flex items-center justify-between border-t pt-3">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t pt-3">
                   <p className="text-xs text-slate-500">
                     Showing {(activeTripsPage - 1) * activeTripsPageSize + 1}-{Math.min(activeTripsPage * activeTripsPageSize, activeTrips.length)} of {activeTrips.length}
                   </p>

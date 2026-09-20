@@ -210,6 +210,7 @@ _OWNERS = {
     "_require_auth": "auth_guards",
     "_require_staff": "auth_guards",
     "_require_warehouse_operator": "warehouse_access",
+    "_reschedule_replacement_delivery": "replacement_services",
     "_reserve_inventory_for_order_item": "inventory_allocation",
     "_reserve_order_inventory": "inventory_allocation",
     "_resolve_allocation_policy": "api_validators",

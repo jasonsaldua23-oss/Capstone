@@ -351,3 +351,139 @@
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Wide data tables (admin + warehouse)
+
+   These tables carry 5-11 columns and were authored with a `min-w-[NNNpx]`
+   inside an `overflow-x-auto` wrapper. That keeps the *page* from overflowing,
+   but it still means dragging a table sideways to read a row - on a phone the
+   widest of them is three screens across.
+
+   `stack-table` removes that in two steps:
+     - below xl, each row becomes a labelled card, so a row reads top to bottom;
+     - at xl and above it stays a table, but the authored min-width is dropped and
+       the layout fixed, so the columns divide the available width rather than
+       overflowing it.
+
+   Cell labels come from the column headers and are filled in by
+   `StackedTableLabels`, so individual tables need no per-cell markup.
+--------------------------------------------------------------------------- */
+table.stack-table {
+  /* The authored min-width is what forced the sideways drag; the layout below
+     and normal table sizing above both work without it. */
+  min-width: 0 !important;
+  width: 100%;
+}
+
+/* The portal shell pins a 256px sidebar from `lg`, so a 1024px window only
+   leaves ~734px of content - narrower than these tables' min-content width. The
+   stacked layout therefore runs to `xl`, and above it `table-layout: fixed` makes
+   the columns divide whatever width there is instead of overflowing it. */
+@media (min-width: 1280px) {
+  table.stack-table {
+    table-layout: fixed;
+  }
+
+  table.stack-table td,
+  table.stack-table th {
+    /* Columns share the real width instead of overflowing it. `break-word`
+       rather than `anywhere`, so a heading like "Threshold" or a price wraps at
+       spaces and only splits a word that genuinely cannot fit on its own line. */
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+
+  table.stack-table th {
+    /* Headings are short; letting them break mid-word only makes them harder to
+       read than the column they label. */
+    overflow-wrap: normal;
+  }
+
+  /* Fixed columns are narrower than a `whitespace-nowrap` action button wants to
+     be, and that single button is enough to push the table wide again. */
+  table.stack-table td button,
+  table.stack-table td a {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 1279.98px) {
+  table.stack-table,
+  table.stack-table tbody {
+    display: block;
+  }
+
+  table.stack-table thead {
+    /* The per-cell labels replace the header row. */
+    display: none;
+  }
+
+  table.stack-table tbody tr {
+    display: block;
+    margin-bottom: 0.625rem;
+    padding: 0.25rem 0.875rem;
+    border: 1px solid rgb(226 232 240);
+    border-radius: 0.75rem;
+    background-color: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
+  table.stack-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  table.stack-table tbody td {
+    /* Block, not flex: a cell may hold several children (a list of ids, an
+       avatar beside a name) and flex would lay those out side by side, which is
+       what pushed this layout back off the screen. Block lets them stack the way
+       they read, and the label is positioned into the gutter reserved below. */
+    position: relative;
+    display: block;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    padding: 0.45rem 0 0.45rem 38%;
+    text-align: right;
+    white-space: normal !important;
+    overflow-wrap: break-word;
+    border: 0;
+    border-bottom: 1px solid rgb(241 245 249);
+  }
+
+  table.stack-table tbody tr td:last-child {
+    border-bottom: 0;
+  }
+
+  /* Cells commonly wrap their value in a `whitespace-nowrap` span (IDs, dates,
+     amounts). That nowrap is what a stacked card cannot afford, so it is relaxed
+     for the cell's whole subtree while stacked. */
+  table.stack-table tbody td,
+  table.stack-table tbody td * {
+    white-space: normal !important;
+    overflow-wrap: break-word;
+  }
+
+  table.stack-table tbody td::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 0;
+    top: 0.45rem;
+    width: 34%;
+    text-align: left;
+    font-weight: 600;
+    color: rgb(71 85 105);
+  }
+
+  /* Empty-state and summary rows span every column; they get no label and stay
+     centred rather than being split into a label/value pair. */
+  table.stack-table tbody td[colspan]::before {
+    content: none;
+  }
+
+  table.stack-table tbody td[colspan] {
+    display: block;
+    padding-left: 0;
+    text-align: center;
+  }
+}

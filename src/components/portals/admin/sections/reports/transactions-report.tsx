@@ -532,7 +532,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       {/* Transaction Table */}
       <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="max-w-full overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[900px] text-left text-xs">
+          <table className="stack-table w-full min-w-[900px] text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider">
               <tr>
                 <th className="p-3.5 pl-4">Transaction ID</th>
@@ -572,7 +572,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 bg-slate-50/50">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-slate-100 px-4 py-3 bg-slate-50/50">
             <span className="text-xs text-slate-500">
               Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredTransactions.length)} of {filteredTransactions.length} records
             </span>

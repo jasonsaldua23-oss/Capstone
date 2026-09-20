@@ -264,7 +264,10 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
       window.google.accounts.id.renderButton(targetEl, {
         type: 'standard',
         theme: 'outline',
-        size: 'large',
+        // Fix: at 'large' Google swaps in its personalized button, which pins the
+        // visitor's own account and email onto the login screen. 'medium' is the
+        // documented size that keeps the plain "Continue with Google" label.
+        size: 'medium',
         text: 'continue_with',
         shape: 'pill',
         logo_alignment: 'left',

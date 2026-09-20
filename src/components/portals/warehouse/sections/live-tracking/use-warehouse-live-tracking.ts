@@ -108,6 +108,11 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
     )
     const tripOrderIds = new Set<string>()
     const shownDriverIds = new Set<string>()
+    // A driver can hold several trips at once but is only ever in one place, so
+    // the trip loop below must emit a single marker for them. Without this, every
+    // extra trip pushed another marker with the same `driver-<id>` key and React
+    // discarded all but one of them.
+    const driverMarkerSlots = new Map<string, { index: number; recordedAt: number }>()
     const latestDriverPointById = new Map<string, any>(
       driverLocations
         .map((location: any) => [String(location?.driverId || '').trim(), location] as const)
@@ -281,7 +286,18 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
         if (driverLocationMarker) {
           // Push driver marker last so it stays visually on top of stop pins.
           if (driverId) shownDriverIds.add(driverId)
-          locations.push(driverLocationMarker)
+          // Keep whichever of this driver's trips carries their most recent fix,
+          // so the marker shows where they actually are rather than whichever
+          // trip the API happened to return first.
+          const markerRecordedAt = recordedAtMs(freshestPoint)
+          const existingSlot = driverMarkerSlots.get(driverLocationMarker.id)
+          if (!existingSlot) {
+            driverMarkerSlots.set(driverLocationMarker.id, { index: locations.length, recordedAt: markerRecordedAt })
+            locations.push(driverLocationMarker)
+          } else if (markerRecordedAt > existingSlot.recordedAt) {
+            locations[existingSlot.index] = driverLocationMarker
+            existingSlot.recordedAt = markerRecordedAt
+          }
         }
 
         if (logs.length > 0) {

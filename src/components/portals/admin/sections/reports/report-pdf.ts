@@ -738,63 +738,105 @@ export async function downloadReportPdf(
     page.drawLine({ start: { x: pad, y: h - 74 }, end: { x: w - pad, y: h - 74 }, thickness: 1.5, color: navy })
 
     const totalFeedback = feedbackExportRows.length
-    const avgRating = totalFeedback > 0
-      ? feedbackExportRows.reduce((sum: number, row: any) => sum + (Number(row?.rating || 0) || 0), 0) / totalFeedback
+    const ratedRows = feedbackExportRows.filter((row: any) => Number.isFinite(Number(row?.rating)))
+    const avgRating = ratedRows.length > 0
+      ? ratedRows.reduce((sum: number, row: any) => sum + (Number(row?.rating || 0) || 0), 0) / ratedRows.length
       : 0
-    const compliments = feedbackExportRows.filter((row: any) => String(row?.type || '').toUpperCase().includes('COMPLIMENT')).length
-    const complaints = feedbackExportRows.filter((row: any) => String(row?.type || '').toUpperCase().includes('COMPLAINT')).length
+    const positive = feedbackExportRows.filter((row: any) => String(row?.sentiment || '') === 'Positive').length
+    const negative = feedbackExportRows.filter((row: any) => String(row?.sentiment || '') === 'Negative').length
+    const describedCount = feedbackExportRows.filter((row: any) => String(row?.inOwnWords || '') === 'Yes').length
+    const rate = (count: number) => (ratedRows.length > 0 ? (Math.round((count / ratedRows.length) * 1000) / 10).toFixed(1) : '0.0')
 
     const cardY = h - 96
-    const gap = 12
-    const cardW = (contentW - gap * 3) / 4
+    const gap = 10
+    const cardW = (contentW - gap * 4) / 5
     const cardH = 64
     const cards = [
-      { title: 'TOTAL FEEDBACK', value: `${totalFeedback}`, note: 'All feedback received', accent: blue, bg: rgb(0.95, 0.97, 1) },
+      { title: 'TOTAL FEEDBACK', value: `${totalFeedback}`, note: `${ratedRows.length} rated`, accent: blue, bg: rgb(0.95, 0.97, 1) },
       { title: 'AVERAGE RATING', value: `${avgRating.toFixed(2)}`, note: 'Out of 5', accent: green, bg: rgb(0.94, 0.99, 0.95) },
-      { title: 'COMPLIMENTS', value: `${compliments}`, note: 'Positive feedback', accent: purple, bg: rgb(0.97, 0.95, 1) },
-      { title: 'COMPLAINTS', value: `${complaints}`, note: 'Requires attention', accent: red, bg: rgb(1, 0.95, 0.96) },
+      { title: 'POSITIVE', value: `${rate(positive)}%`, note: `${positive} rated 4-5`, accent: green, bg: rgb(0.94, 0.99, 0.95) },
+      { title: 'NEGATIVE', value: `${rate(negative)}%`, note: `${negative} rated 1-2`, accent: red, bg: rgb(1, 0.95, 0.96) },
+      { title: 'OWN WORDS', value: `${describedCount}`, note: 'Described, not ticked', accent: purple, bg: rgb(0.97, 0.95, 1) },
     ]
     cards.forEach((card, i) => {
       const x = pad + i * (cardW + gap)
       page.drawRectangle({ x, y: cardY - cardH, width: cardW, height: cardH, color: card.bg, borderColor: rgb(0.84, 0.88, 0.94), borderWidth: 0.7 })
-      page.drawText(card.title, { x: x + 8, y: cardY - 18, size: 8.5, font: boldFont, color: card.accent })
-      page.drawText(sanitizeForPdf(String(card.value || '')), { x: x + 8, y: cardY - 39, size: 16.5, font: boldFont, color: card.accent })
-      page.drawText(card.note, { x: x + 8, y: cardY - 54, size: 8, font, color: muted })
+      page.drawText(card.title, { x: x + 7, y: cardY - 18, size: 8, font: boldFont, color: card.accent })
+      page.drawText(sanitizeForPdf(String(card.value || '')), { x: x + 7, y: cardY - 39, size: 16, font: boldFont, color: card.accent })
+      page.drawText(card.note, { x: x + 7, y: cardY - 54, size: 7.5, font, color: muted })
     })
 
-    let y = cardY - 94
+    let y = cardY - 82
+
+    // The summary lines carry the participation rate, the most cited service area and
+    // the top issue - the parts of a review a bare star count cannot show.
+    const feedbackSummaryLines = (options?.summaryLines || []).filter(Boolean)
+    if (feedbackSummaryLines.length) {
+      page.drawText('SUMMARY', { x: pad, y, size: 11.5, font: boldFont, color: navy })
+      y -= 14
+      feedbackSummaryLines.forEach((line) => {
+        page.drawText(ellipsize(sanitizeForPdf(line), 118), { x: pad, y, size: 8.4, font, color: text })
+        y -= 11
+      })
+      y -= 8
+    }
+
     page.drawText('FEEDBACK DETAILS', { x: pad, y, size: 12.5, font: boldFont, color: navy })
     y -= 12
 
-    const headers = ['Created At', 'Customer', 'Driver', 'Type', 'Rating']
-    const widths = [104, 106, 100, 108, 129]
+    const headers = ['Date', 'Customer', 'Order #', 'Driver', 'Rating', 'Service Areas', 'What the client said']
+    const widths = [50, 74, 62, 66, 44, 85, 166]
     let x = pad
     headers.forEach((hdr, idx) => {
       page.drawRectangle({ x, y: y - 22, width: widths[idx], height: 22, color: navy, borderColor: rgb(0.25, 0.35, 0.62), borderWidth: 0.6 })
-      page.drawText(hdr, { x: x + widths[idx] / 2 - hdr.length * 2.1, y: y - 14, size: 8.8, font: boldFont, color: rgb(1, 1, 1) })
+      drawWrappedCellText(hdr, x, y, widths[idx], 22, 7.8, boldFont, rgb(1, 1, 1), 'left', 2)
       x += widths[idx]
     })
     y -= 22
 
-    feedbackExportRows.slice(0, 18).forEach((row: any) => {
-      const rowH = 30
-      const typeRaw = String(row?.type || '').toUpperCase()
+    // The table now carries far more text per row, so it paginates instead of
+    // stopping at whatever fitted on one page. Footers are drawn at the end, once
+    // the real page count is known rather than predicted from row heights.
+    const feedbackPages = [page]
+    const feedbackRowH = 40
+    const feedbackBottom = 52
+
+    feedbackExportRows.forEach((row: any) => {
+      if (y - feedbackRowH < feedbackBottom) {
+        page = pdfDoc.addPage([pageWidth, pageHeight])
+        feedbackPages.push(page)
+        y = pageHeight - 56
+        page.drawText('Client Feedback & Service Evaluation Report (continued)', { x: pad, y: y + 22, size: 11, font: boldFont, color: navy })
+        let hx = pad
+        headers.forEach((hdr, idx) => {
+          page.drawRectangle({ x: hx, y: y - 22, width: widths[idx], height: 22, color: navy, borderColor: rgb(0.25, 0.35, 0.62), borderWidth: 0.6 })
+          drawWrappedCellText(hdr, hx, y, widths[idx], 22, 7.8, boldFont, rgb(1, 1, 1), 'left', 2)
+          hx += widths[idx]
+        })
+        y -= 22
+      }
+
       const ratingNum = Math.max(0, Math.min(5, Number(row?.rating || 0) || 0))
+      const sentiment = String(row?.sentiment || '')
+      const sourceLabel = String(row?.source || '').trim()
       const vals = [
         String(row.createdAt || 'N/A'),
         String(row.customer || 'N/A'),
+        // Source rides with the order number rather than taking a column of its own.
+        sourceLabel ? `${row.orderNumber || 'N/A'} (${sourceLabel})` : String(row.orderNumber || 'N/A'),
         String(row.driver || 'N/A'),
-        typeRaw || 'N/A',
         String(ratingNum || 'N/A'),
+        String(row.serviceAreas || 'N/A'),
+        String(row.feedbackDetails || 'N/A'),
       ]
 
       let cx = pad
       vals.forEach((v, idx) => {
         page.drawRectangle({
           x: cx,
-          y: y - rowH,
+          y: y - feedbackRowH,
           width: widths[idx],
-          height: rowH,
+          height: feedbackRowH,
           borderColor: rgb(0.86, 0.89, 0.94),
           borderWidth: 0.6,
           color: rgb(1, 1, 1),
@@ -803,22 +845,23 @@ export async function downloadReportPdf(
           // Fix: standard PDF fonts cannot encode Unicode stars, so use WinAnsi-safe rating marks.
           const ratingSlots = '*****'
           const filledRating = '*'.repeat(ratingNum)
-          page.drawText(ratingSlots, { x: cx + 8, y: y - 14, size: 10, font, color: rgb(0.82, 0.84, 0.87) })
-          page.drawText(filledRating, { x: cx + 8, y: y - 14, size: 10, font: boldFont, color: typeRaw.includes('COMPLIMENT') ? green : red })
-          page.drawText(String(ratingNum), { x: cx + widths[idx] - 14, y: y - 14, size: 8.8, font: boldFont, color: text })
+          const ratingColor = sentiment === 'Positive' ? green : sentiment === 'Negative' ? red : muted
+          page.drawText(ratingSlots, { x: cx + 5, y: y - 17, size: 9, font, color: rgb(0.82, 0.84, 0.87) })
+          page.drawText(filledRating, { x: cx + 5, y: y - 17, size: 9, font: boldFont, color: ratingColor })
+          page.drawText(sentiment || 'Unrated', { x: cx + 5, y: y - 29, size: 7, font, color: ratingColor })
         } else {
-          const val = String(v || '')
-          const typeColor = idx === 3 ? (typeRaw.includes('COMPLIMENT') ? green : red) : text
-          drawWrappedCellText(val, cx, y, widths[idx], rowH, 8.3, idx === 3 ? boldFont : font, typeColor, 'left', 2)
+          drawWrappedCellText(String(v || ''), cx, y, widths[idx], feedbackRowH, 7.6, font, text, 'left', 4)
         }
         cx += widths[idx]
       })
-      y -= rowH
+      y -= feedbackRowH
     })
 
-    page.drawLine({ start: { x: pad, y: 34 }, end: { x: w - pad, y: 34 }, thickness: 1.2, color: navy })
-    page.drawText("Thank you for using Ann Ann's Beverages Trading System.", { x: pad, y: 20, size: 9, font, color: muted })
-    page.drawText('Page 1 of 1', { x: w - pad - 52, y: 20, size: 9, font: boldFont, color: muted })
+    feedbackPages.forEach((feedbackPage, index) => {
+      feedbackPage.drawLine({ start: { x: pad, y: 34 }, end: { x: w - pad, y: 34 }, thickness: 1.2, color: navy })
+      feedbackPage.drawText("Thank you for using Ann Ann's Beverages Trading System.", { x: pad, y: 20, size: 9, font, color: muted })
+      feedbackPage.drawText(`Page ${index + 1} of ${feedbackPages.length}`, { x: w - pad - 62, y: 20, size: 9, font: boldFont, color: muted })
+    })
 
     const bytes = await pdfDoc.save()
     const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })

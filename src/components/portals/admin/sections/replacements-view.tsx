@@ -988,7 +988,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
             </div>
           ) : (
             <div className="w-full max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[1120px]">
+              <table className="stack-table w-full min-w-[1120px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
@@ -1259,7 +1259,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                     <p className="text-xs font-medium text-slate-500">Replacement Items</p>
                   </div>
                   <div className="max-w-full overflow-x-auto overscroll-x-contain">
-                    <table className="w-full min-w-[720px] text-sm">
+                    <table className="stack-table w-full min-w-[720px] text-sm">
                       <thead className="bg-slate-50 text-xs text-slate-500">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Original Product</th>

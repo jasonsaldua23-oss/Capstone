@@ -124,7 +124,7 @@ export function WarehouseBottleReturnsView() {
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[760px] text-sm text-left">
+              <table className="stack-table w-full min-w-[760px] text-sm text-left">
                 <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b">
                   <tr>
                     <th className="px-4 py-3 font-medium">Reference Number</th>

@@ -25,6 +25,7 @@ from .models import (
     Order,
     OrderDepositRefundClaim,
     OrderItem,
+    Product,
     ProductPackaging,
     Replacement,
     RoleType,
@@ -69,6 +70,10 @@ def _build_order_warehouse_allocations_map(order_ids: list[str]) -> dict[str, li
 
 def _calculate_orders_load_for_warehouse(orders: list[Order], warehouse_id: str | None, allocation_map: dict[str, Any] | None=None) -> tuple[int, float]:
     return legacy._calculate_orders_load_for_warehouse(orders, warehouse_id, allocation_map)
+
+
+def empties_adjustments_for_orders(order_ids: list[str]) -> dict[str, dict[str, Any]]:
+    return legacy.empties_adjustments_for_orders(order_ids)
 
 
 def _create_staff_notifications(*, title: str, message: str, notification_type: str='INVENTORY', reference_type: str | None=None, reference_id: str | None=None) -> None:
@@ -275,6 +280,46 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 if o.order_number:
                     replacement_order_cache[str(o.order_number)] = o
 
+        # Page-wide lookups for replacement serialization. Without these,
+        # _serialize_replacement issues up to five queries per replacement
+        # (original item by id, the order's items, the replacement product, and
+        # the linked replacement order's proof-of-delivery stop).
+        replacement_entries = [r for entries in order_returns_map.values() for r in entries]
+        linked_order_ids = {str(o.id) for o in replacement_order_cache.values()}
+        items_order_ids = set(all_order_ids) | linked_order_ids
+
+        order_items_cache: dict[str, list[OrderItem]] = {}
+        order_item_by_id_cache: dict[str, OrderItem] = {}
+        if items_order_ids:
+            for item in OrderItem.objects.select_related("product").filter(order_id__in=list(items_order_ids)):
+                order_items_cache.setdefault(str(item.order_id), []).append(item)
+                order_item_by_id_cache[str(item.id)] = item
+            # An order with no items must still register as "looked up", or the
+            # serializer falls back to querying it one row at a time.
+            for order_id in items_order_ids:
+                order_items_cache.setdefault(str(order_id), [])
+
+        replacement_product_ids = {
+            str(r.replacement_product_id) for r in replacement_entries if r.replacement_product_id
+        }
+        product_cache = {
+            str(p.id): p for p in Product.objects.filter(id__in=list(replacement_product_ids))
+        } if replacement_product_ids else {}
+
+        replacement_pod_cache: dict[str, Any] = {}
+        if linked_order_ids:
+            # Mirrors the serializer's ordering so the chosen stop is identical.
+            for order_id in linked_order_ids:
+                replacement_pod_cache[order_id] = None
+            for stop in (
+                TripDropPoint.objects.filter(order_id__in=list(linked_order_ids))
+                .exclude(Q(delivery_photo__isnull=True) | Q(delivery_photo=""))
+                .order_by("-actual_departure", "-updated_at")
+            ):
+                key = str(stop.order_id)
+                if replacement_pod_cache.get(key) is None:
+                    replacement_pod_cache[key] = stop
+
         serialization_context = {
             "allocations_map": _build_order_item_warehouse_allocations_map(list(all_order_ids)) if all_order_ids else {},
             "all_assignments_map": _build_order_item_trip_assignments_map(list(all_order_ids), trip_id=None) if all_order_ids else {},
@@ -287,6 +332,13 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 str(packaging.product_id): packaging
                 for packaging in ProductPackaging.objects.filter(product_id__in=all_product_ids, is_active=True)
             } if all_product_ids else {},
+            # Built once for the page: _serialize_trip falls back to one
+            # DepositTransaction query per trip when this is absent.
+            "empties_adjustment_map": empties_adjustments_for_orders(list(all_order_ids)) if all_order_ids else {},
+            "order_items_cache": order_items_cache,
+            "order_item_by_id_cache": order_item_by_id_cache,
+            "product_cache": product_cache,
+            "replacement_pod_cache": replacement_pod_cache,
             "order_returns_map": order_returns_map,
             "order_cache": replacement_order_cache,
         }

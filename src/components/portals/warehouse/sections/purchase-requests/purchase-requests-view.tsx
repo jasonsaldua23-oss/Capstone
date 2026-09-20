@@ -179,7 +179,7 @@ export function WarehousePurchaseRequestsView({
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-slate-200">
-              <table className="min-w-[1060px] w-full">
+              <table className="stack-table min-w-[1060px] w-full">
                 <thead className="bg-slate-50 text-left text-sm text-slate-600">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Request ID</th>

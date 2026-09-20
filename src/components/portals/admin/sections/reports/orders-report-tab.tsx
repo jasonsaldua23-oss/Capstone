@@ -174,7 +174,7 @@ export function OrdersReportTab({
         </CardHeader>
         <CardContent>
           <div className="max-w-full overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="stack-table w-full min-w-[980px] text-sm">
               <thead className="border-b bg-gray-50">
                 <tr>
                   <th className="p-3 text-left">Order ID</th>

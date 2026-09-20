@@ -351,7 +351,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[820px]">
+              <table className="stack-table w-full min-w-[820px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Transaction ID</th>
@@ -412,11 +412,11 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-t border-gray-100">
               <p className="text-xs text-gray-500">
                 Showing {Math.min((page - 1) * pageSize + 1, total)}-{Math.min(page * pageSize, total)} of {total}
               </p>
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
                 <Button
                   variant="outline"
                   size="sm"

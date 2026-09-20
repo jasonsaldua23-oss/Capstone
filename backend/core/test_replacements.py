@@ -140,6 +140,184 @@ class WarehouseReplacementProcessingContractTests(TestCase):
         self.assertEqual(replacement.status, ReplacementStatus.APPROVED)
 
 
+class WarehouseReplacementRescheduleContractTests(TestCase):
+    """A scheduled replacement whose delivery date came and went can be moved."""
+
+    def setUp(self) -> None:
+        self.client = Client()
+        warehouse_role = Role.objects.create(name="WAREHOUSE_STAFF", description="Warehouse Staff")
+        self.warehouse_user = User.objects.create(
+            email="warehouse.replacement.reschedule@example.com",
+            password="hashed",
+            name="Warehouse Reschedule User",
+            role=warehouse_role,
+            is_active=True,
+        )
+        admin_role = Role.objects.create(name="ADMIN", description="Admin")
+        self.admin_user = User.objects.create(
+            email="admin.replacement.reschedule@example.com",
+            password="hashed",
+            name="Admin Reschedule User",
+            role=admin_role,
+            is_active=True,
+        )
+        self.warehouse = Warehouse.objects.create(
+            name="Replacement Reschedule Warehouse",
+            code="WH-REPL-RESCHED",
+            address="Replacement Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            manager_id=self.warehouse_user.id,
+            is_active=True,
+        )
+        self.customer = Customer.objects.create(
+            email="warehouse.reschedule.customer@example.com",
+            password="hashed",
+            name="Reschedule Customer",
+            is_active=True,
+        )
+        self.product = Product.objects.create(
+            sku="SKU-REPL-RESCHED",
+            name="Reschedule Product",
+            unit="case",
+            price=120,
+            quantity_per_unit=6,
+            sizes=["500ml"],
+        )
+        self.warehouse_token = create_token(
+            {
+                "userId": self.warehouse_user.id,
+                "email": self.warehouse_user.email,
+                "name": self.warehouse_user.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+        self.admin_token = create_token(
+            {
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": "ADMIN",
+                "type": "staff",
+            }
+        )
+
+    def _in_progress_replacement(self, suffix: str) -> Replacement:
+        order = Order.objects.create(
+            order_number=f"ORD-RESCHED-{suffix}",
+            customer=self.customer,
+            status=OrderStatus.DELIVERED,
+            subtotal=120,
+            total_amount=120,
+            warehouse_id=self.warehouse.id,
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            quantity=1,
+            unit_price=120,
+            total_price=120,
+        )
+        return Replacement.objects.create(
+            replacement_number=f"RET-RESCHED-{suffix}",
+            order=order,
+            customer_id=self.customer.id,
+            reason="Damaged item",
+            status=ReplacementStatus.IN_PROGRESS,
+            replacement_mode="CUSTOMER_SUBMITTED",
+            replacement_quantity=3,
+            replacement_product_id=self.product.id,
+        )
+
+    def _scheduled_replacement(self, suffix: str, *, scheduled_date) -> tuple[Replacement, Order]:
+        replacement = self._in_progress_replacement(suffix)
+        replacement_order = _create_scheduled_replacement_order(
+            replacement,
+            scheduled_date=scheduled_date,
+            staff_user_id=None,
+        )
+        replacement.refresh_from_db()
+        return replacement, replacement_order
+
+    def _reschedule(self, replacement: Replacement, delivery_date: str, *, token: str | None = None):
+        return self.client.patch(
+            "/api/orders",
+            data=json.dumps(
+                {
+                    "scope": "replacement",
+                    "replacementId": replacement.id,
+                    "status": "IN_PROGRESS",
+                    "rescheduleReplacementDelivery": True,
+                    "replacementDeliveryDate": delivery_date,
+                    "manualScheduleConfirmed": True,
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token or self.warehouse_token}",
+        )
+
+    @patch("core.views_api._email_replacement_outcome_to_customer")
+    @patch("core.views_api._email_replacement_update_to_staff")
+    def test_past_due_replacement_delivery_moves_to_the_new_date(self, _email_staff, _email_customer) -> None:
+        yesterday = timezone.localdate() - timedelta(days=1)
+        replacement, replacement_order = self._scheduled_replacement("MOVE-001", scheduled_date=yesterday)
+        new_date = (timezone.localdate() + timedelta(days=2)).isoformat()
+        replacement_order_count = Order.objects.filter(notes__startswith="Replacement delivery for").count()
+
+        response = self._reschedule(replacement, new_date)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["replacement"]["scheduledDeliveryDate"], new_date)
+        # The same replacement order is kept; only its delivery date moves.
+        self.assertEqual(response.json()["replacement"]["replacementOrderNumber"], replacement_order.order_number)
+        self.assertEqual(
+            Order.objects.filter(notes__startswith="Replacement delivery for").count(),
+            replacement_order_count,
+        )
+        timeline = OrderTimeline.objects.get(order=replacement_order)
+        self.assertEqual(timezone.localtime(timeline.delivery_date).date().isoformat(), new_date)
+
+    @patch("core.views_api._email_replacement_outcome_to_customer")
+    @patch("core.views_api._email_replacement_update_to_staff")
+    def test_reschedule_refuses_a_date_in_the_past(self, _email_staff, _email_customer) -> None:
+        yesterday = timezone.localdate() - timedelta(days=1)
+        replacement, replacement_order = self._scheduled_replacement("PAST-001", scheduled_date=yesterday)
+
+        response = self._reschedule(replacement, (timezone.localdate() - timedelta(days=3)).isoformat())
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["error"], "The new replacement delivery date cannot be in the past")
+        timeline = OrderTimeline.objects.get(order=replacement_order)
+        self.assertEqual(timezone.localtime(timeline.delivery_date).date(), yesterday)
+
+    @patch("core.views_api._email_replacement_outcome_to_customer")
+    @patch("core.views_api._email_replacement_update_to_staff")
+    def test_reschedule_needs_an_existing_scheduled_delivery(self, _email_staff, _email_customer) -> None:
+        replacement = self._in_progress_replacement("UNSCHEDULED-001")
+
+        response = self._reschedule(replacement, (timezone.localdate() + timedelta(days=1)).isoformat())
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["error"], "This replacement has no scheduled delivery to move")
+
+    @patch("core.views_api._email_replacement_outcome_to_customer")
+    @patch("core.views_api._email_replacement_update_to_staff")
+    def test_only_warehouse_staff_can_reschedule(self, _email_staff, _email_customer) -> None:
+        yesterday = timezone.localdate() - timedelta(days=1)
+        replacement, _ = self._scheduled_replacement("ROLE-001", scheduled_date=yesterday)
+
+        response = self._reschedule(
+            replacement,
+            (timezone.localdate() + timedelta(days=1)).isoformat(),
+            token=self.admin_token,
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()["error"], "Only warehouse staff can reschedule replacement deliveries")
+
+
 class CustomerReplacementRequestContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()

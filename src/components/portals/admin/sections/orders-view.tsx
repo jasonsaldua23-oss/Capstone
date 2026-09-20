@@ -921,7 +921,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                 </div>
               ) : (
                 <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-slate-200">
-                  <table className="min-w-[1060px] w-full">
+                  <table className="stack-table min-w-[1060px] w-full">
                     <thead className="bg-slate-50 text-left text-sm text-slate-600">
                       <tr>
                         <th className="px-4 py-3 font-semibold">Request ID</th>
@@ -1162,7 +1162,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                 </div>
               ) : (
                 <div className="max-w-full overflow-x-auto overscroll-x-contain">
-                  <table className="min-w-[1100px] w-full">
+                  <table className="stack-table min-w-[1100px] w-full">
                     <thead className="bg-gray-50 border-b">
                       <tr>
                         <th className="text-left p-4 font-semibold text-gray-800">ORDER ID</th>
@@ -1277,7 +1277,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                       })}
                     </tbody>
                   </table>
-                  <div className="flex items-center justify-between border-t px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t px-4 py-3">
                     <p className="text-xs text-slate-500">
                       Showing {(ordersPage - 1) * ordersPageSize + 1}-{Math.min(ordersPage * ordersPageSize, filteredOrders.length)} of {filteredOrders.length}
                     </p>

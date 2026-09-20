@@ -397,12 +397,12 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
 
       <Card>
         <CardContent className="p-3">
-          <div className="flex flex-row items-center gap-2">
+          <div className="flex flex-row flex-wrap items-center gap-2">
             <Input
               placeholder="Search by client name or email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="lg:flex-1"
+              className="min-w-[12rem] flex-1"
             />
             <select
               title="Customer status filter"
@@ -441,7 +441,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
             <div className="text-center py-12 text-gray-500">No registered clients found</div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[900px]">
+              <table className="stack-table w-full min-w-[900px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Client</th>

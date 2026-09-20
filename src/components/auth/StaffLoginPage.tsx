@@ -331,7 +331,10 @@ export function SystemLoginPage({
       window.google.accounts.id.renderButton(target, {
         type: 'standard',
         theme: 'outline',
-        size: 'large',
+        // Fix: at 'large' Google swaps in its personalized button, which pins the
+        // visitor's own account and email onto the login screen. 'medium' is the
+        // documented size that keeps the plain "Continue with Google" label.
+        size: 'medium',
         text: 'continue_with',
         shape: 'pill',
         logo_alignment: 'left',
@@ -518,8 +521,8 @@ export function SystemLoginPage({
             </div>
 
             {/* Formal auth layout: keep the recovery link with the related session option. */}
-            <div className="flex min-h-6 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <label className="flex items-center gap-2 text-sm text-[#445877]">
+            <div className="flex flex-wrap items-center justify-between gap-x-4">
+              <label className="flex items-center gap-2 py-2.5 text-sm text-[#445877]">
                 <input
                   type="checkbox"
                   checked={rememberMe}
@@ -530,7 +533,7 @@ export function SystemLoginPage({
               </label>
               <Link
                 href={forgotPasswordPath ? withPrefilledEmail(forgotPasswordPath, email) : forgotPasswordHref(entryPortal, email)}
-                className="rounded-sm text-sm font-medium text-[#1f4f9f] underline-offset-4 transition-colors hover:text-[#0f4fd3] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0f4fd3] focus-visible:ring-offset-2"
+                className="inline-flex items-center rounded-sm py-2.5 text-sm font-medium text-[#1f4f9f] underline-offset-4 transition-colors hover:text-[#0f4fd3] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0f4fd3] focus-visible:ring-offset-2"
               >
                 Forgot your password?
               </Link>
@@ -571,7 +574,7 @@ export function SystemLoginPage({
             {entryPortal === 'customer' ? (
               <p className="pt-1 text-center text-sm text-[#445877]">
                 New customer?{' '}
-                <Link href={registrationHref} className="font-semibold text-[#16984e] hover:text-[#107e41]">
+                <Link href={registrationHref} className="inline-block py-3 font-semibold text-[#16984e] hover:text-[#107e41]">
                   Create an account
                 </Link>
               </p>

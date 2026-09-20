@@ -712,6 +712,61 @@ def _create_scheduled_replacement_order_locked(
     return replacement_order
 
 
+def _reschedule_replacement_delivery(
+    replacement: Replacement,
+    *,
+    scheduled_date: date,
+    staff_user_id: str | None,
+) -> Order:
+    """Move an already-scheduled replacement delivery to a new date.
+
+    Scheduling creates the replacement order once and then hands the same order
+    back on every later call, so a date that has come and gone is corrected by
+    moving that order's delivery timeline instead of scheduling a second one.
+    """
+    with transaction.atomic():
+        locked = Replacement.objects.select_for_update().filter(id=replacement.id).first()
+        if locked is not None:
+            replacement.notes = locked.notes
+        meta = _extract_replacement_meta(replacement.notes)
+        replacement_order_id = str(meta.get("replacementOrderId") or "").strip()
+        replacement_order_number = str(meta.get("replacementOrderNumber") or "").strip()
+        replacement_order = None
+        if replacement_order_id:
+            replacement_order = Order.objects.filter(id=replacement_order_id).first()
+        if replacement_order is None and replacement_order_number:
+            replacement_order = Order.objects.filter(order_number=replacement_order_number).first()
+        if replacement_order is None:
+            raise ValueError("This replacement has no scheduled delivery to move")
+
+        order_status = _normalize_order_status(getattr(replacement_order, "status", None))
+        if order_status in {OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+            raise ValueError("This replacement delivery is already closed and cannot be rescheduled")
+        if order_status == OrderStatus.OUT_FOR_DELIVERY:
+            raise ValueError("This replacement delivery is already out for delivery and cannot be rescheduled")
+
+        scheduled_start = timezone.make_aware(datetime.combine(scheduled_date, time(hour=9, minute=0)))
+        timeline, created = OrderTimeline.objects.get_or_create(
+            order=replacement_order,
+            defaults={"confirmed_at": timezone.now(), "delivery_date": scheduled_start},
+        )
+        if not created:
+            # Only the delivery date moves; the original confirmation stays put.
+            timeline.delivery_date = scheduled_start
+            timeline.save(update_fields=["delivery_date", "updated_at"])
+
+        replacement.notes = _upsert_replacement_meta(
+            replacement.notes,
+            {
+                "scheduledDeliveryDate": scheduled_date.isoformat(),
+                "rescheduledBy": staff_user_id,
+                "rescheduledAt": timezone.now().isoformat(),
+            },
+        )
+        replacement.save(update_fields=["notes", "updated_at"])
+        return replacement_order
+
+
 def _is_linked_replacement_order_delivered(entry: Replacement, *, order_cache: dict[str, Any] | None = None) -> bool:
     meta = _extract_replacement_meta(getattr(entry, "notes", ""))
     replacement_order_id = str(meta.get("replacementOrderId") or "").strip()

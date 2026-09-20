@@ -488,7 +488,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border">
-              <table className="w-full min-w-[720px] text-sm">
+              <table className="stack-table w-full min-w-[720px] text-sm">
                 <thead className="border-b bg-slate-50 text-slate-600">
                   <tr>
                     <th className="p-3 text-left font-medium">Product</th>

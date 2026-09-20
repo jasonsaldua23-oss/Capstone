@@ -325,7 +325,7 @@ export function ForgotPasswordScreen(props: ForgotPasswordScreenProps) {
       <div className="relative mx-auto w-full max-w-[960px] px-4 py-8 sm:px-6 sm:py-12">
         <Link
           href={loginPath}
-          className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-[#2A2A2A] transition-colors hover:text-[var(--accent)] motion-reduce:transition-none"
+          className="mb-4 inline-flex items-center gap-2 py-2.5 text-sm font-semibold text-[#2A2A2A] transition-colors hover:text-[var(--accent)] motion-reduce:transition-none"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to login
@@ -441,7 +441,7 @@ export function ForgotPasswordScreen(props: ForgotPasswordScreenProps) {
 
                   <p className="mt-6 text-center text-sm text-[#667085]">
                     Remembered it after all?{' '}
-                    <Link href={loginPath} className="font-semibold text-[var(--accent)] hover:underline">
+                    <Link href={loginPath} className="inline-block py-3 font-semibold text-[var(--accent)] hover:underline">
                       Back to login
                     </Link>
                   </p>

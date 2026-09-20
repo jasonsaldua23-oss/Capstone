@@ -174,12 +174,16 @@ export function ReportsView() {
     driverPerformanceKpi,
     driverPerformanceStatusOptions,
     feedbackDateWindow,
+    feedbackDimensionRows,
     feedbackExportRows,
     feedbackKpi,
     feedbackRatingChart,
     feedbackRatingTotal,
     feedbackRows,
+    feedbackSatisfactionTrend,
+    feedbackParticipation,
     feedbackSummaryLines,
+    feedbackTopIssues,
     inventoryExportRows,
     inventoryKpi,
     inventoryMovementByProductChart,
@@ -736,10 +740,14 @@ export function ReportsView() {
           <TabsContent value="feedback" className="report-design-system space-y-4">
             <FeedbackReportTab
               feedback={feedback}
+              feedbackDimensionRows={feedbackDimensionRows}
               feedbackKpi={feedbackKpi}
+              feedbackParticipation={feedbackParticipation}
               feedbackRatingChart={feedbackRatingChart}
               feedbackRatingTotal={feedbackRatingTotal}
               feedbackRows={feedbackRows}
+              feedbackSatisfactionTrend={feedbackSatisfactionTrend}
+              feedbackTopIssues={feedbackTopIssues}
               reportToolbar={reportToolbar}
             />
           </TabsContent>

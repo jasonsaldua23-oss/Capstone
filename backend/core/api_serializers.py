@@ -475,7 +475,14 @@ def _serialize_replacement(
     *,
     warehouse_cache: dict[str, Any] | None = None,
     order_cache: dict[str, Any] | None = None,
+    order_items_cache: dict[str, list[Any]] | None = None,
+    order_item_by_id_cache: dict[str, Any] | None = None,
+    product_cache: dict[str, Any] | None = None,
+    replacement_pod_cache: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Optional page-wide lookups, all keyed by id and built once by the caller.
+    # Passing none of them keeps the original per-row queries, so every existing
+    # caller behaves exactly as before; passing one does not require the others.
     data = _serialize_model(entry)
     meta = _extract_replacement_meta(getattr(entry, "notes", ""))
     data["customerNotes"] = str(meta.get("customerNotes") or "").strip() or None
@@ -554,12 +561,16 @@ def _serialize_replacement(
 
     replacement_drop_point = None
     if linked_replacement_order:
-        replacement_drop_point = (
-            TripDropPoint.objects.filter(order_id=linked_replacement_order.id)
-            .exclude(Q(delivery_photo__isnull=True) | Q(delivery_photo=""))
-            .order_by("-actual_departure", "-updated_at")
-            .first()
-        )
+        linked_order_key = str(linked_replacement_order.id)
+        if replacement_pod_cache is not None and linked_order_key in replacement_pod_cache:
+            replacement_drop_point = replacement_pod_cache[linked_order_key]
+        else:
+            replacement_drop_point = (
+                TripDropPoint.objects.filter(order_id=linked_replacement_order.id)
+                .exclude(Q(delivery_photo__isnull=True) | Q(delivery_photo=""))
+                .order_by("-actual_departure", "-updated_at")
+                .first()
+            )
     replacement_pod_submitted_at = (
         getattr(linked_replacement_order, "pod_submitted_at", None)
         if linked_replacement_order
@@ -596,7 +607,11 @@ def _serialize_replacement(
     data["status"] = normalized_status
     original_item = None
     if entry.original_order_item_id:
-        original_item = OrderItem.objects.select_related("product").filter(id=entry.original_order_item_id).first()
+        item_key = str(entry.original_order_item_id)
+        if order_item_by_id_cache is not None and item_key in order_item_by_id_cache:
+            original_item = order_item_by_id_cache[item_key]
+        else:
+            original_item = OrderItem.objects.select_related("product").filter(id=entry.original_order_item_id).first()
     if original_item is None and order is not None:
         original_item = (
             OrderItem.objects.select_related("product")
@@ -606,7 +621,11 @@ def _serialize_replacement(
         )
     replacement_product = None
     if entry.replacement_product_id:
-        replacement_product = Product.objects.filter(id=entry.replacement_product_id).first()
+        product_key = str(entry.replacement_product_id)
+        if product_cache is not None and product_key in product_cache:
+            replacement_product = product_cache[product_key]
+        else:
+            replacement_product = Product.objects.filter(id=entry.replacement_product_id).first()
     quantity_replaced = _int(meta.get("quantityReplaced"), _int(entry.replacement_quantity, 0))
     quantity_to_replace = _int(
         meta.get("quantityToReplace", meta.get("damagedQuantity", meta.get("totalDamagedQuantity"))),
@@ -642,10 +661,15 @@ def _serialize_replacement(
         # The claim value includes only the selected replacement quantities.
         # Order totals include unrelated products, discounts and deposits.
         replacement_amount = 0.0
-        source_items_by_id = {
-            str(item.id): item
-            for item in OrderItem.objects.select_related("product").filter(order_id=order.id)
-        } if order is not None else {}
+        if order is None:
+            source_items_by_id = {}
+        elif order_items_cache is not None and str(order.id) in order_items_cache:
+            source_items_by_id = {str(item.id): item for item in order_items_cache[str(order.id)]}
+        else:
+            source_items_by_id = {
+                str(item.id): item
+                for item in OrderItem.objects.select_related("product").filter(order_id=order.id)
+            }
         for line in structured_replacement_lines:
             source_item = source_items_by_id.get(str(line.get("originalOrderItemId") or ""))
             unit_price = float(
@@ -710,7 +734,10 @@ def _serialize_replacement(
         first_original_order_item_id = str(first_line.get("originalOrderItemId") or "").strip()
         first_original_item = None
         if first_original_order_item_id:
-            first_original_item = OrderItem.objects.select_related("product").filter(id=first_original_order_item_id).first()
+            if order_item_by_id_cache is not None and first_original_order_item_id in order_item_by_id_cache:
+                first_original_item = order_item_by_id_cache[first_original_order_item_id]
+            else:
+                first_original_item = OrderItem.objects.select_related("product").filter(id=first_original_order_item_id).first()
         if first_original_item:
             data["originalOrderItem"] = {
                 "id": first_original_item.id,
@@ -997,6 +1024,10 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                                 entry,
                                 warehouse_cache=warehouse_cache,
                                 order_cache=ctx.get("order_cache"),
+                                order_items_cache=ctx.get("order_items_cache"),
+                                order_item_by_id_cache=ctx.get("order_item_by_id_cache"),
+                                product_cache=ctx.get("product_cache"),
+                                replacement_pod_cache=ctx.get("replacement_pod_cache"),
                             ),
                             "remainingQuantity": max(
                                 _int(

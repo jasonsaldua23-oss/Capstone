@@ -104,7 +104,7 @@ function ReturnedEmptiesHistory({ warehouseId }: { warehouseId?: string }) {
           <p className="p-10 text-center text-sm text-slate-500">No returned empties recorded yet.</p>
         ) : (
           <div className="max-w-full overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[960px] text-left text-sm">
+            <table className="stack-table w-full min-w-[960px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wider text-slate-600">
                 <tr>
                   <th className="px-4 py-3">Date &amp; time</th><th className="px-4 py-3">Product</th><th className="px-4 py-3">Warehouse</th>
@@ -348,7 +348,7 @@ export function WarehouseEmptyBottlesView({ warehouseId, readOnly = false }: War
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[760px] text-left text-sm">
+              <table className="stack-table w-full min-w-[760px] text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wider text-slate-600">
                   <tr>
                     <th className="px-4 py-3">SKU</th>

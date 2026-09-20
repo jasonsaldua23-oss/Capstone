@@ -2,6 +2,7 @@
 
 import base64
 import logging
+import threading
 from datetime import time
 from pathlib import Path
 from time import monotonic
@@ -10,6 +11,7 @@ from typing import Any
 import requests
 from django.conf import settings
 from django.core.mail import send_mail
+from django.db import close_old_connections
 
 from . import views_api as legacy
 from .email_templates import EmailBody
@@ -279,6 +281,37 @@ def _dispatch_email(*, subject: str, text: str, html: str, recipient: str) -> No
     )
 
 
+def _start_email_delivery(deliver) -> None:
+    """Run outbound email I/O without holding the originating API response open.
+
+    Why a thread and not an inline call: every transport below is a network round
+    trip with a multi-second timeout (Gmail token 15s + send 20s, then Brevo 20s,
+    then SMTP), and they are tried in order. A staff sign-in measured 28s end to
+    end, virtually all of it the login-alert email, because the response was fully
+    built and then made to wait for delivery. Gunicorn runs gthread, so a parked
+    thread does not stall the process, but the pool is still bounded and no caller
+    should buy an email send with its own latency.
+
+    Safe by contract: `_send_transactional_email` already logged and swallowed
+    per-recipient failures, so no caller ever observed a delivery result.
+    """
+
+    def run_with_fresh_connection() -> None:
+        # Gunicorn request threads must not leak their database connection into this
+        # background thread; Django opens a thread-local connection on demand.
+        close_old_connections()
+        try:
+            deliver()
+        finally:
+            close_old_connections()
+
+    threading.Thread(
+        target=run_with_fresh_connection,
+        name="transactional-email",
+        daemon=True,
+    ).start()
+
+
 def _send_transactional_email(
     *,
     subject: str,
@@ -296,12 +329,20 @@ def _send_transactional_email(
     if not cleaned:
         return
     if html_message is None:
-        # Legacy callers pass plain text only; give it the standard shell.
+        # Legacy callers pass plain text only; give it the standard shell. Rendering
+        # stays on the request thread so a template error still surfaces to the caller
+        # rather than only in a worker log.
         body = EmailBody(paragraphs=[line for line in str(message or "").split("\n\n") if line.strip()])
         heading = subject.split(" - ")[-1].strip() or subject
         message, html_message = _render_email_parts(body, heading=heading)
-    for recipient in cleaned:
-        try:
-            _dispatch_email(subject=subject, text=message, html=html_message, recipient=recipient)
-        except Exception:
-            logger.exception("Failed to send email: subject=%s recipient=%s", subject, recipient)
+
+    text_body, html_body = message, html_message
+
+    def deliver() -> None:
+        for recipient in cleaned:
+            try:
+                _dispatch_email(subject=subject, text=text_body, html=html_body, recipient=recipient)
+            except Exception:
+                logger.exception("Failed to send email: subject=%s recipient=%s", subject, recipient)
+
+    _start_email_delivery(deliver)

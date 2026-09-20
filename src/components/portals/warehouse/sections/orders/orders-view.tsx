@@ -275,7 +275,7 @@ export function WarehouseOrdersView({
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-slate-200">
-              <table className="min-w-[1100px] w-full">
+              <table className="stack-table min-w-[1100px] w-full">
                 <thead className="bg-slate-50 text-left text-sm text-slate-600">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Purchase Order ID</th>
@@ -363,7 +363,7 @@ export function WarehouseOrdersView({
                                   </td>
                                   <td rowSpan={displayItems.length} className="px-4 py-3">
                                     {/* Fix: action labels vary, so keep every control aligned to one column width. */}
-                                    <div className="flex w-[172px] flex-col gap-2">
+                                    <div className="flex w-[172px] max-w-full flex-col gap-2">
                             <Button variant="outline" size="sm" className="w-full" onClick={() => void openOrderDetail(order)}>
                               <Eye className="mr-2 h-4 w-4" />
                               View Details

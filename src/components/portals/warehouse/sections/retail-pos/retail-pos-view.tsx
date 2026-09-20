@@ -1020,7 +1020,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 </div>
               ) : (
                 <div className="max-w-full overflow-x-auto overscroll-x-contain">
-                  <table className="w-full min-w-[720px] text-left text-xs">
+                  <table className="stack-table w-full min-w-[720px] text-left text-xs">
                     <thead className="border-b border-slate-100 bg-slate-50/75 text-slate-600 font-semibold">
                       <tr>
                         <th className="px-4 py-3">Receipt #</th>

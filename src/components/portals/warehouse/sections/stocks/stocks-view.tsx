@@ -187,7 +187,7 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft,
           </div>
         ) : (
           <div className="max-w-full overflow-x-auto rounded-xl border overscroll-x-contain">
-            <table className="w-full min-w-[1080px] text-left text-sm">
+            <table className="stack-table w-full min-w-[1080px] text-left text-sm">
               <thead className="border-b bg-slate-50 text-slate-600">
                 <tr>
                   <th className="px-4 py-3 font-medium">Disposed</th><th className="px-4 py-3 font-medium">Batch</th><th className="px-4 py-3 font-medium">Product</th>
@@ -252,7 +252,7 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, getDaysLeft,
           <div className="h-40 flex items-center justify-center text-gray-500">No stock-in batches found</div>
         ) : (
           <div className="max-w-full overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[1180px]">
+            <table className="stack-table w-full min-w-[1180px]">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="text-left p-4 font-medium text-gray-600">Batch #</th>

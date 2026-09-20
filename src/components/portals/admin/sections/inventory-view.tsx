@@ -327,7 +327,7 @@ export function InventoryView() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="stack-table w-full min-w-[640px] text-sm">
                 <thead className="border-y bg-slate-50 text-slate-600">
                   <tr>
                     <th className="p-3 text-left font-medium">Product</th>
@@ -371,7 +371,7 @@ export function InventoryView() {
           <div>
             <CardTitle>Inventory</CardTitle>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant="outline"
@@ -430,7 +430,7 @@ export function InventoryView() {
             <div className="h-40 flex items-center justify-center text-gray-500">No inventory records found</div>
           ) : (
             <div className="w-full max-w-full overflow-x-auto overscroll-x-contain pb-1">
-              <table className="w-full min-w-[1120px] text-sm">
+              <table className="stack-table w-full min-w-[1120px] text-sm">
                 {/* Fix: headers remain plain table cells; filtering is handled above the table. */}
                 <thead className="bg-gray-50 border-b">
                   <tr>

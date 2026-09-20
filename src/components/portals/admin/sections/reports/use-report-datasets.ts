@@ -1,6 +1,10 @@
 import { useMemo } from 'react'
 import { toArray, normalizeTripStatus, toIsoDateTime, formatDayLabel, withinRange, getWarehouseIdFromRow } from '../shared'
 import {
+  buildFeedbackDimensionBreakdown,
+  buildFeedbackRows,
+  buildFeedbackSatisfactionTrend,
+  buildFeedbackTopIssues,
   buildOrderReportRows,
   buildOrderReportStatusBreakdown,
   buildOrderReportStatusOptions,
@@ -9,16 +13,23 @@ import {
   buildInventoryMovementRows,
   buildInventoryMovementTypeOptions,
   buildWarehouseCapacityVsUsedChart,
+  filterFeedbackRowsByWindow,
   formatOrderReportStatus,
   formatReportProductName,
   getInventoryAvailableQty,
   getInventoryQuantity,
   getInventoryThreshold,
+  summarizeFeedbackKpis,
+  summarizeFeedbackParticipation,
   summarizeOrderReportRows,
   summarizeInventoryMovementRows,
   summarizeInventoryMovementTrend,
   summarizeStockHealth,
 } from '@/lib/report-metrics'
+import {
+  FEEDBACK_DIMENSION_LABELS,
+  stripOtherReasonPrefix,
+} from '@shared/customer-logic/feedback-reasons'
 import { formatPesoCompact, formatReportDateOnly } from './report-pdf'
 import { buildReportDateWindow, formatReportDateRangeLabel, type ReportDatePreset } from '../report-date-utils'
 
@@ -312,6 +323,14 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       .filter((item) => selectedReplacementStatus === 'all' || String(item.status || '').toUpperCase() === selectedReplacementStatus)
   }, [orders, replacementsData, rangeStart, selectedReplacementStatus])
 
+  // Parsing the raw payload is window-independent, so it stays out of the filtered memo.
+  const feedbackAllRows = useMemo(() => buildFeedbackRows(feedback, { orders }), [feedback, orders])
+
+  const feedbackClassifiedRows = useMemo(
+    () => filterFeedbackRowsByWindow(feedbackAllRows, feedbackDateWindow),
+    [feedbackAllRows, feedbackDateWindow]
+  )
+
   const feedbackRows = useMemo(() => {
     const getDriverNameFromTrip = (trip: any) => (
       trip?.driver?.user?.name ||
@@ -340,54 +359,67 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       return ''
     }
 
-    return feedback
-      .filter((item) => {
-        const itemTime = new Date(item.createdAt).getTime()
-        if (!Number.isFinite(itemTime)) return false
-        if (feedbackDateWindow.start && itemTime < feedbackDateWindow.start.getTime()) return false
-        if (feedbackDateWindow.end && itemTime > feedbackDateWindow.end.getTime()) return false
-        return true
-      })
-      .map((item) => {
-        const orderRef = item.order
-        const orderId = String(
-          (typeof orderRef === 'object' && orderRef !== null
-            ? (orderRef as any).id
-            : orderRef) || item.orderId || ''
-        ).trim()
-        const relatedOrder = orders.find((order) => String(order?.id || '').trim() === orderId)
-        const relatedOrderNumber = String(
-          (typeof orderRef === 'object' && orderRef !== null
-            ? (orderRef as any).orderNumber || (orderRef as any).order_number
-            : '') || item.orderNumber || ''
-        ).trim()
-        const fallbackOrderByNumber = relatedOrderNumber
-          ? orders.find((order) => String(order?.orderNumber || '').trim() === relatedOrderNumber)
-          : null
-        const tripDriverName = findDriverByOrderId(orderId)
-        return {
-          createdAt: item.createdAt,
-          customer: item.customer?.name || 'N/A',
-          orderId: orderId || 'N/A',
-          driver:
-            relatedOrder?.driver?.name ||
-            relatedOrder?.assignedDriverName ||
-            relatedOrder?.assignedDriver?.name ||
-            relatedOrder?.trip?.driver?.name ||
-            fallbackOrderByNumber?.driver?.name ||
-            fallbackOrderByNumber?.assignedDriverName ||
-            fallbackOrderByNumber?.assignedDriver?.name ||
-            fallbackOrderByNumber?.trip?.driver?.name ||
-            tripDriverName ||
-            item?.driverName ||
-            item?.driver?.name ||
-            'N/A',
-          type: item.type || 'N/A',
-          rating: item.rating === null || item.rating === undefined ? 'N/A' : Number(item.rating),
-          subject: item.subject || 'N/A',
-        }
-      })
-  }, [feedback, orders, trips, feedbackDateWindow])
+    const polarityLabel: Record<string, string> = {
+      positive: 'Positive',
+      neutral: 'Neutral',
+      negative: 'Negative',
+      unrated: 'Unrated',
+    }
+
+    return feedbackClassifiedRows.map((row) => {
+      const relatedOrder = orders.find((order) => String(order?.id || '').trim() === row.orderId)
+      const fallbackOrderByNumber = row.orderNumber
+        ? orders.find((order) => String(order?.orderNumber || '').trim() === row.orderNumber)
+        : null
+      const tripDriverName = findDriverByOrderId(row.orderId)
+      // Feedback carries no driver column; it is recovered from the order or its trip.
+      const driver =
+        relatedOrder?.driver?.name ||
+        relatedOrder?.assignedDriverName ||
+        relatedOrder?.assignedDriver?.name ||
+        relatedOrder?.trip?.driver?.name ||
+        fallbackOrderByNumber?.driver?.name ||
+        fallbackOrderByNumber?.assignedDriverName ||
+        fallbackOrderByNumber?.assignedDriver?.name ||
+        fallbackOrderByNumber?.trip?.driver?.name ||
+        tripDriverName ||
+        'N/A'
+
+      // What the client ticked, and separately what they typed themselves.
+      const pickedReasons = row.reasons.filter((hit) => hit.matched).map((hit) => hit.canonicalReason)
+      const describedText = row.reasons
+        .filter((hit) => !hit.matched)
+        .map((hit) => stripOtherReasonPrefix(hit.reason))
+        .filter(Boolean)
+        .join(' ')
+      const serviceAreas = row.dimensions.map((dimension) => FEEDBACK_DIMENSION_LABELS[dimension])
+
+      return {
+        id: row.id,
+        createdAt: row.createdAt,
+        customer: row.customerName || 'N/A',
+        orderId: row.orderId || 'N/A',
+        orderNumber: row.orderNumber || 'N/A',
+        // A replacement review rates the redelivery, not the original order, and
+        // feedback sent outside an order is neither.
+        source: !row.orderNumber ? 'General' : row.isReplacement ? 'Replacement' : 'Delivery',
+        driver,
+        type: row.type || 'N/A',
+        rating: row.rating >= 1 && row.rating <= 5 ? row.rating : 'N/A',
+        sentiment: polarityLabel[row.polarity] || 'Unrated',
+        subject: row.subject || 'N/A',
+        serviceAreas,
+        serviceAreasLabel: serviceAreas.length ? serviceAreas.join(', ') : 'N/A',
+        reasons: pickedReasons,
+        reasonsLabel: pickedReasons.length ? pickedReasons.join('; ') : '',
+        describedText,
+        // One column that always carries the substance of the review.
+        detailsLabel: pickedReasons.length
+          ? pickedReasons.join('; ')
+          : describedText || 'No details given',
+      }
+    })
+  }, [feedbackClassifiedRows, orders, trips])
 
   // Batch expiry stays under inventory reporting so stock age is reviewed alongside movement and low-stock risks.
   const stockExpiryRows = useMemo(() => {
@@ -856,24 +888,34 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     return points
   }, [replacementRows, rangeDays, rangeStart])
 
-  const feedbackKpi = useMemo(() => {
-    const total = feedbackRows.length
-    const ratings = feedbackRows
-      .map((row) => Number(row.rating))
-      .filter((rating) => Number.isFinite(rating) && rating >= 1 && rating <= 5)
-    const avgRating = ratings.length > 0 ? ratings.reduce((acc, rating) => acc + rating, 0) / ratings.length : 0
-    // Added: expose the rating mix without introducing a feedback response workflow.
-    const rateFor = (minimum: number, maximum: number) => ratings.length > 0
-      ? Math.round((ratings.filter((rating) => rating >= minimum && rating <= maximum).length / ratings.length) * 100)
-      : 0
-    return {
-      total,
-      avgRating,
-      positiveRate: rateFor(4, 5),
-      neutralRate: rateFor(3, 3),
-      negativeRate: rateFor(1, 2),
-    }
-  }, [feedbackRows])
+  // One definition of every feedback KPI, shared with the admin feedback screen.
+  const feedbackKpi = useMemo(
+    () => summarizeFeedbackKpis(feedbackClassifiedRows),
+    [feedbackClassifiedRows]
+  )
+
+  // What each review actually talked about, from the ticked phrases and free text.
+  const feedbackDimensionRows = useMemo(
+    () => buildFeedbackDimensionBreakdown(feedbackClassifiedRows),
+    [feedbackClassifiedRows]
+  )
+
+  const feedbackTopIssues = useMemo(
+    () => buildFeedbackTopIssues(feedbackClassifiedRows, { limit: 6 }),
+    [feedbackClassifiedRows]
+  )
+
+  // The trend reads every row on purpose: a 7-day range must not blank a 6-month chart.
+  const feedbackSatisfactionTrend = useMemo(
+    () => buildFeedbackSatisfactionTrend(feedbackAllRows, { months: 6 }),
+    [feedbackAllRows]
+  )
+
+  // The only feedback KPI with a delivered-order denominator, held to the same window.
+  const feedbackParticipation = useMemo(
+    () => summarizeFeedbackParticipation(feedbackClassifiedRows, orders, { window: feedbackDateWindow }),
+    [feedbackClassifiedRows, orders, feedbackDateWindow]
+  )
 
   const driverPerformanceKpi = useMemo(() => {
     const total = transportDriverRows.length
@@ -985,9 +1027,15 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     return feedbackRows.map((row: any) => ({
       createdAt: toDateOnly(row.createdAt),
       customer: row.customer,
+      orderNumber: row.orderNumber,
+      source: row.source,
       driver: row.driver,
-      type: row.sourceType || row.type,
+      type: row.type,
       rating: row.rating,
+      sentiment: row.sentiment,
+      serviceAreas: row.serviceAreasLabel,
+      feedbackDetails: row.detailsLabel,
+      inOwnWords: row.describedText ? 'Yes' : 'No',
     }))
   }, [feedbackRows])
 
@@ -1061,13 +1109,24 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     `Open Cases: ${replacementKpi.open}`,
   ]), [replacementKpi])
 
-  const feedbackSummaryLines = useMemo(() => ([
-    `Total Feedback: ${feedbackKpi.total}`,
-    `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`,
-    `Positive Ratings (4-5 stars): ${feedbackKpi.positiveRate}%`,
-    `Neutral Ratings (3 stars): ${feedbackKpi.neutralRate}%`,
-    `Negative Ratings (1-2 stars): ${feedbackKpi.negativeRate}%`,
-  ]), [feedbackKpi])
+  const feedbackSummaryLines = useMemo(() => {
+    const topIssue = feedbackTopIssues[0]
+    const mostCited = feedbackDimensionRows
+      .filter((row) => row.hasSignal)
+      .slice()
+      .sort((a, b) => b.mentions - a.mentions)[0]
+    return [
+      `Total Feedback: ${feedbackKpi.total} (${feedbackKpi.ratedCount} rated)`,
+      `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`,
+      `Positive Ratings (4-5 stars): ${feedbackKpi.positiveRate}%`,
+      `Neutral Ratings (3 stars): ${feedbackKpi.neutralRate}%`,
+      `Negative Ratings (1-2 stars): ${feedbackKpi.negativeRate}%`,
+      `Reviews Described In Own Words: ${feedbackKpi.describedCount}`,
+      `Participation: ${feedbackParticipation.reviewedOrders} of ${feedbackParticipation.deliveredOrders} delivered orders reviewed (${feedbackParticipation.participationRate}%)`,
+      `Most Cited Service Area: ${mostCited ? `${mostCited.label} (${mostCited.mentions} mentions, avg ${mostCited.avgRating.toFixed(2)})` : 'No service area cited'}`,
+      `Top Issue: ${topIssue ? `${topIssue.reason} (${topIssue.count}x, ${topIssue.dimensionLabel})` : 'No negative feedback in range'}`,
+    ]
+  }, [feedbackDimensionRows, feedbackKpi, feedbackParticipation, feedbackTopIssues])
 
   const driverPerformanceSummaryLines = useMemo(() => ([
     `Total Drivers: ${driverPerformanceKpi.total}`,
@@ -1080,12 +1139,16 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     driverPerformanceKpi,
     driverPerformanceStatusOptions,
     feedbackDateWindow,
+    feedbackDimensionRows,
     feedbackExportRows,
     feedbackKpi,
+    feedbackParticipation,
     feedbackRatingChart,
     feedbackRatingTotal,
     feedbackRows,
+    feedbackSatisfactionTrend,
     feedbackSummaryLines,
+    feedbackTopIssues,
     inventoryExportRows,
     inventoryKpi,
     inventoryMovementByProductChart,

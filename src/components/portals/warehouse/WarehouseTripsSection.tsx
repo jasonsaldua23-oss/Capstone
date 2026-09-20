@@ -249,15 +249,6 @@ export function WarehouseTripsSection({
     }),
     [scopedTrips, tripStatusFilter],
   )
-  // Warehouse staff see the finalized cash for completed trips in their scope.
-  const completedTrips = useMemo(
-    () => scopedTrips.filter((trip) => String(trip.status || '').toUpperCase() === 'COMPLETED'),
-    [scopedTrips],
-  )
-  const totalCashCollected = useMemo(
-    () => completedTrips.reduce((sum, trip) => sum + Number(trip.cashCollectedTotal || 0), 0),
-    [completedTrips],
-  )
   const totalTripsPages = Math.max(1, Math.ceil(filteredTrips.length / tripsPageSize))
   // A different status/result set starts at page one without a state-sync effect.
   const tripPageScope = [scopedTrips.length, tripStatusFilter].join('\u0000')
@@ -554,19 +545,11 @@ export function WarehouseTripsSection({
           <option value="PLANNED">Planned</option>
           <option value="IN_PROGRESS">In Progress</option>
           <option value="COMPLETED">Completed</option>
-          <option value="CANCELLED">Cancelled</option>
         </select>
         <Button onClick={onOpenCreateTripFlow} className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4">
           <Truck className="h-4 w-4 mr-2" />
           Create Trip
         </Button>
-      </div>
-
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-        {/* Added: summarize finalized trip cash for the assigned warehouse. */}
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total cash collected from completed trips</p>
-        <p className="mt-1 text-xl font-bold text-emerald-900">{formatPeso(totalCashCollected)}</p>
-        <p className="mt-0.5 text-xs text-emerald-700">{completedTrips.length} completed {completedTrips.length === 1 ? 'trip' : 'trips'}</p>
       </div>
 
       <Card>
