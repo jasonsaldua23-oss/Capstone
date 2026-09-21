@@ -22,6 +22,12 @@ type MixedCaseBuilderDialogProps = {
 const makeCartKey = () =>
   `mixed:${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`}`
 
+// A Mixed Case is split between exactly two products, so neither may take more
+// than its equal share: 12 of 24. Mirrors MIXED_CASE_MAX_PRODUCTS in
+// backend/core/mixed_case.py, which rejects a lopsided case at checkout.
+const MIXED_CASE_MAX_PRODUCTS = 2
+const getMaxUnitsPerProduct = (capacity: number) => Math.floor(Math.max(0, capacity) / MIXED_CASE_MAX_PRODUCTS)
+
 // Mixed cases use the real case quantity; a separate packaging profile is unnecessary.
 const getAllowedCapacities = (product: Product) => {
   const capacity = Math.floor(Number(product.quantityPerCase ?? product.quantityPerUnit ?? 0))
@@ -131,11 +137,20 @@ export function MixedCaseBuilderDialog({
       const firstProductId = editingItem.components?.[0]?.productId
       const firstProduct = products.find((product) => product.id === firstProductId)
       const editingGroup = groups.find((group) => group.products.some((product) => product.id === firstProduct?.id))
+      const editingCapacity = Number(editingItem.caseCapacity || 0)
       setGroupKey(editingGroup?.key || groups[0]?.key || '')
-      setCapacity(Number(editingItem.caseCapacity || 0))
+      setCapacity(editingCapacity)
       setCaseCount(Math.max(1, Number(editingItem.quantity || 1)))
+      // A case saved before the per-product ceiling existed may hold 18 + 6;
+      // load it clamped so the customer has to rebalance it before saving.
+      const editingMax = getMaxUnitsPerProduct(editingCapacity)
       setQuantities(
-        Object.fromEntries((editingItem.components || []).map((component) => [component.productId, component.quantityPerCase]))
+        Object.fromEntries(
+          (editingItem.components || []).map((component) => [
+            component.productId,
+            Math.min(editingMax, Math.max(0, Math.floor(Number(component.quantityPerCase || 0)))),
+          ])
+        )
       )
       return
     }
@@ -163,8 +178,12 @@ export function MixedCaseBuilderDialog({
     .filter((row) => row.quantity > 0)
   const added = selectedRows.reduce((sum, row) => sum + row.quantity, 0)
   const remaining = Math.max(0, capacity - added)
+  const maxUnitsPerProduct = getMaxUnitsPerProduct(capacity)
   const exceeds = added > capacity
-  const complete = capacity > 0 && added === capacity && selectedRows.length === 2
+  // Checked independently of the clamps so the save gate holds even for state
+  // that arrived another way (e.g. a persisted cart item).
+  const overProductCap = selectedRows.some((row) => row.quantity > maxUnitsPerProduct)
+  const complete = capacity > 0 && added === capacity && selectedRows.length === MIXED_CASE_MAX_PRODUCTS && !overProductCap
   const estimatedPerCase = selectedRows.reduce(
     (sum, row) => sum + getProductBaseUnitPrice(row.product) * row.quantity,
     0
@@ -173,6 +192,7 @@ export function MixedCaseBuilderDialog({
   const clampQuantities = (nextCapacity: number, nextCaseCount: number) => {
     setQuantities((current) => {
       let availableCapacity = Math.max(0, nextCapacity)
+      const perProductLimit = getMaxUnitsPerProduct(nextCapacity)
       const next: Record<string, number> = {}
       ;(selectedGroup?.products || []).forEach((product) => {
         if (!getAllowedCapacities(product).includes(nextCapacity)) {
@@ -182,7 +202,7 @@ export function MixedCaseBuilderDialog({
         const stockLimit = Math.floor(getAvailableBaseUnits(product) / Math.max(1, nextCaseCount))
         const requested = Number(current[product.id])
         const safeRequested = Number.isFinite(requested) ? Math.max(0, Math.floor(requested)) : 0
-        const value = Math.min(stockLimit, availableCapacity, safeRequested)
+        const value = Math.min(stockLimit, availableCapacity, perProductLimit, safeRequested)
         next[product.id] = value
         availableCapacity -= value
       })
@@ -207,11 +227,16 @@ export function MixedCaseBuilderDialog({
     const currentQuantity = Math.max(0, Number(quantities[product.id] || 0))
     const requestedQuantity = Math.max(0, Math.floor(Number(nextValue || 0)))
     // Limit the mix to two distinct products while still allowing either selected product to change.
-    if (currentQuantity === 0 && requestedQuantity > 0 && selectedRows.length >= 2) {
+    if (currentQuantity === 0 && requestedQuantity > 0 && selectedRows.length >= MIXED_CASE_MAX_PRODUCTS) {
       toast.error('A Mixed Case can contain only two products.')
       return
     }
-    if (requestedQuantity > currentQuantity + remaining) {
+    // The per-product ceiling is named first: typing 18 into a 24-unit case
+    // with the other row empty would otherwise pass the remaining-units check
+    // and be clamped silently.
+    if (requestedQuantity > maxUnitsPerProduct) {
+      toast.error(`A ${capacity}-unit Mixed Case allows at most ${maxUnitsPerProduct} units of one product.`)
+    } else if (requestedQuantity > currentQuantity + remaining) {
       toast.error(`Cannot add ${requestedQuantity - currentQuantity} units. Only ${remaining} units remain available in this case.`)
     }
     setQuantities((current) => {
@@ -224,13 +249,17 @@ export function MixedCaseBuilderDialog({
       const safeNextValue = Number.isFinite(parsedNextValue) ? Math.floor(parsedNextValue) : 0
       const next = Math.max(
         0,
-        Math.min(availableForEachCase, availableCapacity, safeNextValue)
+        Math.min(availableForEachCase, availableCapacity, maxUnitsPerProduct, safeNextValue)
       )
       return { ...current, [product.id]: next }
     })
   }
 
   const save = async () => {
+    if (overProductCap) {
+      toast.error(`A ${capacity}-unit Mixed Case allows at most ${maxUnitsPerProduct} units of one product.`)
+      return
+    }
     if (!complete || exceeds) {
       toast.error('Complete the Mixed Case with exactly two products before adding it.')
       return
@@ -349,7 +378,8 @@ export function MixedCaseBuilderDialog({
                 const quantity = Math.max(0, Number(quantities[product.id] || 0))
                 const label = getBeverageCategorySpec(product.category)?.looseUnit || product.looseUnit || 'unit'
                 const maxForCases = Math.floor(getAvailableBaseUnits(product) / Math.max(1, caseCount))
-                const maxAllowedForRow = Math.min(maxForCases, quantity + remaining)
+                const maxAllowedForRow = Math.min(maxForCases, quantity + remaining, maxUnitsPerProduct)
+                const atProductCap = quantity >= maxUnitsPerProduct && maxUnitsPerProduct > 0
                 return (
                   <div key={product.id} className="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-xl border border-slate-200 p-3 sm:flex sm:gap-3">
                     {/* No product here carries an image, so this fell back to
@@ -379,7 +409,11 @@ export function MixedCaseBuilderDialog({
                         {product.name}{getProductSizeLabel(product) ? ` ${getProductSizeLabel(product)}` : ''}
                       </p>
                       <p className="text-xs text-slate-500">{formatPeso(getProductBaseUnitPrice(product))}/{label}</p>
-                      <p className="text-xs text-slate-500">{quantity} {quantity === 1 ? 'Bottle' : 'Bottles'} per case</p>
+                      <p className="text-xs text-slate-500">
+                        {quantity} {quantity === 1 ? 'Bottle' : 'Bottles'} per case
+                        {/* The ceiling is stated beside the count so "+" going grey at 12 is explained. */}
+                        <span className={atProductCap ? 'font-medium text-amber-700' : 'text-slate-400'}> · max {maxUnitsPerProduct}</span>
+                      </p>
                       {quantity > 0 ? <p className="text-xs font-medium text-emerald-700">Subtotal/case: {formatPeso(getProductBaseUnitPrice(product) * quantity)}</p> : null}
                     </div>
                     <div className="col-span-2 grid w-full grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center rounded-lg border border-slate-200 sm:flex sm:w-auto">
@@ -400,7 +434,7 @@ export function MixedCaseBuilderDialog({
                         max={maxAllowedForRow}
                         value={quantity || ''}
                         onChange={(event) => updateQuantity(product, Number(event.target.value))}
-                        disabled={quantity === 0 && selectedRows.length >= 2}
+                        disabled={quantity === 0 && selectedRows.length >= MIXED_CASE_MAX_PRODUCTS}
                         aria-label={`${product.name} quantity per Mixed Case`}
                       />
                       <Button
@@ -409,7 +443,7 @@ export function MixedCaseBuilderDialog({
                         size="icon"
                         className="h-9 w-9"
                         onClick={() => updateQuantity(product, quantity + 1)}
-                        disabled={quantity >= maxAllowedForRow || (quantity === 0 && selectedRows.length >= 2)}
+                        disabled={quantity >= maxAllowedForRow || (quantity === 0 && selectedRows.length >= MIXED_CASE_MAX_PRODUCTS)}
                         aria-label={`Increase ${product.name} quantity`}
                       >
                         <Plus aria-hidden="true" className="h-4 w-4" />

@@ -207,6 +207,22 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         self.assertEqual(created.shipping_cost, 0)
         self.assertEqual(created.total_amount, 187.5)
 
+    def test_checkout_rejects_a_mixed_case_that_favours_one_product(self):
+        payload = self._checkout_payload("checkout-lopsided-mix")
+        payload["items"][0]["components"] = [
+            {"productId": self.products[0].id, "quantity": 18},
+            {"productId": self.products[1].id, "quantity": 6},
+        ]
+
+        response = self._post_order(payload)
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(
+            "A 24-unit Mixed Case allows at most 12 units of one product",
+            json.loads(response.content)["error"],
+        )
+        self.assertFalse(Order.objects.filter(request_id="checkout-lopsided-mix").exists())
+
     def test_customer_checkout_allows_legacy_missing_request_id_and_bounds_supplied_ids(self):
         missing = self._post_order(self._checkout_payload(request_id=None))
         too_long = self._post_order(self._checkout_payload(request_id="x" * 121))

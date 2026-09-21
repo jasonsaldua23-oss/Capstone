@@ -22,6 +22,7 @@ from .api_utils import (
     to_int as _int,
 )
 from .empties_verification import record_collected_empties
+from .fleet_sync import MANUAL_VEHICLE_STATUSES, sync_vehicle_status_for_trip, trip_scheduled_date
 from .mixed_case import serialize_mixed_component
 from .models import (
     Order,
@@ -42,6 +43,17 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# One driver drives one trip at a time; the portal repeats this wording verbatim.
+ACTIVE_TRIP_MESSAGE = "You already have an active trip. Complete your current trip before starting another delivery."
+
+
+def _driver_has_other_active_trip(trip: Trip) -> bool:
+    return (
+        Trip.objects.filter(driver_id=trip.driver_id, status=TripStatus.IN_PROGRESS)
+        .exclude(id=trip.id)
+        .exists()
+    )
 
 
 # Resolved through views_api so tests and runtime overrides that rebind
@@ -389,9 +401,13 @@ def trips_route_plan(request: HttpRequest) -> JsonResponse:
             _serialize_model(x, exclude={"password"})
             for x in _real_drivers(User.objects.filter(role="DRIVER", is_active=True))[:200]
         ]
+        # Fix: a truck on today's trip (IN_USE) can still be planned for a later
+        # date; only MAINTENANCE / OUT_OF_SERVICE leave the candidate list.
         vehicles = [
             _serialize_model(x)
-            for x in _real_vehicles(Vehicle.objects.filter(status=VehicleStatus.AVAILABLE, is_active=True))[:200]
+            for x in _real_vehicles(
+                Vehicle.objects.filter(status__in=[VehicleStatus.AVAILABLE, VehicleStatus.IN_USE], is_active=True)
+            )[:200]
         ]
         return _ok({"success": True, "drivers": drivers, "vehicles": vehicles, "orders": orders, "routePlans": route_plans})
     body = _json_body(request)
@@ -418,21 +434,26 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
         return _err("Only planned trips can be started", 409)
 
     # Added: enforce the same schedule shown to the driver. Order delivery dates
-    # define tripSchedule; planned_start_at remains the fallback for older trips.
-    scheduled_values = [
-        point.order.timeline.delivery_date
-        for point in t.drop_points.all()
-        if point.order_id
-        and getattr(point, "order", None)
-        and getattr(point.order, "timeline", None)
-        and point.order.timeline.delivery_date
-    ]
-    scheduled_at = min(scheduled_values) if scheduled_values else t.planned_start_at
-    if not scheduled_at:
+    # define the day (see fleet_sync.trip_scheduled_date); planned_start_at
+    # remains the fallback for older trips.
+    scheduled_date = trip_scheduled_date(t)
+    if not scheduled_date:
         return _err("Trip cannot be started because its scheduled date is not set", 409)
-    scheduled_date = timezone.localdate(scheduled_at) if timezone.is_aware(scheduled_at) else scheduled_at.date()
-    if scheduled_date != timezone.localdate():
+    today = timezone.localdate()
+    if scheduled_date < today:
+        # Fix: a missed day is not "come back later"; the trip has to be re-planned.
+        return _err(
+            f"This trip was scheduled for {scheduled_date.isoformat()} and that date has passed. "
+            "It can no longer be started.",
+            409,
+        )
+    if scheduled_date != today:
         return _err(f"Trip can only be started on its scheduled date: {scheduled_date.isoformat()}", 409)
+
+    # Added: one driver, one active trip. Checked before Confirm Load so the
+    # driver sees the real blocker; re-checked under lock below for races.
+    if _driver_has_other_active_trip(t):
+        return _err(ACTIVE_TRIP_MESSAGE, 409)
 
     body = _json_body(request)
     # Added: the server requires the driver's explicit physical-load
@@ -448,9 +469,39 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
 
     now = timezone.now()
     with transaction.atomic():
+        # Lock every open trip of this driver so two Start taps on different trips
+        # queue up here and the second one sees the first already running.
+        locked_trips = list(
+            Trip.objects.select_for_update()
+            .filter(driver_id=t.driver_id, status__in=[TripStatus.PLANNED, TripStatus.IN_PROGRESS])
+            .only("id", "status")
+        )
+        locked_self = next((row for row in locked_trips if row.id == t.id), None)
+        if locked_self is not None and str(locked_self.status or "").upper() == TripStatus.IN_PROGRESS:
+            # A concurrent tap won the lock first; acknowledge its session.
+            t.refresh_from_db()
+            return _ok({"success": True, "alreadyStarted": True, "trip": _serialize_model(t)})
+        if locked_self is None or str(locked_self.status or "").upper() != TripStatus.PLANNED:
+            return _err("Only planned trips can be started", 409)
+        if any(row.id != t.id and str(row.status or "").upper() == TripStatus.IN_PROGRESS for row in locked_trips):
+            return _err(ACTIVE_TRIP_MESSAGE, 409)
+        # Added: a truck pulled for maintenance after planning must not leave the
+        # yard. Read under lock so a concurrent fleet edit cannot slip past.
+        locked_vehicle = Vehicle.objects.select_for_update().filter(id=t.vehicle_id).first()
+        vehicle_status = str(getattr(locked_vehicle, "status", "") or "").strip().upper()
+        if vehicle_status in MANUAL_VEHICLE_STATUSES:
+            plate = str(getattr(locked_vehicle, "license_plate", "") or "").strip()
+            label = "under maintenance" if vehicle_status == VehicleStatus.MAINTENANCE else "out of service"
+            return _err(
+                f"Vehicle {plate} is {label} and cannot be dispatched. Ask an administrator to assign another vehicle.",
+                409,
+            )
+
         t.status = TripStatus.IN_PROGRESS
         t.actual_start_at = now
         t.save(update_fields=["status", "actual_start_at", "updated_at"])
+        # Added: the fleet board reads IN_USE while the truck is on this trip.
+        sync_vehicle_status_for_trip(t)
 
         for drop_point in t.drop_points.all():
             if not drop_point.order_id or not drop_point.order:
@@ -557,6 +608,8 @@ def trip_complete(request: HttpRequest, trip_id: str) -> JsonResponse:
             "completed_drop_points",
             "updated_at",
         ])
+        # Added: hand the truck back to the fleet unless another trip still has it.
+        sync_vehicle_status_for_trip(trip)
 
     completed_trip = (
         Trip.objects.select_related("driver", "vehicle")

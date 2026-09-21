@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, type Dispatch, type SetStateAction } from 'react'
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   AlertDialog,
@@ -15,17 +15,180 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import type { DriverOption, RoutePlanCityGroup, TripEditorState, WarehouseItem, WarehouseOrderItem } from '../../warehouse-portal-types'
-import { getLocalTodayDayKey } from '../../warehouse-portal-utils'
-import { Warehouse, Loader2 } from 'lucide-react'
-import { TripLoadSummary } from '@/components/shared/trip-load-summary'
+import type { DriverOption, RoutePlanCityGroup, TripEditorState, UpcomingDeliveryDay, WarehouseItem, WarehouseOrderItem } from '../../warehouse-portal-types'
+import { getLocalTodayDayKey, parseDayKey } from '../../warehouse-portal-utils'
+import { Warehouse, Loader2, RefreshCw } from 'lucide-react'
+import { SelectedOrdersSummary, TripLoadSummary, type SelectedOrderSummaryRow } from '@/components/shared/trip-load-summary'
 import { isWarehouseRescheduledOrder, getOrderBarangayLabel } from '../../warehouse-order-helpers'
-import type { WarehouseRoutePlanning } from './use-warehouse-route-planning'
+import { getRouteOrderLoad, UPCOMING_DELIVERY_DAYS, useUpcomingDeliveries, type WarehouseRoutePlanning } from './use-warehouse-route-planning'
 import type { deriveOrderFulfillmentSummaryImpl } from '../../warehouse-order-helpers'
+
+const formatKilogramsShort = (value: number) =>
+  `${new Intl.NumberFormat('en-PH', { maximumFractionDigits: 1 }).format(Math.max(0, Number(value) || 0))} kg`
+
+type UpcomingDeliveriesPanelProps = {
+  days: UpcomingDeliveryDay[]
+  loading: boolean
+  error: string
+  hasWarehouse: boolean
+  selectedDate: string
+  disabled: boolean
+  onRetry: () => void
+  onSelectDay: (dayKey: string) => void
+}
+
+/**
+ * Compact preview: each day opens its orders inside the modal without altering the trip draft.
+ */
+export function UpcomingDeliveriesPanel({
+  days,
+  loading,
+  error,
+  hasWarehouse,
+  selectedDate,
+  disabled,
+  onRetry,
+  onSelectDay,
+}: UpcomingDeliveriesPanelProps) {
+  const todayKey = getLocalTodayDayKey()
+  const columnCount = Math.max(days.length, UPCOMING_DELIVERY_DAYS)
+  // Chips keep a readable minimum width; on phones the row scrolls sideways
+  // inside the card instead of squeezing or widening the dialog.
+  const gridStyle = { gridTemplateColumns: `repeat(${columnCount}, minmax(7rem, 1fr))` }
+  const totalOrders = days.reduce((sum, day) => sum + Math.max(0, Number(day.orderCount) || 0), 0)
+
+  let body: ReactNode
+  if (!hasWarehouse) {
+    body = <p className="text-sm text-gray-400">Select a warehouse to preview upcoming deliveries.</p>
+  } else if (loading) {
+    body = (
+      <div className="grid gap-2" style={gridStyle} aria-busy="true" aria-label="Loading upcoming deliveries">
+        {Array.from({ length: columnCount }, (_, index) => (
+          <div key={index} className="h-20 animate-pulse rounded-lg bg-slate-100" />
+        ))}
+      </div>
+    )
+  } else if (error) {
+    body = (
+      <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+        <span className="min-w-0 flex-1">{error}</span>
+        <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={onRetry}>Try again</Button>
+      </div>
+    )
+  } else {
+    body = (
+      <>
+        <div className="grid gap-2" style={gridStyle}>
+          {days.map((day) => {
+            const parsed = parseDayKey(day.date)
+            const weekday = parsed ? new Intl.DateTimeFormat('en-PH', { weekday: 'short' }).format(parsed) : ''
+            const dateLabel = parsed ? new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric' }).format(parsed) : day.date
+            const isSelected = day.date === selectedDate
+            const orderCount = Math.max(0, Number(day.orderCount) || 0)
+            return (
+              <button
+                key={day.date}
+                type="button"
+                aria-label={`View orders for ${dateLabel}`}
+                disabled={disabled}
+                onClick={() => onSelectDay(day.date)}
+                className={`flex min-w-0 flex-col items-start rounded-lg border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-wait disabled:opacity-70 ${
+                  isSelected
+                    ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                    : orderCount > 0
+                      ? 'border-slate-200 bg-white hover:border-blue-400'
+                      : 'border-dashed border-slate-200 bg-slate-50 hover:border-blue-300'
+                }`}
+              >
+                <span className="flex w-full items-center justify-between gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <span>{weekday}</span>
+                  {day.date === todayKey ? <span className="rounded bg-emerald-100 px-1 text-[10px] normal-case tracking-normal text-emerald-700">Today</span> : null}
+                </span>
+                <span className="text-sm font-bold text-slate-900">{dateLabel}</span>
+                <span className={`text-xs font-semibold ${orderCount > 0 ? 'text-blue-700' : 'text-slate-400'}`}>
+                  {orderCount} {orderCount === 1 ? 'order' : 'orders'}
+                </span>
+                <span className="text-[11px] tabular-nums text-slate-500">
+                  {Math.max(0, Number(day.totalCases) || 0)} cases &middot; {formatKilogramsShort(day.totalWeight)}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        {totalOrders === 0 ? (
+          <p className="mt-2 text-xs text-slate-500">No eligible orders in the next {columnCount} days.</p>
+        ) : null}
+      </>
+    )
+  }
+
+  return (
+    <Card className="shrink-0 gap-2 py-3">
+      <CardHeader className="px-3">
+        <CardTitle className="text-sm">Upcoming deliveries (next {UPCOMING_DELIVERY_DAYS} days)</CardTitle>
+        {hasWarehouse ? (
+          <CardAction>
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onRetry} disabled={loading} aria-label="Refresh upcoming deliveries">
+              <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+          </CardAction>
+        ) : null}
+      </CardHeader>
+      <CardContent className="min-w-0 px-3">
+        <div className="-mx-1 overflow-x-auto overscroll-x-contain px-1 pb-1">{body}</div>
+      </CardContent>
+    </Card>
+  )
+}
 
 /**
  * Route planner: groups the day's orders by city, lets staff pick orders and a driver, and creates or edits the trip.
  */
+// This modal subview keeps browsing a day independent of trip creation and selection.
+function UpcomingDeliveryOrdersPage({ date, warehouseId, warehouseName, onBack }: {
+  date: string
+  warehouseId: string
+  warehouseName: string
+  onBack: () => void
+}) {
+  const { days, loading, error, reload } = useUpcomingDeliveries({ enabled: true, warehouseId, from: date, days: 1 })
+  const orders = days.find((day) => day.date === date)?.orders || []
+  const dateLabel = parseDayKey(date)?.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) || date
+  return (
+    <div className="space-y-4">
+      <Button variant="outline" onClick={onBack}>Back to Create Trip</Button>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Orders for {dateLabel}</CardTitle>
+          <p className="text-sm text-slate-500">{warehouseName} · Orders eligible for delivery planning</p>
+          <CardAction><Button variant="ghost" size="sm" onClick={reload} disabled={loading}><RefreshCw className="size-4" />Refresh</Button></CardAction>
+        </CardHeader>
+        <CardContent>
+          {loading ? <p role="status" className="text-sm text-slate-500">Loading orders...</p>
+            : error ? <p role="alert" className="text-sm text-red-600">{error}</p>
+              : orders.length === 0 ? <p className="text-sm text-slate-500">No eligible orders scheduled for this day.</p>
+                : <div className="overflow-x-auto">
+                  <table className="stack-table w-full text-sm">
+                    <thead><tr className="border-b text-left">
+                      {['Order', 'Customer', 'City', 'Status', 'Cases', 'Weight'].map((heading) => <th key={heading} className="px-3 py-2">{heading}</th>)}
+                    </tr></thead>
+                    <tbody>{orders.map((order) => <tr key={order.id} className="border-b">
+                      <td className="px-3 py-3 font-medium">{order.orderNumber}</td>
+                      <td className="px-3 py-3">{order.customerName}</td>
+                      <td className="px-3 py-3">{order.city}</td>
+                      <td className="px-3 py-3">{order.status?.replace(/_/g, ' ') || '—'}</td>
+                      <td className="px-3 py-3">{order.cases}</td>
+                      <td className="px-3 py-3">{formatKilogramsShort(order.weight)}</td>
+                    </tr>)}</tbody>
+                  </table>
+                </div>}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 export type WarehouseCreateRouteDialogProps = {
   createRouteOpen: boolean
   createRoutePlan: WarehouseRoutePlanning['createRoutePlan']
@@ -110,6 +273,32 @@ export function WarehouseCreateRouteDialog({
   warehouses,
 }: WarehouseCreateRouteDialogProps) {
   const [confirmCreateOpen, setConfirmCreateOpen] = useState(false)
+  // Keep daily-order navigation local to the modal so the trip draft stays intact.
+  const [upcomingOrdersDate, setUpcomingOrdersDate] = useState('')
+  // Edit mode locks the trip's date, so the day picker is hidden there.
+  const upcomingDeliveries = useUpcomingDeliveries({
+    enabled: createRouteOpen && !editingTripState,
+    warehouseId: routeWarehouseId,
+  })
+  // Same selection the route-planning hook totals into selectedRouteLoad.
+  const selectedOrderRows: SelectedOrderSummaryRow[] = (routePlans.find((group) => group.city === selectedRouteCity)?.orders || [])
+    .filter((order) => selectedRouteOrderIds.includes(order.id))
+    .map((order) => {
+      const load = getRouteOrderLoad(order)
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber || order.id,
+        customerName: order.customerName,
+        city: order.city,
+        cases: load.totalCases,
+        weight: load.totalWeight,
+        deliveryDate: order.deliveryDate || routeDate,
+      }
+    })
+  const selectUpcomingDay = (dayKey: string) => {
+    // Browsing upcoming orders must not reset the current trip's date or selected orders.
+    setUpcomingOrdersDate(dayKey)
+  }
   const selectedRouteDriverName = drivers.find((driver) => driver.id === selectedRouteDriverId)?.user?.name
     || drivers.find((driver) => driver.id === selectedRouteDriverId)?.name
     || drivers.find((driver) => driver.id === selectedRouteDriverId)?.email
@@ -121,6 +310,7 @@ export function WarehouseCreateRouteDialog({
       onOpenChange={(open) => {
         setCreateRouteOpen(open)
         if (!open) {
+          setUpcomingOrdersDate('')
           setEditingTripState(null)
           setRoutePlans([])
           setSelectedRouteCity('')
@@ -134,9 +324,21 @@ export function WarehouseCreateRouteDialog({
         <DialogHeader>
           <DialogTitle className="sr-only">{editingTripState ? 'Edit Trip' : 'Create Trip'}</DialogTitle>
         </DialogHeader>
+        {upcomingOrdersDate ? (
+          <div className="h-full w-full min-w-0 overflow-y-auto p-4 pt-10 sm:p-6 sm:pt-10">
+            <UpcomingDeliveryOrdersPage
+              date={upcomingOrdersDate}
+              warehouseId={routeWarehouseId}
+              warehouseName={warehouses.find((warehouse) => warehouse.id === routeWarehouseId)?.name || ''}
+              onBack={() => setUpcomingOrdersDate('')}
+            />
+          </div>
+        ) : (
         <div className="flex h-full w-full flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
-          {/* On phones the trip controls stack above the route preview so neither pane is clipped. */}
-          <div className="flex h-[70vh] w-full min-w-0 max-w-none shrink-0 flex-col overflow-hidden border-b bg-white p-2.5 lg:h-full lg:w-[280px] lg:min-w-[260px] lg:max-w-[300px] lg:border-b-0 lg:border-r">
+          {/* On phones the trip controls stack above the route preview so neither pane is clipped.
+              Fix: below lg both panes take their natural height and this column scrolls; a fixed
+              70vh left pane cut off the Create Trip button on a 375x812 phone. */}
+          <div className="flex w-full min-w-0 max-w-none shrink-0 flex-col overflow-hidden border-b bg-white p-2.5 lg:h-full lg:w-[280px] lg:min-w-[260px] lg:max-w-[300px] lg:border-b-0 lg:border-r">
             <h2 className="mb-2 text-lg font-bold">{editingTripState ? `Edit ${editingTripState.tripNumber}` : 'Create Trip'}</h2>
             <div className="mb-2">
               <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">
@@ -164,7 +366,7 @@ export function WarehouseCreateRouteDialog({
             )}
 
             {/* Fix: keep the order results in their own mouse/touch scroll area. */}
-            <div className="min-h-[120px] flex-1 overflow-y-scroll overscroll-contain touch-pan-y rounded-lg bg-gray-50 p-2.5">
+            <div className="min-h-[120px] max-h-[45vh] flex-1 overflow-y-scroll overscroll-contain touch-pan-y rounded-lg bg-gray-50 p-2.5 lg:max-h-none">
               <h3 className="mb-1.5 text-base font-semibold">Orders by City</h3>
               {routePlans.length === 0 ? (
                 <div className="flex items-center justify-center text-sm text-gray-400 min-h-[80px]">
@@ -371,8 +573,21 @@ export function WarehouseCreateRouteDialog({
               </Button>
             </div>
           </div>
-          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-gray-50 p-3 sm:p-6">
-            <Card>
+          <div className="flex min-w-0 flex-none flex-col gap-4 bg-gray-50 p-3 sm:p-6 lg:flex-1 lg:overflow-y-auto">
+            {!editingTripState ? (
+              <UpcomingDeliveriesPanel
+                days={upcomingDeliveries.days}
+                loading={upcomingDeliveries.loading}
+                error={upcomingDeliveries.error}
+                hasWarehouse={Boolean(routeWarehouseId)}
+                selectedDate={routeDate}
+                disabled={loadingRoutePlans}
+                onRetry={upcomingDeliveries.reload}
+                onSelectDay={selectUpcomingDay}
+              />
+            ) : null}
+            {/* Selected-order details remain in the confirmation dialog; show delivery locations here. */}
+            <Card className="shrink-0">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg">Delivery Locations</CardTitle>
               </CardHeader>
@@ -465,6 +680,7 @@ export function WarehouseCreateRouteDialog({
             </Card>
           </div>
         </div>
+        )}
       </DialogContent>
     </Dialog>
     <AlertDialog open={confirmCreateOpen} onOpenChange={setConfirmCreateOpen}>
@@ -478,6 +694,14 @@ export function WarehouseCreateRouteDialog({
               : 'This will create the trip and assign it to the selected driver.'}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {/* Added: review exactly what goes on the truck before the trip is created. */}
+        <SelectedOrdersSummary
+          compact
+          orders={selectedOrderRows}
+          totalCases={selectedRouteLoad.totalCases}
+          totalWeight={selectedRouteLoad.totalWeight}
+          maximumCapacity={selectedVehicleCapacity}
+        />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction

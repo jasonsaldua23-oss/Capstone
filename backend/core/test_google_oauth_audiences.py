@@ -69,10 +69,19 @@ class CustomerGoogleSessionTests(TestCase):
             return self.client.post("/api/auth/customer/google", {"credential": "verified-by-mock", "rememberMe": True},
                                     content_type="application/json", HTTP_ORIGIN="http://testserver")
 
+    def approve(self):
+        # New Google customers wait for an administrator before they get a session.
+        Customer.objects.filter(email=self.claims["email"]).update(approval_status="APPROVED")
+
     def test_new_customer_receives_working_cookie_and_bearer_sessions(self):
         response = self.sign_in()
         self.assertEqual(response.status_code, 201, response.content)
         self.assertTrue(response.json()["created"])
+        self.assertTrue(response.json()["pendingApproval"])
+        self.assertNotIn("token", response.json())
+        self.approve()
+        response = self.sign_in()
+        self.assertEqual(response.status_code, 200, response.content)
         token = response.json()["token"]
         session = self.client.get("/api/auth/me")
         self.assertEqual(session.status_code, 200, session.content)
@@ -83,6 +92,7 @@ class CustomerGoogleSessionTests(TestCase):
 
     def test_repeat_sign_in_reuses_customer(self):
         self.assertEqual(self.sign_in().status_code, 201)
+        self.approve()
         response = self.sign_in()
         self.assertEqual(response.status_code, 200, response.content)
         self.assertFalse(response.json()["created"])

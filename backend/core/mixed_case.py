@@ -33,6 +33,15 @@ from .models import (
 MONEY = Decimal("0.01")
 UNIT_PRICE = Decimal("0.000001")
 
+# A Mixed Case is split between exactly this many products, so no single product
+# may take more than its equal share of the case (12 of 24). The retail POS keeps
+# its own rules in retail_pos.py; this bound is for online checkout only.
+MIXED_CASE_MAX_PRODUCTS = 2
+
+
+def mixed_case_max_units_per_product(case_capacity: int) -> int:
+    return max(0, _int(case_capacity, 0)) // MIXED_CASE_MAX_PRODUCTS
+
 
 def _int(value: Any, default: int = 0) -> int:
     try:
@@ -269,10 +278,11 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
             "Mixed Case quantity",
         )
         raw_components = item.get("components")
-        if not isinstance(raw_components, list) or len(raw_components) < 2:
+        if not isinstance(raw_components, list) or len(raw_components) < MIXED_CASE_MAX_PRODUCTS:
             raise ValueError("A Mixed Case must contain at least two different products")
-        if len(raw_components) > 2:
+        if len(raw_components) > MIXED_CASE_MAX_PRODUCTS:
             raise ValueError("A Mixed Case can contain only two different products")
+        max_units_per_product = mixed_case_max_units_per_product(case_capacity)
         if any(not isinstance(row, dict) for row in raw_components):
             raise ValueError("Every Mixed Case component must be an object")
 
@@ -311,6 +321,13 @@ def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Deci
             if case_capacity != units_per_case(product):
                 raise ValueError(
                     f"Capacity {case_capacity} does not match product {product.sku} case quantity"
+                )
+            # Added: an equal split is the ceiling per product. 18 + 6 still totals
+            # 24, so the total check alone would let one product crowd out the other.
+            if quantity_per_case > max_units_per_product:
+                raise ValueError(
+                    f"A {case_capacity}-unit Mixed Case allows at most {max_units_per_product} units "
+                    f"of one product; received {quantity_per_case} of {product.sku}"
                 )
             # Mixed-case compatibility follows the product category, never a manually typed profile key.
             compatibility_keys.add(category_details["compatibilityKey"])

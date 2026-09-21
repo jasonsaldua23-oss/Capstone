@@ -15,8 +15,10 @@ from django.views.decorators.http import require_GET, require_http_methods
 from . import views_api as legacy
 from .api_constants import _PHYSICAL_STOCK_IN_TYPES, _PHYSICAL_STOCK_OUT_TYPES
 from .api_utils import error as _err, json_body as _json_body, ok as _ok, to_int as _int
+from .beverage_categories import category_spec
 from .mixed_case import serialize_mixed_component
 from .models import (
+    Customer,
     Inventory,
     InventoryQuantityUnit,
     InventoryReservation,
@@ -26,6 +28,7 @@ from .models import (
     ProductPackaging,
     ReservationStatus,
     StockBatch,
+    User,
     Warehouse,
 )
 
@@ -381,11 +384,36 @@ def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTra
         )
         for row in rows
     ]
+    # Fix: the history table reads these flat fields; without them the SKU,
+    # warehouse code and staff name never rendered.
+    actor_ids = {str(row.performed_by).strip() for row in rows if str(row.performed_by or "").strip()}
+    actor_names: dict[str, str] = {}
+    if actor_ids:
+        actor_names.update({str(uid): str(name or "").strip() for uid, name in User.objects.filter(id__in=actor_ids).values_list("id", "name")})
+        actor_names.update({str(cid): str(name or "").strip() for cid, name in Customer.objects.filter(id__in=actor_ids - set(actor_names)).values_list("id", "name")})
+    for payload, row in zip(data, rows):
+        product = row.product
+        warehouse = row.warehouse
+        payload["productName"] = str(getattr(product, "name", "") or "").strip() or None
+        payload["productSku"] = str(getattr(product, "sku", "") or "").strip() or None
+        payload["productCategory"] = str(getattr(product, "category", "") or "").strip() or None
+        payload["warehouseName"] = str(getattr(warehouse, "name", "") or "").strip() or None
+        payload["warehouseCode"] = str(getattr(warehouse, "code", "") or "").strip() or None
+        performed_by = str(row.performed_by or "").strip()
+        # Older rows stored the staff name itself rather than a user id.
+        payload["performedByName"] = (actor_names.get(performed_by) or performed_by) or None
+        label = str(row.stock_unit_label or "").strip()
+        if str(row.quantity_unit or "").upper() == InventoryQuantityUnit.BASE_UNIT and label.lower() in {"", "base unit", "bottle"}:
+            # Fix: loose rows showed "3 Base units" (or "Bottles" for cans); use the
+            # product category's loose unit, as every other loose movement does.
+            spec = category_spec(getattr(product, "category", None))
+            if spec:
+                payload["stockUnitLabel"] = spec["looseUnit"]
     mixed_component_ids = {str(row.mixed_case_component_id) for row in rows if row.mixed_case_component_id}
     if mixed_component_ids:
         components_by_id = {
             str(component.id): component
-            for component in MixedCaseComponent.objects.filter(id__in=mixed_component_ids).select_related("product")
+            for component in MixedCaseComponent.objects.filter(id__in=mixed_component_ids).select_related("product", "order_item__order")
         }
         sibling_components_by_item_id: dict[str, list[dict[str, Any]]] = {}
         for component in components_by_id.values():
@@ -401,9 +429,15 @@ def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTra
             if component is not None:
                 # Transaction history needs the full mixed-case composition, not
                 # only the component whose stock movement is on this row.
+                order_item = component.order_item
                 payload["mixedCase"] = {
                     "orderItemId": component.order_item_id,
                     "components": sibling_components_by_item_id[str(component.order_item_id)],
+                    # Fix: the details dialog showed N/A for these and the component id as the order.
+                    "componentId": component.id,
+                    "orderNumber": str(getattr(getattr(order_item, "order", None), "order_number", "") or "").strip() or None,
+                    "caseCapacity": row.case_capacity_snapshot if row.case_capacity_snapshot is not None else getattr(order_item, "case_capacity", None),
+                    "caseCount": row.case_count_snapshot if row.case_count_snapshot is not None else getattr(order_item, "quantity", None),
                 }
     target_ids = {
         row.id
@@ -548,12 +582,16 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
 
     search = str(request.GET.get("search") or "").strip()
     if search:
+        # Fix: the screen offers staff search, but performed_by usually holds a user id.
+        matching_staff_ids = list(User.objects.filter(name__icontains=search).values_list("id", flat=True)[:200])
         qs = qs.filter(
             Q(product__name__icontains=search)
             | Q(product__sku__icontains=search)
             | Q(notes__icontains=search)
             | Q(id__icontains=search)
             | Q(reference_id__icontains=search)
+            | Q(performed_by__icontains=search)
+            | Q(performed_by__in=matching_staff_ids)
         )
 
     date_from_raw = str(request.GET.get("dateFrom") or "").strip()
@@ -575,7 +613,8 @@ def inventory_transactions_list(request: HttpRequest) -> JsonResponse:
     if date_from_raw and date_to_raw and date_from > date_to:
         return _err("dateFrom cannot be later than dateTo", 400)
 
-    qs = qs.order_by("-created_at")
+    # Fix: a tie-breaker keeps equal timestamps from repeating or skipping rows across pages.
+    qs = qs.order_by("-created_at", "-id")
     total = qs.count()
     rows = list(qs[off : off + size])
     data = _serialize_inventory_transactions_with_stock_changes(rows)

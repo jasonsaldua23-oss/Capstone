@@ -4,6 +4,12 @@ import { useMemo, useState } from 'react'
 import { Boxes, CalendarDays, ClipboardList, Loader2, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  ACTION_ADVANCE,
+  ACTION_INSPECT,
+  ReplacementDossierHeader,
+  ReplacementStatusBadge,
+} from '../../../shared/replacement-status'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
@@ -704,7 +710,6 @@ export function WarehouseReplacementsView({
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Order #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
                     <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>
                     <th className="text-left p-4 font-medium text-gray-600">Reported</th>
@@ -728,23 +733,12 @@ export function WarehouseReplacementsView({
                         <td className="p-4">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
                         <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
                         <td className="p-4">
-                          <p className="whitespace-pre-line text-sm leading-5 text-gray-900">{issueReason}</p>
-                        </td>
-                        <td className="p-4">
                           <Badge className={hasEvidence ? 'bg-blue-100 text-blue-700 hover:bg-blue-100' : ''} variant="secondary">
                             {hasEvidence ? `${evidenceCount} Photo${evidenceCount > 1 ? 's' : ''} Attached` : 'No Photo'}
                           </Badge>
                         </td>
                         <td className="p-4">
-                          <Badge
-                            className={
-                              statusLabel === 'Needs Follow-up'
-                                ? 'bg-red-100 text-red-700 hover:bg-red-100'
-                                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
-                            }
-                          >
-                            {statusLabel}
-                          </Badge>
+                          <ReplacementStatusBadge statusLabel={statusLabel} />
                         </td>
                         <td className="p-4 text-gray-500">
                           {ret.createdAt ? new Date(ret.createdAt).toLocaleDateString() : 'N/A'}
@@ -754,8 +748,8 @@ export function WarehouseReplacementsView({
                             <div className="table-actions" aria-busy={updatingReplacementId === ret.id}>
                               <div key={rawStatus} className="table-actions motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
                                 {rawStatus === 'APPROVED' ? (
-                                  <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => setProcessConfirmId(ret.id)}>
-                                    {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                  <Button size="sm" className={ACTION_ADVANCE} disabled={Boolean(updatingReplacementId)} onClick={() => setProcessConfirmId(ret.id)}>
+                                    {updatingReplacementId === ret.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                                     Start Processing
                                   </Button>
                                 ) : rawStatus === 'IN_PROGRESS' && !hasStrictScheduledFollowUp(ret) ? (
@@ -764,12 +758,12 @@ export function WarehouseReplacementsView({
                                       <span className="block">Delivery date</span>
                                       <input type="date" min={todayDateInput} value={rowScheduleDates[ret.id] || ''} disabled={Boolean(updatingReplacementId)} onChange={(event) => setRowScheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
                                     </label>
-                                    <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId) || !rowScheduleDates[ret.id] || isPastScheduleDate(rowScheduleDates[ret.id])} onClick={() => {
+                                    <Button size="sm" className={ACTION_ADVANCE} disabled={Boolean(updatingReplacementId) || !rowScheduleDates[ret.id] || isPastScheduleDate(rowScheduleDates[ret.id])} onClick={() => {
                                       const deliveryDate = rowScheduleDates[ret.id]
                                       if (!deliveryDate || isPastScheduleDate(deliveryDate)) return
                                       setScheduleConfirmId(ret.id)
                                     }}>
-                                      {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                      {updatingReplacementId === ret.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                                       Schedule Delivery
                                     </Button>
                                   </>
@@ -778,6 +772,7 @@ export function WarehouseReplacementsView({
                             <Button
                               size="sm"
                               variant="outline"
+                              className={ACTION_INSPECT}
                               onClick={() => openReplacementDetails(ret)}
                             >
                               View Details
@@ -877,29 +872,32 @@ export function WarehouseReplacementsView({
             })
             const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
             const statusLabel = getWarehouseStatusLabel(selectedReplacement, meta)
+            // Identity, state and money are carried by the dossier header.
+            const detailContext = [
+              selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber
+                ? `Order ${selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber}`
+                : '',
+              selectedReplacement.customerName || selectedReplacement.order?.customer?.name || '',
+            ].filter(Boolean).join(' · ')
+            const customerAccount = selectedReplacement.customerNotes || meta?.customerNotes || ''
             const details = [
-              ['Replacement #', selectedReplacement.replacementNumber],
-              ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
-              ['Customer', selectedReplacement.customerName || selectedReplacement.order?.customer?.name || 'N/A'],
-              ['Status', statusLabel],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
-              ['Notes', selectedReplacement.customerNotes || meta?.customerNotes || 'No customer notes provided.'],
             ] as Array<[string, string]>
             return (
               <>
                 <div className="space-y-4 p-6">
-                <DialogHeader>
+                <DialogHeader className="sr-only">
                   <DialogTitle>Replacement Details</DialogTitle>
                   <DialogDescription>Complete information for {selectedReplacement.replacementNumber}</DialogDescription>
                 </DialogHeader>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {details.map(([label, value]) => (
-                    <div key={label} className="rounded-md border bg-slate-50 px-3 py-2">
-                      <p className="text-xs font-medium text-slate-500">{label}</p>
-                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
-                    </div>
-                  ))}
-                </div>
+                <ReplacementDossierHeader
+                  replacementNumber={selectedReplacement.replacementNumber || 'Replacement'}
+                  statusLabel={statusLabel}
+                  contextLine={detailContext}
+                  lossDisplay={totalLoss > 0 ? `- ${formatPeso(totalLoss)}` : null}
+                  reference={details}
+                  customerAccount={customerAccount}
+                />
                 <div className="rounded-md border bg-white">
                   <div className="border-b px-3 py-2">
                     <p className="text-xs font-medium text-slate-500">Replacement Items</p>

@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { TripLoadSummary } from '@/components/shared/trip-load-summary'
+import { TRIP_LIST_SORT_OPTIONS, sortTripsForList, tripListSortParam, type TripListSort } from '@/components/portals/shared/trip-list-sort'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -58,6 +59,11 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+// Fix: a truck is IN_USE while it is out on today's trip, but it can still be
+// planned for a later date. Only vehicles that cannot drive at all are excluded.
+const isVehiclePlannable = (vehicle: any) =>
+  vehicle?.isActive !== false && !['MAINTENANCE', 'OUT_OF_SERVICE'].includes(String(vehicle?.status || '').toUpperCase())
+
 export function TripsView() {
   const [selectedTrip, setSelectedTrip] = useState<any | null>(null)
   const [tripToDelete, setTripToDelete] = useState<any | null>(null)
@@ -66,6 +72,10 @@ export function TripsView() {
   const [trips, setTrips] = useState<any[]>([])
   const [tripsPage, setTripsPage] = useState(1)
   const [tripStatusFilter, setTripStatusFilter] = useState('ALL')
+  const [tripSort, setTripSort] = useState<TripListSort>('DELIVERY_DATE')
+  // The Completed view is paged by the API (see the effect below), keyed by the
+  // sort and page it was fetched for.
+  const [completedTripsResult, setCompletedTripsResult] = useState<{ key: string; trips: any[]; total: number } | null>(null)
   const tripsPageSize = 10
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
@@ -213,10 +223,10 @@ export function TripsView() {
     async function fetchTripsAndMeta() {
       try {
         const [tripsResult, warehousesResult, driversResult, vehiclesResult, savedRoutesResult] = await Promise.all([
-          safeFetchJson('/api/trips?page=1&pageSize=100', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+          safeFetchJson('/api/trips?page=1&pageSize=100&sort=scheduled', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
           safeFetchJson('/api/warehouses', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
           safeFetchJson('/api/drivers', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
-          safeFetchJson('/api/vehicles?status=AVAILABLE', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
+          safeFetchJson('/api/vehicles?pageSize=500', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }),
           Promise.resolve({ ok: true as const, data: { savedRoutes: [] } }),
         ])
 
@@ -237,6 +247,7 @@ export function TripsView() {
           setDrivers(list)
           const availableVehicleIds = new Set(
             (vehiclesResult.ok ? getCollection<any>(vehiclesResult.data, ['vehicles']) : [])
+              .filter(isVehiclePlannable)
               .map((vehicle: any) => String(vehicle?.id || '').trim())
               .filter(Boolean)
           )
@@ -253,7 +264,7 @@ export function TripsView() {
         }
 
         if (vehiclesResult.ok) {
-          const list = getCollection<any>(vehiclesResult.data, ['vehicles'])
+          const list = getCollection<any>(vehiclesResult.data, ['vehicles']).filter(isVehiclePlannable)
           setVehicles(list)
           if (list[0]?.id) {
             setSelectedRouteVehicleId((prev) => prev || list[0].id)
@@ -298,7 +309,7 @@ export function TripsView() {
     const showLoading = options?.showLoading !== false
     if (showLoading) setIsLoading(true)
     try {
-      const result = await safeFetchJson('/api/trips?limit=1000', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 })
+      const result = await safeFetchJson('/api/trips?limit=1000&sort=scheduled', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 })
       if (!result.ok) {
         throw new Error(result.data?.error || 'Failed trips fetch')
       }
@@ -628,18 +639,56 @@ export function TripsView() {
     })
   }
   const filteredTrips = useMemo(
-    () => trips.filter((trip) => tripStatusFilter === 'ALL' || normalizeTripStatus(trip.status) === tripStatusFilter),
-    [trips, tripStatusFilter],
+    () => sortTripsForList(
+      trips.filter((trip) => tripStatusFilter === 'ALL' || normalizeTripStatus(trip.status) === tripStatusFilter),
+      tripSort,
+    ),
+    [trips, tripStatusFilter, tripSort],
   )
-  const totalTripsPages = Math.max(1, Math.ceil(filteredTrips.length / tripsPageSize))
+  // Fix: `trips` is the newest 100 by creation date, so a trip planned long ago
+  // and completed today could sit pages down or miss that fetch entirely. The
+  // Completed view is therefore ordered and paged by the API over every
+  // completed trip; `trips` still backs the other views and the planning checks.
+  const isCompletedView = tripStatusFilter === 'COMPLETED'
+  const completedTripsKey = `${tripSort}:${tripsPage}`
+  useEffect(() => {
+    if (tripStatusFilter !== 'COMPLETED') return
+    let cancelled = false
+    const query = new URLSearchParams({
+      status: 'COMPLETED',
+      sort: tripListSortParam(tripSort),
+      page: String(tripsPage),
+      pageSize: String(tripsPageSize),
+    })
+    void safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 }).then((result) => {
+      if (cancelled) return
+      if (!result.ok) {
+        console.error('Failed to load completed trips:', result.data?.error)
+        toast.error('Failed to load completed trips')
+      }
+      setCompletedTripsResult({
+        key: `${tripSort}:${tripsPage}`,
+        trips: result.ok ? getCollection<any>(result.data, ['trips']) : [],
+        total: result.ok ? Math.max(0, Number(result.data?.total || 0)) : 0,
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+    // `trips` is a dependency so every refresh after a mutation re-reads this page too.
+  }, [tripStatusFilter, tripSort, tripsPage, trips])
+  const isCompletedPageLoading = isCompletedView && completedTripsResult?.key !== completedTripsKey
+  const listedTripsTotal = isCompletedView ? completedTripsResult?.total ?? 0 : filteredTrips.length
+  const totalTripsPages = Math.max(1, Math.ceil(listedTripsTotal / tripsPageSize))
   const paginatedTrips = useMemo(() => {
+    if (isCompletedView) return completedTripsResult?.trips ?? []
     const start = (tripsPage - 1) * tripsPageSize
     return filteredTrips.slice(start, start + tripsPageSize)
-  }, [filteredTrips, tripsPage])
+  }, [completedTripsResult, filteredTrips, isCompletedView, tripsPage])
 
   useEffect(() => {
     setTripsPage(1)
-  }, [trips.length, tripStatusFilter])
+  }, [trips.length, tripStatusFilter, tripSort])
 
   useEffect(() => {
     if (tripsPage > totalTripsPages) {
@@ -650,12 +699,13 @@ export function TripsView() {
   return (
     <>
       <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Trips</h1>
           <p className="text-gray-500">All trip records</p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Fix: wraps so the added sort control cannot push the row off a phone screen. */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <select
             aria-label="Filter trips by status"
             value={tripStatusFilter}
@@ -666,6 +716,16 @@ export function TripsView() {
             <option value="PLANNED">Planned</option>
             <option value="IN_PROGRESS">In Progress</option>
             <option value="COMPLETED">Completed</option>
+          </select>
+          <select
+            aria-label="Sort trips"
+            value={tripSort}
+            onChange={(event) => setTripSort(event.target.value as TripListSort)}
+            className="h-10 rounded-xl border border-input bg-white px-3 text-sm text-slate-700"
+          >
+            {TRIP_LIST_SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
           <Button
             onClick={() => setCreateRouteOpen(true)}
@@ -679,9 +739,9 @@ export function TripsView() {
 
       <Card>
         <CardContent>
-          {isLoading ? (
+          {isLoading || isCompletedPageLoading ? (
             <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
-          ) : filteredTrips.length === 0 ? (
+          ) : listedTripsTotal === 0 ? (
             <div className="text-center py-12">
               <Truck className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500">No trips found</p>
@@ -691,7 +751,7 @@ export function TripsView() {
             <>
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b pb-3">
               <p className="text-xs text-slate-500">
-                Showing {paginatedTrips.length === 0 ? 0 : (tripsPage - 1) * tripsPageSize + 1}-{(tripsPage - 1) * tripsPageSize + paginatedTrips.length} of {filteredTrips.length}
+                Showing {paginatedTrips.length === 0 ? 0 : (tripsPage - 1) * tripsPageSize + 1}-{(tripsPage - 1) * tripsPageSize + paginatedTrips.length} of {listedTripsTotal}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -783,7 +843,7 @@ export function TripsView() {
             </div>
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t pt-3">
               <p className="text-xs text-slate-500">
-                Showing {paginatedTrips.length === 0 ? 0 : (tripsPage - 1) * tripsPageSize + 1}-{(tripsPage - 1) * tripsPageSize + paginatedTrips.length} of {filteredTrips.length}
+                Showing {paginatedTrips.length === 0 ? 0 : (tripsPage - 1) * tripsPageSize + 1}-{(tripsPage - 1) * tripsPageSize + paginatedTrips.length} of {listedTripsTotal}
               </p>
               <div className="flex items-center gap-2">
                 <Button

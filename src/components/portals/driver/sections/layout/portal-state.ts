@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useNativeOffline } from '@/hooks/use-native-offline'
 import { getTabAuthToken } from '@/lib/client-auth'
@@ -16,6 +16,9 @@ interface Trip {
   tripNumber: string
   status: string
   tripSchedule?: string | null
+  // Added: the server's YYYY-MM-DD due day and whether a PLANNED trip missed it.
+  scheduledDate?: string | null
+  isOverdue?: boolean
   warehouseId?: string | null
   warehouseLatitude?: number | null
   warehouseLongitude?: number | null
@@ -113,6 +116,73 @@ interface DropPoint {
       isClosed?: boolean
     }>
   } | null
+}
+
+// Added: dashboard counters computed by `/api/driver/trips` over ALL of the
+// driver's trips, so the tiles stay right beyond the 50 trips the portal loads.
+export type DriverTripStats = {
+  todayTrips: number
+  plannedToday: number
+  completedToday: number
+  pendingStops: number
+  overdueTrips: number
+  activeTrips: number
+  currentAssignment: {
+    tripId: string
+    tripNumber: string
+    completedDropPoints: number
+    totalDropPoints: number
+    scheduledDate: string | null
+  } | null
+}
+
+const parseDriverTripStats = (value: unknown): DriverTripStats | null => {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, any>
+  const count = (key: string) => Math.max(0, Number(raw[key]) || 0)
+  const assignment = raw.currentAssignment && typeof raw.currentAssignment === 'object' && raw.currentAssignment.tripId
+    ? {
+      tripId: String(raw.currentAssignment.tripId),
+      tripNumber: String(raw.currentAssignment.tripNumber || ''),
+      completedDropPoints: Math.max(0, Number(raw.currentAssignment.completedDropPoints) || 0),
+      totalDropPoints: Math.max(0, Number(raw.currentAssignment.totalDropPoints) || 0),
+      scheduledDate: raw.currentAssignment.scheduledDate ? String(raw.currentAssignment.scheduledDate) : null,
+    }
+    : null
+  return {
+    todayTrips: count('todayTrips'),
+    plannedToday: count('plannedToday'),
+    completedToday: count('completedToday'),
+    pendingStops: count('pendingStops'),
+    overdueTrips: count('overdueTrips'),
+    activeTrips: count('activeTrips'),
+    currentAssignment: assignment,
+  }
+}
+
+// Added: the portal shell only threads `trips` into the section views, so the
+// latest trips + stats are also published here for the dashboard tiles and the
+// trip screen's one-active-trip check. Written only by useDriverPortalState.
+type DriverTripsSnapshot = { trips: Trip[]; stats: DriverTripStats | null }
+const EMPTY_DRIVER_TRIPS_SNAPSHOT: DriverTripsSnapshot = { trips: [], stats: null }
+let driverTripsSnapshot: DriverTripsSnapshot = EMPTY_DRIVER_TRIPS_SNAPSHOT
+const driverTripsSnapshotListeners = new Set<() => void>()
+const publishDriverTripsSnapshot = (next: DriverTripsSnapshot) => {
+  driverTripsSnapshot = next
+  driverTripsSnapshotListeners.forEach((listener) => listener())
+}
+const subscribeDriverTripsSnapshot = (listener: () => void) => {
+  driverTripsSnapshotListeners.add(listener)
+  return () => {
+    driverTripsSnapshotListeners.delete(listener)
+  }
+}
+const getDriverTripsSnapshot = () => driverTripsSnapshot
+const getServerDriverTripsSnapshot = () => EMPTY_DRIVER_TRIPS_SNAPSHOT
+
+/** The driver's latest trips and server stats, as last loaded by the portal. */
+export function useDriverTripsSnapshot(): DriverTripsSnapshot {
+  return useSyncExternalStore(subscribeDriverTripsSnapshot, getDriverTripsSnapshot, getServerDriverTripsSnapshot)
 }
 
 // Native camera permission check result.
@@ -239,6 +309,7 @@ export function useDriverPortalState() {
   // View and trip state.
   const [activeView, setActiveView] = useState('home')
   const [trips, setTrips] = useState<Trip[]>([])
+  const [tripStats, setTripStats] = useState<DriverTripStats | null>(null)
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [locationPermission, setLocationPermission] = useState<LocationPermissionState>('prompt')
@@ -333,10 +404,14 @@ export function useDriverPortalState() {
 
       let nextTrips = Array.isArray(data?.trips) ? data.trips : []
       const primaryFailed = !response?.ok || data?.success === false
+      // Only the driver endpoint computes stats; the fallback list leaves the
+      // dashboard on its client-side counts instead of showing stale numbers.
+      let nextStats = primaryFailed ? null : parseDriverTripStats(data?.stats)
       if (primaryFailed) {
         const fallbackTrips = await fetchTripsFallback()
         if (fallbackTrips.length > 0) {
           nextTrips = fallbackTrips
+          nextStats = null
         } else {
           const rawMessage = typeof data?.error === 'string' ? data.error : ''
           const normalizedMessage = rawMessage.toLowerCase()
@@ -359,6 +434,7 @@ export function useDriverPortalState() {
 
       latestTripsRef.current = nextTrips
       setTrips(nextTrips)
+      setTripStats(nextStats)
       return nextTrips
     } catch (error: any) {
       console.warn('Failed to fetch trips:', error)
@@ -377,6 +453,13 @@ export function useDriverPortalState() {
       return nextTrips
     })
   }, [])
+
+  // Added: keep the shared snapshot in step with state; clear it on sign-out so
+  // the next driver on this device never sees the previous driver's numbers.
+  useEffect(() => {
+    publishDriverTripsSnapshot({ trips, stats: tripStats })
+  }, [trips, tripStats])
+  useEffect(() => () => publishDriverTripsSnapshot(EMPTY_DRIVER_TRIPS_SNAPSHOT), [])
 
   // Initial load + polling + cross-portal sync listeners.
   useEffect(() => {
@@ -1017,6 +1100,7 @@ export function useDriverPortalState() {
     activeView,
     setActiveView,
     trips,
+    tripStats,
     selectedTripId,
     setSelectedTripId,
     isLoading,

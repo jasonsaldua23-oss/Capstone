@@ -5,6 +5,13 @@ import { motion } from 'framer-motion'
 import { CalendarDays, CheckCircle2, Loader2, MapPin, Package, Upload, Wallet, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  CLAIM_CONTROL,
+  ClaimEvidence,
+  ClaimField,
+  ClaimLineShell,
+  ClaimUnitToggle,
+} from '../../../shared/replacement-claim-parts'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
@@ -50,7 +57,7 @@ export function CustomerOrderDetailsDialog(props: any) {
   const [customerNotes, setCustomerNotes] = useState('')
   const [isSubmittingReplacement, setIsSubmittingReplacement] = useState(false)
   const evidencePreviewUrls = useMemo(
-    () => evidenceFiles.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })),
+    () => evidenceFiles.map((file) => ({ file, name: file.name, url: URL.createObjectURL(file) })),
     [evidenceFiles]
   )
   useEffect(() => {
@@ -648,156 +655,158 @@ export function CustomerOrderDetailsDialog(props: any) {
     >
       {/* Fix: keep long replacement forms inside the mobile viewport and allow scrolling. */}
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain w-[95vw] max-w-[720px] sm:max-w-3xl rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-base font-semibold text-slate-900">Request Replacement</p>
-        <p className="mt-1 text-xs text-slate-600">Select one or more products and set reason per product.</p>
+        {/* The claim reads top to bottom: what broke, then the proof, then submit.
+            Wording is fixed by web/app copy parity; the structure is not. */}
+        <header>
+          <p className="text-base font-semibold text-slate-900">Request Replacement</p>
+          <p className="mt-0.5 text-xs text-slate-600">Select one or more products and set reason per product.</p>
+        </header>
         {hasCompletedReplacementRequest || hasActiveReplacementRequest ? (
-          <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-700">
+          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
             A replacement request is already in progress or completed for this order.
           </p>
         ) : null}
-        <div className="mt-3 space-y-2">
-          {replacementLines.map((line, index) => (
-            <div key={line.key} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-semibold text-slate-800">Product #{index + 1}</p>
-                <button type="button" className="text-[11px] text-rose-600 disabled:opacity-40" disabled={replacementLines.length <= 1} onClick={() => removeReplacementLine(line.key)}>
-                  Remove
-                </button>
-              </div>
-              <div className="mb-2 inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white">
-                {(() => {
-                  const selected = getSelectedReplacementItem(line.productId)
-                  const isComponent = Boolean(selected?.component)
-                  return <>
-                <button
-                  type="button"
-                  disabled={isComponent}
-                  className={`px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${line.inputMode === 'case' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`}
-                  onClick={() => updateReplacementLine(line.key, { inputMode: 'case' })}
+        <div className="mt-3 space-y-2.5">
+          {/* Fix: the claim is built from this state when Submit is pressed and its
+              photos upload from it, so nothing here may change until that finishes --
+              a photo or product removed mid-upload would otherwise still be sent. */}
+          <fieldset disabled={isSubmittingReplacement} className="m-0 min-w-0 space-y-2.5 border-0 p-0">
+            {replacementLines.map((line, index) => {
+              const selected = getSelectedReplacementItem(line.productId)
+              const isComponent = Boolean(selected?.component)
+              const maxQty = Math.max(getMaxReplacementQtyForLine(line), 1)
+              return (
+                <ClaimLineShell
+                  key={line.key}
+                  index={index}
+                  productLabel={selected ? getReplacementOptionLabel(selected) : ''}
+                  canRemove={replacementLines.length > 1}
+                  onRemove={() => removeReplacementLine(line.key)}
                 >
-                  By {getReplacementPackageUnit(line.productId).replace(/^./, (letter) => letter.toUpperCase())}
-                </button>
-                <button type="button" className={`px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${line.inputMode === 'bottle' ? 'bg-emerald-600 text-white' : 'text-slate-700'}`} onClick={() => updateReplacementLine(line.key, { inputMode: 'bottle' })}>
-                  By Bottle
-                </button>
-                  </>
-                })()}
-              </div>
-              <div className="grid gap-2 md:grid-cols-3">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-medium text-slate-600">Product</p>
-                  <select
-                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
-                    value={line.productId}
-                    onChange={(e) => {
-                      const selected = getSelectedReplacementItem(e.target.value)
-                      updateReplacementLine(line.key, {
-                        productId: e.target.value,
-                        // Mixed-case components are bottles; retain the customer's
-                        // submitted mode for standard order lines.
-                        inputMode: selected?.component ? 'bottle' : line.inputMode,
-                        quantity: '1',
-                      })
-                    }}
-                    aria-label={`Replacement product ${index + 1}`}
-                    title={`Replacement product ${index + 1}`}
-                  >
-                    <option value="">Select product</option>
-                    {getSelectableItemsForLine(line.key).map((entry: any) => (
-                      <option key={entry.selectionId} value={entry.selectionId}>{getReplacementOptionLabel(entry)}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[11px] font-medium text-slate-600">Quantity</p>
-                  <input
-                    type="number"
-                    min={1}
-                    max={Math.max(getMaxReplacementQtyForLine(line), 1)}
-                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
-                    value={line.quantity}
-                    onChange={(e) => {
-                      const next = e.target.value
-                      if (!next) {
-                        updateReplacementLine(line.key, { quantity: '' })
-                        return
-                      }
-                      const maxQty = getMaxReplacementQtyForLine(line)
-                      const parsed = Number(next)
-                      if (!Number.isFinite(parsed)) return
-                      const clamped = Math.min(Math.max(Math.floor(parsed), 1), Math.max(maxQty, 1))
-                      updateReplacementLine(line.key, { quantity: String(clamped) })
-                    }}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[11px] font-medium text-slate-600">Reason</p>
-                  <select
-                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
-                    value={line.reason}
-                    onChange={(e) => updateReplacementLine(line.key, { reason: e.target.value })}
-                    aria-label={`Replacement reason ${index + 1}`}
-                    title={`Replacement reason ${index + 1}`}
-                  >
-                    {DAMAGE_REASON_OPTIONS.map((reason) => <option key={reason}>{reason}</option>)}
-                  </select>
-                </div>
-                {line.reason === 'Other' ? (
-                  <textarea className="min-h-[68px] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs md:col-span-3" value={line.description} onChange={(e) => updateReplacementLine(line.key, { description: e.target.value })} placeholder="Describe the issue for this product" />
-                ) : null}
-              </div>
-            </div>
-          ))}
-          <Button variant="outline" className="h-9 text-xs" onClick={addReplacementLine}>Add Product</Button>
-          {/* Fix: start Notes on its own row below Add Product. */}
-          <label className="block space-y-1 text-xs font-medium text-slate-700">
-            Notes
-            <textarea
-              value={customerNotes}
-              onChange={(event) => setCustomerNotes(event.target.value)}
-              maxLength={500}
-              className="mt-1 min-h-[72px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-normal"
-              placeholder="Example: 5 bottles shattered inside the crate upon unloading."
-            />
-          </label>
-          <label className="flex h-9 cursor-pointer items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 bg-white text-xs text-slate-700">
-            <Upload className="h-3.5 w-3.5" />
-            Upload Evidence (Photo)
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(event) => {
-                const files = Array.from(event.target.files || [])
-                  .filter((file) => file.type.startsWith('image/'))
-                // Fix: append within the remaining slots without replacing earlier uploads.
-                setEvidenceFiles((previous) => [
-                  ...previous,
-                  ...files.slice(0, Math.max(0, maxEvidencePhotos - previous.length)),
-                ])
-                event.target.value = ''
-              }}
-            />
-          </label>
-          <p className="text-[11px] text-slate-500">{evidenceFiles.length} / {maxEvidencePhotos} photo(s) selected (2 per product)</p>
-          {evidencePreviewUrls.length > 0 ? (
-            <div className="grid grid-cols-3 gap-2 rounded-md border border-slate-200 bg-white p-2 md:grid-cols-4">
-              {evidencePreviewUrls.map((preview) => (
-                <img
-                  key={preview.url}
-                  src={preview.url}
-                  alt={preview.name}
-                  className="h-20 w-full rounded-md border object-cover"
+                  <div className="mb-2.5">
+                    <ClaimUnitToggle
+                      mode={line.inputMode}
+                      caseLabel={getReplacementPackageUnit(line.productId).replace(/^./, (letter: string) => letter.toUpperCase())}
+                      caseDisabled={isComponent}
+                      onSelect={(mode) => updateReplacementLine(line.key, { inputMode: mode })}
+                    />
+                  </div>
+                  <div className="grid gap-2.5 md:grid-cols-3">
+                    <ClaimField label="Product" className="md:col-span-2">
+                      <select
+                        className={CLAIM_CONTROL}
+                        value={line.productId}
+                        onChange={(e) => {
+                          const picked = getSelectedReplacementItem(e.target.value)
+                          updateReplacementLine(line.key, {
+                            productId: e.target.value,
+                            // Mixed-case components are bottles; retain the customer's
+                            // submitted mode for standard order lines.
+                            inputMode: picked?.component ? 'bottle' : line.inputMode,
+                            quantity: '1',
+                          })
+                        }}
+                        aria-label={`Replacement product ${index + 1}`}
+                        title={`Replacement product ${index + 1}`}
+                      >
+                        <option value="">Select product</option>
+                        {getSelectableItemsForLine(line.key).map((entry: any) => (
+                          <option key={entry.selectionId} value={entry.selectionId}>{getReplacementOptionLabel(entry)}</option>
+                        ))}
+                      </select>
+                    </ClaimField>
+                    {/* The ceiling is the quantity actually ordered, so it is stated
+                        rather than only enforced after the fact. */}
+                    <ClaimField label="Quantity" hint={line.productId ? `Up to ${maxQty}` : undefined}>
+                      <input
+                        type="number"
+                        min={1}
+                        max={maxQty}
+                        className={`${CLAIM_CONTROL} tabular-nums`}
+                        value={line.quantity}
+                        onChange={(e) => {
+                          const next = e.target.value
+                          if (!next) {
+                            updateReplacementLine(line.key, { quantity: '' })
+                            return
+                          }
+                          const limit = getMaxReplacementQtyForLine(line)
+                          const parsed = Number(next)
+                          if (!Number.isFinite(parsed)) return
+                          const clamped = Math.min(Math.max(Math.floor(parsed), 1), Math.max(limit, 1))
+                          updateReplacementLine(line.key, { quantity: String(clamped) })
+                        }}
+                      />
+                    </ClaimField>
+                    <ClaimField label="Reason" className={line.reason === 'Other' ? '' : 'md:col-span-3'}>
+                      <select
+                        className={CLAIM_CONTROL}
+                        value={line.reason}
+                        onChange={(e) => updateReplacementLine(line.key, { reason: e.target.value })}
+                        aria-label={`Replacement reason ${index + 1}`}
+                        title={`Replacement reason ${index + 1}`}
+                      >
+                        {DAMAGE_REASON_OPTIONS.map((reason) => <option key={reason}>{reason}</option>)}
+                      </select>
+                    </ClaimField>
+                    {line.reason === 'Other' ? (
+                      <ClaimField label="Details" className="md:col-span-2">
+                        <textarea
+                          className="min-h-[68px] w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-[-1px] focus-visible:outline-emerald-700"
+                          value={line.description}
+                          onChange={(e) => updateReplacementLine(line.key, { description: e.target.value })}
+                          placeholder="Describe the issue for this product"
+                        />
+                      </ClaimField>
+                    ) : null}
+                  </div>
+                </ClaimLineShell>
+              )
+            })}
+            <Button variant="outline" className="h-9 w-full text-xs sm:w-auto" onClick={addReplacementLine} disabled={replacementLines.length >= selectableReplacementItems.length}>Add Product</Button>
+
+            <div className="space-y-3 border-t border-slate-200 pt-3">
+              <ClaimField label="Notes">
+                <textarea
+                  value={customerNotes}
+                  onChange={(event) => setCustomerNotes(event.target.value)}
+                  maxLength={500}
+                  className="min-h-[72px] w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-[-1px] focus-visible:outline-emerald-700"
+                  placeholder="Example: 5 bottles shattered inside the crate upon unloading."
                 />
-              ))}
+              </ClaimField>
+
+              <ClaimEvidence
+                previews={evidencePreviewUrls}
+                count={evidenceFiles.length}
+                max={maxEvidencePhotos}
+                disabled={isSubmittingReplacement}
+                onAdd={(files) => {
+                  // Fix: append within the remaining slots without replacing earlier uploads.
+                  setEvidenceFiles((previous) => [
+                    ...previous,
+                    ...files.slice(0, Math.max(0, maxEvidencePhotos - previous.length)),
+                  ])
+                }}
+                onRemove={(url) => {
+                  // Fix: remove by file identity. An index read from the rendered previews goes
+                  // stale when two removals land before a re-render, and drops the wrong photo.
+                  const removed = evidencePreviewUrls.find((preview) => preview.url === url)?.file
+                  if (!removed) return
+                  setEvidenceFiles((previous) => previous.filter((file) => file !== removed))
+                }}
+              />
             </div>
-          ) : null}
+          </fieldset>
           <Button
             className="h-9 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-500"
             disabled={isSubmittingReplacement || hasCompletedReplacementRequest || hasActiveReplacementRequest}
             onClick={async () => {
               if (hasCompletedReplacementRequest || hasActiveReplacementRequest) return
+              // Fix: a chosen product whose quantity was cleared used to be dropped from
+              // the claim without a word; name it instead.
+              const blankQuantityAt = replacementLines.findIndex((line) => line.productId && !(Number(line.quantity) > 0))
+              if (blankQuantityAt >= 0) return alert(`Enter a quantity for Product #${blankQuantityAt + 1}`)
               const validLines = replacementLines.filter((line) => line.productId && Number(line.quantity) > 0)
               if (validLines.length === 0) return alert('Add at least one valid damaged product line')
               setIsSubmittingReplacement(true)

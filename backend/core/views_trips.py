@@ -5,8 +5,9 @@ from datetime import datetime
 from typing import Any
 
 from django.db import IntegrityError, transaction
-from django.db.models import F, Max, Prefetch, Q
+from django.db.models import DateTimeField, F, Max, Min, Prefetch, Q
 from django.db.models.deletion import ProtectedError
+from django.db.models.functions import Coalesce
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
@@ -34,6 +35,7 @@ from .models import (
     TripStatus,
     User,
     Vehicle,
+    VehicleStatus,
     Warehouse,
 )
 
@@ -221,8 +223,11 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             except ValueError:
                 return _err("Invalid trackingDate. Expected YYYY-MM-DD")
 
-        if request.GET.get("status"):
-            qs = qs.filter(status=request.GET.get("status"))
+        status_filter = str(request.GET.get("status") or "").strip().upper()
+        if status_filter:
+            if status_filter not in TripStatus.values:
+                return _err("Invalid status. Expected one of: " + ", ".join(TripStatus.values))
+            qs = qs.filter(status=status_filter)
         if tracking_date:
             qs = qs.filter(
                 Q(planned_start_at__date=tracking_date)
@@ -233,6 +238,28 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 | Q(drop_points__order__timeline__delivery_date__date=tracking_date)
                 | Q(location_logs__recorded_at__date=tracking_date)
             ).distinct()
+        # Added: the portal lists page 10 rows at a time out of the first fetch, so
+        # "most recently completed" has to be decided here. Creation order put a
+        # trip planned weeks ago and finished today pages down (or past row 100).
+        sort_key = str(request.GET.get("sort") or "created").strip().lower()
+        if sort_key == "completed":
+            qs = qs.order_by(F("actual_end_at").desc(nulls_last=True), "-updated_at", "-created_at")
+        elif sort_key == "scheduled":
+            # Fix: trip lists follow their actual delivery schedule. The earliest
+            # order delivery date defines a multi-stop trip, matching tripSchedule.
+            qs = qs.annotate(
+                scheduled_delivery_at=Coalesce(
+                    Min("drop_points__order__timeline__delivery_date"),
+                    F("planned_start_at"),
+                    output_field=DateTimeField(),
+                )
+            ).order_by(F("scheduled_delivery_at").asc(nulls_last=True), "created_at")
+        elif sort_key == "trip_number":
+            # Trip numbers are TRP-<year>-<4-digit zero-padded sequence>, so the
+            # plain string order is the numeric order.
+            qs = qs.order_by("-trip_number")
+        elif sort_key != "created":
+            return _err("Invalid sort. Expected created, completed, scheduled or trip_number")
         total = qs.count()
         rows = list(qs[off : off + size])
 
@@ -554,7 +581,8 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                 locked_vehicle = Vehicle.objects.select_for_update().get(id=vehicle.id)
                 if str(locked_vehicle.driver_id or '') != str(driver.id):
                     return _err('Selected vehicle is not assigned to the selected driver', 400)
-                if not locked_vehicle.is_active or locked_vehicle.status != 'AVAILABLE':
+                # Fix: IN_USE only means the truck is out today; it can still be planned for a later date.
+                if not locked_vehicle.is_active or locked_vehicle.status not in (VehicleStatus.AVAILABLE, VehicleStatus.IN_USE):
                     return _err('Selected vehicle is not available for a new trip', 409)
                 area_error = _driver_service_area_error(driver, [order.shipping_city for order in orders_to_assign])
                 if area_error:

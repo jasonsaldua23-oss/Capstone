@@ -544,7 +544,7 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
     replacement_lines_input = body.get("replacementLines") if isinstance(body.get("replacementLines"), list) else []
     replacement_lines: list[dict[str, Any]] = []
     if replacement_lines_input:
-        merged_lines_by_source: dict[str, dict[str, Any]] = {}
+        lines_by_source: dict[str, dict[str, Any]] = {}
         for raw_line in replacement_lines_input:
             if not isinstance(raw_line, dict):
                 continue
@@ -688,25 +688,14 @@ def customer_replacements(request: HttpRequest) -> JsonResponse:
                 next_line["quantityToReplaceBottles"] = quantity_to_replace_bottles
 
             source_key = f"{source_item.id}:{mixed_component.id if mixed_component is not None else getattr(product, 'id', '')}"
-            existing_line = merged_lines_by_source.get(source_key)
-            if existing_line:
-                existing_line["quantityToReplace"] = max(0, _int(existing_line.get("quantityToReplace"), 0)) + quantity_to_replace
-                existing_line["remainingQuantity"] = existing_line["quantityToReplace"]
-                if input_mode == "case":
-                    existing_line["quantityToReplaceCases"] = max(0, _int(existing_line.get("quantityToReplaceCases"), 0)) + quantity_to_replace_cases
-                    existing_line["quantityToReplaceUnits"] = existing_line["quantityToReplaceCases"]
-                else:
-                    existing_line["quantityToReplaceBottles"] = max(0, _int(existing_line.get("quantityToReplaceBottles"), 0)) + quantity_to_replace_bottles
-                if reason and reason not in str(existing_line.get("reason") or ""):
-                    existing_line["reason"] = f"{existing_line['reason']}; {reason}"
-                if description:
-                    previous_description = str(existing_line.get("description") or "").strip()
-                    if description not in previous_description:
-                        existing_line["description"] = f"{previous_description}; {description}".strip("; ")
-            else:
-                merged_lines_by_source[source_key] = next_line
+            # Fix: both claim forms (web and the app's shared builder) stop a product
+            # being picked twice, so a repeat can only be a malformed or replayed
+            # payload. Summing it silently changed the quantity the customer saw.
+            if source_key in lines_by_source:
+                return _err("Each product can be listed only once in a replacement request", 400)
+            lines_by_source[source_key] = next_line
 
-        replacement_lines = list(merged_lines_by_source.values())
+        replacement_lines = list(lines_by_source.values())
         if not replacement_lines:
             return _err("At least one valid replacement line is required", 400)
 

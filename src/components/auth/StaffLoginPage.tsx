@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
+import { renderGoogleIdentityButton } from './google-button-config'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -142,6 +143,15 @@ export function SystemLoginPage({
   // A neutral browser URL cannot safely choose between separate Customer/staff cookies.
   const scopedRestorePortal = restorePortal === undefined ? entryPortal : restorePortal
 
+  const openCustomerRegistrationStatus = (data: any): boolean => {
+    const code = String(data?.code || '').toUpperCase()
+    if (code !== 'PENDING_APPROVAL' && code !== 'REGISTRATION_REJECTED') return false
+    // Approval status is returned only after valid customer credentials are checked.
+    const loginPath = registrationHref.split('?')[0] || '/customer/login'
+    router.replace(`${loginPath}?status=${code === 'PENDING_APPROVAL' ? 'pending' : 'rejected'}`)
+    return true
+  }
+
   const revokeRejectedSession = useCallback(async (token?: string) => {
     try {
       await fetch('/api/auth/logout', {
@@ -251,6 +261,7 @@ export function SystemLoginPage({
       }
 
       if (!response.ok || !data?.success || !data?.user) {
+        if (openCustomerRegistrationStatus(data)) return
         const apiError = String(data?.error || data?.message || '').trim()
         const credentialError = response.status === 401 || response.status === 403 || /invalid|credential|password/i.test(apiError)
         if (credentialError) setLoginError('Invalid email or password.')
@@ -295,6 +306,7 @@ export function SystemLoginPage({
       }
 
       if (!response.ok || !data?.success || !data?.user) {
+        if (openCustomerRegistrationStatus(data)) return true
         const apiError = String(data?.error || data?.message || '').trim()
         toast.error(apiError || (response.status >= 500
           ? 'Google sign-in is temporarily unavailable. Please use email and password for now.'
@@ -327,19 +339,8 @@ export function SystemLoginPage({
           else toast.error('Google authentication failed. Please try again.')
         },
       })
-      const parentWidth = target.parentElement?.clientWidth || target.clientWidth || 300
-      window.google.accounts.id.renderButton(target, {
-        type: 'standard',
-        theme: 'outline',
-        // Fix: at 'large' Google swaps in its personalized button, which pins the
-        // visitor's own account and email onto the login screen. 'medium' is the
-        // documented size that keeps the plain "Continue with Google" label.
-        size: 'medium',
-        text: 'continue_with',
-        shape: 'pill',
-        logo_alignment: 'left',
-        width: Math.max(240, Math.min(340, Math.floor(parentWidth))),
-      })
+      // Size, and the reason it is capped under 200px, live in one place now.
+      renderGoogleIdentityButton(target, window.google.accounts.id)
     } catch (error) {
       console.warn('Unable to render system Google sign-in:', error)
     }
@@ -557,7 +558,9 @@ export function SystemLoginPage({
 
             {googleSignInAvailable ? (
               <div className="flex w-full justify-center">
-                <div ref={googleButtonRef} className="flex min-h-[44px] w-full max-w-[340px] items-center justify-center" />
+                <div className="flex h-11 w-full items-center justify-center">
+                  <div ref={googleButtonRef} />
+                </div>
               </div>
             ) : isAppShell ? (
               <div className="flex w-full justify-center">

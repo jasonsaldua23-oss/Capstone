@@ -39,11 +39,13 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [otpModalKind, setOtpModalKind] = useState<'profile' | 'password' | null>(null)
+  const [otpModalKind, setOtpModalKind] = useState<'current-email' | 'profile' | 'password' | null>(null)
   const [profileOtp, setProfileOtp] = useState('')
   const [profileOtpSent, setProfileOtpSent] = useState(false)
   const [profileOtpVerified, setProfileOtpVerified] = useState(false)
   const [profileOtpToken, setProfileOtpToken] = useState('')
+  const [oldEmailVerificationToken, setOldEmailVerificationToken] = useState('')
+  const [isEmailChangeUnlocked, setIsEmailChangeUnlocked] = useState(false)
   const [isSendingProfileOtp, setIsSendingProfileOtp] = useState(false)
   const [isVerifyingProfileOtp, setIsVerifyingProfileOtp] = useState(false)
   const [passwordOtp, setPasswordOtp] = useState('')
@@ -89,16 +91,21 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
   const normalizedProfileEmail = profileEmail.trim().toLowerCase()
   const isProfileEmailChanged = normalizedProfileEmail !== accountEmail
 
-  const requestOtp = async (targetEmail: string, kind: 'profile' | 'password') => {
+  const requestOtp = async (targetEmail: string, kind: 'current-email' | 'profile' | 'password') => {
     const emailToVerify = targetEmail.trim().toLowerCase()
     if (!emailToVerify) {
       toast.error('Email is required')
       return false
     }
-    if (kind === 'profile') setIsSendingProfileOtp(true)
+    if (kind === 'profile' || kind === 'current-email') setIsSendingProfileOtp(true)
     else setIsSendingPasswordOtp(true)
     try {
-      const response = await fetch(kind === 'password' ? '/api/auth/password-reset/request-otp' : '/api/auth/email-verification/request', {
+      const endpoint = kind === 'password'
+        ? '/api/auth/password-reset/request-otp'
+        : kind === 'current-email'
+          ? '/api/auth/email-verification/request-existing'
+          : '/api/auth/email-verification/request'
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailToVerify, accountType: 'staff', portal: 'warehouse', roleId: accountRoleId }),
@@ -112,7 +119,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
         setProfileOtpVerified(false)
         setProfileOtpToken('')
         setProfileOtp('')
-      } else {
+      } else if (kind === 'password') {
         setPasswordOtpSent(true)
         setPasswordOtpVerified(false)
         setPasswordOtpToken('')
@@ -125,14 +132,14 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
       toast.error(error?.message || 'Failed to send OTP')
       return false
     } finally {
-      if (kind === 'profile') setIsSendingProfileOtp(false)
+      if (kind === 'profile' || kind === 'current-email') setIsSendingProfileOtp(false)
       else setIsSendingPasswordOtp(false)
     }
   }
 
-  const verifyOtp = async (targetEmail: string, kind: 'profile' | 'password', otpValue?: string) => {
+  const verifyOtp = async (targetEmail: string, kind: 'current-email' | 'profile' | 'password', otpValue?: string) => {
     const emailToVerify = targetEmail.trim().toLowerCase()
-    const otp = (otpValue || (kind === 'profile' ? profileOtp : passwordOtp)).trim()
+    const otp = (otpValue || (kind === 'profile' || kind === 'current-email' ? profileOtp : passwordOtp)).trim()
     if (!emailToVerify) {
       toast.error('Email is required')
       return false
@@ -141,10 +148,15 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
       toast.error('Enter OTP first')
       return false
     }
-    if (kind === 'profile') setIsVerifyingProfileOtp(true)
+    if (kind === 'profile' || kind === 'current-email') setIsVerifyingProfileOtp(true)
     else setIsVerifyingPasswordOtp(true)
     try {
-      const response = await fetch(kind === 'password' ? '/api/auth/password-reset/verify-otp' : '/api/auth/email-verification/confirm', {
+      const endpoint = kind === 'password'
+        ? '/api/auth/password-reset/verify-otp'
+        : kind === 'current-email'
+          ? '/api/auth/email-verification/confirm-existing'
+          : '/api/auth/email-verification/confirm'
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailToVerify, accountType: 'staff', portal: 'warehouse', otp }),
@@ -153,7 +165,13 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to verify OTP')
       }
-      if (kind === 'profile') {
+      if (kind === 'current-email') {
+        const token = String(payload?.verificationToken || '').trim()
+        if (!token) throw new Error('Missing verification token')
+        // Added: keep the email read-only until the current address is confirmed.
+        setOldEmailVerificationToken(token)
+        setIsEmailChangeUnlocked(true)
+      } else if (kind === 'profile') {
         const token = String(payload?.verificationToken || '').trim()
         if (!token) throw new Error('Missing verification token')
         setProfileOtpVerified(true)
@@ -169,7 +187,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
       toast.error(error?.message || 'Failed to verify OTP')
       return false
     } finally {
-      if (kind === 'profile') setIsVerifyingProfileOtp(false)
+      if (kind === 'profile' || kind === 'current-email') setIsVerifyingProfileOtp(false)
       else setIsVerifyingPasswordOtp(false)
     }
   }
@@ -220,7 +238,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
       toast.error('Please enter a valid Philippine mobile number')
       return
     }
-    if (isProfileEmailChanged && !profileOtpVerified) {
+    if (isProfileEmailChanged && (!isEmailChangeUnlocked || !oldEmailVerificationToken || !profileOtpVerified || !profileOtpToken)) {
       toast.error('Verify OTP for the new email before saving')
       return
     }
@@ -249,6 +267,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
           phone: profilePhone.trim() || null,
           avatar: avatarToSave,
           emailVerificationToken: isProfileEmailChanged ? profileOtpToken : undefined,
+          oldEmailVerificationToken: isProfileEmailChanged ? oldEmailVerificationToken : undefined,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -269,11 +288,16 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
         avatar: nextUser.avatar ?? avatarToSave,
       }))
       setProfileAvatarFile(null)
+      // Fix: saving always locks email again, including when only other profile fields changed.
+      setIsEmailChangeUnlocked(false)
+      setOldEmailVerificationToken('')
       if (isProfileEmailChanged) {
         setProfileOtpSent(false)
         setProfileOtpVerified(false)
         setProfileOtpToken('')
         setProfileOtp('')
+        setOldEmailVerificationToken('')
+        setIsEmailChangeUnlocked(false)
       }
       // Added: return the successful profile save to its read-only Edit state.
       setIsEditingProfile(false)
@@ -383,6 +407,7 @@ export function useWarehouseProfileSettings(inputs: WarehouseProfileSettingsInpu
     accountEmail,
     confirmPassword,
     isEditingProfile,
+    isEmailChangeUnlocked,
     isEditingSecurity,
     isProfileEmailChanged,
     isSavingProfile,

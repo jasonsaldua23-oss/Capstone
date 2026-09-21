@@ -225,6 +225,86 @@ export const isTripScheduledToday = (value: string | null | undefined) => {
     && scheduledAt.getDate() === today.getDate()
 }
 
+// Added: trip days are Philippine calendar days on the server (trip_start and the
+// serializer's scheduledDate), so the portal compares against Manila's date too,
+// whatever timezone the phone is set to.
+const MANILA_DATE_KEY_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Manila',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/** YYYY-MM-DD of an instant (default: now) on the Philippine calendar. */
+export const toManilaDateKey = (value: Date | string | null | undefined = new Date()): string | null => {
+  if (value === null || value === undefined || value === '') return null
+  const instant = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(instant.getTime())) return null
+  return MANILA_DATE_KEY_FORMAT.format(instant)
+}
+
+/** The day the trip is due: the server's scheduledDate, else the legacy timestamps. */
+export const getTripScheduledDateKey = (trip: any): string | null => {
+  const serverKey = String(trip?.scheduledDate || '').trim()
+  if (DATE_KEY_PATTERN.test(serverKey)) return serverKey
+  // Offline or older payloads: derive it the same way the server does.
+  const deliveryKeys = (Array.isArray(trip?.dropPoints) ? trip.dropPoints : [])
+    .map((point: any) => toManilaDateKey(point?.order?.deliveryDate || null))
+    .filter((key: string | null): key is string => Boolean(key))
+    .sort()
+  if (deliveryKeys.length > 0) return deliveryKeys[0]
+  return toManilaDateKey(trip?.tripSchedule || trip?.plannedStartAt || null)
+}
+
+/** A planned trip whose day has passed; it can no longer be started. */
+export const isTripOverdue = (trip: any): boolean => {
+  if (String(trip?.status || '').toUpperCase() !== 'PLANNED') return false
+  if (typeof trip?.isOverdue === 'boolean') return trip.isOverdue
+  const scheduledKey = getTripScheduledDateKey(trip)
+  const todayKey = toManilaDateKey()
+  return Boolean(scheduledKey && todayKey && scheduledKey < todayKey)
+}
+
+/** Formats a YYYY-MM-DD day key without letting the device timezone shift it. */
+export const formatScheduledDateKey = (key: string | null | undefined) => {
+  const raw = String(key || '').trim()
+  if (!DATE_KEY_PATTERN.test(raw)) return formatTripSchedule(raw)
+  const [year, month, day] = raw.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+/** Shows the trip's due day, preferring the server-computed scheduledDate. */
+export const formatTripScheduledDay = (trip: any) =>
+  trip?.scheduledDate ? formatScheduledDateKey(trip.scheduledDate) : formatTripSchedule(trip?.tripSchedule)
+
+// Shared by My Deliveries and History so a status reads the same on both screens.
+export const tripStatusBadgeColors: Record<string, string> = {
+  PLANNED: 'bg-sky-100 text-sky-800 border border-sky-200',
+  IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+  COMPLETED: 'bg-teal-100 text-teal-800 border border-teal-200',
+  CANCELLED: 'bg-rose-100 text-rose-800 border border-rose-200',
+  OVERDUE: 'bg-amber-100 text-amber-800 border border-amber-200',
+}
+
+/** PLANNED trips past their day display as OVERDUE; every other status as-is. */
+export const getTripDisplayStatus = (trip: any): string =>
+  isTripOverdue(trip) ? 'OVERDUE' : String(trip?.status || '').toUpperCase()
+
+// The server returns these verbatim (views_trip_ops.trip_start); the portal repeats them.
+export const ACTIVE_TRIP_BLOCK_MESSAGE =
+  'You already have an active trip. Complete your current trip before starting another delivery.'
+export const getOverdueTripMessage = (trip: any) => {
+  const scheduledKey = getTripScheduledDateKey(trip)
+  return scheduledKey
+    ? `This trip was scheduled for ${scheduledKey} and that date has passed. It can no longer be started.`
+    : 'This trip\'s scheduled date has passed. It can no longer be started.'
+}
+
 export const speakNavigationPrompt = (message: string) => {
   // Fix: Android speaks through its TTS engine; the web retains its existing voice settings.
   void speakDriverNavigation(message).catch((error) => {

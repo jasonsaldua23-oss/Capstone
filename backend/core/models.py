@@ -156,6 +156,14 @@ class DriverStatus(models.TextChoices):
     INACTIVE = "INACTIVE", "Inactive"
 
 
+class CustomerApprovalStatus(models.TextChoices):
+    # Added: self-registered clients wait for an administrator's decision.
+    # REJECTED is a reviewed decision; registrations are never "cancelled".
+    PENDING_APPROVAL = "PENDING_APPROVAL", "Pending Approval"
+    APPROVED = "APPROVED", "Approved"
+    REJECTED = "REJECTED", "Rejected"
+
+
 class User(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     email = models.EmailField()
@@ -230,6 +238,18 @@ class Customer(models.Model):
     discount_applied_by_name = models.CharField(max_length=255, blank=True, null=True)
     discount_updated_at = models.DateTimeField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    # Added: registration review. The default keeps accounts that existed before
+    # the approval workflow signed in; only the registration paths set PENDING.
+    approval_status = models.CharField(
+        max_length=30,
+        choices=CustomerApprovalStatus.choices,
+        default=CustomerApprovalStatus.APPROVED,
+        db_index=True,
+    )
+    approval_reviewed_at = models.DateTimeField(blank=True, null=True)
+    approval_reviewed_by_user_id = models.CharField(max_length=25, blank=True, null=True)
+    approval_reviewed_by_name = models.CharField(max_length=255, blank=True, null=True)
+    approval_notes = models.TextField(blank=True, null=True)
     two_factor_enabled = models.BooleanField(default=False)
     login_alerts_enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)

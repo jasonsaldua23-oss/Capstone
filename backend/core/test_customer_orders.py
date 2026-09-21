@@ -740,7 +740,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             HTTP_AUTHORIZATION=f"Bearer {staff_token}",
         )
         self.assertEqual(first_approval.status_code, 200, first_approval.content)
-        self.assertEqual(second_approval.status_code, 400, second_approval.content)
+        self.assertEqual(second_approval.status_code, 409, second_approval.content)
         self.assertIn("Available: 0 cases; required: 10 cases", second_approval.json()["error"])
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.reserved_quantity, 10)
@@ -947,3 +947,327 @@ class CustomerCreationPermissionContractTests(TestCase):
 
 
 # API failures must remain diagnosable without leaking database or application details.
+
+
+
+from .models import InventoryReservation, ReservationStatus  # noqa: E402
+
+
+class PurchaseOrderApprovalStockTests(TestCase):
+    """Approving a purchase request must reserve stock the catalog can see and deduct it once."""
+
+    def setUp(self) -> None:
+        self.client = Client()
+        self.customer = Customer.objects.create(
+            email="approval.stock.customer@example.com",
+            password="hashed",
+            name="Approval Stock Customer",
+            phone="+1-555-2000",
+            address="12 Test Ave",
+            city="Talisay",
+            province="Negros Occidental",
+            zip_code="6115",
+            is_active=True,
+        )
+        self.customer_token = create_token(
+            {
+                "userId": self.customer.id,
+                "email": self.customer.email,
+                "name": self.customer.name,
+                "role": "CUSTOMER",
+                "type": "customer",
+            }
+        )
+        self.staff = User.objects.create(
+            email="approval.stock.warehouse@example.com",
+            password="hashed",
+            name="Approval Stock Warehouse",
+            role="WAREHOUSE_STAFF",
+            is_active=True,
+        )
+        self.staff_token = create_token(
+            {
+                "userId": self.staff.id,
+                "email": self.staff.email,
+                "name": self.staff.name,
+                "role": "WAREHOUSE_STAFF",
+                "type": "staff",
+            }
+        )
+        self.warehouse = Warehouse.objects.create(
+            name="Approval Warehouse",
+            code="WH-APPROVAL-001",
+            address="Warehouse Road",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            is_active=True,
+        )
+        self.product = Product.objects.create(
+            sku="SKU-APPROVAL-001",
+            name="Approval Mineral Water",
+            unit="case",
+            quantity_per_unit=24,
+            price=120,
+            is_active=True,
+        )
+        self.inventory = Inventory.objects.create(
+            warehouse=self.warehouse,
+            product=self.product,
+            quantity=116,
+            reserved_quantity=0,
+            threshold=2,
+        )
+
+    def _seed_batch(self, quantity: int = 116) -> StockBatch:
+        return StockBatch.objects.create(
+            batch_number=f"BATCH-APPROVAL-{quantity}",
+            inventory=self.inventory,
+            quantity=quantity,
+            receipt_date=timezone.now(),
+            expiry_date=timezone.now() + timedelta(days=90),
+            status="ACTIVE",
+        )
+
+    def _checkout(self, items: list[dict]) -> str:
+        response = self.client.post(
+            "/api/customer/orders",
+            data={
+                "warehouseId": self.warehouse.id,
+                "shippingAddress": "Approval Address",
+                "shippingCity": "Talisay",
+                "shippingProvince": "Negros Occidental",
+                "shippingLatitude": 10.67,
+                "shippingLongitude": 122.95,
+                "items": items,
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        return response.json()["order"]["id"]
+
+    def _catalog_available(self) -> int:
+        response = self.client.get(
+            "/api/products?pageSize=100",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        row = next(row for row in response.json()["products"] if row["id"] == self.product.id)
+        return row["availableQuantity"]
+
+    def _set_status(self, order_id: str, status: str, reason: str | None = None):
+        body = {"status": status}
+        if reason:
+            body["reason"] = reason
+        return self.client.patch(
+            f"/api/orders/{order_id}/status",
+            data=body,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.staff_token}",
+        )
+
+    @patch("core.views_api._email_order_delivered_to_customer")
+    @patch("core.views_api._email_purchase_request_approved_to_customer")
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    def test_catalog_hides_reserved_cases_and_delivery_deducts_once(self, *_mocks) -> None:
+        batch = self._seed_batch()
+        self.assertEqual(self._catalog_available(), 116)
+
+        order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
+        self.inventory.refresh_from_db()
+        self.assertEqual((self.inventory.quantity, self.inventory.reserved_quantity), (116, 10))
+        # Fix: cases reserved for a purchase request are no longer sellable to other customers.
+        self.assertEqual(self._catalog_available(), 106)
+
+        approval = self._set_status(order_id, "CONFIRMED")
+        self.assertEqual(approval.status_code, 200, approval.content.decode())
+        self.inventory.refresh_from_db()
+        # Approval must not reserve the same cases a second time.
+        self.assertEqual((self.inventory.quantity, self.inventory.reserved_quantity), (116, 10))
+        self.assertEqual(
+            InventoryTransaction.objects.filter(reference_type="order_item_reserve", type="RESERVE").count(),
+            1,
+        )
+        self.assertEqual(self._catalog_available(), 106)
+
+        # Dispatch is trip-driven; jump straight to the delivery transition.
+        Order.objects.filter(id=order_id).update(status=OrderStatus.OUT_FOR_DELIVERY)
+        delivered = self._set_status(order_id, "DELIVERED")
+        self.assertEqual(delivered.status_code, 200, delivered.content.decode())
+        self.inventory.refresh_from_db()
+        batch.refresh_from_db()
+        self.assertEqual(
+            (self.inventory.quantity, self.inventory.reserved_quantity, self.inventory.reserved_base_units),
+            (106, 0, 0),
+        )
+        self.assertEqual(batch.quantity, 106)
+        order_item = OrderItem.objects.get(order_id=order_id)
+        out_rows = list(InventoryTransaction.objects.filter(type="OUT", reference_id=order_item.id))
+        self.assertEqual([row.quantity for row in out_rows], [10])
+        self.assertEqual((out_rows[0].previous_stock, out_rows[0].updated_stock), (116, 106))
+        self.assertFalse(
+            InventoryReservation.objects.filter(order_item=order_item, status=ReservationStatus.RESERVED).exists()
+        )
+        self.assertEqual(self._catalog_available(), 106)
+
+        # A repeated delivery update is a no-op and never deducts again.
+        again = self._set_status(order_id, "DELIVERED")
+        self.assertEqual(again.status_code, 200, again.content.decode())
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 106)
+
+    @patch("core.views_api._email_order_cancelled_to_customer")
+    @patch("core.views_api._email_purchase_request_approved_to_customer")
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    def test_staff_cancellation_after_approval_releases_reserved_cases(self, *_mocks) -> None:
+        self._seed_batch()
+        order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
+        self.assertEqual(self._set_status(order_id, "CONFIRMED").status_code, 200)
+        self.assertEqual(self._catalog_available(), 106)
+
+        cancelled = self._set_status(order_id, "CANCELLED", reason="Customer requested cancellation")
+        self.assertEqual(cancelled.status_code, 200, cancelled.content.decode())
+        self.inventory.refresh_from_db()
+        self.assertEqual(
+            (self.inventory.quantity, self.inventory.reserved_quantity, self.inventory.reserved_base_units),
+            (116, 0, 0),
+        )
+        self.assertEqual(self._catalog_available(), 116)
+
+    @patch("core.views_api._email_order_cancelled_to_customer")
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    def test_customer_cancellation_of_pending_request_releases_reserved_cases(self, *_mocks) -> None:
+        self._seed_batch()
+        order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
+        self.assertEqual(self._catalog_available(), 106)
+
+        cancelled = self.client.patch(
+            f"/api/customer/orders/{order_id}/cancel",
+            data={"reason": "Ordered by mistake"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+        self.assertEqual(cancelled.status_code, 200, cancelled.content.decode())
+        self.inventory.refresh_from_db()
+        self.assertEqual((self.inventory.reserved_quantity, self.inventory.reserved_base_units), (0, 0))
+        self.assertEqual(self._catalog_available(), 116)
+
+    @patch("core.views_api._email_order_rejected_to_customer")
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    def test_staff_rejection_of_pending_request_releases_reserved_cases(self, *_mocks) -> None:
+        self._seed_batch()
+        order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
+        self.assertEqual(self._catalog_available(), 106)
+
+        rejected = self._set_status(order_id, "REJECTED", reason="Out of delivery area")
+        self.assertEqual(rejected.status_code, 200, rejected.content.decode())
+        self.inventory.refresh_from_db()
+        self.assertEqual((self.inventory.reserved_quantity, self.inventory.reserved_base_units), (0, 0))
+        self.assertEqual(self._catalog_available(), 116)
+
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    def test_approval_rechecks_stock_and_returns_conflict_without_reserving(self, *_mocks) -> None:
+        self._seed_batch(5)
+        self.inventory.quantity = 5
+        self.inventory.save(update_fields=["quantity", "updated_at"])
+        order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
+        self.inventory.refresh_from_db()
+        # The oversized request stays reviewable but reserves nothing at submission.
+        self.assertEqual(self.inventory.reserved_quantity, 0)
+
+        approval = self._set_status(order_id, "CONFIRMED")
+        self.assertEqual(approval.status_code, 409, approval.content.decode())
+        self.assertEqual(
+            approval.json()["error"],
+            "Insufficient stock for Approval Mineral Water. Available: 5 cases; required: 10 cases.",
+        )
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.reserved_quantity, 0)
+        order = Order.objects.get(id=order_id)
+        self.assertEqual((order.status, order.request_status), (OrderStatus.PENDING, "PENDING_APPROVAL"))
+        self.assertFalse(order.purchase_order_number)
+        self.assertFalse(InventoryTransaction.objects.filter(reference_type="order_item_reserve").exists())
+
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    def test_approval_is_all_or_nothing_across_products(self, *_mocks) -> None:
+        self._seed_batch()
+        soda = Product.objects.create(
+            sku="SKU-APPROVAL-002",
+            name="Approval Soda",
+            unit="case",
+            quantity_per_unit=24,
+            price=150,
+            is_active=True,
+        )
+        soda_inventory = Inventory.objects.create(
+            warehouse=self.warehouse,
+            product=soda,
+            quantity=3,
+            reserved_quantity=0,
+            threshold=1,
+        )
+        StockBatch.objects.create(
+            batch_number="BATCH-APPROVAL-SODA",
+            inventory=soda_inventory,
+            quantity=3,
+            receipt_date=timezone.now(),
+            status="ACTIVE",
+        )
+        order_id = self._checkout([
+            {"productId": self.product.id, "quantity": 10},
+            {"productId": soda.id, "quantity": 4},
+        ])
+        # Submission reserves nothing when any line cannot be fulfilled.
+        self.inventory.refresh_from_db()
+        soda_inventory.refresh_from_db()
+        self.assertEqual((self.inventory.reserved_quantity, soda_inventory.reserved_quantity), (0, 0))
+
+        approval = self._set_status(order_id, "CONFIRMED")
+        self.assertEqual(approval.status_code, 409, approval.content.decode())
+        self.assertEqual(
+            approval.json()["error"],
+            "Insufficient stock for Approval Soda. Available: 3 cases; required: 4 cases.",
+        )
+        self.inventory.refresh_from_db()
+        soda_inventory.refresh_from_db()
+        # Nothing may stay reserved for the product that did have enough stock.
+        self.assertEqual((self.inventory.reserved_quantity, soda_inventory.reserved_quantity), (0, 0))
+        self.assertEqual(self._catalog_available(), 116)
+        self.assertEqual(Order.objects.get(id=order_id).request_status, "PENDING_APPROVAL")
+
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    def test_approval_counts_stock_already_reserved_by_other_requests(self, *_mocks) -> None:
+        self._seed_batch(12)
+        self.inventory.quantity = 12
+        self.inventory.save(update_fields=["quantity", "updated_at"])
+        self._checkout([{"productId": self.product.id, "quantity": 8}])
+        self.assertEqual(self._catalog_available(), 4)
+        second_id = self._checkout([{"productId": self.product.id, "quantity": 6}])
+
+        approval = self._set_status(second_id, "CONFIRMED")
+        self.assertEqual(approval.status_code, 409, approval.content.decode())
+        self.assertEqual(
+            approval.json()["error"],
+            "Insufficient stock for Approval Mineral Water. Available: 4 cases; required: 6 cases.",
+        )
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.reserved_quantity, 8)
+
+    @patch("core.views_api._email_new_order_to_warehouse_staff")
+    def test_unbatched_legacy_inventory_is_not_sellable_and_approval_says_so(self, *_mocks) -> None:
+        # Legacy rows carry a quantity but no batch, so nothing can be allocated FEFO.
+        self.assertEqual(self._catalog_available(), 0)
+        order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.reserved_quantity, 0)
+
+        approval = self._set_status(order_id, "CONFIRMED")
+        self.assertEqual(approval.status_code, 409, approval.content.decode())
+        # Fix: the message used to claim 116 cases were available while refusing the approval.
+        self.assertEqual(
+            approval.json()["error"],
+            "Insufficient stock for Approval Mineral Water. Available: 0 cases; required: 10 cases.",
+        )
+        self.inventory.refresh_from_db()
+        self.assertEqual((self.inventory.quantity, self.inventory.reserved_quantity), (116, 0))

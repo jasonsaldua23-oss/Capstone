@@ -18,6 +18,7 @@ from .models import (
     OrderStatus,
     Product,
     Replacement,
+    ReplacementLine,
     ReplacementStatus,
     StockBatch,
     User,
@@ -497,6 +498,112 @@ class CustomerReplacementRequestContractTests(TestCase):
         )
         self.assertIn("Return Product A", str(serialized.get("originalProductName") or ""))
         self.assertIn("Return Product B", str(serialized.get("originalProductName") or ""))
+
+    # Added: the claim form's "Add Product" rows. One request, one number, one
+    # ReplacementLine per product, each validated on its own.
+    def _claim_line(self, item, *, mode="case", quantity=1, reason="Broken seal", **extra):
+        line = {
+            "originalOrderItemId": item.id,
+            "inputMode": mode,
+            "quantityToReplace": quantity if mode == "bottle" else quantity * 6,
+            "reason": reason,
+        }
+        line["quantityToReplaceCases" if mode == "case" else "quantityToReplaceBottles"] = quantity
+        line.update(extra)
+        return line
+
+    def _post_claim(self, lines, **body):
+        payload = {
+            "orderId": self.order.id,
+            "damageType": "Multiple issues",
+            "evidence": ["https://example.com/repl-proof-1.jpg"],
+            "replacementLines": lines,
+        }
+        payload.update(body)
+        return self.client.post(
+            "/api/customer/replacements",
+            data=payload,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+    def test_multi_product_claim_is_one_replacement_with_a_line_per_product(self) -> None:
+        response = self._post_claim([
+            self._claim_line(self.order_item_a, quantity=1, reason="Broken seal"),
+            self._claim_line(self.order_item_b, mode="bottle", quantity=2, reason="Leaking"),
+        ])
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        replacement = Replacement.objects.get()
+        self.assertTrue(replacement.replacement_number.startswith("RPL-"))
+        lines = list(ReplacementLine.objects.filter(replacement=replacement).order_by("product__sku"))
+        self.assertEqual(
+            [(line.product_id, line.requested_base_units, line.reason) for line in lines],
+            [(self.product_a.id, 6, "Broken seal"), (self.product_b.id, 2, "Leaking")],
+        )
+        self.assertEqual(len(response.json()["replacement"]["replacementLines"]), 2)
+
+    def test_claim_rejects_the_same_product_listed_twice(self) -> None:
+        # Previously merged into one line of 2 cases; both forms prevent this, so
+        # it is refused rather than silently summed.
+        response = self._post_claim([
+            self._claim_line(self.order_item_a, quantity=1),
+            self._claim_line(self.order_item_a, quantity=1, reason="Leaking"),
+        ])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "Each product can be listed only once in a replacement request")
+        self.assertFalse(Replacement.objects.exists())
+
+    def test_claim_validates_every_line_not_only_the_first(self) -> None:
+        cases = [
+            # Second line asks for 13 bottles of an item delivered as 12.
+            ([self._claim_line(self.order_item_a, quantity=1), self._claim_line(self.order_item_b, mode="bottle", quantity=13)],
+             "Replacement quantity exceeds the remaining delivered source allocation"),
+            ([self._claim_line(self.order_item_a, quantity=1), self._claim_line(self.order_item_b, mode="bottle", quantity=0)],
+             "Each replacement line must have quantity greater than zero"),
+            ([self._claim_line(self.order_item_a, quantity=1), self._claim_line(self.order_item_b, mode="bottle", quantity=1, reason="")],
+             "Each replacement line must include a reason"),
+            ([self._claim_line(self.order_item_a, quantity=1), {"originalOrderItemId": "not-on-this-order", "quantityToReplace": 1, "reason": "Leaking"}],
+             "Each replacement line must reference a valid product from the order"),
+        ]
+        for lines, message in cases:
+            with self.subTest(message=message):
+                # The reason check needs no top-level fallback to hide behind.
+                response = self._post_claim(lines, damageType="")
+                self.assertEqual(response.status_code, 400, response.content.decode())
+                self.assertEqual(response.json()["error"], message)
+        self.assertFalse(Replacement.objects.exists())
+        self.assertFalse(ReplacementLine.objects.exists())
+
+    def test_claim_stores_exactly_the_evidence_it_was_sent(self) -> None:
+        # A photo removed in the form is never uploaded or listed; the server keeps
+        # the submitted list as-is rather than reaching for other uploads.
+        kept = ["https://example.com/kept-1.jpg", "https://example.com/kept-2.jpg"]
+        response = self._post_claim([self._claim_line(self.order_item_a, quantity=1)], evidence=kept)
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        replacement = Replacement.objects.get()
+        self.assertEqual(json.loads(replacement.damage_photo_urls), kept)
+        self.assertEqual(replacement.damage_photo_url, kept[0])
+
+    def test_single_product_payload_without_lines_is_still_accepted(self) -> None:
+        # Older clients send one product described only at the top level.
+        response = self.client.post(
+            "/api/customer/replacements",
+            data={
+                "orderId": self.order.id,
+                "numberDamagedItems": 2,
+                "damageType": "Broken seal",
+                "description": "[Return Product A] qty 2",
+                "evidence": ["https://example.com/legacy-proof.jpg"],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        self.assertEqual(Replacement.objects.get().replacement_quantity, 2)
 
     def test_case_order_replacement_preserves_the_submitted_bottle_quantity(self) -> None:
         # Current orders persist their selling unit on the delivered line.

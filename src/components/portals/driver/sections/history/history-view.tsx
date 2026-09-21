@@ -17,8 +17,34 @@ import {
   Package,
   Search,
 } from 'lucide-react'
+import {
+  formatTripScheduledDay,
+  getTripDisplayStatus,
+  getTripScheduledDateKey,
+  tripStatusBadgeColors,
+} from '../trips/trip-detail-format'
 
 type Trip = any
+
+const HISTORY_STATUSES = new Set(['COMPLETED', 'OVERDUE', 'CANCELLED'])
+
+// Same colours as My Deliveries; OVERDUE is amber.
+const TripHistoryBadge = ({ trip }: { trip: Trip }) => {
+  const status = getTripDisplayStatus(trip)
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${tripStatusBadgeColors[status] || 'bg-slate-100 text-slate-700'}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  )
+}
+
+// One line saying when the trip left the driver's active list, per history status.
+const describeHistoryMoment = (trip: Trip, formatDate: (value?: string | null) => string) => {
+  const status = getTripDisplayStatus(trip)
+  if (status === 'COMPLETED') return `Completed: ${formatDate(trip.actualEndAt || trip.updatedAt)}`
+  if (status === 'OVERDUE') return `Scheduled: ${formatTripScheduledDay(trip)} - not started`
+  return `Cancelled: ${formatDate(trip.updatedAt)} - scheduled ${formatTripScheduledDay(trip)}`
+}
 
 const stripPhilippinesFromAddress = (address: string | null | undefined) => {
   const text = String(address || '').trim()
@@ -75,22 +101,33 @@ export function HistoryView({
     ? trips.find((trip) => trip.id === selectedTripSnapshot.id) ?? selectedTripSnapshot
     : null
 
-  const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
-
-  const completedTrips = useMemo(() => {
+  // Fix: History is where finished work lands - completed trips, planned trips
+  // whose day passed (OVERDUE; they left My Deliveries), and cancelled trips.
+  const historyTrips = useMemo(() => {
+    const toTime = (value: string | null | undefined) => {
+      const parsed = value ? new Date(value).getTime() : Number.NaN
+      return Number.isNaN(parsed) ? 0 : parsed
+    }
+    // End of the scheduled Philippine day, so a missed trip sits among that day's completions.
+    const scheduledDayTime = (trip: Trip) => {
+      const key = getTripScheduledDateKey(trip)
+      return key ? toTime(`${key}T23:59:59+08:00`) : 0
+    }
+    const historyTime = (trip: Trip) => {
+      const status = getTripDisplayStatus(trip)
+      if (status === 'COMPLETED') return toTime(trip.actualEndAt || trip.updatedAt || trip.createdAt || trip.plannedStartAt)
+      if (status === 'OVERDUE') return scheduledDayTime(trip) || toTime(trip.updatedAt)
+      return toTime(trip.updatedAt) || scheduledDayTime(trip)
+    }
     return [...(trips || [])]
-      .filter((trip) => isCompletedTrip(trip.status))
-      .sort((a, b) => {
-        const aDate = new Date(a.actualEndAt || a.updatedAt || a.createdAt || a.plannedStartAt || 0).getTime()
-        const bDate = new Date(b.actualEndAt || b.updatedAt || b.createdAt || b.plannedStartAt || 0).getTime()
-        return bDate - aDate
-      })
+      .filter((trip) => HISTORY_STATUSES.has(getTripDisplayStatus(trip)))
+      .sort((a, b) => historyTime(b) - historyTime(a))
   }, [trips])
 
   const visibleTrips = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return completedTrips
-    return completedTrips.filter((trip) => {
+    if (!q) return historyTrips
+    return historyTrips.filter((trip) => {
       const tripText = String(trip.tripNumber || '').toLowerCase()
       const vehicleText = `${trip.vehicle?.licensePlate || ''} ${trip.vehicle?.type || ''}`.toLowerCase()
       const stopText = Array.isArray(trip.dropPoints)
@@ -110,9 +147,10 @@ export function HistoryView({
             .join(' ')
             .toLowerCase()
         : ''
-      return tripText.includes(q) || vehicleText.includes(q) || stopText.includes(q)
+      const statusText = getTripDisplayStatus(trip).toLowerCase()
+      return tripText.includes(q) || vehicleText.includes(q) || stopText.includes(q) || statusText.includes(q)
     })
-  }, [completedTrips, search])
+  }, [historyTrips, search])
 
   const totalPages = Math.max(1, Math.ceil(visibleTrips.length / pageSize))
   // Search changes derive page one without synchronizing pagination in an effect.
@@ -406,20 +444,25 @@ export function HistoryView({
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
               {selectedTrip.tripNumber}
             </h2>
-            <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-              Completed
-            </span>
+            <TripHistoryBadge trip={selectedTrip} />
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Completed on {formatDate(selectedTrip.actualEndAt || selectedTrip.updatedAt)} • {selectedTrip.vehicle?.licensePlate || 'Vehicle'} ({selectedTrip.vehicle?.type || 'N/A'})
+            {describeHistoryMoment(selectedTrip, formatDate)} • {selectedTrip.vehicle?.licensePlate || 'Vehicle'} ({selectedTrip.vehicle?.type || 'N/A'})
           </p>
         </div>
 
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-          {/* Added: retain the final collected amount in the driver's completed-trip history. */}
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total cash collected</p>
-          <p className="mt-1 text-xl font-bold text-emerald-900">{formatCurrency(selectedTrip.cashCollectedTotal)}</p>
-        </div>
+        {getTripDisplayStatus(selectedTrip) === 'COMPLETED' ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+            {/* Added: retain the final collected amount in the driver's completed-trip history. */}
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total cash collected</p>
+            <p className="mt-1 text-xl font-bold text-emerald-900">{formatCurrency(selectedTrip.cashCollectedTotal)}</p>
+          </div>
+        ) : getTripDisplayStatus(selectedTrip) === 'OVERDUE' ? (
+          // Added: the trip was never started, so there is nothing to collect; say why.
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            This trip was not started on its scheduled date and can no longer be started. Ask your dispatcher to re-plan these orders.
+          </div>
+        ) : null}
 
         {/* Purchase Orders List */}
         <div className="space-y-2.5 pt-1">
@@ -518,7 +561,7 @@ export function HistoryView({
     <div className="space-y-4 p-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:pb-4">
       <div>
         <h2 className="text-xl font-bold text-slate-900 tracking-tight">Delivery History</h2>
-        <p className="text-xs text-slate-500 mt-0.5">Completed delivery trips and fulfilled orders</p>
+        <p className="text-xs text-slate-500 mt-0.5">Completed, overdue, and cancelled delivery trips</p>
       </div>
 
       {/* Search Input */}
@@ -538,12 +581,12 @@ export function HistoryView({
         <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
           <Clock className="h-10 w-10 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-600 font-semibold text-sm">No delivery history found</p>
-          <p className="text-xs text-slate-400 mt-1">Completed trips will appear here.</p>
+          <p className="text-xs text-slate-400 mt-1">Completed, overdue, and cancelled trips will appear here.</p>
         </div>
       ) : (
         <div className="space-y-2.5">
           <p className="text-xs font-semibold text-slate-500 px-0.5">
-            Showing {visibleTrips.length} completed {visibleTrips.length === 1 ? 'trip' : 'trips'}
+            Showing {visibleTrips.length} {visibleTrips.length === 1 ? 'trip' : 'trips'}
           </p>
 
           {paginatedTrips.map((trip) => {
@@ -564,16 +607,18 @@ export function HistoryView({
                       {trip.vehicle?.licensePlate || 'Vehicle'} ({trip.vehicle?.type || 'N/A'}) • {stopCount} {stopCount === 1 ? 'Stop' : 'Stops'}
                     </p>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Completed: {formatDate(trip.actualEndAt || trip.updatedAt)}
+                      {describeHistoryMoment(trip, formatDate)}
                     </p>
                   </div>
-                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                    Completed
-                  </span>
+                  <TripHistoryBadge trip={trip} />
                 </div>
 
                 <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs">
-                  <span className="text-slate-500 font-medium">Cash collected: {formatCurrency(trip.cashCollectedTotal)}</span>
+                  <span className="text-slate-500 font-medium">
+                    {getTripDisplayStatus(trip) === 'COMPLETED'
+                      ? `Cash collected: ${formatCurrency(trip.cashCollectedTotal)}`
+                      : `Schedule: ${formatTripScheduledDay(trip)}`}
+                  </span>
                   <span className="inline-flex items-center gap-1 font-semibold text-slate-900 group-hover:text-blue-600 transition">
                     View Details
                     <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" />

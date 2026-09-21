@@ -425,6 +425,22 @@ table.stack-table[data-stacked] tbody td .table-actions {
   margin-left: auto;
 }
 
+/* Customer review and discount controls share one value column in stacked cards. */
+.customer-row-actions {
+  display: flex;
+  width: 9.5rem;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  text-align: right;
+}
+
+table.stack-table[data-stacked] tbody td .customer-row-actions {
+  width: 9.5rem;
+  margin-left: auto;
+  text-align: right;
+}
+
 /* Stacked: the header row is hidden and each cell carries its own label. */
 table.stack-table[data-stacked],
 table.stack-table[data-stacked] tbody {

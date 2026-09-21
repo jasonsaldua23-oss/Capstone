@@ -12,6 +12,7 @@ from .models import (
     LocationLog,
     Order,
     OrderStatus,
+    OrderTimeline,
     Replacement,
     Trip,
     TripDropPoint,
@@ -443,6 +444,175 @@ class DriverTripsApiContractTests(TestCase):
 
         completed_row = next(item for item in completed_response.json()["trips"] if item["id"] == trip.id)
         self.assertEqual(completed_row["cashCollectedTotal"], 650.0)
+
+    # ------------------------------------------------------------------
+    # Added: scheduledDate / isOverdue and the server-computed dashboard stats.
+    # ------------------------------------------------------------------
+
+    def _trip_due(self, number, *, driver, status, day_offset=None, stop_statuses=("PENDING",), planned_offset=None):
+        """A trip whose day comes from its orders' delivery dates (or planned_start_at)."""
+        trip = Trip.objects.create(
+            trip_number=number,
+            driver=driver,
+            vehicle=self.vehicle if driver.id == self.driver.id else self.other_vehicle,
+            status=status,
+            planned_start_at=(timezone.now() + timedelta(days=planned_offset)) if planned_offset is not None else None,
+        )
+        for index, stop_status in enumerate(stop_statuses, start=1):
+            order = Order.objects.create(order_number=f"ORD-{number}-{index}", subtotal=100, total_amount=100)
+            if day_offset is not None:
+                OrderTimeline.objects.update_or_create(
+                    order=order,
+                    defaults={"delivery_date": timezone.now() + timedelta(days=day_offset)},
+                )
+            TripDropPoint.objects.create(
+                trip=trip,
+                order=order,
+                sequence=index,
+                status=stop_status,
+                location_name=f"{number} Stop {index}",
+                address=f"Address {index}",
+                city="Bacolod",
+                province="Negros Occidental",
+                zip_code="6100",
+            )
+        return trip
+
+    def _driver_token_for(self, user):
+        return create_token(
+            {"userId": user.id, "email": user.email, "name": user.name, "role": "DRIVER", "type": "staff"}
+        )
+
+    def test_driver_trips_flag_overdue_planned_trips_by_scheduled_date(self) -> None:
+        today = timezone.localdate()
+        overdue = self._trip_due("TRP-OVERDUE-PLANNED", driver=self.driver, status=TripStatus.PLANNED, day_offset=-1)
+        due_today = self._trip_due("TRP-TODAY-PLANNED", driver=self.driver, status=TripStatus.PLANNED, day_offset=0)
+        done_yesterday = self._trip_due(
+            "TRP-DONE-YESTERDAY", driver=self.driver, status=TripStatus.COMPLETED, day_offset=-1,
+            stop_statuses=("COMPLETED",),
+        )
+        # Legacy trips without order delivery dates fall back to planned_start_at.
+        legacy_overdue = self._trip_due(
+            "TRP-LEGACY-OVERDUE", driver=self.driver, status=TripStatus.PLANNED, planned_offset=-3
+        )
+        unscheduled = self._trip_due("TRP-UNSCHEDULED", driver=self.driver, status=TripStatus.PLANNED)
+
+        response = self.client.get("/api/driver/trips", HTTP_AUTHORIZATION=f"Bearer {self.driver_token}")
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row["id"]: row for row in response.json()["trips"]}
+        yesterday = (today - timedelta(days=1)).isoformat()
+        self.assertEqual(rows[overdue.id]["scheduledDate"], yesterday)
+        self.assertTrue(rows[overdue.id]["isOverdue"])
+        self.assertEqual(rows[due_today.id]["scheduledDate"], today.isoformat())
+        self.assertFalse(rows[due_today.id]["isOverdue"])
+        self.assertEqual(rows[done_yesterday.id]["scheduledDate"], yesterday)
+        self.assertFalse(rows[done_yesterday.id]["isOverdue"])
+        self.assertEqual(rows[legacy_overdue.id]["scheduledDate"], (today - timedelta(days=3)).isoformat())
+        self.assertTrue(rows[legacy_overdue.id]["isOverdue"])
+        self.assertIsNone(rows[unscheduled.id]["scheduledDate"])
+        self.assertFalse(rows[unscheduled.id]["isOverdue"])
+        # tripSchedule keeps its original ISO timestamp for older clients.
+        self.assertTrue(rows[overdue.id]["tripSchedule"])
+
+    def test_driver_trip_stats_cover_every_trip_of_only_the_authenticated_driver(self) -> None:
+        today = timezone.localdate()
+        # Driver A.
+        self._trip_due("TRP-A-PLANNED", driver=self.driver, status=TripStatus.PLANNED, day_offset=0)
+        self._trip_due(
+            "TRP-A-DONE", driver=self.driver, status=TripStatus.COMPLETED, day_offset=0, stop_statuses=("COMPLETED",)
+        )
+        active = self._trip_due(
+            "TRP-A-ACTIVE", driver=self.driver, status=TripStatus.IN_PROGRESS, day_offset=0,
+            stop_statuses=("COMPLETED", "PENDING", "ARRIVED"),
+        )
+        self._trip_due("TRP-A-OVERDUE", driver=self.driver, status=TripStatus.PLANNED, day_offset=-1)
+        self._trip_due("TRP-A-TOMORROW", driver=self.driver, status=TripStatus.PLANNED, day_offset=1)
+        self._trip_due("TRP-A-CANCELLED", driver=self.driver, status=TripStatus.CANCELLED, day_offset=0)
+        # Driver B, same day, deliberately different numbers everywhere.
+        self._trip_due("TRP-B-PLANNED-1", driver=self.other_driver, status=TripStatus.PLANNED, day_offset=0)
+        self._trip_due("TRP-B-PLANNED-2", driver=self.other_driver, status=TripStatus.PLANNED, day_offset=0)
+        self._trip_due(
+            "TRP-B-DONE", driver=self.other_driver, status=TripStatus.COMPLETED, day_offset=0,
+            stop_statuses=("COMPLETED",),
+        )
+        other_active = self._trip_due(
+            "TRP-B-ACTIVE", driver=self.other_driver, status=TripStatus.IN_PROGRESS, day_offset=0,
+            stop_statuses=("PENDING", "PENDING", "PENDING", "PENDING"),
+        )
+        self._trip_due("TRP-B-OVERDUE-1", driver=self.other_driver, status=TripStatus.PLANNED, day_offset=-1)
+        self._trip_due("TRP-B-OVERDUE-2", driver=self.other_driver, status=TripStatus.PLANNED, day_offset=-2)
+
+        # pageSize=1: the tiles must not depend on which page of trips was fetched.
+        response = self.client.get(
+            "/api/driver/trips?page=1&pageSize=1",
+            HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["trips"]), 1)
+        self.assertEqual(
+            payload["stats"],
+            {
+                "todayTrips": 3,
+                "plannedToday": 1,
+                "completedToday": 1,
+                "pendingStops": 2,
+                "overdueTrips": 1,
+                "activeTrips": 1,
+                "currentAssignment": {
+                    "tripId": active.id,
+                    "tripNumber": "TRP-A-ACTIVE",
+                    "completedDropPoints": 1,
+                    "totalDropPoints": 3,
+                    "scheduledDate": today.isoformat(),
+                },
+            },
+        )
+
+        other_response = self.client.get(
+            "/api/driver/trips?page=1&pageSize=1",
+            HTTP_AUTHORIZATION=f"Bearer {self._driver_token_for(self.other_driver_user)}",
+        )
+        other_stats = other_response.json()["stats"]
+        self.assertEqual(other_stats["todayTrips"], 4)
+        self.assertEqual(other_stats["plannedToday"], 2)
+        self.assertEqual(other_stats["completedToday"], 1)
+        self.assertEqual(other_stats["pendingStops"], 4)
+        self.assertEqual(other_stats["overdueTrips"], 2)
+        self.assertEqual(other_stats["currentAssignment"]["tripId"], other_active.id)
+
+    def test_driver_trip_stats_are_empty_without_trips(self) -> None:
+        response = self.client.get("/api/driver/trips", HTTP_AUTHORIZATION=f"Bearer {self.driver_token}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["stats"],
+            {
+                "todayTrips": 0,
+                "plannedToday": 0,
+                "completedToday": 0,
+                "pendingStops": 0,
+                "overdueTrips": 0,
+                "activeTrips": 0,
+                "currentAssignment": None,
+            },
+        )
+
+    def test_driver_trip_stats_pick_the_latest_started_of_legacy_parallel_trips(self) -> None:
+        older = self._trip_due("TRP-LEGACY-OLDER", driver=self.driver, status=TripStatus.IN_PROGRESS, day_offset=0)
+        newer = self._trip_due("TRP-LEGACY-NEWER", driver=self.driver, status=TripStatus.IN_PROGRESS, day_offset=0)
+        Trip.objects.filter(id=older.id).update(actual_start_at=timezone.now() - timedelta(hours=3))
+        Trip.objects.filter(id=newer.id).update(actual_start_at=timezone.now() - timedelta(hours=1))
+
+        stats = self.client.get(
+            "/api/driver/trips", HTTP_AUTHORIZATION=f"Bearer {self.driver_token}"
+        ).json()["stats"]
+
+        self.assertEqual(stats["activeTrips"], 2)
+        self.assertEqual(stats["pendingStops"], 2)
+        self.assertEqual(stats["currentAssignment"]["tripId"], newer.id)
 
     def test_driver_trips_forbidden_for_non_driver_staff(self) -> None:
         response = self.client.get(

@@ -6,12 +6,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Route, CalendarClock, Trophy, RotateCcw } from 'lucide-react'
 import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
+import { useDriverTripsSnapshot, type DriverTripStats } from '../layout/portal-state'
+import { getTripScheduledDateKey, isTripOverdue, toManilaDateKey } from '../trips/trip-detail-format'
 
 type Trip = any
 
 export function HomeView({
   user: _user,
   trips,
+  stats,
   isLoading,
   isTracking: _isTracking,
   locationPermission: _locationPermission,
@@ -22,6 +25,8 @@ export function HomeView({
 }: {
   user: any
   trips: Trip[]
+  /** Server dashboard counters; read from the portal snapshot when not passed. */
+  stats?: DriverTripStats | null
   isLoading: boolean
   isTracking?: boolean
   locationPermission?: 'granted' | 'denied' | 'prompt'
@@ -50,66 +55,52 @@ export function HomeView({
   })
   const [showWelcomePopup, setShowWelcomePopup] = useState(welcomeState.open)
 
-  const isCompletedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'COMPLETED'
-  const isInProgressTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'IN_PROGRESS'
-  const isPlannedTrip = (status: string | null | undefined) => String(status || '').toUpperCase() === 'PLANNED'
-  const isSameLocalDate = (left: Date, right: Date) =>
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  const parseIsoDate = (raw: string | null | undefined) => {
-    if (!raw) return null
-    const parsed = new Date(raw)
-    return Number.isNaN(parsed.getTime()) ? null : parsed
-  }
-  const getTripDayDate = (trip: Trip) => {
-    return (
-      parseIsoDate(trip.plannedStartAt) ||
-      parseIsoDate(trip.actualStartAt) ||
-      parseIsoDate(trip.createdAt) ||
-      parseIsoDate(trip.updatedAt)
-    )
-  }
-  const getTripScheduledDeliveryDates = (trip: Trip) =>
-    (trip.dropPoints || [])
-      .map((point: any) => parseIsoDate(point.order?.deliveryDate || null))
-      .filter((value: any): value is Date => Boolean(value))
-  const isTripForDay = (trip: Trip, day: Date) => {
-    const scheduledDeliveryDates = getTripScheduledDeliveryDates(trip)
-    if (scheduledDeliveryDates.length > 0) {
-      return scheduledDeliveryDates.some((dateValue: any) => isSameLocalDate(dateValue, day))
-    }
-    const tripDate = getTripDayDate(trip)
-    return tripDate ? isSameLocalDate(tripDate, day) : false
+  // Fix: the tiles come from the server's stats, which cover every trip of this
+  // driver; the portal only holds the latest 50, so counting them here drifted.
+  const snapshot = useDriverTripsSnapshot()
+  const serverStats = stats ?? snapshot.stats
+
+  const statusOf = (trip: Trip) => String(trip?.status || '').toUpperCase()
+  const toTime = (value: string | null | undefined) => {
+    const parsed = value ? new Date(value).getTime() : Number.NaN
+    return Number.isNaN(parsed) ? 0 : parsed
   }
 
-  const getTripRecency = (trip: Trip) => {
-    const tripDate = getTripDayDate(trip)
-    return tripDate ? tripDate.getTime() : 0
-  }
-  const sortTripsByPriority = (rows: Trip[]) => [...rows].sort((a, b) => {
-    const rank = (status: string | null | undefined) => {
-      const normalized = String(status || '').toUpperCase()
-      if (normalized === 'IN_PROGRESS') return 0
-      if (normalized === 'PLANNED') return 1
-      if (normalized === 'COMPLETED') return 2
-      return 3
-    }
-    const rankDiff = rank(a.status) - rank(b.status)
-    if (rankDiff !== 0) return rankDiff
-    return getTripRecency(b) - getTripRecency(a)
-  })
-
-  const today = new Date()
-  const prioritizedTrips = sortTripsByPriority(trips)
-  const tripsForToday = trips.filter((trip) => isTripForDay(trip, today))
-  const activeTrip = prioritizedTrips.find((trip) => isInProgressTrip(trip.status)) || null
-  const plannedTrips = tripsForToday.filter((trip) => isPlannedTrip(trip.status)).length
-  const completedTrips = tripsForToday.filter((trip) => isCompletedTrip(trip.status)).length
+  // Fallback (e.g. the backup trip list, which carries no stats): the same rules
+  // as the server - "today" is the trip's scheduled day, cancelled trips drop out.
+  const todayKey = toManilaDateKey()
+  const tripsForToday = trips.filter(
+    (trip) => statusOf(trip) !== 'CANCELLED' && getTripScheduledDateKey(trip) === todayKey
+  )
+  const inProgressTrips = trips
+    .filter((trip) => statusOf(trip) === 'IN_PROGRESS')
+    .sort((a, b) => toTime(b.actualStartAt || b.updatedAt) - toTime(a.actualStartAt || a.updatedAt))
   const terminalStopStatuses = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'SKIPPED', 'CANCELED', 'CANCELLED'])
-  const pendingStops = activeTrip
-    ? (activeTrip.dropPoints || []).filter((point: any) => !terminalStopStatuses.has(String(point.status || '').toUpperCase())).length
-    : 0
+  const countOpenStops = (trip: Trip) =>
+    (trip.dropPoints || []).filter((point: any) => !terminalStopStatuses.has(String(point.status || '').toUpperCase())).length
+
+  const todayTripCount = serverStats ? serverStats.todayTrips : tripsForToday.length
+  const plannedTrips = serverStats
+    ? serverStats.plannedToday
+    : tripsForToday.filter((trip) => statusOf(trip) === 'PLANNED').length
+  const completedTrips = serverStats
+    ? serverStats.completedToday
+    : tripsForToday.filter((trip) => statusOf(trip) === 'COMPLETED').length
+  const pendingStops = serverStats
+    ? serverStats.pendingStops
+    : inProgressTrips.reduce((sum, trip) => sum + countOpenStops(trip), 0)
+  const overdueTrips = serverStats ? serverStats.overdueTrips : trips.filter((trip) => isTripOverdue(trip)).length
+
+  const assignment = serverStats?.currentAssignment ?? null
+  const activeTrip: Trip | null = assignment
+    // The running trip is always recent, so it is in the loaded page; the id alone still opens it.
+    ? trips.find((trip) => trip.id === assignment.tripId) ?? { id: assignment.tripId, tripNumber: assignment.tripNumber }
+    : serverStats
+      ? null
+      : inProgressTrips[0] ?? null
+  const activeTripNumber = assignment?.tripNumber ?? activeTrip?.tripNumber
+  const activeCompletedStops = assignment ? assignment.completedDropPoints : activeTrip?.completedDropPoints
+  const activeTotalStops = assignment ? assignment.totalDropPoints : activeTrip?.totalDropPoints
 
   return (
     <>
@@ -158,7 +149,7 @@ export function HomeView({
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-[13px] font-medium text-[#1f4d79]">Total Trips</p>
-                    <p className="text-[2rem] font-black leading-none tracking-tight text-[#2f9a34]">{tripsForToday.length}</p>
+                    <p className="text-[2rem] font-black leading-none tracking-tight text-[#2f9a34]">{todayTripCount}</p>
                   </div>
                   <Route className="h-10 w-10 text-[#0f4f8f]" />
                 </div>
@@ -199,6 +190,13 @@ export function HomeView({
             </Card>
           </div>
 
+          {overdueTrips > 0 && (
+            // Added: overdue trips leave My Deliveries; tell the driver where they went.
+            <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+              {overdueTrips} overdue {overdueTrips === 1 ? 'trip' : 'trips'} passed {overdueTrips === 1 ? 'its' : 'their'} scheduled date and moved to History.
+            </p>
+          )}
+
           <Card className="rounded-2xl border border-slate-200/70 bg-[#f8f8f2] shadow-[0_8px_20px_rgba(15,23,42,0.12)]">
             <CardHeader className="pb-2">
               <CardTitle className="text-[1.7rem] font-semibold tracking-[-0.01em] leading-tight">
@@ -209,9 +207,9 @@ export function HomeView({
             <CardContent>
               {activeTrip ? (
                 <div className="space-y-2">
-                  <p className="font-semibold tracking-tight text-[#0e2442]">{activeTrip.tripNumber}</p>
+                  <p className="font-semibold tracking-tight text-[#0e2442]">{activeTripNumber}</p>
                   <p className="text-sm leading-relaxed text-[#1f3558]">
-                    {activeTrip.completedDropPoints}/{activeTrip.totalDropPoints} stops completed
+                    {activeCompletedStops ?? 0}/{activeTotalStops ?? 0} stops completed
                   </p>
                   <Button className="h-10 w-full rounded-xl bg-[#0d61ad] text-sm font-semibold text-white shadow-[0_10px_20px_rgba(2,132,199,0.22)] hover:bg-[#0b579c]" onClick={() => onOpenActiveTrip(activeTrip)}>
                     Open Active Trip

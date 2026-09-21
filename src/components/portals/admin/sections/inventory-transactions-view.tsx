@@ -21,6 +21,7 @@ import {
   Clock,
   Hash,
   FileText,
+  UserRound,
 } from 'lucide-react'
 
 function formatDateTime(value: unknown): string {
@@ -66,6 +67,7 @@ interface TransactionRow {
   createdAt: string
   referenceType: string | null
   referenceId: string | null
+  performedByName?: string | null
   product?: {
     name?: string
     sku?: string
@@ -288,6 +290,9 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
               <input
                 type="date"
                 value={dateFrom}
+                // Added: the server rejects a start date after the end date.
+                max={dateTo || undefined}
+                aria-label="From date"
                 onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
                 className="h-9 pl-8 pr-3 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
@@ -299,6 +304,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
               <input
                 type="date"
                 value={dateTo}
+                min={dateFrom || undefined}
+                aria-label="To date"
                 onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
                 className="h-9 pl-8 pr-3 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
@@ -376,8 +383,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                         <div className="text-sm font-medium text-gray-900">
                           {formatProductNameWithSize(tx)}
                         </div>
-                        {tx.productSku && (
-                          <div className="text-xs text-gray-400">{tx.productSku}</div>
+                        {(tx.productSku || tx.product?.sku) && (
+                          <div className="text-xs text-gray-400">{tx.productSku || tx.product?.sku}</div>
                         )}
                       </td>
                       <td className="p-3">
@@ -516,8 +523,8 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                   <p className="text-sm font-medium text-gray-800">
                     {formatProductNameWithSize(selectedTx)}
                   </p>
-                  {selectedTx.productSku && (
-                    <p className="text-xs text-gray-400">SKU: {selectedTx.productSku}</p>
+                  {(selectedTx.productSku || selectedTx.product?.sku) && (
+                    <p className="text-xs text-gray-400">SKU: {selectedTx.productSku || selectedTx.product?.sku}</p>
                   )}
                 </div>
 
@@ -573,10 +580,21 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                   <p className="text-sm text-gray-800">
                     {selectedTx.warehouseName || selectedTx.warehouse?.name || ''}
                   </p>
-                  {selectedTx.warehouseCode && (
-                    <p className="text-xs text-gray-400">Code: {selectedTx.warehouseCode}</p>
+                  {(selectedTx.warehouseCode || selectedTx.warehouse?.code) && (
+                    <p className="text-xs text-gray-400">Code: {selectedTx.warehouseCode || selectedTx.warehouse?.code}</p>
                   )}
                 </div>
+
+                {/* Added: staff search is offered above, so show who recorded the movement. */}
+                {selectedTx.performedByName && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                      <UserRound className="h-3 w-3" />
+                      Recorded By
+                    </div>
+                    <p className="text-sm text-gray-800">{selectedTx.performedByName}</p>
+                  </div>
+                )}
               </div>
 
               {selectedTx.mixedCase ? (
@@ -586,7 +604,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                     Mixed Case component movement
                   </div>
                   <div className="mt-2 grid gap-2 text-sm text-sky-950 sm:grid-cols-2">
-                    <p><span className="font-medium">Order:</span> {selectedTx.mixedCase.orderNumber || selectedTx.referenceId || 'N/A'}</p>
+                    <p><span className="font-medium">Order:</span> {selectedTx.mixedCase.orderNumber || 'N/A'}</p>
                     <p className="break-all"><span className="font-medium">Order item:</span> {selectedTx.mixedCase.orderItemId || 'N/A'}</p>
                     <p><span className="font-medium">Component:</span> {formatProductNameWithSize(selectedTx)}</p>
                     <p className="break-all"><span className="font-medium">Component ID:</span> {selectedTx.mixedCase.componentId || 'N/A'}</p>

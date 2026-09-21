@@ -10,6 +10,7 @@ import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeleto
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
 import { DepositRefundRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { TRIP_LIST_SORT_OPTIONS, sortTripsForList, type TripListSort } from '@/components/portals/shared/trip-list-sort'
 
 type TripDropPointItem = {
   id: string
@@ -31,6 +32,9 @@ type TripItem = {
   }
   status: string
   tripSchedule?: string | null
+  actualEndAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
   totalDropPoints?: number
   completedDropPoints?: number
   cashCollectedTotal?: number
@@ -89,6 +93,7 @@ export function WarehouseTripsSection({
 }: WarehouseTripsSectionProps) {
   const [tripPageSelection, setTripPageSelection] = useState({ scope: '', page: 1 })
   const [tripStatusFilter, setTripStatusFilter] = useState('ALL')
+  const [tripSort, setTripSort] = useState<TripListSort>('DELIVERY_DATE')
   const tripsPageSize = 10
   const [selectedDropPointDetail, setSelectedDropPointDetail] = useState<any | null>(null)
   const [allocatingPoint, setAllocatingPoint] = useState<any | null>(null)
@@ -242,16 +247,22 @@ export function WarehouseTripsSection({
     const total = items.reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.quantity || 0)), 0)
     return { allocated, total }
   }
+  // Fix: the portal loads every page of trips, so ordering here covers them all.
+  // Creation order left a trip completed today behind newer planned ones; see
+  // trip-list-sort for the rule shared with the admin list.
   const filteredTrips = useMemo(
-    () => scopedTrips.filter((trip) => {
-      const status = String(trip.status || '').toUpperCase() === 'IN_TRANSIT' ? 'IN_PROGRESS' : String(trip.status || '').toUpperCase()
-      return tripStatusFilter === 'ALL' || status === tripStatusFilter
-    }),
-    [scopedTrips, tripStatusFilter],
+    () => sortTripsForList(
+      scopedTrips.filter((trip) => {
+        const status = String(trip.status || '').toUpperCase() === 'IN_TRANSIT' ? 'IN_PROGRESS' : String(trip.status || '').toUpperCase()
+        return tripStatusFilter === 'ALL' || status === tripStatusFilter
+      }),
+      tripSort,
+    ),
+    [scopedTrips, tripStatusFilter, tripSort],
   )
   const totalTripsPages = Math.max(1, Math.ceil(filteredTrips.length / tripsPageSize))
-  // A different status/result set starts at page one without a state-sync effect.
-  const tripPageScope = [scopedTrips.length, tripStatusFilter].join('\u0000')
+  // A different status/sort/result set starts at page one without a state-sync effect.
+  const tripPageScope = [scopedTrips.length, tripStatusFilter, tripSort].join('\u0000')
   const tripsPage = tripPageSelection.scope === tripPageScope ? Math.min(tripPageSelection.page, totalTripsPages) : 1
   const setTripsPage = (next: number | ((page: number) => number)) => {
     setTripPageSelection((current) => {
@@ -534,7 +545,7 @@ export function WarehouseTripsSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <select
           aria-label="Filter trips by status"
           value={tripStatusFilter}
@@ -545,6 +556,16 @@ export function WarehouseTripsSection({
           <option value="PLANNED">Planned</option>
           <option value="IN_PROGRESS">In Progress</option>
           <option value="COMPLETED">Completed</option>
+        </select>
+        <select
+          aria-label="Sort trips"
+          value={tripSort}
+          onChange={(event) => setTripSort(event.target.value as TripListSort)}
+          className="h-10 rounded-xl border border-input bg-white px-3 text-sm text-slate-700"
+        >
+          {TRIP_LIST_SORT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
         </select>
         <Button onClick={onOpenCreateTripFlow} className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4">
           <Truck className="h-4 w-4 mr-2" />

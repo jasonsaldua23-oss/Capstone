@@ -35,9 +35,7 @@ export const VEHICLE_CAPACITY_RULES: Record<string, VehicleTypeOption> = {
 
 export const VEHICLE_STATUS_OPTIONS = [
   { value: 'AVAILABLE', label: 'Available' },
-  { value: 'IN_USE', label: 'In Use' },
   { value: 'MAINTENANCE', label: 'Maintenance' },
-  { value: 'OUT_OF_SERVICE', label: 'Out of Service' },
 ]
 
 export function getVehicleTypes(): Array<{ value: string; label: string }> {

@@ -110,6 +110,9 @@ export function UsersView() {
   const [isResettingPassword, setIsResettingPassword] = useState(false)
   const [emailVerified, setEmailVerified] = useState(false)
   const [emailVerificationToken, setEmailVerificationToken] = useState('')
+  const [oldEmailVerificationToken, setOldEmailVerificationToken] = useState('')
+  const [isEditEmailUnlocked, setIsEditEmailUnlocked] = useState(false)
+  const [editOtpKind, setEditOtpKind] = useState<'current' | 'new'>('new')
   const [showPassword, setShowPassword] = useState(false)
   const [otpModalOpen, setOtpModalOpen] = useState(false)
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
@@ -228,6 +231,8 @@ export function UsersView() {
     setForm({ ...initialFormState })
     setEmailVerified(false)
     setEmailVerificationToken('')
+    setOldEmailVerificationToken('')
+    setIsEditEmailUnlocked(false)
     setShowPassword(false)
     setEditingUser(null)
     setFormErrors({})
@@ -237,6 +242,11 @@ export function UsersView() {
   const openEdit = (user: any) => {
     const resolvedRoleId = resolveRoleCode(user)
     setEditingUser(user)
+    // Added: each edited account begins with its email locked and no reusable proof.
+    setIsEditEmailUnlocked(false)
+    setOldEmailVerificationToken('')
+    setEmailVerified(false)
+    setEmailVerificationToken('')
     setForm({
       lastName: user.lastName || user.name?.split(' ').slice(-1)[0] || '',
       firstName: user.firstName || user.name?.split(' ')[0] || '',
@@ -348,6 +358,11 @@ export function UsersView() {
       toast.error('Please select a service area for the driver.')
       return
     }
+    const editingEmailChanged = mode === 'edit' && form.email.trim().toLowerCase() !== String(editingUser?.email || '').trim().toLowerCase()
+    if (editingEmailChanged && (!isEditEmailUnlocked || !oldEmailVerificationToken || !emailVerified || !emailVerificationToken)) {
+      toast.error('Verify the current and new email addresses before saving.')
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -372,7 +387,8 @@ export function UsersView() {
           roleId: form.roleId,
           // Save the routing assignment during both driver creation and editing.
           serviceArea: form.roleId === 'DRIVER' ? form.serviceArea : undefined,
-          emailVerificationToken: mode === 'create' ? emailVerificationToken : undefined,
+          emailVerificationToken: mode === 'create' || editingEmailChanged ? emailVerificationToken : undefined,
+          oldEmailVerificationToken: editingEmailChanged ? oldEmailVerificationToken : undefined,
           password: form.password || undefined,
           isActive: form.isActive,
         }),
@@ -426,8 +442,8 @@ export function UsersView() {
     }
   }
 
-  const requestEmailVerification = async () => {
-    const email = form.email.trim().toLowerCase()
+  const requestEmailVerification = async (kind: 'current' | 'new' = 'new') => {
+    const email = (kind === 'current' ? editingUser?.email : form.email || '').trim().toLowerCase()
     if (!email) {
       toast.error('Enter an email address first')
       return
@@ -436,17 +452,17 @@ export function UsersView() {
       toast.error('Please enter a valid email address.')
       return
     }
-    if (!form.roleId) {
+    if (kind === 'new' && !form.roleId) {
       toast.error('Select a role first')
       return
     }
 
     setIsVerificationSending(true)
     try {
-      const response = await fetch('/api/auth/email-verification/request', {
+      const response = await fetch(kind === 'current' ? '/api/auth/email-verification/request-existing' : '/api/auth/email-verification/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, accountType: 'staff', roleId: form.roleId }),
+        body: JSON.stringify({ email, accountType: 'staff', roleId: form.roleId, targetUserId: kind === 'current' ? editingUser?.id : undefined }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -456,6 +472,7 @@ export function UsersView() {
         }
         throw new Error(payload?.error || 'Failed to send verification code')
       }
+      setEditOtpKind(kind)
       setOtpModalOpen(true)
       toast.success('Verification code sent to your email')
     } catch (error: any) {
@@ -466,19 +483,26 @@ export function UsersView() {
   }
 
   const handleVerifyOtp = async (otp: string): Promise<boolean> => {
-    const email = form.email.trim().toLowerCase()
+    const email = (editOpen && editOtpKind === 'current' ? editingUser?.email : form.email || '').trim().toLowerCase()
     try {
-      const response = await fetch('/api/auth/email-verification/confirm', {
+      const response = await fetch(editOpen && editOtpKind === 'current' ? '/api/auth/email-verification/confirm-existing' : '/api/auth/email-verification/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, accountType: 'staff', otp }),
+        body: JSON.stringify({ email, accountType: 'staff', otp, targetUserId: editOpen && editOtpKind === 'current' ? editingUser?.id : undefined }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
         return false
       }
-      setEmailVerificationToken(String(payload?.verificationToken || '').trim())
-      setEmailVerified(true)
+      const token = String(payload?.verificationToken || '').trim()
+      if (!token) return false
+      if (editOpen && editOtpKind === 'current') {
+        setOldEmailVerificationToken(token)
+        setIsEditEmailUnlocked(true)
+      } else {
+        setEmailVerificationToken(token)
+        setEmailVerified(true)
+      }
       toast.success('Email verified successfully')
       return true
     } catch {
@@ -487,12 +511,12 @@ export function UsersView() {
   }
 
   const handleResendOtp = async (): Promise<boolean> => {
-    const email = form.email.trim().toLowerCase()
+    const email = (editOpen && editOtpKind === 'current' ? editingUser?.email : form.email || '').trim().toLowerCase()
     try {
-      const response = await fetch('/api/auth/email-verification/request', {
+      const response = await fetch(editOpen && editOtpKind === 'current' ? '/api/auth/email-verification/request-existing' : '/api/auth/email-verification/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, accountType: 'staff', roleId: form.roleId }),
+        body: JSON.stringify({ email, accountType: 'staff', roleId: form.roleId, targetUserId: editOpen && editOtpKind === 'current' ? editingUser?.id : undefined }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.success === false) {
@@ -594,7 +618,7 @@ export function UsersView() {
             open
             variant="page"
             onOpenChange={setOtpModalOpen}
-            email={form.email.trim().toLowerCase()}
+            email={(editOpen && editOtpKind === 'current' ? editingUser?.email : form.email || '').trim().toLowerCase()}
             onVerify={handleVerifyOtp}
             onResendCode={handleResendOtp}
           />
@@ -782,7 +806,7 @@ export function UsersView() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={requestEmailVerification}
+                  onClick={() => void requestEmailVerification()}
                   disabled={!canSendCode || isVerificationSending || emailVerified}
                   className="h-8 text-xs whitespace-nowrap px-3 shrink-0"
                 >
@@ -1154,19 +1178,48 @@ export function UsersView() {
             <section className="space-y-3 border-t border-gray-100 pt-5">
               <h3 className="text-sm font-semibold text-gray-900">Contact information</h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
+                {/* Fix: the email and its action need the full row so the address remains readable. */}
+                <div className="space-y-1.5 sm:col-span-2">
                   <label className="text-sm font-medium text-gray-700">Email</label>
-                  <Input
-                    type="email"
-                    autoComplete="off"
-                    value={form.email}
-                    onChange={(e) => updateField('email', e.target.value)}
-                    onBlur={() => handleBlur('email')}
-                    className={`h-11 ${touched.email && formErrors.email ? 'border-red-400 ring-red-200' : ''}`}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      type="email"
+                      autoComplete="off"
+                      value={form.email}
+                      onChange={(e) => {
+                        updateField('email', e.target.value)
+                        // Fix: a proof for one address cannot authorize a later edit to another.
+                        setEmailVerified(false)
+                        setEmailVerificationToken('')
+                      }}
+                      onBlur={() => handleBlur('email')}
+                      readOnly={!isEditEmailUnlocked}
+                      aria-readonly={!isEditEmailUnlocked}
+                      className={`h-11 min-w-0 flex-1 ${touched.email && formErrors.email ? 'border-red-400 ring-red-200' : ''}`}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11 shrink-0"
+                      disabled={isVerificationSending || (isEditEmailUnlocked && emailVerified)}
+                      onClick={() => {
+                        if (!isEditEmailUnlocked) {
+                          void requestEmailVerification('current')
+                        } else if (form.email.trim().toLowerCase() === String(editingUser?.email || '').trim().toLowerCase()) {
+                          toast.error('Enter a new email address first')
+                        } else {
+                          void requestEmailVerification('new')
+                        }
+                      }}
+                    >
+                      {isVerificationSending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                      {emailVerified ? 'Verified' : isEditEmailUnlocked ? 'Verify Email' : 'Change Email'}
+                    </Button>
+                  </div>
                   {touched.email && formErrors.email ? <p className="text-xs text-red-600">{formErrors.email}</p> : null}
                 </div>
-                <div className="space-y-1.5">
+                {/* Fix: align Phone with the full-width Email row in the edit dialog. */}
+                <div className="space-y-1.5 sm:col-span-2">
                   <label className="text-sm font-medium text-gray-700">Phone</label>
                   <Input
                     autoComplete="off"

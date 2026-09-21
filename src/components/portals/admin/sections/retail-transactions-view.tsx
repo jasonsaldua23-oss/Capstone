@@ -345,7 +345,8 @@ export function RetailTransactionsView() {
 
       {/* Receipt Detail Modal */}
       <Dialog open={Boolean(selectedReceipt)} onOpenChange={(open) => !open && setSelectedReceipt(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        {/* Fix: constrain the receipt to the mobile viewport, including dynamic browser chrome. */}
+        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:p-6">
           {selectedReceipt ? (
             (() => {
               const receiptDate = (selectedReceipt as any).createdAt || (selectedReceipt as any).date
@@ -372,12 +373,12 @@ export function RetailTransactionsView() {
               const receiptDeposit = (selectedReceipt as any).depositTotal ?? (selectedReceipt as any).deposit ?? 0
 
               return (
-                <div className="space-y-4">
+                <div className="min-w-0 space-y-4">
                   <DialogHeader className="border-b pb-3">
                     <div className="flex items-center justify-between">
-                      <div>
-                        <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                          <Receipt className="h-5 w-5 text-sky-600" />
+                      <div className="min-w-0 pr-6">
+                        <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2 [overflow-wrap:anywhere]">
+                          <Receipt className="h-5 w-5 shrink-0 text-sky-600" />
                           Receipt #{selectedReceipt.transactionNumber}
                         </DialogTitle>
                         <DialogDescription className="text-xs text-slate-500 mt-0.5">
@@ -389,7 +390,7 @@ export function RetailTransactionsView() {
                   </DialogHeader>
 
                   {/* Customer summary */}
-                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs grid grid-cols-2 gap-2">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs grid grid-cols-1 sm:grid-cols-2 gap-2 [overflow-wrap:anywhere]">
                     <div>
                       <span className="text-slate-400 uppercase tracking-wider block">Customer</span>
                       <span className="font-medium text-slate-800">{receiptCustomerName}</span>
@@ -407,7 +408,7 @@ export function RetailTransactionsView() {
                   </div>
 
                   {/* Items list */}
-                  <div>
+                  <div className="min-w-0">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Purchased Items</h4>
                     <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200">
                       <table className="stack-table w-full min-w-[620px] text-xs">
@@ -450,7 +451,7 @@ export function RetailTransactionsView() {
                   </div>
 
                   {/* Totals & Breakdown */}
-                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1.5">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1.5 [&>div]:gap-3 [&>div]:flex-wrap [overflow-wrap:anywhere]">
                     <div className="flex justify-between text-slate-600">
                       <span>Subtotal:</span>
                       <span>{formatPeso(receiptSubtotal)}</span>

@@ -17,8 +17,9 @@ REPO_ROOT = BASE_DIR.parent
 load_dotenv(REPO_ROOT / ".env", override=True)
 load_dotenv(BASE_DIR / ".env", override=True)
 
-CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
-CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+# Fix: generate the token for the same OAuth client used by Gmail API at runtime.
+CLIENT_ID = (os.getenv("GMAIL_API_CLIENT_ID") or os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")).strip()
+CLIENT_SECRET = (os.getenv("GMAIL_API_CLIENT_SECRET") or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")).strip()
 SCOPE = "https://www.googleapis.com/auth/gmail.send"
 REDIRECT_URI = "https://developers.google.com/oauthplayground"
 
@@ -32,7 +33,7 @@ def main():
     client_secret = CLIENT_SECRET
 
     if not client_id or not client_secret:
-        print("\nNo GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET found in .env.")
+        print("\nNo Gmail API OAuth client ID / secret found in .env.")
         client_id = input("Enter your Google Client ID: ").strip()
         client_secret = input("Enter your Google Client Secret: ").strip()
 

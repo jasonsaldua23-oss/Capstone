@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch
+from django.db.models import Count, Min, Prefetch, Q
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -21,13 +21,16 @@ from .api_utils import (
     to_float_or_none as _to_float_or_none,
 )
 from .auth import REMEMBER_ME_EXP_HOURS, TOKEN_EXP_HOURS, create_token
+from .fleet_sync import TERMINAL_DROP_POINT_STATUSES, local_date_of, trip_is_overdue
 from .models import (
     LocationLog,
+    OrderDepositRefundClaim,
     OrderItem,
     ProductPackaging,
     Replacement,
     Trip,
     TripDropPoint,
+    TripStatus,
     User,
     Vehicle,
     Warehouse,
@@ -137,6 +140,13 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
                 "order__items",
                 queryset=OrderItem.objects.select_related("product").prefetch_related("mixed_case_components__product"),
             ),
+            # Fix: both the order payload and declared-empties payload read these
+            # claims. Prefetch once for the page instead of twice per delivery stop.
+            Prefetch(
+                "order__deposit_refund_claims",
+                queryset=OrderDepositRefundClaim.objects.select_related("product", "container_type"),
+                to_attr="_serialized_refund_claims",
+            ),
         ).order_by("sequence"),
     )
     page, size, off = _pagination(request)
@@ -188,6 +198,9 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
             str(packaging.product_id): packaging
             for packaging in ProductPackaging.objects.filter(product_id__in=all_product_ids, is_active=True)
         } if all_product_ids else {},
+        # Fix: build all bottle-return charge adjustments in one query. Without
+        # this map, serialization performs another database round trip per trip.
+        "empties_adjustment_map": legacy.empties_adjustments_for_orders(all_order_ids) if all_order_ids else {},
         "order_returns_map": {},
         "trip_assignments_map": None, 
     }
@@ -219,12 +232,83 @@ def driver_trips(request: HttpRequest) -> JsonResponse:
         {
             "success": True,
             "trips": payload_rows,
+            # Added: dashboard tiles come from every trip of this driver, not the page.
+            "stats": _driver_trip_stats(d),
             "total": total,
             "page": page,
             "pageSize": size,
             "totalPages": (total + size - 1) // size,
         }
     )
+
+
+def _driver_trip_stats(driver: User) -> dict[str, Any]:
+    """Dashboard counters over ALL of one driver's trips, never just the page.
+
+    "Today" means the trip's scheduledDate (fleet_sync.trip_scheduled_date), the
+    same day trip_start enforces. todayTrips counts today's trips except
+    CANCELLED ones (nothing left for the driver to do). A trip counts as
+    completedToday when it is COMPLETED and was scheduled for today: the tile
+    answers "how many of today's trips are done", which is also what the portal
+    computes offline, so the number does not jump when the server value arrives.
+    """
+    today = timezone.localdate()
+    # One aggregate query stands in for min(drop-point delivery dates) per trip.
+    earliest_delivery_by_trip = {
+        row["trip_id"]: row["earliest"]
+        for row in TripDropPoint.objects.filter(trip__driver_id=driver.id)
+        .values("trip_id")
+        .annotate(earliest=Min("order__timeline__delivery_date"))
+        if row["earliest"] is not None
+    }
+    stats: dict[str, Any] = {
+        "todayTrips": 0,
+        "plannedToday": 0,
+        "completedToday": 0,
+        "pendingStops": 0,
+        "overdueTrips": 0,
+        "activeTrips": 0,
+        "currentAssignment": None,
+    }
+    active_rows: list[tuple[dict[str, Any], Any]] = []
+    for row in Trip.objects.filter(driver_id=driver.id).values(
+        "id", "trip_number", "status", "planned_start_at", "actual_start_at", "updated_at",
+    ):
+        status = str(row["status"] or "").strip().upper()
+        scheduled_date = local_date_of(earliest_delivery_by_trip.get(row["id"]) or row["planned_start_at"])
+        if scheduled_date == today and status != TripStatus.CANCELLED:
+            stats["todayTrips"] += 1
+            if status == TripStatus.PLANNED:
+                stats["plannedToday"] += 1
+            elif status == TripStatus.COMPLETED:
+                stats["completedToday"] += 1
+        if trip_is_overdue(status, scheduled_date, today):
+            stats["overdueTrips"] += 1
+        if status == TripStatus.IN_PROGRESS:
+            active_rows.append((row, scheduled_date))
+    stats["activeTrips"] = len(active_rows)
+    if active_rows:
+        # Legacy data may hold several running trips (trip_start now refuses a
+        # second one); the most recently started trip is the current assignment.
+        row, scheduled_date = max(
+            active_rows,
+            key=lambda entry: entry[0]["actual_start_at"] or entry[0]["updated_at"],
+        )
+        active_points = TripDropPoint.objects.filter(trip__driver_id=driver.id, trip__status=TripStatus.IN_PROGRESS)
+        stats["pendingStops"] = active_points.exclude(status__in=list(TERMINAL_DROP_POINT_STATUSES)).count()
+        # Counted from the rows, not the stored counters, so the tile matches the stop list.
+        current_points = active_points.filter(trip_id=row["id"]).aggregate(
+            total=Count("id"),
+            done=Count("id", filter=Q(status__in=list(TERMINAL_DROP_POINT_STATUSES))),
+        )
+        stats["currentAssignment"] = {
+            "tripId": row["id"],
+            "tripNumber": row["trip_number"],
+            "completedDropPoints": int(current_points["done"] or 0),
+            "totalDropPoints": int(current_points["total"] or 0),
+            "scheduledDate": scheduled_date.isoformat() if scheduled_date else None,
+        }
+    return stats
 
 
 @csrf_exempt
@@ -266,7 +350,7 @@ def driver_location(request: HttpRequest) -> JsonResponse:
             return _err("Location timestamp is in the future")
         recorded_at = min(captured_at, recorded_at)
     requested_trip_id = str(body.get("tripId") or "").strip()
-    active_statuses = {"IN_PROGRESS", "IN_TRANSIT", "OUT_FOR_DELIVERY"}
+    active_statuses = {TripStatus.IN_PROGRESS}
     active_trip = Trip.objects.filter(driver_id=d.id, status__in=list(active_statuses)).order_by("-updated_at").first()
     trip_id = None
     trip_resolution = "none"

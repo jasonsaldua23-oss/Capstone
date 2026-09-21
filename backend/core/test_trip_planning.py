@@ -186,6 +186,139 @@ class TripsCollectionTrackingContractTests(TestCase):
         # rather than being dropped for being falsy.
         self.assertEqual(location["speed"], 0.0)
 
+    def _make_trip(self, trip_number: str, *, status: str, created_days_ago: int, ended_days_ago: int | None = None) -> Trip:
+        now = timezone.now()
+        trip = Trip.objects.create(
+            trip_number=trip_number,
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=status,
+            created_at=now - timedelta(days=created_days_ago),
+            actual_end_at=None if ended_days_ago is None else now - timedelta(days=ended_days_ago),
+        )
+        return trip
+
+    def _trip_numbers(self, **params) -> list[str]:
+        response = self.client.get(
+            "/api/trips",
+            data=params,
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        return [row["tripNumber"] for row in payload["trips"]]
+
+    def test_trips_collection_status_filter_is_case_insensitive_and_validated(self) -> None:
+        self._make_trip("TRP-2026-0001", status=TripStatus.PLANNED, created_days_ago=2)
+        self._make_trip("TRP-2026-0002", status=TripStatus.COMPLETED, created_days_ago=1, ended_days_ago=0)
+
+        self.assertEqual(self._trip_numbers(status="completed"), ["TRP-2026-0002"])
+        self.assertEqual(self._trip_numbers(status="COMPLETED"), ["TRP-2026-0002"])
+        self.assertEqual(self._trip_numbers(status="Planned"), ["TRP-2026-0001"])
+        self.assertEqual(self._trip_numbers(), ["TRP-2026-0002", "TRP-2026-0001"])
+
+        response = self.client.get(
+            "/api/trips",
+            data={"status": "DONE"},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["success"])
+
+    def test_trips_collection_sort_completed_uses_actual_end_not_creation_or_trip_number(self) -> None:
+        # Created a month ago but finished today: must be first under sort=completed
+        # even though both its creation date and its trip number are the oldest.
+        self._make_trip("TRP-2026-0001", status=TripStatus.COMPLETED, created_days_ago=30, ended_days_ago=0)
+        self._make_trip("TRP-2026-0002", status=TripStatus.COMPLETED, created_days_ago=5, ended_days_ago=3)
+        # Completed rows missing an end timestamp sort after every dated one.
+        self._make_trip("TRP-2026-0003", status=TripStatus.COMPLETED, created_days_ago=1, ended_days_ago=None)
+        self._make_trip("TRP-2026-0004", status=TripStatus.PLANNED, created_days_ago=0)
+
+        # Default ordering is unchanged: newest created first.
+        self.assertEqual(
+            self._trip_numbers(),
+            ["TRP-2026-0004", "TRP-2026-0003", "TRP-2026-0002", "TRP-2026-0001"],
+        )
+        self.assertEqual(
+            self._trip_numbers(status="COMPLETED", sort="completed"),
+            ["TRP-2026-0001", "TRP-2026-0002", "TRP-2026-0003"],
+        )
+        # Pagination still applies on top of the sort.
+        self.assertEqual(
+            self._trip_numbers(status="COMPLETED", sort="completed", page="1", pageSize="1"),
+            ["TRP-2026-0001"],
+        )
+        self.assertEqual(
+            self._trip_numbers(status="COMPLETED", sort="completed", page="2", pageSize="1"),
+            ["TRP-2026-0002"],
+        )
+
+    def test_trips_collection_sort_trip_number_desc_and_rejects_unknown_sort(self) -> None:
+        self._make_trip("TRP-2026-0002", status=TripStatus.PLANNED, created_days_ago=0)
+        self._make_trip("TRP-2026-0010", status=TripStatus.PLANNED, created_days_ago=3)
+        self._make_trip("TRP-2026-0001", status=TripStatus.PLANNED, created_days_ago=1)
+
+        self.assertEqual(
+            self._trip_numbers(sort="trip_number"),
+            ["TRP-2026-0010", "TRP-2026-0002", "TRP-2026-0001"],
+        )
+        self.assertEqual(
+            self._trip_numbers(sort="created"),
+            ["TRP-2026-0002", "TRP-2026-0001", "TRP-2026-0010"],
+        )
+
+        response = self.client.get(
+            "/api/trips",
+            data={"sort": "random"},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["success"])
+
+    def test_trips_collection_sort_scheduled_uses_order_delivery_date(self) -> None:
+        now = timezone.now()
+        early_trip = self._make_trip("TRP-2026-0001", status=TripStatus.PLANNED, created_days_ago=0)
+        late_trip = self._make_trip("TRP-2026-0002", status=TripStatus.PLANNED, created_days_ago=10)
+        undated_trip = self._make_trip("TRP-2026-0003", status=TripStatus.PLANNED, created_days_ago=1)
+        customer = Customer.objects.create(
+            email="trip-sort-customer@example.com", password="hashed", name="Trip Sort Customer"
+        )
+        for trip, suffix, delivery_at in (
+            (early_trip, "EARLY", now + timedelta(days=1)),
+            (late_trip, "LATE", now + timedelta(days=5)),
+        ):
+            order = Order.objects.create(
+                order_number=f"ORD-SORT-{suffix}", customer=customer,
+                status=OrderStatus.PREPARING, subtotal=100, total_amount=100,
+            )
+            OrderTimeline.objects.create(order=order, delivery_date=delivery_at)
+            TripDropPoint.objects.create(
+                trip=trip, order=order, sequence=1, location_name="Customer",
+                address="Address", city="Talisay", province="Negros Occidental", zip_code="6115",
+            )
+
+        # Creation order is deliberately opposite; delivery date must win and
+        # the trip without a valid schedule must remain last.
+        self.assertEqual(
+            self._trip_numbers(sort="scheduled"),
+            [early_trip.trip_number, late_trip.trip_number, undated_trip.trip_number],
+        )
+
+    def test_trips_collection_sort_keeps_tracking_date_filter(self) -> None:
+        target_date = timezone.now().date()
+        trip = self._make_trip("TRP-2026-0001", status=TripStatus.COMPLETED, created_days_ago=10, ended_days_ago=0)
+        trip.planned_start_at = timezone.make_aware(
+            timezone.datetime(target_date.year, target_date.month, target_date.day, 9, 0, 0)
+        )
+        trip.save(update_fields=["planned_start_at"])
+        self._make_trip("TRP-2026-0002", status=TripStatus.COMPLETED, created_days_ago=10, ended_days_ago=5)
+
+        self.assertEqual(
+            self._trip_numbers(sort="completed", trackingDate=target_date.isoformat()),
+            ["TRP-2026-0001"],
+        )
+
 
 class RoutePlanContractTests(TestCase):
     def setUp(self) -> None:

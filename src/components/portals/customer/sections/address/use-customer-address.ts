@@ -129,9 +129,27 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
   const lastManualAddressQueryRef = useRef('')
   const wasAddressEditorOpenRef = useRef(false)
   const lastOutsideServiceAreaQueryRef = useRef('')
+  // Added: the last customer record the server returned, so the profile editor can
+  // throw away unsaved edits instead of leaving them in the shared form state.
+  const lastSavedProfileRef = useRef<any | null>(null)
+  const applyProfileFields = (customer: any) => {
+    const customerNameParts = String(customer?.name || '').trim().split(/\s+/).filter(Boolean)
+    setProfileName(String(customer?.name || '').trim())
+    setProfileFirstName(String(customer?.firstName || customerNameParts[0] || '').trim())
+    setProfileMiddleName(String(customer?.middleName || '').trim())
+    setProfileNoMiddleName(!String(customer?.middleName || '').trim())
+    setProfileLastName(String(customer?.lastName || customerNameParts.slice(1).join(' ') || '').trim())
+    setProfileSuffix(String(customer?.suffix || '').trim())
+    setProfileEmail(String(customer?.email || '').trim())
+    setProfilePhone(String(customer?.phone || '').trim())
+    setProfileAvatar(customer?.avatar ? String(customer.avatar) : null)
+    setProfileAvatarFile(null)
+  }
+  const resetProfileForm = () => {
+    if (lastSavedProfileRef.current) applyProfileFields(lastSavedProfileRef.current)
+  }
   const hydrateAddressFromProfile = (customer: any) => {
-    const customerName = String(customer?.name || '').trim()
-    const customerNameParts = customerName.split(/\s+/).filter(Boolean)
+    lastSavedProfileRef.current = customer
     const rawAddress = String(customer?.address || '').trim()
     const city = String(customer?.city || '').trim()
     const state = String(customer?.province || '').trim() || 'Negros Occidental'
@@ -223,16 +241,7 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
             country: 'Philippines',
           })
         : ''
-    setProfileName(String(customer?.name || '').trim())
-    setProfileFirstName(String(customer?.firstName || customerNameParts[0] || '').trim())
-    setProfileMiddleName(String(customer?.middleName || '').trim())
-    setProfileNoMiddleName(!String(customer?.middleName || '').trim())
-    setProfileLastName(String(customer?.lastName || customerNameParts.slice(1).join(' ') || '').trim())
-    setProfileSuffix(String(customer?.suffix || '').trim())
-    setProfileEmail(String(customer?.email || '').trim())
-    setProfilePhone(hydratedPhone)
-    setProfileAvatar(customer?.avatar ? String(customer.avatar) : null)
-    setProfileAvatarFile(null)
+    applyProfileFields(customer)
     setCustomerDiscountOption(String(customer?.discountOption || 'NO_DISCOUNT').toUpperCase())
     setCustomerDiscountStatus(String(customer?.discountStatus || 'REMOVED').toUpperCase())
     setCustomerDiscountPercent(Number(customer?.discountPercent || 0))
@@ -282,8 +291,9 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
       toast.error('Unable to save address right now')
       return false
     }
-    if (!profileFirstName.trim() || !profileLastName.trim() || (!profileNoMiddleName && !profileMiddleName.trim())) {
-      toast.error('First name, last name, and middle name are required.')
+    // Fix: the middle name is optional for every customer, ticked box or not.
+    if (!profileFirstName.trim() || !profileLastName.trim()) {
+      toast.error('First name and last name are required.')
       return false
     }
     const nameError = validatePersonName(shippingName, profileFirstName, profileMiddleName, profileLastName, profileSuffix)
@@ -319,7 +329,7 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
       const { response, payload: data } = await updateCustomerProfile(customerId, {
         // Keep Contact Information and Profile backed by the same structured name fields.
         firstName: profileFirstName.trim(),
-        middleName: profileNoMiddleName ? null : profileMiddleName.trim(),
+        middleName: (profileNoMiddleName ? '' : profileMiddleName.trim()) || null,
         lastName: profileLastName.trim(),
         suffix: profileSuffix.trim(),
         address: composedShippingAddress,
@@ -897,6 +907,7 @@ export function useCustomerAddress(inputs: CustomerAddressInputs) {
     handleOutsideServiceArea,
     handlePinnedLocation,
     loadCustomerProfile,
+    resetProfileForm,
     saveAddressToProfile,
     searchAddressInNegrosOccidental,
     useCurrentLocation,

@@ -20,6 +20,7 @@ from .api_constants import (
 )
 from .api_utils import camel as _camel, to_float_or_none as _to_float_or_none, to_int as _int
 from .empties_verification import serialize_declared_empties
+from .fleet_sync import trip_is_overdue, trip_scheduled_date
 from .mixed_case import serialize_mixed_component
 from .models import (
     Customer,
@@ -1061,11 +1062,16 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
         data["dropPoints"] = drop_points
         data["cashCollectedTotal"] = round(cash_collected_total, 2)
     else:
-        schedule_rows = trip.drop_points.select_related("order__timeline").all()
-        for dp in schedule_rows:
+        drop_point_rows = trip.drop_points.select_related("order__timeline").all()
+        for dp in drop_point_rows:
             if dp.order_id and getattr(dp, "order", None) and getattr(dp.order, "timeline", None) and dp.order.timeline.delivery_date:
                 trip_schedule_candidates.append(dp.order.timeline.delivery_date.isoformat())
     data["tripSchedule"] = min(trip_schedule_candidates) if trip_schedule_candidates else None
+    # Added: every portal sorts and flags trips by the same local day trip_start
+    # enforces, instead of each client re-deriving it from the timestamps above.
+    scheduled_date = trip_scheduled_date(trip, drop_point_rows)
+    data["scheduledDate"] = scheduled_date.isoformat() if scheduled_date else None
+    data["isOverdue"] = trip_is_overdue(getattr(trip, "status", None), scheduled_date)
     return data
 
 

@@ -10,6 +10,7 @@ from .api_constants import OTP_EXPIRY_MINUTES, _REPLACEMENT_CUSTOMER_COPY
 from .api_utils import to_int as _int
 from .email_templates import EmailBody, ProductLine, format_quantity, time_greeting
 from .models import (
+    Customer,
     Inventory,
     Order,
     PurchaseRequestStatus,
@@ -789,6 +790,52 @@ def _email_new_staff_credentials(user: User, plain_password: str) -> None:
         body=body,
         recipients=[recipient],
         preheader="Your account has been created.",
+    )
+
+
+def _email_customer_registration_approved(customer: Customer) -> None:
+    recipient = _normalize_email(getattr(customer, "email", ""))
+    if not recipient:
+        return
+    body = EmailBody(
+        recipient_name=str(getattr(customer, "name", "") or "").strip() or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=["An administrator has approved your client registration."],
+        details=[("Account", recipient)],
+        details_heading="Account details",
+        next_step="You can now sign in with the email address you registered with.",
+        closing="Thank you.",
+    )
+    _send_structured_email(
+        subject="Your registration was approved",
+        heading="Your registration was approved",
+        body=body,
+        recipients=[recipient],
+        preheader="Your account is ready to use.",
+    )
+
+
+def _email_customer_registration_rejected(customer: Customer, rejection_reason: str) -> None:
+    recipient = _normalize_email(getattr(customer, "email", ""))
+    if not recipient:
+        return
+    body = EmailBody(
+        recipient_name=str(getattr(customer, "name", "") or "").strip() or "Customer",
+        time_greeting=time_greeting(),
+        paragraphs=["Your client registration was reviewed and was not approved."],
+        details=[("Account", recipient)],
+        details_heading="Account details",
+        reason_label="Reason",
+        reason_text=str(rejection_reason or "").strip() or "No reason was provided.",
+        next_step="If you believe this was a mistake, please contact us and we will review it again.",
+        closing="Thank you for your understanding.",
+    )
+    _send_structured_email(
+        subject="Your registration was not approved",
+        heading="Your registration was not approved",
+        body=body,
+        recipients=[recipient],
+        preheader="Your registration was reviewed.",
     )
 
 

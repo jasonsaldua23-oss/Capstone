@@ -68,9 +68,13 @@ export function printReportTable<T>(
     return
   }
 
-  const tableHeaders = columns.map((c) => `<th>${c.header}</th>`).join('')
+  // Fix: preserve literal report values when inserting them into the print document.
+  const escapeHtml = (value: unknown) => String(value ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+  const tableHeaders = columns.map((c) => `<th>${escapeHtml(c.header)}</th>`).join('')
+  // Fix: print every filtered record; pagination must not silently discard rows.
   const tableRows = rows
-    .slice(0, 500)
     .map((row) => {
       const cells = columns.map((col) => {
         let val: any = ''
@@ -79,7 +83,7 @@ export function printReportTable<T>(
         } else if (col.key) {
           val = (row as any)[col.key]
         }
-        return `<td>${String(val ?? '').replace(/</g, '&lt;')}</td>`
+        return `<td>${escapeHtml(val)}</td>`
       })
       return `<tr>${cells.join('')}</tr>`
     })
@@ -89,20 +93,25 @@ export function printReportTable<T>(
     <!DOCTYPE html>
     <html>
       <head>
-        <title>${title}</title>
+        <title>${escapeHtml(title)}</title>
         <style>
           body { font-family: 'Segoe UI', Arial, sans-serif; margin: 30px; color: #1e293b; font-size: 12px; }
           .header { border-bottom: 2px solid #3b82f6; padding-bottom: 12px; margin-bottom: 16px; }
           h1 { margin: 0 0 4px 0; font-size: 20px; color: #0f172a; }
           .subtitle { margin: 0; color: #64748b; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 11px; }
-          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+          /* Fix: wrap long values within the printable width and repeat column headings. */
+          @page { size: A4 ${columns.length > 6 ? 'landscape' : 'portrait'}; margin: 12mm; }
+          table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 16px; font-size: 11px; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; overflow-wrap: anywhere; vertical-align: top; }
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          .header, .summary { break-inside: avoid; }
           th { background: #f8fafc; font-weight: 600; color: #334155; }
           tr:nth-child(even) { background: #f8fafc; }
           .summary { margin-top: 20px; padding: 12px; background: #f1f5f9; border-radius: 6px; }
           .summary p { margin: 3px 0; font-weight: 500; font-size: 11px; }
           @media print {
-            body { margin: 15px; }
+            body { margin: 0; }
             button { display: none; }
           }
         </style>
@@ -110,7 +119,7 @@ export function printReportTable<T>(
       <body>
         <div class="header">
           <h1>Ann Ann's Beverages Trading</h1>
-          <p class="subtitle"><strong>${title}</strong> &bull; Generated: ${new Date().toLocaleString()} ${dateLabel ? `&bull; Period: ${dateLabel}` : ''}</p>
+          <p class="subtitle"><strong>${escapeHtml(title)}</strong> &bull; Generated: ${new Date().toLocaleString()} ${dateLabel ? `&bull; Period: ${escapeHtml(dateLabel)}` : ''}</p>
         </div>
         <table>
           <thead>
@@ -124,7 +133,7 @@ export function printReportTable<T>(
           summaryLines.length > 0
             ? `<div class="summary">
                 <p><strong>Report Summary:</strong></p>
-                ${summaryLines.map((line) => `<p>${line}</p>`).join('')}
+                ${summaryLines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
                </div>`
             : ''
         }
@@ -164,13 +173,33 @@ export async function exportReportPdf<T>(
 
   try {
     const pdfDoc = await PDFDocument.create()
-    let page = pdfDoc.addPage([595, 842]) // A4 portrait
+    // Fix: wide reports retain every column on landscape A4.
+    const pageWidth = columns.length > 6 ? 842 : 595
+    const pageHeight = columns.length > 6 ? 595 : 842
+    let page = pdfDoc.addPage([pageWidth, pageHeight])
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
 
     const margin = 30
-    const pageWidth = 595
-    let y = 842 - margin
+    let y = pageHeight - margin
+    // Measure actual glyph widths so long identifiers cannot overlap adjacent cells.
+    const wrap = (value: unknown, width: number, size: number, textFont = font) => {
+      const lines: string[] = []
+      let line = ''
+      for (const char of String(value ?? '').replace(/\u20B1/g, 'PHP ').replace(/\s+/g, ' ')) {
+        if (line && textFont.widthOfTextAtSize(line + char, size) > width) {
+          lines.push(line)
+          line = ''
+        }
+        line += char
+      }
+      lines.push(line)
+      return lines
+    }
+    const nextPage = () => {
+      page = pdfDoc.addPage([pageWidth, pageHeight])
+      y = pageHeight - margin
+    }
 
     // Header
     page.drawText("Ann Ann's Beverages Trading", {
@@ -203,62 +232,74 @@ export async function exportReportPdf<T>(
 
     // Summary lines
     if (summaryLines.length > 0) {
-      summaryLines.slice(0, 3).forEach((line) => {
+      summaryLines.forEach((line) => {
         // Fix: standard PDF fonts use WinAnsi, which cannot encode the Philippine peso symbol.
         const pdfSafeLine = line.replace(/\u20B1/g, 'PHP ')
-        page.drawText(pdfSafeLine, {
-          x: margin,
-          y,
-          size: 8,
-          font: fontBold,
-          color: rgb(0.2, 0.25, 0.35),
-        })
-        y -= 12
+        for (const summaryLine of wrap(pdfSafeLine, pageWidth - margin * 2, 8, fontBold)) {
+          if (y < margin + 12) nextPage()
+          page.drawText(summaryLine, {
+            x: margin,
+            y,
+            size: 8,
+            font: fontBold,
+            color: rgb(0.2, 0.25, 0.35),
+          })
+          y -= 12
+        }
       })
       y -= 8
     }
 
     // Table
-    const activeCols = columns.slice(0, 6) // Max 6 columns in PDF
+    const activeCols = columns
     const colWidth = (pageWidth - margin * 2) / activeCols.length
 
-    // Table header row
-    activeCols.forEach((col, idx) => {
-      page.drawText(col.header.slice(0, 16), {
-        x: margin + idx * colWidth,
-        y,
-        size: 8,
-        font: fontBold,
-        color: rgb(0.1, 0.15, 0.25),
-      })
-    })
-    y -= 12
+    // Fix: repeat full wrapped headings on every continuation page.
+    const headerLines = activeCols.map((col) => wrap(col.header, colWidth - 8, 8, fontBold))
+    const headerHeight = Math.max(1, ...headerLines.map((lines) => lines.length)) * 10 + 6
+    const drawTableHeader = () => {
+      headerLines.forEach((lines, idx) => lines.forEach((line, lineIndex) => {
+        page.drawText(line, {
+          x: margin + idx * colWidth, y: y - lineIndex * 10,
+          size: 8, font: fontBold, color: rgb(0.1, 0.15, 0.25),
+        })
+      }))
+      y -= headerHeight
+    }
+    if (y < margin + headerHeight + 12) nextPage()
+    drawTableHeader()
 
     // Table data rows
-    const maxRows = Math.min(rows.length, 45)
-    for (let r = 0; r < maxRows; r++) {
-      if (y < 40) {
-        page = pdfDoc.addPage([595, 842])
-        y = 842 - margin
-      }
-
+    for (let r = 0; r < rows.length; r++) {
       const row = rows[r]
-      activeCols.forEach((col, idx) => {
+      const cellLines = activeCols.map((col) => {
         let val: any = ''
         if (col.accessor) val = col.accessor(row)
         else if (col.key) val = (row as any)[col.key]
         if (val === null || val === undefined) val = ''
-        const text = String(val).replace(/\u20B1/g, 'PHP ').slice(0, 20)
-
-        page.drawText(text, {
-          x: margin + idx * colWidth,
-          y,
-          size: 7.5,
-          font,
-          color: rgb(0.2, 0.25, 0.35),
-        })
+        return wrap(val, colWidth - 8, 7.5)
       })
-      y -= 14
+      const lineCount = Math.max(1, ...cellLines.map((lines) => lines.length))
+      const rowHeight = lineCount * 10 + 4
+      if (y - rowHeight < margin && rowHeight <= pageHeight - margin * 2 - headerHeight) {
+        nextPage()
+        drawTableHeader()
+      }
+      // Oversized rows continue across pages instead of dropping any cell text.
+      for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
+        if (y < margin + 10) {
+          nextPage()
+          drawTableHeader()
+        }
+        cellLines.forEach((lines, idx) => {
+          if (lines[lineIndex]) page.drawText(lines[lineIndex], {
+            x: margin + idx * colWidth, y, size: 7.5, font,
+            color: rgb(0.2, 0.25, 0.35),
+          })
+        })
+        y -= 10
+      }
+      y -= 4
     }
 
     const pdfBytes = await pdfDoc.save()

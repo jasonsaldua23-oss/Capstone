@@ -148,7 +148,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       const [vehiclesRes, driversRes, tripsRes] = await Promise.all([
         safeFetchJson('/api/vehicles?page=1&pageSize=100', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
         fetchAllPaginatedCollection('/api/drivers?includeSample=true', 'drivers', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
-        safeFetchJson('/api/trips?page=1&pageSize=100', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 }),
+        safeFetchJson('/api/trips?page=1&pageSize=100&sort=scheduled', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 }),
       ])
 
       // Failed refreshes preserve the last records and report the failed request.
@@ -168,7 +168,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
     setIsRefreshingTrips(true)
     try {
       const tripsRes = await safeFetchJson(
-        '/api/trips?page=1&pageSize=100',
+        '/api/trips?page=1&pageSize=100&sort=scheduled',
         { cache: 'no-store' },
         { retries: 2, timeoutMs: 30000 }
       )

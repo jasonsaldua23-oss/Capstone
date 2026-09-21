@@ -8,6 +8,14 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
+import {
+  ACTION_ADVANCE,
+  ACTION_DECIDE,
+  ACTION_INSPECT,
+  ACTION_REFUSE,
+  ReplacementDossierHeader,
+  ReplacementStatusBadge,
+} from '../../shared/replacement-status'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -994,7 +1002,6 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Order #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Customer</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Replacement Details</th>
                     <th className="text-left p-4 font-medium text-gray-600">Evidence</th>
                     <th className="text-left p-4 font-medium text-gray-600">Status</th>
                     <th className="text-left p-4 font-medium text-gray-600">Reported</th>
@@ -1082,24 +1089,12 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                         <td className="p-4">{item.orderNumber || item.order?.orderNumber || 'N/A'}</td>
                         <td className="p-4">{item.customerName || item.order?.customer?.name || 'N/A'}</td>
                         <td className="p-4">
-                          <p className="whitespace-pre-line text-sm leading-5 text-gray-900">{issueReason}</p>
-                          {totalLoss > 0 ? <p className="mt-1 text-xs font-semibold text-red-600">Loss: {formatPeso(totalLoss)}</p> : null}
-                        </td>
-                        <td className="p-4">
                           <Badge className={hasEvidence ? 'bg-blue-100 text-blue-700 hover:bg-blue-100' : ''} variant="secondary">
                             {hasEvidence ? `${evidenceCount} Photo${evidenceCount > 1 ? 's' : ''} Attached` : 'No Photo'}
                           </Badge>
                         </td>
                         <td className="p-4">
-                          <Badge
-                            className={
-                              statusLabel === 'Needs Follow-up'
-                                ? 'bg-red-100 text-red-700 hover:bg-red-100'
-                                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
-                            }
-                          >
-                            {statusLabel}
-                          </Badge>
+                          <ReplacementStatusBadge statusLabel={statusLabel} />
                         </td>
                         <td className="p-4 text-gray-500">
                           {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'N/A'}
@@ -1114,22 +1109,25 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                             <div key={rawStatus} className="table-actions motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
                               {rawStatus === 'UNDER_REVIEW' ? (
                                 <>
-                                  <Button size="sm" className="h-9 bg-emerald-600 text-white transition-colors hover:bg-emerald-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => setApproveConfirmId(item.id)}>
-                                    {updatingReplacementId === item.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                  <Button size="sm" className={ACTION_DECIDE} disabled={Boolean(updatingReplacementId)} onClick={() => setApproveConfirmId(item.id)}>
+                                    {updatingReplacementId === item.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                                     Approve
                                   </Button>
-                                  <Button size="sm" variant="outline" className="h-9 border-rose-200 text-rose-700 transition-colors hover:bg-rose-50 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => { setRejectTargetId(item.id); setRejectReason(''); setRejectDialogOpen(true) }}>Reject</Button>
+                                  <Button size="sm" variant="outline" className={ACTION_REFUSE} disabled={Boolean(updatingReplacementId)} onClick={() => { setRejectTargetId(item.id); setRejectReason(''); setRejectDialogOpen(true) }}>Reject</Button>
                                 </>
                               ) : !hasStrictScheduledFollowUp(item) && !item.isClosed && !isFullyReplaced && !['APPROVED', 'COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) ? (
-                                <Button size="sm" className="h-9 bg-blue-600 text-white transition-colors hover:bg-blue-700 motion-reduce:transition-none" disabled={Boolean(updatingReplacementId)} onClick={() => void updateIssueStatus(item.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}>
-                                  {updatingReplacementId === item.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                  Under Review
+                                <Button size="sm" className={ACTION_ADVANCE} disabled={Boolean(updatingReplacementId)} onClick={() => void updateIssueStatus(item.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}>
+                                  {updatingReplacementId === item.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                                  {/* The badge names the state ("Under Review"); a button names the
+                                      action that gets it there. */}
+                                  Start review
                                 </Button>
                               ) : null}
                             </div>
                           <Button
                             size="sm"
                             variant="outline"
+                            className={ACTION_INSPECT}
                             onClick={() => setSelectedReplacement(item)}
                           >
                             View Details
@@ -1226,34 +1224,38 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
             })
             const totalLoss = replacementLineLoss.reduce((sum, loss) => sum + Number(loss || 0), 0)
             const reviewDecision = selectedReplacement.reviewDecision || meta?.reviewDecision || null
+            // The claim's own number, state and money are carried by the dossier
+            // header; these are the reference values behind them.
+            const detailContext = [
+              selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber
+                ? `Order ${selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber}`
+                : '',
+              selectedReplacement.customerName || selectedReplacement.order?.customer?.name || '',
+              selectedReplacement.warehouseName || selectedReplacement.warehouseCode || selectedReplacement.order?.warehouseName || selectedReplacement.order?.warehouseCode || '',
+            ].filter(Boolean).join(' · ')
+            // Added: show the customer's submitted notes, separate from staff workflow notes.
+            const customerAccount = selectedReplacement.customerNotes || meta?.customerNotes || ''
             const details = [
-              ['Replacement #', selectedReplacement.replacementNumber || 'N/A'],
-              ['Order #', selectedReplacement.orderNumber || selectedReplacement.order?.orderNumber || 'N/A'],
-              ['Customer', selectedReplacement.customerName || selectedReplacement.order?.customer?.name || 'N/A'],
-              ['Warehouse', selectedReplacement.warehouseName || selectedReplacement.warehouseCode || selectedReplacement.order?.warehouseName || selectedReplacement.order?.warehouseCode || 'N/A'],
-              ['Status', formatIssueStatus(selectedReplacement)],
               ['Reported', selectedReplacement.createdAt ? new Date(selectedReplacement.createdAt).toLocaleString() : 'N/A'],
-              // Added: show the customer's submitted notes, separate from staff workflow notes.
-              ['Customer Notes', selectedReplacement.customerNotes || meta?.customerNotes || 'No customer notes provided.'],
-              ['Reviewed By', reviewDecision?.adminName || 'Not yet decided'],
-              ['Decision Time', reviewDecision?.decidedAt ? new Date(reviewDecision.decidedAt).toLocaleString() : 'N/A'],
-              ['Decision Remarks', reviewDecision?.remarks || 'No remarks provided.'],
+              ['Reviewed by', reviewDecision?.adminName || 'Not yet decided'],
+              ['Decision time', reviewDecision?.decidedAt ? new Date(reviewDecision.decidedAt).toLocaleString() : 'Not yet decided'],
+              ['Decision remarks', reviewDecision?.remarks || 'No remarks provided.'],
             ] as Array<[string, string]>
             return (
               <>
                 <div className="space-y-4 p-6">
-                <DialogHeader>
+                <DialogHeader className="sr-only">
                   <DialogTitle>Replacement Details</DialogTitle>
                   <DialogDescription>Complete information for {selectedReplacement.replacementNumber || 'this replacement'}</DialogDescription>
                 </DialogHeader>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {details.map(([label, value]) => (
-                    <div key={label} className="rounded-md border bg-slate-50 px-3 py-2">
-                      <p className="text-xs font-medium text-slate-500">{label}</p>
-                      <p className="mt-1 whitespace-pre-line break-words text-sm font-semibold leading-6 text-slate-900">{value}</p>
-                    </div>
-                  ))}
-                </div>
+                <ReplacementDossierHeader
+                  replacementNumber={selectedReplacement.replacementNumber || 'Replacement'}
+                  statusLabel={formatIssueStatus(selectedReplacement)}
+                  contextLine={detailContext}
+                  lossDisplay={totalLoss > 0 ? `- ${formatPeso(totalLoss)}` : null}
+                  reference={details}
+                  customerAccount={customerAccount}
+                />
                 <div className="rounded-md border bg-white">
                   <div className="border-b px-3 py-2">
                     <p className="text-xs font-medium text-slate-500">Replacement Items</p>

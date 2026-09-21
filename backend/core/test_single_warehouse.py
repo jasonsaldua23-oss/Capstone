@@ -18,6 +18,7 @@ from .models import (
     User,
     Warehouse,
 )
+from .otp_tokens import _issue_email_verification_token
 
 
 class SingleWarehouseApiContractTests(TestCase):
@@ -72,6 +73,54 @@ class SingleWarehouseApiContractTests(TestCase):
 
     def auth(self, token: str) -> dict[str, str]:
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    @patch("core.views_api._is_valid_stateless_otp", return_value=True)
+    @patch("core.views_api._send_email_verification_otp")
+    @patch("core.views_api._otp_mail_ready", return_value=True)
+    def test_admin_email_edit_requires_both_address_proofs(self, _mail_ready, send_otp, _valid_otp) -> None:
+        target = User.objects.create(
+            email="email.edit.target@gmail.com",
+            password="hashed",
+            name="Email Edit Target",
+            role=RoleType.DRIVER,
+            is_active=True,
+        )
+        request_body = {"email": target.email, "targetUserId": target.id}
+        request_response = self.client.post(
+            "/api/auth/email-verification/request-existing",
+            data=json.dumps(request_body), content_type="application/json", **self.auth(self.admin_token),
+        )
+        self.assertEqual(request_response.status_code, 200, request_response.content)
+        send_otp.assert_called_once()
+        confirm_response = self.client.post(
+            "/api/auth/email-verification/confirm-existing",
+            data=json.dumps({**request_body, "otp": "123456"}),
+            content_type="application/json", **self.auth(self.admin_token),
+        )
+        self.assertEqual(confirm_response.status_code, 200, confirm_response.content)
+        old_token = confirm_response.json()["verificationToken"]
+        new_email = "email.edit.updated@gmail.com"
+        edit_url = f"/api/users/{target.id}"
+        missing_new = self.client.put(
+            edit_url,
+            data=json.dumps({"email": new_email, "oldEmailVerificationToken": old_token}),
+            content_type="application/json", **self.auth(self.admin_token),
+        )
+        self.assertEqual(missing_new.status_code, 400, missing_new.content)
+        target.refresh_from_db()
+        self.assertEqual(target.email, request_body["email"])
+        update_response = self.client.put(
+            edit_url,
+            data=json.dumps({
+                "email": new_email,
+                "oldEmailVerificationToken": old_token,
+                "emailVerificationToken": _issue_email_verification_token(new_email, "staff"),
+            }),
+            content_type="application/json", **self.auth(self.admin_token),
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        target.refresh_from_db()
+        self.assertEqual(target.email, new_email)
 
     def create_warehouse(self) -> Warehouse:
         response = self.client.post(

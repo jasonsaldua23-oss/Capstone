@@ -18,6 +18,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
+from . import notification_services
 from . import views_api as legacy
 from .api_constants import OTP_EXPIRY_MINUTES, PERSON_NAME_NUMBER_ERROR, STAFF_LOGIN_ROLE_SCOPE
 from .api_utils import error as _err, json_body as _json_body, ok as _ok
@@ -47,7 +48,8 @@ from .auth_throttling import (
     record_failure,
     throttle_response,
 )
-from .models import Customer, RoleType, User
+from .auth_guards import CUSTOMER_REGISTRATION_PENDING_MESSAGE, _customer_sign_in_blocked
+from .models import Customer, CustomerApprovalStatus, RoleType, User
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,33 @@ def _verify_google_token(credential: str) -> dict[str, Any]:
     return legacy._verify_google_token(credential)
 
 
+def _notify_admins_of_pending_registration(customer: Customer) -> None:
+    """Tell administrators a new client is waiting for review; never fails the registration."""
+    try:
+        notification_services._create_admin_notifications(
+            title="New client registration awaiting approval",
+            message=f"{customer.name or customer.email} ({customer.email}) registered and is waiting for approval.",
+            notification_type="CUSTOMER",
+            reference_type="CUSTOMER",
+            reference_id=customer.id,
+        )
+    except Exception:
+        logger.exception("Failed to notify administrators of pending registration customer=%s", customer.id)
+
+
+def _pending_registration_response(*, created: bool | None = None) -> JsonResponse:
+    # Added: a new client gets no session until an administrator approves it, so
+    # this carries neither a token nor a cookie.
+    payload: dict[str, Any] = {
+        "success": True,
+        "pendingApproval": True,
+        "message": CUSTOMER_REGISTRATION_PENDING_MESSAGE,
+    }
+    if created is not None:
+        payload["created"] = created
+    return _ok(payload, 201)
+
+
 @require_GET
 def api_root(_request: HttpRequest) -> JsonResponse:
     return _ok({"success": True, "message": "Django Logistics API", "version": "1.0"})
@@ -275,8 +304,18 @@ def auth_email_verification_request_existing(request: HttpRequest) -> JsonRespon
     if not _is_gmail_email(email):
         return _err("Invalid email format")
 
-    # Must match the authenticated user's current email
+    # Added: an administrator editing a staff account may verify that account's current email.
+    target_user_id = str(body.get("targetUserId") or "").strip()
     current_email = _normalize_email(p.get("email"))
+    if target_user_id:
+        if str(p.get("role") or "").upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+            return _err("Forbidden", 403)
+        target_user = User.objects.filter(id=target_user_id).first()
+        if not target_user:
+            return _err("User not found", 404)
+        if target_user.role == RoleType.SUPER_ADMIN and str(p.get("role") or "").upper() != RoleType.SUPER_ADMIN:
+            return _err("Only the owner can modify this account", 403)
+        current_email = _normalize_email(target_user.email)
     if email != current_email:
         return _err("Email does not match your current account email", 400)
 
@@ -322,7 +361,18 @@ def auth_email_verification_confirm_existing(request: HttpRequest) -> JsonRespon
     if not otp_code:
         return _err("Verification code is required")
 
+    # Added: confirmation must resolve the same administrator-selected staff account.
+    target_user_id = str(body.get("targetUserId") or "").strip()
     current_email = _normalize_email(p.get("email"))
+    if target_user_id:
+        if str(p.get("role") or "").upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+            return _err("Forbidden", 403)
+        target_user = User.objects.filter(id=target_user_id).first()
+        if not target_user:
+            return _err("User not found", 404)
+        if target_user.role == RoleType.SUPER_ADMIN and str(p.get("role") or "").upper() != RoleType.SUPER_ADMIN:
+            return _err("Only the owner can modify this account", 403)
+        current_email = _normalize_email(target_user.email)
     if email != current_email:
         return _err("Email does not match your current account email", 400)
 
@@ -431,6 +481,10 @@ def _start_customer_login_two_factor(
     include_email: bool = False,
 ) -> JsonResponse:
     """Send the same shared login challenge for a Customer primary factor."""
+    # Backstop: callers check approval first; an unapproved account never gets a code.
+    blocked = _customer_sign_in_blocked(customer)
+    if blocked:
+        return blocked
     if not _otp_mail_ready():
         return _err("2FA is enabled but OTP email service is not configured", 500)
 
@@ -500,6 +554,10 @@ def _issue_customer_login_response(
     created: bool | None = None,
 ) -> JsonResponse:
     """Create the normal Customer session while retaining Google registration metadata."""
+    # Backstop for the per-path checks: no session is ever minted before approval.
+    blocked = _customer_sign_in_blocked(customer)
+    if blocked:
+        return blocked
     payload = _customer_payload(customer)
     token = create_token(
         {**payload, "rememberMe": remember_me},
@@ -606,6 +664,11 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
         return _err("Invalid login challenge", 401)
     if not account:
         return _err("Account is unavailable", 401)
+    if account_type == "customer":
+        # The challenge already proves the primary factor, so the status may be stated.
+        blocked = _customer_sign_in_blocked(account)
+        if blocked:
+            return blocked
 
     now = timezone.now()
     if not _is_valid_stateless_otp(otp_code, email, account_type, "login_2fa", now):
@@ -664,6 +727,10 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
         record_failure("password_login", email, ip_address, LOGIN_FAILURE_POLICY)
         return _err("Invalid email or password", 401)
     clear_account_failures("password_login", email)
+    # Checked after the password, so the review status never answers a wrong guess.
+    blocked = _customer_sign_in_blocked(customer)
+    if blocked:
+        return blocked
     if bool(getattr(customer, "two_factor_enabled", False)):
         return _start_customer_login_two_factor(request, customer, remember_me)
     return _issue_customer_login_response(customer, remember_me)
@@ -722,7 +789,8 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
                 return _err("Google account is not authorized for customer access", 401)
             customer = Customer.objects.filter(email__iexact=email).first()
             if not customer:
-                # Create a new active Customer for Google OAuth registration
+                # Create a new active Customer for Google OAuth registration; like
+                # password registration, it waits for an administrator's approval.
                 random_secret = secrets.token_urlsafe(32)
                 customer = Customer.objects.create(
                     email=email,
@@ -733,6 +801,7 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
                     middle_name=middle_name,
                     avatar=avatar,
                     is_active=True,
+                    approval_status=CustomerApprovalStatus.PENDING_APPROVAL,
                 )
                 created = True
             else:
@@ -757,16 +826,16 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
                     customer.save(update_fields=changed_fields)
                 created = False
 
+        if created:
+            _notify_admins_of_pending_registration(customer)
+            return _pending_registration_response(created=True)
+        blocked = _customer_sign_in_blocked(customer)
+        if blocked:
+            return blocked
         if bool(getattr(customer, "two_factor_enabled", False)):
             # Fix: Google is a primary factor, not a bypass for Customer 2FA.
             return _start_customer_login_two_factor(request, customer, remember_me, include_email=True)
-        return _issue_customer_login_response(
-            customer,
-            remember_me,
-            message="Registration successful" if created else "Login successful",
-            status=201 if created else 200,
-            created=created,
-        )
+        return _issue_customer_login_response(customer, remember_me, created=False)
     except Exception as exc:
         logger.exception("Google customer auth post-verification failed: %s", str(exc))
         if getattr(settings, "DEBUG", False):
@@ -856,6 +925,9 @@ def auth_unified_login(request: HttpRequest) -> JsonResponse:
         return _issue_staff_login_response(staff, remember_me)
 
     # At this point the resolver guarantees that customer is the one valid account.
+    blocked = _customer_sign_in_blocked(customer)
+    if blocked:
+        return blocked
     if bool(getattr(customer, "two_factor_enabled", False)):
         return _start_customer_login_two_factor(request, customer, remember_me)
     return _issue_customer_login_response(customer, remember_me)
@@ -907,6 +979,9 @@ def auth_unified_google(request: HttpRequest) -> JsonResponse:
 
     if not customer.is_active:
         return _err("Google account is not authorized for this system", 401)
+    blocked = _customer_sign_in_blocked(customer)
+    if blocked:
+        return blocked
     if bool(getattr(customer, "two_factor_enabled", False)):
         return _start_customer_login_two_factor(request, customer, remember_me, include_email=True)
     return _issue_customer_login_response(customer, remember_me)
@@ -979,12 +1054,11 @@ def auth_register(request: HttpRequest) -> JsonResponse:
         zip_code=body.get("zipCode"),
         latitude=body.get("latitude"),
         longitude=body.get("longitude"),
+        # Added: self-registered clients sign in only after an administrator approves them.
+        approval_status=CustomerApprovalStatus.PENDING_APPROVAL,
     )
-    payload = _customer_payload(customer)
-    token = create_token(payload)
-    resp = _ok({"success": True, "user": payload, "token": token, "message": "Registration successful"}, 201)
-    _set_auth_cookie(resp, token)
-    return resp
+    _notify_admins_of_pending_registration(customer)
+    return _pending_registration_response()
 
 
 @never_cache
@@ -1008,6 +1082,10 @@ def auth_me(request: HttpRequest) -> JsonResponse:
         customer = Customer.objects.filter(id=p.get("userId"), is_active=True).first()
         if not customer:
             return _err("Unauthorized", 401)
+        # A stale or copied token must not restore a session that approval would refuse.
+        blocked = _customer_sign_in_blocked(customer)
+        if blocked:
+            return blocked
         customer_payload = _customer_payload(customer)
         customer_payload["rememberMe"] = bool(p.get("rememberMe", False))
         # Fix: customer cookie restores need the same tab-local session pinning as staff.

@@ -285,7 +285,6 @@ export function TrackingView() {
       dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
     )
     const tripOrderIds = new Set<string>()
-    const shownDriverIds = new Set<string>()
     // A driver can hold several IN_PROGRESS trips at once but is only ever in one
     // place, so the trip loop below must emit a single marker for them. Without
     // this, every extra trip pushed another marker with the same `driver-<id>`
@@ -401,7 +400,6 @@ export function TrackingView() {
           : null
 
       if (hasDriverPosition && ['IN_PROGRESS'].includes(normalizedTripStatus)) {
-        if (driverId) shownDriverIds.add(driverId)
         const driverMarkerId = `driver-${driverId || trip.id}`
         const driverMarker = {
           id: driverMarkerId,
@@ -532,38 +530,12 @@ export function TrackingView() {
       }
     })
 
-    // Fix: show every active driver's latest saved GPS point even when their
-    // last location belongs to a completed trip or is not linked to a trip.
-    driverLocations.forEach((location: any) => {
-      const driverId = String(location?.driverId || location?.driver_id || '').trim()
-      const assignedTrip = trips.find((trip: any) => String(trip?.id || '') === String(location?.tripId || location?.trip_id || ''))
-      const destinationPoint = toArray<any>(assignedTrip?.dropPoints)
-        .slice()
-        .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
-        .find((point) => !isDropPointCompleted(point?.status) && !isDropPointCompleted(point?.orderStatus))
-      const latitude = Number(location?.latitude ?? location?.lat)
-      const longitude = Number(location?.longitude ?? location?.lng)
-      if (!driverId || shownDriverIds.has(driverId)) return
-      if (!isDateMatch(location?.recordedAt || location?.createdAt, trackingDate)) return
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
-      shownDriverIds.add(driverId)
-      locations.push({
-        id: `driver-${driverId}`,
-        driverName: String(location?.driverName || 'Driver'),
-        vehiclePlate: String(location?.vehiclePlate || 'N/A'),
-        lat: latitude,
-        lng: longitude,
-        status: String(location?.tripStatus || 'LOCATION_AVAILABLE'),
-        markerColor: '#1d4ed8',
-        markerLabel: 'Driver last known location',
-        markerType: 'truck',
-        markerHeading: Number.isFinite(Number(location?.heading)) ? Number(location.heading) : undefined,
-        speedMps: reportedSpeedMps(location),
-        // Added: preserve known assignment data for last-known driver markers.
-        assignedTripNumber: String(assignedTrip?.tripNumber || ''),
-        destinationCustomer: String(destinationPoint?.locationName || 'N/A'),
-      })
-    })
+    // Fix: trucks exist only for the trips in the loop above, i.e. the ones
+    // IN_PROGRESS on the tracking day. The old "last known location" pass put a
+    // truck on the map for every driver with a fix that day, so drivers whose
+    // trip had already been completed (or who had no trip at all) kept showing
+    // as if they were still out delivering. `driverLocations` now only feeds the
+    // live position of a driver who is on an active trip.
 
     dayOrders.forEach((order: any) => {
       const orderId = String(order?.id || '').trim()

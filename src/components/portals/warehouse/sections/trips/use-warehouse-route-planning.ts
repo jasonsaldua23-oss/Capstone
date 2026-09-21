@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   getDriverProfileCompletenessIssue as getDriverProfileIssue,
@@ -13,15 +13,104 @@ import type {
   RoutePlanOrderItem,
   SavedRouteDraft,
   TripEditorState,
+  UpcomingDeliveryDay,
   VehicleOption,
   WarehouseItem,
   WarehouseOrderItem,
   WarehouseTripItem,
 } from '../../warehouse-portal-types'
-import { getCollection, getDefaultRouteDate, isBeforeTodayDayKey } from '../../warehouse-portal-utils'
+import { getCollection, getDefaultRouteDate, getLocalTodayDayKey, isBeforeTodayDayKey } from '../../warehouse-portal-utils'
 import { isPortalCacheFresh, readPortalCache, writePortalCache } from '@/lib/portal-data-cache'
 import { safeFetchJson } from '../../warehouse-portal-api'
 import type { Dispatch, SetStateAction } from 'react'
+
+/**
+ * Cases and kilograms one route order puts on the truck. Every load figure in the
+ * trip planner goes through this, so the per-order rows in the Selected Orders
+ * summary always add up to the Vehicle Load totals.
+ */
+export const getRouteOrderLoad = (order: any): { totalCases: number; totalWeight: number } => {
+  const explicitCases = Number(order?.totalCases)
+  const explicitWeight = Number(order?.totalWeight)
+  if (Number.isFinite(explicitCases) && Number.isFinite(explicitWeight)) {
+    return { totalCases: Math.max(0, explicitCases), totalWeight: Math.max(0, explicitWeight) }
+  }
+  // Fallback supports saved routes hydrated from ordinary order details.
+  return (Array.isArray(order?.items) ? order.items : []).reduce(
+    (load: { totalCases: number; totalWeight: number }, item: any) => {
+      const quantity = Math.max(0, Number(item?.quantity || 0))
+      load.totalCases += quantity
+      load.totalWeight += quantity * Math.max(0, Number(item?.product?.weight || 0))
+      return load
+    },
+    { totalCases: 0, totalWeight: 0 },
+  )
+}
+
+const calculateTripLoad = (loadOrders: any[]) => loadOrders.reduce(
+  (summary, order) => {
+    const load = getRouteOrderLoad(order)
+    summary.totalCases += load.totalCases
+    summary.totalWeight += load.totalWeight
+    return summary
+  },
+  { totalCases: 0, totalWeight: 0 },
+)
+
+export const UPCOMING_DELIVERY_DAYS = 5
+
+type UpcomingDeliveriesResult = { key: string; days: UpcomingDeliveryDay[]; error: string }
+
+/**
+ * Added: the "next 5 days" preview in the Create Trip dialog. Fetches once per
+ * open dialog / warehouse, and never while disabled (edit mode keeps its date).
+ */
+export function useUpcomingDeliveries({ enabled, warehouseId, from, days = UPCOMING_DELIVERY_DAYS }: { enabled: boolean; warehouseId: string; from?: string; days?: number }) {
+  const [reloadCount, setReloadCount] = useState(0)
+  const [result, setResult] = useState<UpcomingDeliveriesResult | null>(null)
+  const [wasEnabled, setWasEnabled] = useState(enabled)
+  if (wasEnabled !== enabled) {
+    // Every reopen is a fresh request: orders planned since the last open must show.
+    setWasEnabled(enabled)
+    if (enabled) setReloadCount((count) => count + 1)
+  }
+  // The daily orders page uses the same eligibility rules for exactly its selected date.
+  const fromDate = from || getLocalTodayDayKey()
+  const requestKey = enabled && warehouseId ? `${warehouseId}|${fromDate}|${days}|${reloadCount}` : ''
+
+  useEffect(() => {
+    if (!requestKey) return
+    let cancelled = false
+    const query = new URLSearchParams({ warehouseId, from: fromDate, days: String(days) })
+    void safeFetchJson(
+      `/api/trips/upcoming-deliveries?${query.toString()}`,
+      { cache: 'no-store', credentials: 'include' },
+      { retries: 0, timeoutMs: 60000 }
+    ).then((response) => {
+      if (cancelled) return
+      if (!response.ok) {
+        setResult({ key: requestKey, days: [], error: response.error || 'Could not load upcoming deliveries' })
+        return
+      }
+      setResult({ key: requestKey, days: getCollection<UpcomingDeliveryDay>(response.data, ['days']), error: '' })
+    }).catch(() => {
+      if (!cancelled) setResult({ key: requestKey, days: [], error: 'Could not load upcoming deliveries' })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [requestKey])
+
+  // Loading is derived rather than stored: a result for an older warehouse or
+  // an earlier open never shows as current.
+  const current = result && result.key === requestKey ? result : null
+  return {
+    days: current?.days || [],
+    error: current?.error || '',
+    loading: Boolean(requestKey) && !current,
+    reload: () => setReloadCount((count) => count + 1),
+  }
+}
 
 /**
  * Route planning and trip creation for the warehouse: driver/vehicle eligibility, load calculations, the route-plan editor, and the create/edit/delete trip actions.
@@ -129,25 +218,6 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
   const selectedRouteOrders = useMemo(
     () => (selectedRouteGroup?.orders || []).filter((order) => selectedRouteOrderIds.includes(order.id)),
     [selectedRouteGroup, selectedRouteOrderIds]
-  )
-  const calculateTripLoad = (loadOrders: any[]) => loadOrders.reduce(
-    (summary, order) => {
-      const explicitCases = Number(order?.totalCases)
-      const explicitWeight = Number(order?.totalWeight)
-      if (Number.isFinite(explicitCases) && Number.isFinite(explicitWeight)) {
-        summary.totalCases += Math.max(0, explicitCases)
-        summary.totalWeight += Math.max(0, explicitWeight)
-        return summary
-      }
-      // Fallback supports saved routes hydrated from ordinary order details.
-      (Array.isArray(order?.items) ? order.items : []).forEach((item: any) => {
-        const quantity = Math.max(0, Number(item?.quantity || 0))
-        summary.totalCases += quantity
-        summary.totalWeight += quantity * Math.max(0, Number(item?.product?.weight || 0))
-      })
-      return summary
-    },
-    { totalCases: 0, totalWeight: 0 },
   )
   const selectedRouteLoad = useMemo(() => calculateTripLoad(selectedRouteOrders), [selectedRouteOrders])
   const selectedSavedRoute = useMemo(
@@ -510,7 +580,11 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
           ),
         }))
         .filter((group: any) => (Array.isArray(group?.orders) ? group.orders.length : 0) > 0)
-      const plans = mergeRoutePlansWithTripOrders(eligiblePlans)
+      // Added: stamp the filtered day on each order for the Selected Orders summary.
+      const plans = mergeRoutePlansWithTripOrders(eligiblePlans).map((group) => ({
+        ...group,
+        orders: group.orders.map((order) => (order.deliveryDate ? order : { ...order, deliveryDate: effectiveDate })),
+      }))
       setRoutePlans(plans)
       setSelectedRouteCity((current) => {
         if (current && plans.some((group) => group.city === current)) return current

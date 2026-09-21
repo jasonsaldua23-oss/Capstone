@@ -107,7 +107,6 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
       dayOrders.map((order: any) => String(order?.id || '').trim()).filter(Boolean)
     )
     const tripOrderIds = new Set<string>()
-    const shownDriverIds = new Set<string>()
     // A driver can hold several trips at once but is only ever in one place, so
     // the trip loop below must emit a single marker for them. Without this, every
     // extra trip pushed another marker with the same `driver-<id>` key and React
@@ -125,7 +124,6 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
           ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status)) && tripMatchesTrackingDay(trip)
       )
       .forEach((trip: any) => {
-        const normalizedTripStatus = normalizeTripStatus(trip?.status)
         const tripMatchesDay = tripMatchesTrackingDay(trip)
         const toCoordinate = (value: unknown) => {
           const parsed = Number(value)
@@ -248,7 +246,8 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
               lng: driverLng,
               status: String(trip?.status || 'IN_PROGRESS'),
               markerColor: '#1d4ed8',
-              markerLabel: ['IN_PROGRESS'].includes(normalizedTripStatus) ? 'Driver current location' : 'Driver last known location',
+              // Only IN_PROGRESS trips reach this loop, so this is never a stale fix.
+              markerLabel: 'Driver current location',
               markerType: 'truck' as const,
               markerHeading: markerHeading ?? undefined,
               speedMps: reportedSpeedMps(freshestPoint),
@@ -285,7 +284,6 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
 
         if (driverLocationMarker) {
           // Push driver marker last so it stays visually on top of stop pins.
-          if (driverId) shownDriverIds.add(driverId)
           // Keep whichever of this driver's trips carries their most recent fix,
           // so the marker shows where they actually are rather than whichever
           // trip the API happened to return first.
@@ -365,38 +363,12 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
         }
       })
 
-    // Fix: warehouse tracking also receives the latest point for drivers whose
-    // GPS is tied to a completed trip or currently has no trip association.
-    driverLocations.forEach((location) => {
-      const driverId = String(location?.driverId || '').trim()
-      const assignedTrip = scopedTrips.find((trip) => String(trip?.id || '') === String(location?.tripId || ''))
-      const destinationPoint = (assignedTrip?.dropPoints || [])
-        .slice()
-        .sort((a, b) => Number(a?.sequence || 0) - Number(b?.sequence || 0))
-        .find((point) => !isDropPointCompleted(point?.status) && !isDropPointCompleted(point?.orderStatus))
-      const latitude = Number(location?.latitude)
-      const longitude = Number(location?.longitude)
-      if (!driverId || shownDriverIds.has(driverId)) return
-      if (!isDateMatch(location?.recordedAt, trackingDate)) return
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
-      shownDriverIds.add(driverId)
-      locations.push({
-        id: `driver-${driverId}`,
-        driverName: String(location?.driverName || 'Driver'),
-        vehiclePlate: String(location?.vehiclePlate || 'N/A'),
-        lat: latitude,
-        lng: longitude,
-        status: String(location?.tripStatus || 'LOCATION_AVAILABLE'),
-        markerColor: '#1d4ed8',
-        markerLabel: 'Driver last known location',
-        markerType: 'truck',
-        markerHeading: Number.isFinite(Number(location?.heading)) ? Number(location.heading) : undefined,
-        speedMps: reportedSpeedMps(location),
-        // Added: preserve known assignment data for last-known driver markers.
-        assignedTripNumber: String(assignedTrip?.tripNumber || ''),
-        destinationCustomer: String(destinationPoint?.locationName || 'N/A'),
-      })
-    })
+    // Fix: trucks exist only for the trips in the loop above, i.e. the ones
+    // IN_PROGRESS on the tracking day. The old "last known location" pass put a
+    // truck on the map for every driver with a fix that day, so drivers whose
+    // trip had already been completed (or who had no trip at all) kept showing
+    // as if they were still out delivering. `driverLocations` now only feeds the
+    // live position of a driver who is on an active trip.
 
     dayOrders.forEach((order: any) => {
       if (order?.id && tripOrderIds.has(order.id)) return

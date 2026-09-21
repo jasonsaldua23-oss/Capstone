@@ -11,9 +11,11 @@ from django.utils import timezone
 from . import views_api as legacy
 from .api_utils import to_float_or_none as _to_float_or_none, to_int as _int
 from .mixed_case import (
+    allocatable_standard_cases,
     consume_order_item_reservations,
     release_order_item_reservations,
     reserve_order_item,
+    units_per_case,
 )
 from .models import (
     Inventory,
@@ -108,6 +110,14 @@ def _extract_allocation_policy_from_notes(notes: Any) -> str:
     return _normalize_allocation_policy(raw)
 
 
+def _sellable_standard_cases(inventory: Inventory, product: Product) -> int:
+    """Full cases a standard-case reservation may still take from one inventory row."""
+    # The reserved_quantity counter also covers reservations made before
+    # reserved_base_units was kept in step, so never trust either one alone.
+    counter_available = max(0, _int(inventory.quantity, 0) - _int(inventory.reserved_quantity, 0))
+    return min(counter_available, allocatable_standard_cases(inventory, product))
+
+
 def _reserve_inventory_for_order_item(
     *,
     product: Product,
@@ -142,10 +152,9 @@ def _reserve_inventory_for_order_item(
         .filter(status__iexact="ACTIVE")
         .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.now()))
     )
-    available_by_inventory = {
-        inv.id: max(0, _int(inv.quantity, 0) - _int(inv.reserved_quantity, 0))
-        for inv in inventories
-    }
+    # Fix: cap by the batch-backed sellable cases the catalog shows, so the error
+    # never claims unbatched or mixed-case-held stock is available.
+    available_by_inventory = {inv.id: _sellable_standard_cases(inv, product) for inv in inventories}
     total_available = sum(available_by_inventory.values())
     if not batches or total_available < requested_qty:
         raise ValueError(
@@ -190,23 +199,60 @@ def _reserve_inventory_for_order_item(
             f"required: {requested_qty} cases."
         )
 
+    per_case = units_per_case(product)
     for inventory_id, qty in allocation_by_inventory.items():
         inventory = inventory_by_id.get(inventory_id)
         if not inventory:
             continue
         inventory.reserved_quantity = max(0, int(inventory.reserved_quantity or 0) + qty)
-        inventory.save(update_fields=["reserved_quantity", "updated_at"])
+        # Fix: catalog availability reads reserved_base_units for reservations that
+        # have no InventoryReservation row. Updating only reserved_quantity left a
+        # reserved purchase request fully visible as sellable stock.
+        inventory.reserved_base_units = max(0, int(inventory.reserved_base_units or 0)) + qty * per_case
+        inventory.save(update_fields=["reserved_quantity", "reserved_base_units", "updated_at"])
         InventoryTransaction.objects.create(
             warehouse=inventory.warehouse,
             product=product,
             type="RESERVE",
             quantity=qty,
+            quantity_unit=InventoryQuantityUnit.CASE,
+            stock_unit_label="Case",
+            # Marks that this reservation also counted into reserved_base_units,
+            # so consume/release reverse exactly what was added.
+            case_capacity_snapshot=per_case,
             reference_type="order_item_reserve",
             reference_id=order_item.id,
             notes=f"{allocation_policy} reserve for order {order.order_number}",
         )
 
     return allocation_rows
+
+
+def _standard_case_shortfalls(order_items: list[OrderItem]) -> list[str]:
+    """Per-product messages for standard-case lines that current sellable stock cannot cover."""
+    required_by_product: dict[str, int] = {}
+    products: dict[str, Product] = {}
+    for order_item in order_items:
+        if order_item.item_type == OrderItemType.MIXED_CASE or order_item.product is None:
+            continue
+        product_id = str(order_item.product_id)
+        products[product_id] = order_item.product
+        required_by_product[product_id] = required_by_product.get(product_id, 0) + max(0, _int(order_item.quantity, 0))
+
+    messages: list[str] = []
+    for product_id, required in required_by_product.items():
+        product = products[product_id]
+        # Reservation may fall back to any warehouse, so compare against all of them.
+        available = sum(
+            _sellable_standard_cases(inventory, product)
+            for inventory in Inventory.objects.filter(product_id=product_id)
+        )
+        if available < required:
+            product_label = str(product.name or product.sku or product.id).strip()
+            messages.append(
+                f"Insufficient stock for {product_label}. Available: {available} cases; required: {required} cases."
+            )
+    return messages
 
 
 def _reserve_order_inventory(order: Order, performed_by: str | None) -> None:
@@ -220,20 +266,26 @@ def _reserve_order_inventory(order: Order, performed_by: str | None) -> None:
     )
     warehouses_used: set[str] = set()
 
-    for order_item in order_items:
-        # Approval retries and older already-reserved requests must never reserve twice.
-        has_normalized_reservation = InventoryReservation.objects.filter(
+    # Approval retries and older already-reserved requests must never reserve twice.
+    unreserved_items = [
+        order_item
+        for order_item in order_items
+        if not InventoryReservation.objects.filter(
             order_item=order_item,
             status=ReservationStatus.RESERVED,
         ).exists()
-        has_legacy_reservation = InventoryTransaction.objects.filter(
+        and not InventoryTransaction.objects.filter(
             reference_type="order_item_reserve",
             reference_id=order_item.id,
             type="RESERVE",
         ).exists()
-        if has_normalized_reservation or has_legacy_reservation:
-            continue
+    ]
+    shortfalls = _standard_case_shortfalls(unreserved_items)
+    if shortfalls:
+        # Added: report every short product at once before anything is reserved.
+        raise ValueError(" ".join(shortfalls))
 
+    for order_item in unreserved_items:
         allocation_policy = _extract_allocation_policy_from_notes(order_item.notes)
         if order_item.item_type == OrderItemType.MIXED_CASE:
             reserve_order_item(order_item, allocation_policy, performed_by)
@@ -409,13 +461,16 @@ def _adjust_reserved_for_order_item(
         InventoryTransaction.objects.filter(
             reference_type="order_item_reserve",
             reference_id=order_item.id,
-        ).values("warehouse_id", "product_id", "type", "quantity")
+        ).values("warehouse_id", "product_id", "type", "quantity", "case_capacity_snapshot")
     )
 
     if not reserve_rows:
         return
 
     balances: dict[tuple[str, str], int] = {}
+    # Units per case recorded by reservations that also raised reserved_base_units.
+    # Older reservations never touched that counter, so they must not lower it.
+    base_units_per_case: dict[tuple[str, str], int] = {}
     for row in reserve_rows:
         key = (str(row.get("warehouse_id") or ""), str(row.get("product_id") or ""))
         if not key[0] or not key[1]:
@@ -424,8 +479,15 @@ def _adjust_reserved_for_order_item(
         row_type = str(row.get("type") or "").upper()
         if row_type == "RESERVE":
             balances[key] = balances.get(key, 0) + qty
+            if _int(row.get("case_capacity_snapshot"), 0) > 0:
+                base_units_per_case[key] = _int(row.get("case_capacity_snapshot"), 0)
         elif row_type in {"UNRESERVE", "RESERVE_CONSUMED"}:
             balances[key] = balances.get(key, 0) - qty
+
+    def _reduce_reserved(inv: Inventory, key: tuple[str, str], qty: int) -> None:
+        inv.reserved_quantity = max(0, int(inv.reserved_quantity or 0) - qty)
+        inv.reserved_base_units = max(0, int(inv.reserved_base_units or 0) - qty * base_units_per_case.get(key, 0))
+        inv.save(update_fields=["reserved_quantity", "reserved_base_units", "updated_at"])
 
     if operation == "consume":
         remaining = max(0, int(consume_qty or 0))
@@ -438,8 +500,7 @@ def _adjust_reserved_for_order_item(
             inv = Inventory.objects.select_for_update().filter(warehouse_id=warehouse_id, product_id=product_id).first()
             if not inv:
                 continue
-            inv.reserved_quantity = max(0, int(inv.reserved_quantity or 0) - qty)
-            inv.save(update_fields=["reserved_quantity", "updated_at"])
+            _reduce_reserved(inv, (warehouse_id, product_id), qty)
             InventoryTransaction.objects.create(
                 warehouse=inv.warehouse,
                 product=order_item.product,
@@ -460,8 +521,7 @@ def _adjust_reserved_for_order_item(
         inv = Inventory.objects.select_for_update().filter(warehouse_id=warehouse_id, product_id=product_id).first()
         if not inv:
             continue
-        inv.reserved_quantity = max(0, int(inv.reserved_quantity or 0) - balance)
-        inv.save(update_fields=["reserved_quantity", "updated_at"])
+        _reduce_reserved(inv, (warehouse_id, product_id), balance)
         InventoryTransaction.objects.create(
             warehouse=inv.warehouse,
             product=order_item.product,

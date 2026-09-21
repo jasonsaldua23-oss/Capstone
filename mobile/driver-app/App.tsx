@@ -3182,9 +3182,20 @@ function BottomNavigation({
       {items.map((item) => {
         const active = item.id === activeTab;
         return (
-          <Pressable key={item.id} style={[styles.bottomNavItem, active ? (item.id === "home" ? styles.bottomNavItemHomeActive : styles.bottomNavItemActive) : null]} onPress={() => onSelect(item.id)}>
+          <Pressable
+            key={item.id}
+            accessibilityRole="tab"
+            accessibilityLabel={item.label}
+            accessibilityState={{ selected: active }}
+            style={[styles.bottomNavItem, active ? styles.bottomNavItemActive : null]}
+            onPress={() => onSelect(item.id)}
+          >
+            {active ? <View style={styles.bottomNavRail} /> : null}
             <View style={styles.bottomNavIconWrap}>
-              <Ionicons name={active ? item.activeIcon : item.icon} size={16} color={active ? (item.id === "home" ? "#047857" : "#0369a1") : "#0e4f92"} />
+              {/* The tab that happens to be Home no longer gets an accent of its
+                  own, and selection is carried by the lift and the rail rather
+                  than by recolouring the glyph. */}
+              <Ionicons name={active ? item.activeIcon : item.icon} size={22} color="#0f3d72" />
             </View>
             <Text style={[styles.bottomNavLabel, active ? styles.bottomNavLabelActive : null]}>{item.label}</Text>
           </Pressable>
@@ -3830,44 +3841,48 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(239,247,251,0.95)",
+    // Chrome reads a shade deeper than the content behind it, so the bar needs
+    // neither a translucent wash nor a shadow to separate itself.
+    backgroundColor: "#e8f1f8",
     borderTopWidth: 1,
-    borderTopColor: "rgba(186,230,253,0.70)",
+    borderTopColor: "#c8dcec",
     paddingTop: 8,
     paddingBottom: 10,
     paddingHorizontal: 8,
     flexDirection: "row",
     justifyContent: "space-between",
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 8,
+    gap: 6,
   },
   bottomNavItem: {
     flex: 1,
-    height: 56,
+    height: 60,
     alignItems: "center",
     justifyContent: "center",
     gap: 2,
     borderRadius: 12,
   },
-  bottomNavItemActive: { backgroundColor: "rgba(224,242,254,0.92)" },
-  bottomNavItemHomeActive: { backgroundColor: "rgba(209,250,229,0.92)" },
+  // The selected tab lifts to white against the blue-grey bed and carries a rail:
+  // two channels, where a pale tint alone vanished and a solid block read as a
+  // button sitting in the bar.
+  bottomNavItemActive: { backgroundColor: "#ffffff" },
+  bottomNavRail: {
+    position: "absolute",
+    top: 0,
+    left: 12,
+    right: 12,
+    height: 3,
+    borderRadius: 999,
+    // Blue, not green: green is reserved for the GPS-live state.
+    backgroundColor: "#0e5aa8",
+  },
   bottomNavIconWrap: {
     width: 24,
-    height: 22,
+    height: 24,
     alignItems: "center",
     justifyContent: "center",
   },
-  bottomNavIconWrapActive: {
-    backgroundColor: "transparent",
-  },
-  bottomNavIconWrapHomeActive: { backgroundColor: "transparent" },
-  bottomNavGlyph: { color: "#0e4f92", fontSize: 18, fontFamily: "Poppins_900Black" },
-  bottomNavGlyphActive: { color: "#047857" },
-  bottomNavLabel: { color: "#0e4f92", fontSize: 11, fontFamily: "Poppins_500Medium" },
-  bottomNavLabelActive: { color: "#047857" },
+  bottomNavLabel: { color: "#0f3d72", fontSize: 12, fontFamily: "Poppins_600SemiBold" },
+  bottomNavLabelActive: { color: "#0f3d72" },
   error: { color: "#b91c1c", fontFamily: "Poppins_600SemiBold" },
   errorBanner: {
     color: "#991b1b",

@@ -259,6 +259,9 @@ export interface RoutePlanOrderItem {
   currentTripOrder?: boolean
   totalCases?: number
   totalWeight?: number
+  // Added: the day the route plan was filtered for, stamped client-side so the
+  // Selected Orders summary shows it even after the date input is changed.
+  deliveryDate?: string | null
 }
 
 export interface RoutePlanCityGroup {
@@ -266,6 +269,34 @@ export interface RoutePlanCityGroup {
   orderCount: number
   totalDistanceKm: number
   orders: RoutePlanOrderItem[]
+}
+
+/** One eligible order in the GET /api/trips/upcoming-deliveries preview. */
+export interface UpcomingDeliveryOrder {
+  id: string
+  orderNumber: string
+  customerName: string
+  city: string
+  cases: number
+  weight: number
+  deliveryDate: string
+  status?: string
+}
+
+export interface UpcomingDeliveryCity {
+  city: string
+  orderCount: number
+  totalCases: number
+}
+
+/** A calendar day in the preview; days with no orders are still returned. */
+export interface UpcomingDeliveryDay {
+  date: string
+  orderCount: number
+  totalCases: number
+  totalWeight: number
+  cities: UpcomingDeliveryCity[]
+  orders: UpcomingDeliveryOrder[]
 }
 
 export interface TripEditorState {

@@ -162,6 +162,62 @@ class MixedCaseValidationTests(MixedCaseFixtureMixin, TestCase):
         self.assertEqual(items[0]["components"][0]["totalBaseUnits"], 12)
         self.assertEqual(subtotal, Decimal("187.50"))
 
+    def test_no_product_may_exceed_half_the_case(self):
+        # 18 + 6 and 13 + 11 both total 24, so only the per-product ceiling
+        # tells them apart from the valid 12 + 12 split.
+        def payload(first, second):
+            return [{
+                "itemType": "MIXED_CASE",
+                "caseCapacity": 24,
+                "quantity": 1,
+                "components": [
+                    {"productId": self.products[0].id, "quantity": first},
+                    {"productId": self.products[1].id, "quantity": second},
+                ],
+            }]
+
+        items, _ = normalize_checkout_items(payload(12, 12))
+        self.assertEqual([c["quantityPerCase"] for c in items[0]["components"]], [12, 12])
+
+        for first, second in [(18, 6), (13, 11), (6, 18)]:
+            with self.subTest(split=(first, second)), self.assertRaisesMessage(
+                ValueError, "A 24-unit Mixed Case allows at most 12 units of one product"
+            ):
+                normalize_checkout_items(payload(first, second))
+
+    def test_per_product_ceiling_follows_the_case_capacity(self):
+        # Assumption: the ceiling is capacity // 2 for every capacity, so a
+        # 12-unit case caps each product at 6.
+        smaller = []
+        for index, name in enumerate(["Sarsi", "Royal"]):
+            smaller.append(
+                Product.objects.create(
+                    sku=f"SKU-SMALL-{index}",
+                    name=name,
+                    unit="case",
+                    price=100,
+                    category="Carbonated(Glass)",
+                    sizes=["12oz"],
+                    quantity_per_unit=12,
+                )
+            )
+
+        def payload(first, second):
+            return [{
+                "itemType": "MIXED_CASE",
+                "caseCapacity": 12,
+                "quantity": 1,
+                "components": [
+                    {"productId": smaller[0].id, "quantity": first},
+                    {"productId": smaller[1].id, "quantity": second},
+                ],
+            }]
+
+        items, _ = normalize_checkout_items(payload(6, 6))
+        self.assertEqual([c["quantityPerCase"] for c in items[0]["components"]], [6, 6])
+        with self.assertRaisesMessage(ValueError, "A 12-unit Mixed Case allows at most 6 units of one product"):
+            normalize_checkout_items(payload(7, 5))
+
     def test_three_product_mix_is_rejected(self):
         with self.assertRaisesMessage(ValueError, "only two different products"):
             normalize_checkout_items(

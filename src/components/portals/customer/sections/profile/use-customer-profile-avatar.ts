@@ -132,8 +132,9 @@ export function useCustomerProfileAvatar(inputs: CustomerProfileAvatarInputs) {
       toast.error('Unable to save profile right now')
       return false
     }
-    if (!profileFirstName.trim() || !profileLastName.trim() || (!profileNoMiddleName && !profileMiddleName.trim())) {
-      toast.error('First name, last name, and middle name are required.')
+    // Fix: the middle name is optional, so an empty one never blocks a save.
+    if (!profileFirstName.trim() || !profileLastName.trim()) {
+      toast.error('First name and last name are required.')
       return false
     }
     const nameError = validatePersonName(profileFirstName, profileMiddleName, profileLastName, profileSuffix)
@@ -146,8 +147,11 @@ export function useCustomerProfileAvatar(inputs: CustomerProfileAvatarInputs) {
       toast.error('Email is required')
       return false
     }
+    // Fix: PUT /api/customers/:id (and the mobile app) accept a profile with no phone --
+    // Google sign-ups start without one -- so only a number that was typed is checked.
+    // Checkout and the address page still require a phone for delivery.
     const normalizedProfilePhone = String(profilePhone || '').replace(/\D/g, '')
-    if (!normalizedProfilePhone || !isValidPhilippinePhone(normalizedProfilePhone)) {
+    if (normalizedProfilePhone && !isValidPhilippinePhone(normalizedProfilePhone)) {
       toast.error('Please enter a valid Philippine mobile number before saving')
       return false
     }
@@ -160,11 +164,11 @@ export function useCustomerProfileAvatar(inputs: CustomerProfileAvatarInputs) {
       }
       const { response, payload } = await updateCustomerProfile(customerId, {
         firstName: profileFirstName.trim(),
-        middleName: profileNoMiddleName ? null : profileMiddleName.trim(),
+        middleName: (profileNoMiddleName ? '' : profileMiddleName.trim()) || null,
         lastName: profileLastName.trim(),
         suffix: profileSuffix.trim(),
         email: profileEmail.trim(),
-        phone: normalizedProfilePhone,
+        phone: normalizedProfilePhone || null,
         avatar: avatarToSave,
       })
       if (!response.ok || payload?.success === false) {

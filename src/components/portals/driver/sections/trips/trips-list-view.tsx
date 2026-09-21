@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { Loader2, Search, Truck } from 'lucide-react'
+import { formatTripScheduledDay, getTripScheduledDateKey, isTripOverdue, tripStatusBadgeColors } from './trip-detail-format'
 
 type Trip = any
 export function TripsListView({
@@ -18,26 +19,26 @@ export function TripsListView({
   isLoading: boolean
   onSelectTrip: (trip: Trip) => void
 }) {
-  const formatTripSchedule = (value: string | null | undefined) => {
-    const raw = String(value || '').trim()
-    if (!raw) return 'Not set'
-    const parsed = new Date(raw)
-    if (Number.isNaN(parsed.getTime())) return raw
-    return parsed.toLocaleDateString('en-PH', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
-  }
-
-  const statusColors: Record<string, string> = {
-    PLANNED: 'bg-sky-100 text-sky-800 border border-sky-200',
-    IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-    COMPLETED: 'bg-teal-100 text-teal-800 border border-teal-200',
-    CANCELLED: 'bg-rose-100 text-rose-800 border border-rose-200',
-  }
+  const statusColors = tripStatusBadgeColors
   const [deliverySearch, setDeliverySearch] = useState('')
-  const activeTrips = (trips || []).filter((trip) => String(trip?.status || '').toUpperCase() !== 'COMPLETED')
+  // Fix: My Deliveries holds only work the driver can still do - the running trip,
+  // then upcoming planned trips soonest first. Cancelled and overdue trips (and
+  // completed ones) are in History. The API orders by last update, so sort here.
+  const statusRank = (trip: Trip) => (String(trip?.status || '').toUpperCase() === 'IN_PROGRESS' ? 0 : 1)
+  const activeTrips = (trips || [])
+    .filter((trip) => {
+      const status = String(trip?.status || '').toUpperCase()
+      return status === 'IN_PROGRESS' || (status === 'PLANNED' && !isTripOverdue(trip))
+    })
+    .sort((a, b) => {
+      const rankDiff = statusRank(a) - statusRank(b)
+      if (rankDiff !== 0) return rankDiff
+      // Unscheduled trips sort after every dated one.
+      const aKey = getTripScheduledDateKey(a) || '9999-12-31'
+      const bKey = getTripScheduledDateKey(b) || '9999-12-31'
+      if (aKey !== bKey) return aKey < bKey ? -1 : 1
+      return String(a?.tripNumber || '').localeCompare(String(b?.tripNumber || ''))
+    })
   const filteredDeliveryTrips = activeTrips.filter((trip) => {
     const query = deliverySearch.trim().toLowerCase()
     if (!query) return true
@@ -63,7 +64,11 @@ export function TripsListView({
 
   return (
     // The portal shell owns horizontal gutters so phone layouts do not receive double padding.
-    <div className="w-full min-w-0 py-4">
+    // The bottom pad is the phone nav's clearance -- its own height plus the home
+    // indicator -- matching Home, History and Profile. Without it the list fell back
+    // to the shell's flat `pb-24`, which is blind to the safe-area inset, and the
+    // last delivery card sat underneath the bar.
+    <div className="w-full min-w-0 pt-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)] md:pb-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Assigned Routes</p>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <h2 className="mt-0 text-xl font-black tracking-[-0.01em] text-slate-900">My Deliveries</h2>
@@ -83,7 +88,7 @@ export function TripsListView({
           <CardContent className="py-12 text-center">
             <Truck className="mx-auto mb-4 h-12 w-12 text-sky-300" />
             <p className="font-semibold text-slate-700">No active deliveries</p>
-            <p className="mt-1 text-sm text-slate-500">Completed trips are in History.</p>
+            <p className="mt-1 text-sm text-slate-500">Completed, overdue, and cancelled trips are in History.</p>
           </CardContent>
         </Card>
       ) : filteredDeliveryTrips.length === 0 ? (
@@ -121,7 +126,7 @@ export function TripsListView({
                 <div className="mt-3 min-w-0 space-y-1">
                   <p className="break-words text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
                   <p className="break-words text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
-                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripScheduledDay(trip)}</p>
                 </div>
               </CardContent>
             </Card>

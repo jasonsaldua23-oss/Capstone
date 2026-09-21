@@ -20,6 +20,8 @@ export type EditProfileScreenProps = {
   initials: string
   isEditingProfile: boolean
   isSavingProfile: boolean
+  /** Leaves the editor, discarding anything not saved. */
+  onBack: () => void
   openAvatarCropDialog: (file: File | null) => Promise<void>
   phoneError: string | null
   profileEmail: string
@@ -40,7 +42,6 @@ export type EditProfileScreenProps = {
   setProfileNoMiddleName: (value: boolean) => void
   setProfilePhone: (value: string) => void
   setProfileSuffix: ((value: string) => void) | undefined
-  setSubView: Dispatch<SetStateAction<'menu' | 'edit' | 'empties-deposits' | 'security' | 'account-security' | 'change-password' | 'change-password-otp' | 'security-settings' | 'notifications' | 'real-notifications'>>
   shippingCity: string
   shippingProvince: string
   shippingZipCode: string
@@ -55,6 +56,7 @@ export function EditProfileScreen({
   initials,
   isEditingProfile,
   isSavingProfile,
+  onBack,
   openAvatarCropDialog,
   phoneError,
   profileEmail,
@@ -75,12 +77,13 @@ export function EditProfileScreen({
   setProfileNoMiddleName,
   setProfilePhone,
   setProfileSuffix,
-  setSubView,
   shippingCity,
   shippingProvince,
   shippingZipCode,
   user,
 }: EditProfileScreenProps) {
+  // Added: a disabled Save states why, rather than leaving the customer to guess.
+  const isMissingRequiredName = !profileFirstName.trim() || !profileLastName.trim()
   return (
     <div className="space-y-5 pb-[calc(env(safe-area-inset-bottom)+6.75rem)] md:pb-6 bg-[#f8f9fa] min-h-screen">
       <div className="flex items-center gap-3 px-4 pt-5 pb-1">
@@ -89,7 +92,7 @@ export function EditProfileScreen({
           variant="ghost"
           size="icon"
           className="h-10 w-10 rounded-full hover:bg-slate-100 text-slate-700"
-          onClick={() => setSubView('menu')}
+          onClick={onBack}
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
@@ -143,7 +146,7 @@ export function EditProfileScreen({
             <Input id="customer-profile-last-name" value={profileLastName} onChange={(e) => setProfileLastName(e.target.value)} placeholder="Last name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name {!profileNoMiddleName && <span className="text-red-500">*</span>}</Label>
+            <Label htmlFor="customer-profile-middle-name" className="text-sm font-semibold text-slate-700">Middle Name <span className="text-xs font-normal text-slate-400">(Optional)</span></Label>
             <Input id="customer-profile-middle-name" value={profileMiddleName} onChange={(e) => setProfileMiddleName(e.target.value)} placeholder="Middle name" className="h-11 rounded-xl border-slate-200" disabled={!isEditingProfile || profileNoMiddleName} />
             <label className="flex items-center gap-2 text-xs text-slate-600">
               <input
@@ -172,8 +175,10 @@ export function EditProfileScreen({
             value={profileEmail}
             onChange={(e) => setProfileEmail(e.target.value)}
             placeholder="Enter your email"
-            className="h-11 rounded-xl border-slate-200 bg-white text-slate-800 focus-visible:border-emerald-500 focus-visible:ring-emerald-200"
-            disabled={!isEditingProfile}
+            // The verified account email is an identity field and is not editable here.
+            readOnly
+            aria-readonly="true"
+            className="h-11 cursor-not-allowed rounded-xl border-slate-200 bg-slate-50 text-slate-800 focus-visible:ring-0"
           />
         </div>
         <div className="space-y-2">
@@ -223,7 +228,9 @@ export function EditProfileScreen({
               setIsEditingProfile(true)
             }
           }}
-          disabled={isSavingProfile || !canSaveProfile}
+          // Fix: only Save is gated on a valid form. Gating the Edit step as well locked
+          // customers with no phone out of the editor entirely.
+          disabled={isSavingProfile || (isEditingProfile && !canSaveProfile)}
           className="w-full h-12 bg-[#14532d] text-white rounded-xl font-semibold hover:bg-[#0f3f22] transition-colors shadow-[0_4px_12px_rgba(20,83,45,0.12)]"
         >
           {isSavingProfile ? (
@@ -237,6 +244,9 @@ export function EditProfileScreen({
             'Edit Profile'
           )}
         </Button>
+        {isEditingProfile && isMissingRequiredName ? (
+          <p className="mt-2 text-center text-xs font-medium text-red-600">First name and last name are required.</p>
+        ) : null}
       </div>
     </div>
   )

@@ -22,12 +22,47 @@ def _create_staff_notifications(
     reference_type: str | None = None,
     reference_id: str | None = None,
 ) -> None:
-    recipients = list(
-        User.objects.filter(
-            role__in=[RoleType.SUPER_ADMIN, RoleType.ADMIN, RoleType.WAREHOUSE_STAFF],
-            is_active=True,
-        ).only("id")
+    _notify_staff_roles(
+        roles=[RoleType.SUPER_ADMIN, RoleType.ADMIN, RoleType.WAREHOUSE_STAFF],
+        title=title,
+        message=message,
+        notification_type=notification_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
     )
+
+
+def _create_admin_notifications(
+    *,
+    title: str,
+    message: str,
+    notification_type: str,
+    reference_type: str | None = None,
+    reference_id: str | None = None,
+) -> None:
+    """Notify administrators only, for events only an administrator can act on."""
+    # Added: client registration review is ADMIN/SUPER_ADMIN-only, so warehouse
+    # staff would get an alert they have no way to resolve.
+    _notify_staff_roles(
+        roles=[RoleType.SUPER_ADMIN, RoleType.ADMIN],
+        title=title,
+        message=message,
+        notification_type=notification_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
+    )
+
+
+def _notify_staff_roles(
+    *,
+    roles: list[str],
+    title: str,
+    message: str,
+    notification_type: str,
+    reference_type: str | None,
+    reference_id: str | None,
+) -> None:
+    recipients = list(User.objects.filter(role__in=roles, is_active=True).only("id"))
     if not recipients:
         return
 

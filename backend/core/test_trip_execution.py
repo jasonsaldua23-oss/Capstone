@@ -2,12 +2,15 @@
 
 import json
 from datetime import timedelta
+from io import StringIO
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import Client, TestCase
 from django.utils import timezone
 
 from .auth import create_token
+from .fleet_sync import sync_vehicle_status, sync_vehicle_status_for_trip
 from .models import (
     Customer,
     DropPointType,
@@ -25,6 +28,7 @@ from .models import (
     TripStatus,
     User,
     Vehicle,
+    VehicleStatus,
     VehicleType,
     Warehouse,
 )
@@ -302,6 +306,258 @@ class TripExecutionApiContractTests(TestCase):
         self.trip.refresh_from_db()
         self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
         self.assertEqual(self.trip.actual_start_at, first_started_at)
+
+    # ------------------------------------------------------------------
+    # Added: overdue trips, one active trip per driver, and fleet sync.
+    # ------------------------------------------------------------------
+
+    def _start(self, trip, *, token=None, confirm_load=True):
+        body = {"confirmLoad": True} if confirm_load else {}
+        return self.client.post(
+            f"/api/trips/{trip.id}/start",
+            data=body,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token or self.driver_token}",
+        )
+
+    def _second_trip_for_driver(self, *, vehicle=None):
+        trip = Trip.objects.create(
+            trip_number="TRP-EXEC-SECOND",
+            driver=self.driver,
+            vehicle=vehicle or self.vehicle,
+            status=TripStatus.PLANNED,
+            planned_start_at=timezone.now(),
+            total_drop_points=1,
+        )
+        order = Order.objects.create(
+            order_number="ORD-EXEC-SECOND-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=100,
+        )
+        TripDropPoint.objects.create(
+            trip=trip,
+            order=order,
+            sequence=1,
+            location_name="Second Stop",
+            address="Second Address",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+            drop_point_type=DropPointType.DELIVERY,
+        )
+        return trip, order
+
+    def test_trip_start_refuses_a_trip_whose_delivery_date_has_passed(self) -> None:
+        # The order delivery date wins over planned_start_at (still today here).
+        order = Order.objects.create(
+            order_number="ORD-EXEC-OVERDUE-001",
+            customer=self.customer,
+            status=OrderStatus.PREPARING,
+            subtotal=100,
+            total_amount=100,
+        )
+        yesterday = timezone.now() - timedelta(days=1)
+        OrderTimeline.objects.update_or_create(order=order, defaults={"delivery_date": yesterday})
+        self.dp_1.order = order
+        self.dp_1.save(update_fields=["order", "updated_at"])
+
+        response = self._start(self.trip)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["error"],
+            f"This trip was scheduled for {timezone.localdate(yesterday).isoformat()} and that date has passed. "
+            "It can no longer be started.",
+        )
+        self.trip.refresh_from_db()
+        order.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+        self.assertIsNone(self.trip.actual_start_at)
+        self.assertEqual(order.status, OrderStatus.PREPARING)
+
+    def test_trip_start_refuses_overdue_legacy_trip_scheduled_by_planned_start(self) -> None:
+        self.trip.planned_start_at = timezone.now() - timedelta(days=3)
+        self.trip.save(update_fields=["planned_start_at", "updated_at"])
+
+        response = self._start(self.trip)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("that date has passed", response.json()["error"])
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+
+    def test_trip_start_refuses_second_active_trip_and_leaves_it_planned(self) -> None:
+        self.assertEqual(self._start(self.trip).status_code, 200)
+        second_trip, second_order = self._second_trip_for_driver()
+
+        response = self._start(second_trip)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["error"],
+            "You already have an active trip. Complete your current trip before starting another delivery.",
+        )
+        second_trip.refresh_from_db()
+        second_order.refresh_from_db()
+        self.assertEqual(second_trip.status, TripStatus.PLANNED)
+        self.assertIsNone(second_trip.actual_start_at)
+        self.assertEqual(second_order.status, OrderStatus.PREPARING)
+        self.assertIsNone(second_order.warehouse_dispatched_at)
+        self.trip.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.IN_PROGRESS)
+
+    def test_active_trip_check_cannot_be_bypassed_by_omitting_confirm_load(self) -> None:
+        self.assertEqual(self._start(self.trip).status_code, 200)
+        second_trip, _ = self._second_trip_for_driver()
+
+        response = self._start(second_trip, confirm_load=False)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("already have an active trip", response.json()["error"])
+        second_trip.refresh_from_db()
+        self.assertEqual(second_trip.status, TripStatus.PLANNED)
+
+    def test_second_trip_can_start_once_the_first_is_completed(self) -> None:
+        self.assertEqual(self._start(self.trip).status_code, 200)
+        second_trip, _ = self._second_trip_for_driver()
+        self.trip.drop_points.update(status="COMPLETED")
+        with patch("core.views_api._create_staff_notifications"):
+            complete = self.client.post(
+                f"/api/trips/{self.trip.id}/complete",
+                HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+            )
+        self.assertEqual(complete.status_code, 200, complete.content.decode())
+
+        self.assertEqual(self._start(second_trip).status_code, 200)
+        second_trip.refresh_from_db()
+        self.assertEqual(second_trip.status, TripStatus.IN_PROGRESS)
+
+    def test_confirm_load_is_still_required_for_a_startable_trip(self) -> None:
+        for body in ({}, {"confirmLoad": False}, {"confirmLoad": "true"}):
+            response = self.client.post(
+                f"/api/trips/{self.trip.id}/start",
+                data=body,
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+            )
+            self.assertEqual(response.status_code, 400, body)
+            self.assertEqual(response.json()["error"], "Confirm Load is required before starting the trip")
+        self.trip.refresh_from_db()
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.trip.status, TripStatus.PLANNED)
+        self.assertEqual(self.vehicle.status, VehicleStatus.AVAILABLE)
+
+    def test_vehicle_is_in_use_while_trip_runs_and_available_after_completion(self) -> None:
+        self.assertEqual(self._start(self.trip).status_code, 200)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.status, VehicleStatus.IN_USE)
+
+        self.trip.drop_points.update(status="COMPLETED")
+        with patch("core.views_api._create_staff_notifications"):
+            response = self.client.post(
+                f"/api/trips/{self.trip.id}/complete",
+                HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+            )
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.status, VehicleStatus.AVAILABLE)
+
+    def test_maintenance_vehicle_cannot_start_a_trip(self) -> None:
+        for manual_status, label in (
+            (VehicleStatus.MAINTENANCE, "under maintenance"),
+            (VehicleStatus.OUT_OF_SERVICE, "out of service"),
+        ):
+            Vehicle.objects.filter(id=self.vehicle.id).update(status=manual_status)
+            response = self._start(self.trip)
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(
+                response.json()["error"],
+                f"Vehicle {self.vehicle.license_plate} is {label} and cannot be dispatched. "
+                "Ask an administrator to assign another vehicle.",
+            )
+            self.trip.refresh_from_db()
+            self.vehicle.refresh_from_db()
+            self.assertEqual(self.trip.status, TripStatus.PLANNED)
+            self.assertEqual(self.vehicle.status, manual_status)
+
+    def test_completing_a_trip_never_overwrites_maintenance(self) -> None:
+        self.assertEqual(self._start(self.trip).status_code, 200)
+        # The fleet operator pulls the truck mid-trip; closing the trip must keep that.
+        Vehicle.objects.filter(id=self.vehicle.id).update(status=VehicleStatus.MAINTENANCE)
+        self.trip.drop_points.update(status="COMPLETED")
+        with patch("core.views_api._create_staff_notifications"):
+            response = self.client.post(
+                f"/api/trips/{self.trip.id}/complete",
+                HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+            )
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.status, VehicleStatus.MAINTENANCE)
+
+    def test_sync_vehicle_status_is_idempotent_and_respects_shared_trucks(self) -> None:
+        # Legacy data: two running trips on one truck. Closing one keeps it IN_USE.
+        Trip.objects.filter(id__in=[self.trip.id, self.other_trip.id]).update(
+            status=TripStatus.IN_PROGRESS, vehicle=self.vehicle
+        )
+        self.assertEqual(sync_vehicle_status(self.vehicle), VehicleStatus.IN_USE)
+        self.assertEqual(sync_vehicle_status(self.vehicle), VehicleStatus.IN_USE)
+        Trip.objects.filter(id=self.trip.id).update(status=TripStatus.COMPLETED)
+        self.assertEqual(sync_vehicle_status_for_trip(self.trip), VehicleStatus.IN_USE)
+        Trip.objects.filter(id=self.other_trip.id).update(status=TripStatus.COMPLETED)
+        self.assertEqual(sync_vehicle_status_for_trip(self.trip), VehicleStatus.AVAILABLE)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.status, VehicleStatus.AVAILABLE)
+
+    def test_sync_vehicle_statuses_command_reconciles_existing_fleet(self) -> None:
+        # Trips started before the rule existed left their trucks reading AVAILABLE.
+        Trip.objects.filter(id=self.trip.id).update(status=TripStatus.IN_PROGRESS)
+        stale_in_use = Vehicle.objects.create(
+            license_plate="EXEC-TRIP-003", type=VehicleType.VAN, status=VehicleStatus.IN_USE, is_active=True
+        )
+        in_shop = Vehicle.objects.create(
+            license_plate="EXEC-TRIP-004", type=VehicleType.VAN, status=VehicleStatus.MAINTENANCE, is_active=True
+        )
+        Trip.objects.create(
+            trip_number="TRP-EXEC-SHOP", driver=self.other_driver, vehicle=in_shop, status=TripStatus.IN_PROGRESS
+        )
+
+        dry_run_out = StringIO()
+        call_command("sync_vehicle_statuses", "--dry-run", stdout=dry_run_out)
+        self.assertIn("2 vehicle(s) updated (dry run", dry_run_out.getvalue())
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.status, VehicleStatus.AVAILABLE)
+
+        out = StringIO()
+        call_command("sync_vehicle_statuses", stdout=out)
+        self.assertIn("2 vehicle(s) updated", out.getvalue())
+        self.vehicle.refresh_from_db()
+        stale_in_use.refresh_from_db()
+        in_shop.refresh_from_db()
+        self.other_vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.status, VehicleStatus.IN_USE)
+        self.assertEqual(stale_in_use.status, VehicleStatus.AVAILABLE)
+        self.assertEqual(in_shop.status, VehicleStatus.MAINTENANCE)
+        self.assertEqual(self.other_vehicle.status, VehicleStatus.AVAILABLE)
+
+        rerun = StringIO()
+        call_command("sync_vehicle_statuses", stdout=rerun)
+        self.assertIn("0 vehicle(s) updated", rerun.getvalue())
+
+    def test_route_plan_offers_in_use_trucks_but_not_maintenance(self) -> None:
+        Vehicle.objects.filter(id=self.vehicle.id).update(status=VehicleStatus.IN_USE)
+        Vehicle.objects.filter(id=self.other_vehicle.id).update(status=VehicleStatus.MAINTENANCE)
+
+        response = self.client.get(
+            "/api/trips/route-plan",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        vehicle_ids = {row["id"] for row in response.json()["vehicles"]}
+        self.assertIn(self.vehicle.id, vehicle_ids)
+        self.assertNotIn(self.other_vehicle.id, vehicle_ids)
 
     def test_drop_point_update_requires_staff_auth(self) -> None:
         response = self.client.patch(

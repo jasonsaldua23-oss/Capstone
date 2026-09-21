@@ -85,7 +85,7 @@ export function NativeGoogleButton({ onCredential, onError, disabled }: NativeGo
       type="button"
       onClick={() => void startSignIn()}
       disabled={disabled || isSigningIn}
-      className="inline-flex h-11 w-full max-w-[340px] items-center justify-center gap-2.5 rounded-full border border-[#DDE3EA] bg-white text-[14px] font-semibold text-[#2A2A2A] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
+      className="inline-flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-[#DDE3EA] bg-white text-[14px] font-semibold text-[#2A2A2A] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
     >
       {isSigningIn ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <GoogleMark />}
       {isSigningIn ? 'Signing in' : 'Continue with Google'}

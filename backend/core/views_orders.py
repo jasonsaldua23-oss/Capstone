@@ -881,6 +881,10 @@ def order_detail(request: HttpRequest, order_id: str) -> JsonResponse:
     )
 
 
+class _ApprovalStockConflict(Exception):
+    """Approval found less sellable stock than the purchase request needs."""
+
+
 @csrf_exempt
 @require_http_methods(["PATCH"])
 def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
@@ -1023,7 +1027,14 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             if next_status == OrderStatus.CONFIRMED:
                 # Keep approval idempotent for older requests that may not yet have
                 # submission-time reservations.
-                _reserve_order_inventory(o, staff.get("userId"))
+                try:
+                    _reserve_order_inventory(o, staff.get("userId"))
+                except ValueError as reserve_error:
+                    # Added: stock that ran out since submission is a conflict with current
+                    # inventory; raising rolls back every line's reservation together.
+                    if "insufficient" in str(reserve_error).lower():
+                        raise _ApprovalStockConflict(str(reserve_error)) from reserve_error
+                    raise
                 update_fields.append("warehouse_id")
                 if not str(o.purchase_request_number or "").strip():
                     o.purchase_request_number = _generate_next_purchase_workflow_number("purchase_request_number", "PR")
@@ -1107,6 +1118,8 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             if field:
                 setattr(timeline, field, now)
             timeline.save()
+    except _ApprovalStockConflict as e:
+        return _err(str(e), 409)
     except ValueError as e:
         return _err(str(e), 400)
 

@@ -45,6 +45,8 @@ type CustomerLoginPageProps = {
   initialAuthMode?: 'login' | 'register'
   /** Lets alternate generic entry routes keep the return-to-login link in their own scope. */
   loginHref?: string
+  initialPendingApproval?: boolean
+  initialRegistrationRejected?: boolean
 }
 
 type CustomerLoginMethod = 'password' | 'google'
@@ -166,7 +168,7 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
         return true
       }
 
-      if (!response.ok || !data?.success || !data?.user) {
+      if (!response.ok || !data?.success) {
         const apiError = String(data?.error || data?.message || '').trim()
         const fallbackError = response.status >= 500
           ? 'Google service is temporarily unavailable. Please use email/password for now.'
@@ -463,12 +465,23 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
         data = null
       }
 
-      if (!response.ok || !data?.success || !data?.user) {
+      if (!response.ok || !data?.success) {
         const apiError = String(data?.error || data?.message || '').trim()
         const fallbackError = response.status >= 500
           ? 'Registration service is temporarily unavailable. Please try again shortly.'
           : 'Registration failed'
         toast.error(apiError || fallbackError)
+        return
+      }
+
+      if (data?.pendingApproval) {
+        // A newly registered customer has no session until an administrator approves it.
+        router.replace(`${loginHref}?status=pending`)
+        return
+      }
+
+      if (!data?.user) {
+        toast.error('Registration failed')
         return
       }
 
@@ -696,7 +709,7 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
                 </div>
                 {googleSignInAvailable ? (
                   <div key="login-google-container" className="my-1.5 flex w-full justify-center">
-                    <div ref={loginGoogleButtonRef} className="flex min-h-[44px] w-full max-w-[340px] items-center justify-center relative z-10" />
+                    <div ref={loginGoogleButtonRef} className="flex min-h-[36px] w-full items-center justify-center relative z-10" />
                   </div>
                 ) : isAppShell ? (
                   <div className="my-1.5 flex w-full justify-center">
@@ -871,29 +884,6 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
                 <Button type="submit" className="h-11 w-full rounded-[10px] bg-[#0f4fd3] text-sm font-semibold text-white shadow-[0_10px_20px_rgba(15,79,211,0.24)] hover:bg-[#0b45bf]" disabled={isLoading}>
                   {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create Account
                 </Button>
-                <div key="register-divider" className="my-3">
-                  <div className="relative flex items-center justify-center">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t border-[#dce5e6]" />
-                    </div>
-                    <span className="relative bg-white px-3 text-xs font-semibold tracking-wide text-[#7f8fa5]">OR CONTINUE WITH</span>
-                  </div>
-                </div>
-                {googleSignInAvailable ? (
-                  <div key="register-google-container" className="my-1.5 flex w-full justify-center">
-                    <div ref={registerGoogleButtonRef} className="flex min-h-[44px] w-full max-w-[340px] items-center justify-center relative z-10" />
-                  </div>
-                ) : isAppShell ? (
-                  <div className="my-1.5 flex w-full justify-center">
-                    <NativeGoogleButton
-                      disabled={isLoading}
-                      onCredential={(credential) => { void handleGoogleCredential(credential) }}
-                      onError={(message) => toast.error(message)}
-                    />
-                  </div>
-                ) : (
-                  <p className="text-center text-xs text-slate-500 my-2">Google sign-in is not configured yet.</p>
-                )}
                 <p className="text-center text-sm text-[#445877]">
                   Already have an account?{' '}
                   <button

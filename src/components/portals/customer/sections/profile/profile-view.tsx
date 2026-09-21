@@ -61,6 +61,10 @@ type CustomerProfileViewProps = {
   onDidMount?: () => void
   onUserUpdate?: (user: any) => void
   onNavigateNotification?: (notification: any) => void
+  /** Set when the bell opened this screen: Back leaves notifications instead of showing the menu. */
+  onCloseNotifications?: () => void
+  /** Restores the name/contact fields to the last saved profile. */
+  discardProfileChanges?: () => void
 }
 
 export function CustomerProfileView({
@@ -98,20 +102,39 @@ export function CustomerProfileView({
   onDidMount,
   onUserUpdate,
   onNavigateNotification,
+  onCloseNotifications,
+  discardProfileChanges,
 }: CustomerProfileViewProps) {
   const resolvedAvatarPreviewUrl = resolveClientImageUrl(avatarPreviewUrl)
   const [subView, setSubView] = useState<'menu' | 'edit' | 'empties-deposits' | 'security' | 'account-security' | 'change-password' | 'change-password-otp' | 'security-settings' | 'notifications' | 'real-notifications'>(initialSubView ?? 'menu')
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isEditingSecurity, setIsEditingSecurity] = useState(false)
+
+  // Fix: the form fields live in portal state, so leaving the editor without saving has
+  // to put them back -- otherwise the unsaved name showed on the menu and reopened later.
+  const leaveEditProfile = () => {
+    setIsEditingProfile(false)
+    discardProfileChanges?.()
+    setSubView('menu')
+  }
+
+  // Fix: the notifications list only ever calls setSubView('menu') for Back. When the
+  // bell opened it, Back returns to the view the customer came from instead.
+  const setNotificationsSubView: typeof setSubView = (next) => {
+    if (onCloseNotifications && next === 'menu') onCloseNotifications()
+    else setSubView(next)
+  }
+
   // Fix: the phone Back button follows the profile screen's existing parent views.
   useNativeBack(() => {
     if (subView === 'menu') return false
-    if (subView === 'change-password-otp') setSubView('change-password')
+    if (subView === 'edit') leaveEditProfile()
+    else if (subView === 'real-notifications' && onCloseNotifications) onCloseNotifications()
+    else if (subView === 'change-password-otp') setSubView('change-password')
     else if (subView === 'change-password' || subView === 'security' || subView === 'security-settings') setSubView('account-security')
     else setSubView('menu')
     return true
   }, 10)
-
-  const [isEditingProfile, setIsEditingProfile] = useState(false)
-  const [isEditingSecurity, setIsEditingSecurity] = useState(false)
 
   const {
     eligibleProducts,
@@ -217,6 +240,8 @@ export function CustomerProfileView({
   useEffect(() => {
     fetchRealNotifications()
     onDidMount?.()
+    // Fix: edits left unsaved when the customer switched tabs mid-edit are dropped too.
+    discardProfileChanges?.()
   }, [])
 
   // Inline OTP Error inside dialog
@@ -416,9 +441,12 @@ export function CustomerProfileView({
     return null
   }, [profilePhone])
 
+  // Fix: an empty phone (every Google sign-up) or an empty middle name used to fail this,
+  // and it also disabled the button that *starts* editing -- so those customers could not
+  // edit at all until an address save filled the phone in. The backend accepts both empty.
   const canSaveProfile = useMemo(() => {
-    return !phoneError && profilePhone.length > 0 && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0 && (profileNoMiddleName || profileMiddleName.trim().length > 0)
-  }, [phoneError, profilePhone, profileFirstName, profileLastName, profileMiddleName, profileNoMiddleName])
+    return !phoneError && profileFirstName.trim().length > 0 && profileLastName.trim().length > 0
+  }, [phoneError, profileFirstName, profileLastName])
 
   const handleSaveProfile = async () => {
     if (!canSaveProfile) return
@@ -523,7 +551,7 @@ export function CustomerProfileView({
         onUnreadCountChange={onUnreadCountChange}
         realNotifications={realNotifications}
         setRealNotifications={setRealNotifications}
-        setSubView={setSubView}
+        setSubView={setNotificationsSubView}
         setUnreadCount={setUnreadCount}
         unreadCount={unreadCount}
       />
@@ -540,6 +568,7 @@ export function CustomerProfileView({
         initials={initials}
         isEditingProfile={isEditingProfile}
         isSavingProfile={isSavingProfile}
+        onBack={leaveEditProfile}
         openAvatarCropDialog={openAvatarCropDialog}
         phoneError={phoneError}
         profileEmail={profileEmail}
@@ -560,7 +589,6 @@ export function CustomerProfileView({
         setProfileNoMiddleName={setProfileNoMiddleName}
         setProfilePhone={setProfilePhone}
         setProfileSuffix={setProfileSuffix}
-        setSubView={setSubView}
         shippingCity={shippingCity}
         shippingProvince={shippingProvince}
         shippingZipCode={shippingZipCode}
@@ -719,7 +747,11 @@ export function CustomerProfileView({
     {
       icon: <PencilLine className="h-5 w-5 text-[#14532d]" />,
       title: 'Edit Profile',
-      onClick: () => setSubView('edit'),
+      // Open read-only first so customers explicitly choose to edit their details.
+      onClick: () => {
+        setIsEditingProfile(false)
+        setSubView('edit')
+      },
     },
     {
       icon: <CreditCard className="h-5 w-5 text-[#14532d]" />,

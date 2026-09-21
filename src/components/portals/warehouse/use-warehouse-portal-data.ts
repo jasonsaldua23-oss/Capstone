@@ -390,6 +390,7 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
             page: String(page),
             pageSize: String(pageSize),
             includeTracking: '1',
+            sort: 'scheduled',
           })
           const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' })
           if (!result.ok) {

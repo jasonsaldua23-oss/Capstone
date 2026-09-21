@@ -60,6 +60,8 @@ type ProfileViewProps = {
   onUnreadCountChange?: (count: number) => void
   onDidMount?: () => void
   onNavigateNotification?: (notification: any) => void
+  /** Set when the bell opened this screen: Back leaves notifications instead of showing the menu. */
+  onCloseNotifications?: () => void
 }
 
 const DRIVER_NOTIFICATION_PREFS_KEY = 'driver_portal_notification_preferences'
@@ -84,7 +86,7 @@ function timeAgo(dateString: string) {
 }
 
 
-export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChange, onDidMount, onNavigateNotification }: ProfileViewProps) {
+export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChange, onDidMount, onNavigateNotification, onCloseNotifications }: ProfileViewProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
@@ -92,7 +94,9 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
   // Fix: the phone Back button follows the profile screen's existing parent views.
   useNativeBack(() => {
     if (subView === 'menu') return false
-    if (subView === 'change-password-otp') setSubView('change-password')
+    // Fix: opened from the bell, Back returns to the tab the driver came from.
+    if (subView === 'real-notifications' && onCloseNotifications) onCloseNotifications()
+    else if (subView === 'change-password-otp') setSubView('change-password')
     else if (subView === 'change-password' || subView === 'security' || subView === 'security-settings') setSubView('account-security')
     else setSubView('menu')
     return true
@@ -756,6 +760,11 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
               size="icon"
               className="h-10 w-10 rounded-full hover:bg-slate-100 text-slate-700"
               onClick={() => {
+                // Fix: opened from the bell, Back returns to the tab the driver came from.
+                if (onCloseNotifications) {
+                  onCloseNotifications()
+                  return
+                }
                 setSubView('menu')
                 fetchRealNotifications()
               }}

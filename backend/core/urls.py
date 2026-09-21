@@ -16,6 +16,7 @@ from . import views_retail as retail_v
 from . import views_stock as stock_v
 from . import views_sync as sync_v
 from . import views_trip_ops as trip_ops_v
+from . import views_trip_planning as trip_planning_v
 from . import views_trips as trip_v
 from . import views_users as user_v
 from . import views_warehouses as warehouse_v
@@ -106,6 +107,7 @@ urlpatterns = [
     path("driver/location", driver_v.driver_location),
     path("driver/profile", driver_v.driver_profile),
     path("trips/route-plan", trip_ops_v.trips_route_plan),
+    path("trips/upcoming-deliveries", trip_planning_v.trips_upcoming_deliveries),
     path("trips/<str:trip_id>", trip_v.trip_detail),
     path("trips/<str:trip_id>/start", trip_ops_v.trip_start),
     path("trips/<str:trip_id>/complete", trip_ops_v.trip_complete),

@@ -220,6 +220,7 @@ export function WarehousePortal() {
     accountEmail,
     confirmPassword,
     isEditingProfile,
+    isEmailChangeUnlocked,
     isEditingSecurity,
     isProfileEmailChanged,
     isSavingProfile,
@@ -1604,6 +1605,7 @@ export function WarehousePortal() {
               accountEmail={accountEmail}
               confirmPassword={confirmPassword}
               isEditingProfile={isEditingProfile}
+              isEmailChangeUnlocked={isEmailChangeUnlocked}
               isEditingSecurity={isEditingSecurity}
               isProfileEmailChanged={isProfileEmailChanged}
               isSavingProfile={isSavingProfile}

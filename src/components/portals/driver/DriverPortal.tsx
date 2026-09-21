@@ -1,7 +1,7 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/app/page'
 import { useNativeBack } from '@/hooks/use-native-back'
 import { NativeOfflineNotice } from '@/components/shared/native-offline-notice'
@@ -66,9 +66,19 @@ export function DriverPortal() {
     window.addEventListener('focus', refreshUnread)
     return () => { disposed = true; unsubscribeUnread(); window.clearInterval(interval); window.removeEventListener('focus', refreshUnread) }
   }, [user?.id])
-  // Fix: notification navigation affects rendering, so keep it in state.
-  const [notificationInitialView, setNotificationInitialView] = useState<'real-notifications' | 'menu'>('menu')
+  // Fix: notifications are a view of their own ('notifications'), not the Profile view
+  // opened on a sub-screen, so the bottom nav no longer lights Profile while they show.
+  // This remembers where the bell was pressed, so Back returns there.
+  const [notificationsBackView, setNotificationsBackView] = useState('home')
   const [profileViewKey, setProfileViewKey] = useState(0)
+  // The trips tab carries the driver's one live number: stops still to be run today.
+  const openTripCount = useMemo(
+    () => trips.filter((trip) => {
+      const status = String(trip?.status || '').toUpperCase()
+      return status === 'IN_PROGRESS' || status === 'PLANNED'
+    }).length,
+    [trips],
+  )
   const isTripDetailOpen = activeView === 'trips' && Boolean(selectedTripId)
   const hidePortalHeader = isMobileViewport && isTripDetailOpen
   // Fix: leave the trip detail before navigating away from its parent tab.
@@ -77,6 +87,13 @@ export function DriverPortal() {
     if (activeView !== 'home') { setActiveView('home'); return true }
     return false
   })
+
+  // Matches the customer portal's nav: a tab always clears the open record first,
+  // rather than only Home and Trips doing so.
+  const openDriverView = (view: 'home' | 'trips' | 'history' | 'profile') => {
+    setSelectedTripId(null)
+    setActiveView(view)
+  }
 
   const handleLogout = async () => {
     await logout()
@@ -125,9 +142,9 @@ export function DriverPortal() {
             onOpenProfile={() => setActiveView('profile')}
             onLogout={handleLogout}
             onOpenNotifications={() => {
-              setNotificationInitialView('real-notifications')
+              if (activeView !== 'notifications') setNotificationsBackView(activeView)
               setProfileViewKey((k) => k + 1)
-              setActiveView('profile')
+              setActiveView('notifications')
             }}
             unreadCount={headerUnreadCount}
           />
@@ -135,21 +152,14 @@ export function DriverPortal() {
 
         <NativeOfflineNotice />
         <div className="flex min-h-0 flex-1">
-          {!(activeView === 'trips' && selectedTripId) ? (
-            <DriverBottomNav
-              activeView={activeView}
-              onOpenHome={() => {
-                setActiveView('home')
-                setSelectedTripId(null)
-              }}
-              onOpenTrips={() => {
-                setActiveView('trips')
-                setSelectedTripId(null)
-              }}
-              onOpenHistory={() => setActiveView('history')}
-              onOpenProfile={() => setActiveView('profile')}
-            />
-          ) : null}
+          <DriverBottomNav
+            activeView={activeView}
+            onOpenHome={() => openDriverView('home')}
+            onOpenTrips={() => openDriverView('trips')}
+            onOpenHistory={() => openDriverView('history')}
+            onOpenProfile={() => openDriverView('profile')}
+            openTripCount={openTripCount}
+          />
           <PullToRefresh
             onRefresh={() => window.location.reload()}
             disabled={activeView === 'trips' && Boolean(selectedTripId)}
@@ -166,7 +176,7 @@ export function DriverPortal() {
               className={`min-h-0 min-w-0 w-full ${
                 activeView === 'trips' && selectedTripId ? 'px-0 md:px-6' : 'px-4 md:px-6'
               } ${
-                activeView === 'trips' && selectedTripId ? 'pb-0 md:pb-4' : 'pb-24 md:pb-8'
+                activeView === 'trips' && selectedTripId ? 'pb-[calc(6rem_+_env(safe-area-inset-bottom))] md:pb-4' : 'pb-24 md:pb-8'
               } ${activeView === 'trips' ? 'pt-0 md:pt-0' : 'pt-4 md:pt-6'} ${
                 activeView === 'trips' && selectedTripId ? 'flex flex-1 flex-col overflow-hidden' : 'flex-1'
               }`}
@@ -239,14 +249,16 @@ export function DriverPortal() {
                 />
               )}
 
-              {activeView === 'profile' && (
+              {(activeView === 'profile' || activeView === 'notifications') && (
                 <ProfileView
-                  key={profileViewKey}
+                  key={`${activeView}-${profileViewKey}`}
                   user={user}
                   onLogout={handleLogout}
-                  initialSubView={notificationInitialView}
+                  initialSubView={activeView === 'notifications' ? 'real-notifications' : 'menu'}
+                  onCloseNotifications={
+                    activeView === 'notifications' ? () => setActiveView(notificationsBackView) : undefined
+                  }
                   onUnreadCountChange={(count) => setHeaderUnreadCount(count)}
-                  onDidMount={() => { setNotificationInitialView('menu') }}
                   onNavigateNotification={(n) => {
                     const refType = String(n?.referenceType || n?.reference_type || '').toLowerCase()
                     const refId = String(n?.referenceId || n?.reference_id || '').trim()
@@ -255,22 +267,19 @@ export function DriverPortal() {
                     const message = String(n?.message || '').toLowerCase()
 
                     if (title.includes('completed') || title.includes('history') || message.includes('completed')) {
-                      setActiveView('history')
+                      openDriverView('history')
                       return
                     }
 
                     if (refType === 'trip' || notifType === 'TRIP' || title.includes('trip') || message.includes('trip') || title.includes('assigned')) {
                       const matched = trips.find((t) => t.id === refId || t.tripNumber === refId)
-                      if (matched) {
-                        setSelectedTripId(matched.id)
-                      } else if (refId) {
-                        setSelectedTripId(refId)
-                      }
+                      // Fix: never land on a trip left open before the bell was pressed.
+                      setSelectedTripId(matched ? matched.id : refId || null)
                       setActiveView('trips')
                       return
                     }
 
-                    setActiveView('trips')
+                    openDriverView('trips')
                   }}
                 />
               )}

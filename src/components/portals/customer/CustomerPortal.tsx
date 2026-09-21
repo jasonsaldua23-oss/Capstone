@@ -118,7 +118,10 @@ export function CustomerPortal() {
     window.addEventListener('focus', refreshUnread)
     return () => { disposed = true; unsubscribeUnread(); window.clearInterval(interval); window.removeEventListener('focus', refreshUnread) }
   }, [user?.id])
-  const notifInitialSubViewRef = useRef<'real-notifications' | 'menu'>('menu')
+  // Fix: notifications are a view of their own ('notifications'), not the Profile view
+  // opened on a sub-screen, so the bottom nav no longer lights Profile while they show.
+  // This remembers where the bell was pressed, so Back returns there.
+  const [notificationsBackView, setNotificationsBackView] = useState('home')
   const [profileViewKey, setProfileViewKey] = useState(0)
 
   // Navigate to the full-page order detail from any view
@@ -352,6 +355,7 @@ export function CustomerPortal() {
     handleOutsideServiceArea,
     handlePinnedLocation,
     loadCustomerProfile,
+    resetProfileForm,
     saveAddressToProfile,
     searchAddressInNegrosOccidental,
     useCurrentLocation,
@@ -410,12 +414,15 @@ export function CustomerPortal() {
     shippingZipCode,
   })
   useEffect(() => {
+    // Fix: fall back to the display name the same way the full profile load does, so a
+    // session refresh cannot blank the first/last name of an account without them.
+    const userNameParts = String(user?.name || '').trim().split(/\s+/).filter(Boolean)
     setShippingName(user?.name || '')
     setProfileName(user?.name || '')
-    setProfileFirstName(String((user as any)?.firstName || '').trim())
+    setProfileFirstName(String((user as any)?.firstName || userNameParts[0] || '').trim())
     setProfileMiddleName(String((user as any)?.middleName || '').trim())
     setProfileNoMiddleName(!String((user as any)?.middleName || '').trim())
-    setProfileLastName(String((user as any)?.lastName || '').trim())
+    setProfileLastName(String((user as any)?.lastName || userNameParts.slice(1).join(' ') || '').trim())
     setProfileSuffix(String((user as any)?.suffix || '').trim())
     setProfileEmail(user?.email || '')
     setProfileAvatar((user as any)?.avatar ? String((user as any).avatar) : null)
@@ -897,12 +904,21 @@ export function CustomerPortal() {
     return byOrderId
   }, [deliveryIssueRecords, orders])
 
+  // Fix: a delivered order is placed by when it was delivered, not when it was ordered.
+  // Sorting every tab by createdAt made the Delivered and To Review tabs follow the
+  // sequential PO numbers instead of showing the most recently completed delivery first.
   const sortedFilteredOrders = useMemo(() => {
-    return [...filteredOrders].sort((a, b) => {
-      const aTime = new Date(a.createdAt).getTime()
-      const bTime = new Date(b.createdAt).getTime()
-      return bTime - aTime
-    })
+    const toTime = (value: unknown) => {
+      const time = new Date(String(value || '')).getTime()
+      return Number.isFinite(time) ? time : 0
+    }
+    const sortTime = (order: any) =>
+      String(normalizeDeliveryStatus(order.status, order.paymentStatus)).toUpperCase() === 'DELIVERED'
+        ? toTime(order.deliveredAt || order.updatedAt || order.createdAt)
+        : toTime(order.createdAt)
+    return [...filteredOrders].sort(
+      (a, b) => sortTime(b) - sortTime(a) || toTime(b.createdAt) - toTime(a.createdAt)
+    )
   }, [filteredOrders])
 
   const ordersTabOptions: Array<{ id: CustomerOrdersTab; label: string }> = [
@@ -1172,9 +1188,9 @@ export function CustomerPortal() {
             setIsAddressDialogOpen={handleSetIsAddressDialogOpen}
             handleLogout={handleLogout}
             onOpenNotifications={() => {
-              notifInitialSubViewRef.current = 'real-notifications'
+              if (activeView !== 'notifications') setNotificationsBackView(activeView)
               setProfileViewKey((k) => k + 1)
-              setActiveView('profile')
+              setActiveView('notifications')
             }}
             unreadCount={headerUnreadCount}
           />
@@ -1434,9 +1450,9 @@ export function CustomerPortal() {
 
                 {activeView === 'feedback' && <CustomerFeedbackView />}
 
-                {activeView === 'profile' && (
+                {(activeView === 'profile' || activeView === 'notifications') && (
                   <CustomerProfileView
-                    key={profileViewKey}
+                    key={`${activeView}-${profileViewKey}`}
                     avatarPreviewUrl={avatarPreviewUrl}
                     profileName={profileName}
                     setProfileName={setProfileName}
@@ -1466,9 +1482,14 @@ export function CustomerPortal() {
                     setIsAddressDialogOpen={handleSetIsAddressDialogOpen}
                     onLogout={handleLogout}
                     saveProfile={saveProfile}
-                    initialSubView={notifInitialSubViewRef.current}
+                    initialSubView={activeView === 'notifications' ? 'real-notifications' : 'menu'}
+                    onCloseNotifications={
+                      activeView === 'notifications' ? () => setActiveView(notificationsBackView) : undefined
+                    }
+                    // Only the Profile view owns the editor; opening notifications from the
+                    // address page must not wipe the name edits waiting there.
+                    discardProfileChanges={activeView === 'profile' ? resetProfileForm : undefined}
                     onUnreadCountChange={(count) => setHeaderUnreadCount(count)}
-                    onDidMount={() => { notifInitialSubViewRef.current = 'menu' }}
                     onUserUpdate={setUser}
                     onNavigateNotification={(n) => {
                       const refType = String(n?.referenceType || n?.reference_type || '').toLowerCase()
@@ -1511,7 +1532,9 @@ export function CustomerPortal() {
                       if (refType === 'order' || notifType === 'ORDER' || title.includes('order') || message.includes('order') || title.includes('delivery')) {
                         const matched = orders.find((o) => o.id === refId || o.orderNumber === refId || o.purchaseOrderNumber === refId)
                         if (matched) {
-                          openOrderDetail(matched, 'profile')
+                          // Fix: Back from an order opened by a notification goes to the
+                          // Orders list its tab shows, not to the Profile menu.
+                          openOrderDetail(matched, 'orders')
                         } else {
                           setActiveView('orders')
                         }

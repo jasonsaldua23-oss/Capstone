@@ -27,10 +27,15 @@ import {
   getItemCategoryLabel,
   getOrderQtyWithUnitLabel,
   getDisplayOrderTotal,
-  formatTripSchedule,
-  isTripScheduledToday,
+  formatTripScheduledDay,
+  getTripScheduledDateKey,
+  toManilaDateKey,
+  isTripOverdue,
+  getOverdueTripMessage,
+  ACTIVE_TRIP_BLOCK_MESSAGE,
   speakNavigationPrompt,
 } from './trip-detail-format'
+import { useDriverTripsSnapshot } from '../layout/portal-state'
 import { uploadPodImage } from './trip-detail-camera'
 import { toRecordedAtMs } from './trip-detail-location'
 import { useTripNavigation } from './use-trip-navigation'
@@ -135,6 +140,20 @@ export function TripDetailView({
   const [deliveredTargetDropPointName, setDeliveredTargetDropPointName] = useState('')
   const [isStartTripConfirmOpen, setIsStartTripConfirmOpen] = useState(false)
   const [loadConfirmed, setLoadConfirmed] = useState(false)
+  // Added: the server's refusal (e.g. overdue, another active trip) stays on screen, not only in a toast.
+  const [startError, setStartError] = useState<string | null>(null)
+  const { trips: driverTrips } = useDriverTripsSnapshot()
+  // Added: an overdue trip can never start, and a driver runs one trip at a time.
+  // trip_start enforces both; this only stops the driver loading the truck for nothing.
+  const tripIsOverdue = isTripOverdue(trip)
+  const hasOtherActiveTrip = driverTrips.some(
+    (row) => row?.id !== trip.id && String(row?.status || '').toUpperCase() === 'IN_PROGRESS'
+  )
+  const startBlockedReason = tripIsOverdue
+    ? getOverdueTripMessage(trip)
+    : hasOtherActiveTrip
+      ? ACTIVE_TRIP_BLOCK_MESSAGE
+      : null
   const [selectedDropPointForDetails, setSelectedDropPointForDetails] = useState<DropPoint | null>(null)
 
   // Mobile bottom sheet and map UX state.
@@ -195,6 +214,26 @@ export function TripDetailView({
     () => [...(trip.dropPoints || [])].sort((a, b) => a.sequence - b.sequence),
     [trip.dropPoints]
   )
+  const startTripLoadSummary = useMemo(() => {
+    const totals = new Map<string, { productName: string; quantity: number; unit: string }>()
+    for (const dropPoint of sortedDropPoints) {
+      const order = dropPoint?.order
+      const items = Array.isArray(order?.items) ? order.items : []
+      for (const item of items) {
+        const productName = getItemDisplayNameWithSize(item)
+        const quantityLabel = getOrderQtyWithUnitLabel(item, order)
+        const match = quantityLabel.match(/^x?(\d+(?:\.\d+)?)\s+(.+)$/i)
+        const quantity = match ? Math.max(0, Number(match[1]) || 0) : Math.max(0, Number(item?.quantity || 0))
+        const rawUnit = String(match?.[2] || item?.productUnit || item?.product?.unit || 'unit').toLowerCase()
+        // Keep case loads and loose-bottle loads distinct for the driver's physical count.
+        const unit = rawUnit.includes('bottle') ? 'bottle' : rawUnit.includes('case') ? 'case' : rawUnit.replace(/s$/, '') || 'unit'
+        const key = `${productName.toLowerCase()}|${unit}`
+        const current = totals.get(key)
+        totals.set(key, { productName, unit, quantity: (current?.quantity || 0) + quantity })
+      }
+    }
+    return Array.from(totals.values()).sort((a, b) => a.productName.localeCompare(b.productName))
+  }, [sortedDropPoints])
   const terminalDropPointStatuses = TERMINAL_DROP_POINT_STATUSES
   const effectiveCompletedDropPoints = Math.max(
     Number(trip.completedDropPoints || 0),
@@ -415,14 +454,20 @@ export function TripDetailView({
       refreshTripsInBackground()
       return false
     }
-    const scheduledDate = latestTrip.tripSchedule || latestTrip.plannedStartAt
+    if (startBlockedReason) {
+      setStartError(startBlockedReason)
+      toast.error(startBlockedReason)
+      return false
+    }
     // Added: block before location tracking starts; the API repeats this rule server-side.
-    if (!isTripScheduledToday(scheduledDate)) {
-      toast.error(
-        scheduledDate
-          ? `Trip can only be started on its scheduled date: ${formatTripSchedule(scheduledDate)}`
-          : 'Trip cannot be started because its scheduled date is not set'
-      )
+    // Fix: compare Philippine calendar days, the same day key trip_start uses.
+    const scheduledKey = getTripScheduledDateKey(latestTrip)
+    if (!scheduledKey || scheduledKey !== toManilaDateKey()) {
+      const message = scheduledKey
+        ? `Trip can only be started on its scheduled date: ${formatTripScheduledDay(latestTrip)}`
+        : 'Trip cannot be started because its scheduled date is not set'
+      setStartError(message)
+      toast.error(message)
       return false
     }
     if (!loadConfirmed) {
@@ -430,6 +475,7 @@ export function TripDetailView({
       return false
     }
 
+    setStartError(null)
     setIsUpdating(true)
     try {
       // Do not mark the route active until its location session is running.
@@ -472,7 +518,9 @@ export function TripDetailView({
             return true
           }
           if (!isAutomaticallyRetryableWriteStatus(response.status)) {
-            toast.error(payload?.error || 'Failed to start trip')
+            const message = payload?.error || 'Failed to start trip'
+            setStartError(message)
+            toast.error(message)
             refreshTripsInBackground()
             return false
           }
@@ -1019,7 +1067,7 @@ export function TripDetailView({
               <div>
                 <h2 className="text-lg font-bold leading-tight md:text-xl">{trip.tripNumber}</h2>
                 <p className="text-slate-300 text-xs md:text-sm">{trip.vehicle?.licensePlate}</p>
-                <p className="text-slate-300 text-xs md:text-sm">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                <p className="text-slate-300 text-xs md:text-sm">Schedule: {formatTripScheduledDay(trip)}</p>
                 {/* Added: show the running total from successfully delivered stops. */}
                 <p className="text-slate-200 text-xs md:text-sm">Cash collected: {formatCurrency(Number(trip.cashCollectedTotal || 0))}</p>
               </div>
@@ -1060,7 +1108,7 @@ export function TripDetailView({
                     : <>This will mark the trip as <span className="font-semibold">IN PROGRESS</span>.</>}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-3 px-5 pb-5 pt-2 text-sm text-slate-700">
+              <div className="max-h-[calc(100dvh-8rem)] space-y-3 overflow-y-auto px-5 pb-5 pt-2 text-sm text-slate-700">
                 {isUpdating ? (
                   <div role="status" className="flex min-h-32 flex-col items-center justify-center rounded-md border border-sky-200 bg-sky-50 px-4 py-6 text-center">
                     <Loader2 className="mb-3 h-7 w-7 animate-spin text-emerald-600" />
@@ -1073,15 +1121,41 @@ export function TripDetailView({
                       <p className="font-medium text-slate-900">{trip.tripNumber || 'Selected Trip'}</p>
                       <p>Make sure all assigned orders are loaded before continuing.</p>
                     </div>
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="font-semibold text-slate-900">Trip Load Summary</p>
+                        <span className="text-xs text-slate-500">{startTripLoadSummary.length} product{startTripLoadSummary.length === 1 ? '' : 's'}</span>
+                      </div>
+                      {startTripLoadSummary.length > 0 ? (
+                        <ul className="divide-y divide-slate-100">
+                          {startTripLoadSummary.map((item) => (
+                            <li key={`${item.productName}-${item.unit}`} className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0">
+                              <span className="min-w-0 font-medium text-slate-700">{item.productName}</span>
+                              <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                                {item.quantity.toLocaleString()} {item.unit}{item.quantity === 1 ? '' : 's'}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-slate-500">No products are assigned to this trip.</p>
+                      )}
+                    </div>
                     <label className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-800">
                       <input
                         type="checkbox"
                         checked={loadConfirmed}
                         onChange={(event) => setLoadConfirmed(event.target.checked)}
+                        disabled={Boolean(startBlockedReason)}
                         className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
                       />
                       Confirm Load
                     </label>
+                    {(startError || startBlockedReason) && (
+                      <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+                        {startError || startBlockedReason}
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-2 pt-1">
                       <Button type="button" variant="outline" onClick={() => setIsStartTripConfirmOpen(false)}>
                         Cancel
@@ -1092,7 +1166,7 @@ export function TripDetailView({
                         onClick={async () => {
                           if (await handleStartTrip()) setIsStartTripConfirmOpen(false)
                         }}
-                        disabled={!loadConfirmed}
+                        disabled={!loadConfirmed || Boolean(startBlockedReason)}
                       >
                         <Play className="mr-2 h-4 w-4" />
                         Start Trip
@@ -1281,22 +1355,28 @@ export function TripDetailView({
           ) : null}
 
           {/* Start Trip Button - Desktop */}
-          {!isMobileViewport && trip.status === 'PLANNED' && (
+          {!isMobileViewport && trip.status === 'PLANNED' && tripIsOverdue && (
+            // Added: an overdue trip offers no Start, only the reason.
+            <div role="status" className="hidden rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 md:block">
+              {startBlockedReason}
+            </div>
+          )}
+          {!isMobileViewport && trip.status === 'PLANNED' && !tripIsOverdue && (
             <div className="hidden space-y-2 md:block">
-              {/* Added: physical loading confirmation must precede Start Trip. */}
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm">
-                <input
-                  type="checkbox"
-                  checked={loadConfirmed}
-                  onChange={(event) => setLoadConfirmed(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 accent-blue-600"
-                />
-                Confirm Load
-              </label>
+              {startBlockedReason && (
+                <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+                  {startBlockedReason}
+                </p>
+              )}
               <Button
                 className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => setIsStartTripConfirmOpen(true)}
-                disabled={isUpdating || !loadConfirmed}
+                onClick={() => {
+                  // Fix: load confirmation belongs only in the Start Trip dialog.
+                  setLoadConfirmed(false)
+                  setStartError(null)
+                  setIsStartTripConfirmOpen(true)
+                }}
+                disabled={isUpdating || Boolean(startBlockedReason)}
               >
                 {isUpdating ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -1421,21 +1501,28 @@ export function TripDetailView({
                 </div>
 
                 {/* Start Trip Button - Mobile */}
-                {trip.status === 'PLANNED' && (
+                {trip.status === 'PLANNED' && tripIsOverdue && (
+                  // Added: an overdue trip offers no Start, only the reason.
+                  <div role="status" className="absolute bottom-[calc(env(safe-area-inset-bottom)+7rem)] left-4 right-4 z-[1100] rounded-xl border border-amber-200 bg-amber-50/95 px-4 py-3 text-sm font-medium text-amber-900 shadow-lg backdrop-blur">
+                    {startBlockedReason}
+                  </div>
+                )}
+                {trip.status === 'PLANNED' && !tripIsOverdue && (
                   <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+7rem)] left-4 right-4 z-[1100] space-y-2">
-                    <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-sm font-semibold text-slate-800 shadow-lg backdrop-blur">
-                      <input
-                        type="checkbox"
-                        checked={loadConfirmed}
-                        onChange={(event) => setLoadConfirmed(event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 accent-blue-600"
-                      />
-                      Confirm Load
-                    </label>
+                    {startBlockedReason && (
+                      <p role="status" className="rounded-xl border border-amber-200 bg-amber-50/95 px-4 py-3 text-sm font-medium text-amber-900 shadow-lg backdrop-blur">
+                        {startBlockedReason}
+                      </p>
+                    )}
                     <Button
                       className="h-12 w-full gap-2 rounded-xl bg-[#1d4ed8] text-lg font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.28)] transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={() => setIsStartTripConfirmOpen(true)}
-                      disabled={isUpdating || !loadConfirmed}
+                      onClick={() => {
+                        // Fix: require a fresh confirmation inside the Start Trip dialog.
+                        setLoadConfirmed(false)
+                        setStartError(null)
+                        setIsStartTripConfirmOpen(true)
+                      }}
+                      disabled={isUpdating || Boolean(startBlockedReason)}
                     >
                       {isUpdating ? (
                         <Loader2 className="h-5 w-5 animate-spin" />
@@ -1500,7 +1587,7 @@ export function TripDetailView({
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-lg font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</p>
-                          <p className="text-[11px] text-slate-500">Schedule: {formatTripSchedule(trip.tripSchedule)}</p>
+                          <p className="text-[11px] text-slate-500">Schedule: {formatTripScheduledDay(trip)}</p>
                           {/* Added: keep the running trip cash visible on the mobile driver view. */}
                           <p className="text-[11px] font-semibold text-emerald-700">Cash collected: {formatCurrency(Number(trip.cashCollectedTotal || 0))}</p>
                         </div>

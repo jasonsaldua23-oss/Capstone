@@ -73,6 +73,8 @@ export function SettingsView() {
   const [profileOtpSent, setProfileOtpSent] = useState(false)
   const [profileOtpVerified, setProfileOtpVerified] = useState(false)
   const [profileOtpToken, setProfileOtpToken] = useState('')
+  const [oldEmailVerificationToken, setOldEmailVerificationToken] = useState('')
+  const [isEmailChangeUnlocked, setIsEmailChangeUnlocked] = useState(false)
   const [isSendingProfileOtp, setIsSendingProfileOtp] = useState(false)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const avatarCrop = useAvatarCrop()
@@ -80,7 +82,7 @@ export function SettingsView() {
   const [passwordOtpVerified, setPasswordOtpVerified] = useState(false)
   const [passwordOtpToken, setPasswordOtpToken] = useState('')
   const [isSendingPasswordOtp, setIsSendingPasswordOtp] = useState(false)
-  const [otpModalKind, setOtpModalKind] = useState<'profile' | 'password' | null>(null)
+  const [otpModalKind, setOtpModalKind] = useState<'current-email' | 'profile' | 'password' | null>(null)
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(true)
   const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState('30')
@@ -187,17 +189,21 @@ export function SettingsView() {
     setSessionTimeoutMinutes(String((user as any)?.sessionTimeoutMinutes || 30))
   }, [user])
 
-  const requestOtp = async (targetEmail: string, kind: 'profile' | 'password') => {
+  const requestOtp = async (targetEmail: string, kind: 'current-email' | 'profile' | 'password') => {
     const emailToVerify = targetEmail.trim().toLowerCase()
     if (!emailToVerify) {
       toast.error('Email is required')
       return false
     }
-    if (kind === 'profile') setIsSendingProfileOtp(true)
+    if (kind === 'profile' || kind === 'current-email') setIsSendingProfileOtp(true)
     else setIsSendingPasswordOtp(true)
     try {
       const response = await fetch(
-        kind === 'password' ? '/api/auth/password-reset/request-otp' : '/api/auth/email-verification/request',
+        kind === 'password'
+          ? '/api/auth/password-reset/request-otp'
+          : kind === 'current-email'
+            ? '/api/auth/email-verification/request-existing'
+            : '/api/auth/email-verification/request',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -212,7 +218,7 @@ export function SettingsView() {
         setProfileOtpSent(true)
         setProfileOtpVerified(false)
         setProfileOtpToken('')
-      } else {
+      } else if (kind === 'password') {
         setPasswordOtpSent(true)
         setPasswordOtpVerified(false)
         setPasswordOtpToken('')
@@ -224,12 +230,12 @@ export function SettingsView() {
       toast.error(error?.message || 'Failed to send OTP')
       return false
     } finally {
-      if (kind === 'profile') setIsSendingProfileOtp(false)
+      if (kind === 'profile' || kind === 'current-email') setIsSendingProfileOtp(false)
       else setIsSendingPasswordOtp(false)
     }
   }
 
-  const verifyOtp = async (targetEmail: string, kind: 'profile' | 'password', otpValue: string) => {
+  const verifyOtp = async (targetEmail: string, kind: 'current-email' | 'profile' | 'password', otpValue: string) => {
     const emailToVerify = targetEmail.trim().toLowerCase()
     const otp = otpValue.trim()
     if (!emailToVerify) {
@@ -242,7 +248,11 @@ export function SettingsView() {
     }
     try {
       const response = await fetch(
-        kind === 'password' ? '/api/auth/password-reset/verify-otp' : '/api/auth/email-verification/confirm',
+        kind === 'password'
+          ? '/api/auth/password-reset/verify-otp'
+          : kind === 'current-email'
+            ? '/api/auth/email-verification/confirm-existing'
+            : '/api/auth/email-verification/confirm',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -253,7 +263,13 @@ export function SettingsView() {
       if (!response.ok || payload?.success === false) {
         throw new Error(payload?.error || 'Failed to verify OTP')
       }
-      if (kind === 'profile') {
+      if (kind === 'current-email') {
+        const token = String(payload?.verificationToken || '').trim()
+        if (!token) throw new Error('Missing verification token')
+        // Added: only current-email verification unlocks the editable email field.
+        setOldEmailVerificationToken(token)
+        setIsEmailChangeUnlocked(true)
+      } else if (kind === 'profile') {
         const token = String(payload?.verificationToken || '').trim()
         if (!token) throw new Error('Missing verification token')
         setProfileOtpVerified(true)
@@ -263,6 +279,7 @@ export function SettingsView() {
         setPasswordOtpToken(otp)
       }
       toast.success('OTP verified successfully')
+      setOtpModalKind(null)
       return true
     } catch (error: any) {
       toast.error(error?.message || 'Failed to verify OTP')
@@ -289,7 +306,7 @@ export function SettingsView() {
       toast.error('Please enter a valid Philippine mobile number')
       return
     }
-    if (isEmailChanged && !profileOtpVerified) {
+    if (isEmailChanged && (!isEmailChangeUnlocked || !oldEmailVerificationToken || !profileOtpVerified || !profileOtpToken)) {
       toast.error('Verify OTP for the new email before saving')
       return
     }
@@ -313,6 +330,7 @@ export function SettingsView() {
           phone,
           avatar: nextAvatar,
           emailVerificationToken: isEmailChanged ? profileOtpToken : undefined,
+          oldEmailVerificationToken: isEmailChanged ? oldEmailVerificationToken : undefined,
         }),
       })
       // Fix: an upstream HTML error page must not cause a JSON parsing console overlay.
@@ -340,6 +358,9 @@ export function SettingsView() {
       setEmail(String(nextUser.email ?? email))
       setPhone(String(nextUser.phone ?? phone))
       setAvatarFile(null)
+      // Fix: a completed save returns the email field to its protected state.
+      setIsEmailChangeUnlocked(false)
+      setOldEmailVerificationToken('')
       // Added: return the successful profile save to its read-only Edit state.
       setIsEditingProfile(false)
       toast.success('Profile updated successfully')
@@ -347,6 +368,8 @@ export function SettingsView() {
         setProfileOtpSent(false)
         setProfileOtpVerified(false)
         setProfileOtpToken('')
+        setOldEmailVerificationToken('')
+        setIsEmailChangeUnlocked(false)
       }
     } catch (error) {
       console.error('Profile update failed:', error)
@@ -568,20 +591,43 @@ export function SettingsView() {
                 <label htmlFor="email" className="text-xs font-semibold text-slate-700">
                   Email Address
                 </label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value)
-                    setProfileOtpSent(false)
-                    setProfileOtpVerified(false)
-                    setProfileOtpToken('')
-                  }}
-                  className="h-10 text-sm"
-                  placeholder="name@company.com"
-                  disabled={!isEditingProfile}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      setProfileOtpSent(false)
+                      setProfileOtpVerified(false)
+                      setProfileOtpToken('')
+                    }}
+                    className="h-10 text-sm"
+                    placeholder="name@company.com"
+                    readOnly={!isEmailChangeUnlocked}
+                    aria-readonly={!isEmailChangeUnlocked}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 shrink-0"
+                    disabled={!isEditingProfile || isSendingProfileOtp || (isEmailChangeUnlocked && profileOtpVerified)}
+                    onClick={() => {
+                      if (!isEmailChangeUnlocked) {
+                        void requestOtp(accountEmail, 'current-email')
+                        return
+                      }
+                      if (!isEmailChanged) {
+                        toast.error('Enter a new email address first')
+                        return
+                      }
+                      void requestOtp(normalizedEmail, 'profile')
+                    }}
+                  >
+                    {isSendingProfileOtp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {profileOtpVerified ? 'Verified' : isEmailChangeUnlocked ? 'Verify Email' : 'Change Email'}
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -602,33 +648,6 @@ export function SettingsView() {
                   <p className="text-xs font-medium text-red-600">Please enter a valid Philippine mobile number</p>
                 ) : null}
               </div>
-
-              {isEmailChanged ? (
-                <div className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3.5">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-blue-800">Security Verification</p>
-                    <p className="mt-0.5 text-xs text-slate-600">OTP verification is required to change your account email.</p>
-                  </div>
-                  {profileOtpVerified ? (
-                    <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
-                      Email Verified Successfully
-                    </div>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full h-9 border-blue-200 text-blue-700 hover:bg-blue-50 font-medium text-xs gap-1.5"
-                      onClick={() => void requestOtp(normalizedEmail, 'profile')}
-                      disabled={isSendingProfileOtp}
-                    >
-                      {isSendingProfileOtp ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
-                      {isSendingProfileOtp ? 'Sending OTP...' : profileOtpSent ? 'Resend Verification OTP' : 'Request Verification OTP'}
-                    </Button>
-                  )}
-                </div>
-              ) : null}
 
               <Button
                 className="w-full bg-blue-600 text-white hover:bg-blue-700 h-10 font-semibold shadow-xs"
