@@ -41,10 +41,6 @@ self.addEventListener('notificationclick', (event) => {
   )
 })
 
-// A service worker only makes a site installable once it handles fetches. This one
-// stays a pass-through on purpose: the portals are dynamic and must never be served
-// stale data from a cache, so the request goes to the network exactly as it would
-// without a worker, and a failure is left for the page to handle.
 self.addEventListener('install', () => {
   self.skipWaiting()
 })
@@ -53,7 +49,6 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim())
 })
 
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return
-  event.respondWith(fetch(event.request))
-})
+// Fix: this worker exists only for Web Push. Do not intercept page or API requests;
+// a pass-through respondWith() turns an upstream outage into a rejected FetchEvent
+// and can make navigation fail under the worker instead of the browser network stack.
