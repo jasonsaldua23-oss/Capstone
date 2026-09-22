@@ -339,6 +339,7 @@ class CustomerReplacementRequestContractTests(TestCase):
         )
         self.order = Order.objects.create(
             order_number="ORD-REPL-CUSTOMER-001",
+            purchase_order_number="PO-2026-0018",
             customer=self.customer,
             status=OrderStatus.DELIVERED,
             subtotal=100,
@@ -425,6 +426,9 @@ class CustomerReplacementRequestContractTests(TestCase):
         self.assertEqual(row["statusTimeline"][-1]["status"], "COMPLETED")
         self.assertEqual(row["linkedReplacementOrderId"], replacement_order.id)
         self.assertEqual(row["linkedReplacementOrderNumber"], replacement_order.order_number)
+        # The claim dialog shows the PO the claim was filed against, not the raw order_number.
+        self.assertEqual(row["purchaseOrderNumber"], "PO-2026-0018")
+        self.assertEqual(row["order"]["purchaseOrderNumber"], "PO-2026-0018")
         self.assertEqual(row["replacementDeliveryPod"]["recipientName"], "Replacement Receiver")
         self.assertEqual(row["replacementDeliveryPod"]["deliveryPhoto"], "https://example.com/replacement-pod-full.jpg")
         self.assertIsNotNone(row["replacementDeliveryPod"]["submittedAt"])

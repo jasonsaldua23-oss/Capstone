@@ -519,6 +519,8 @@ def _serialize_replacement(
     )
     data["orderId"] = entry.order_id
     data["orderNumber"] = getattr(order, "order_number", None)
+    # order_number is the PR number; the PO number is assigned on approval.
+    data["purchaseOrderNumber"] = str(getattr(order, "purchase_order_number", "") or "").strip() or None
     data["warehouseId"] = warehouse_id
     data["warehouseName"] = str(getattr(warehouse, "name", "") or "").strip() or None
     data["warehouseCode"] = str(getattr(warehouse, "code", "") or "").strip() or None
@@ -529,6 +531,7 @@ def _serialize_replacement(
     data["order"] = {
         "id": getattr(order, "id", None),
         "orderNumber": getattr(order, "order_number", None),
+        "purchaseOrderNumber": data["purchaseOrderNumber"],
         "customer": data["customer"],
         "shippingName": getattr(order, "shipping_name", None),
         "warehouseId": warehouse_id,

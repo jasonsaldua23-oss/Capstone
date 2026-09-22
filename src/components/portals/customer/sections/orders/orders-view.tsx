@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  ClipboardList,
   Clock3,
   Filter,
   Hash,
@@ -1096,6 +1097,14 @@ export function CustomerOrdersView(props: any) {
               String(item?.orderNumber || '').trim().toUpperCase() === String(selectedReplacementRecord?.linkedReplacementOrderNumber || selectedReplacementRecord?.replacementOrderNumber || '').trim().toUpperCase()
             ) || null
             const statusLabel = getReplacementDisplayStatus(selectedReplacementRecord, selectedOrder)
+            // The PO the claim was filed against. The record's own orderNumber is the
+            // raw PR number, so prefer the PO number the approval assigned.
+            const purchaseOrderNumber = String(
+              selectedReplacementRecord?.purchaseOrderNumber ||
+              selectedOrder?.purchaseOrderNumber ||
+              selectedOrder?.orderNumber ||
+              ''
+            ).trim()
             const meta = parseReplacementMeta(selectedReplacementRecord)
             const evidenceUrls = Array.from(new Set(
               [
@@ -1245,6 +1254,15 @@ export function CustomerOrdersView(props: any) {
                             <p className="mt-1 text-[15px] font-semibold leading-6 text-slate-900 break-words">
                               {selectedReplacementRecord?.createdAt ? new Date(selectedReplacementRecord.createdAt).toLocaleString() : 'N/A'}
                             </p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-[48px_minmax(0,1fr)] gap-3 border-b border-slate-200 py-4">
+                          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500">
+                            <ClipboardList className="h-5 w-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[12px] font-semibold tracking-wide text-slate-500">Purchase Order</p>
+                            <p className="mt-1 text-[15px] font-semibold leading-6 text-slate-900 break-words">{purchaseOrderNumber || 'N/A'}</p>
                           </div>
                         </div>
                       </div>
