@@ -18,6 +18,7 @@ import { formatPeso } from '../shared'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
+import { ReportKpiRow } from './report-kpi'
 
 /**
  * Replacement handling tab: status filter, loss trend and the replacement table.
@@ -64,11 +65,15 @@ export function ReplacementReportTab({
         showWarehouse: true,
         showStatus: false,
       })}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Cases</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Cases in selected period</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Processed</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.completed}</CardTitle><p className="text-[11px] text-slate-400">Completed replacement cases</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Open Cases</CardDescription><CardTitle className="text-[30px] leading-none">{replacementKpi.open}</CardTitle><p className="text-[11px] text-slate-400">Cases awaiting resolution</p></CardHeader></Card>
-      </div>
+      {/* How many cases are still open is the operational question, so the
+          open count leads rather than the raw total. */}
+      <ReportKpiRow
+        headline={{ label: 'Open Cases', value: replacementKpi.open, hint: 'Awaiting resolution', tone: 'amber' }}
+        items={[
+          { label: 'Total Cases', value: replacementKpi.total, hint: 'In selected period', tone: 'blue' },
+          { label: 'Processed', value: replacementKpi.completed, hint: 'Completed cases', tone: 'emerald' },
+        ]}
+      />
       <Card className={chartCardClassName}>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Replacement Loss Trend (Line)</CardTitle>

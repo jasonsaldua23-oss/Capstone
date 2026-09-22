@@ -41,8 +41,10 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeRanking, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDateTime, formatDayKey, withinRange } from '../shared'
+import { formatPeso, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+import { ReportKpiRow } from './report-kpi'
+import { resolveReportCutoff } from '@/components/portals/admin/sections/report-date-utils'
 
 interface WarehouseInventoryReportProps {
   inventory: any[]
@@ -174,10 +176,8 @@ export function WarehouseInventoryReport({
         if (dateTo && itemTime > new Date(`${dateTo}T23:59:59.999`).getTime()) return false
         return true
       }
-      const cutoff = new Date()
-      // Today includes only movements from local midnight onward.
-      if (periodPreset !== 'today') cutoff.setDate(cutoff.getDate() - Number(periodPreset))
-      cutoff.setHours(0, 0, 0, 0)
+      // Shared so every tab's window matches its chart; see resolveReportCutoff.
+      const cutoff = resolveReportCutoff(periodPreset)
       return itemTime >= cutoff.getTime()
     }
   }, [periodPreset, dateFrom, dateTo])
@@ -750,68 +750,33 @@ export function WarehouseInventoryReport({
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {/* Top Product */}
-        <Card className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/50 to-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-semibold tracking-wide text-amber-700 flex items-center gap-1">
-              <Trophy className="h-3.5 w-3.5 text-amber-500" /> #1 Best Seller
-            </CardDescription>
-            <CardTitle className="text-lg font-bold text-slate-900 truncate">
-              {kpis.topFastestProduct?.productName || 'N/A'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="flex items-center justify-between text-xs">
+      {/* The fastest mover is what a warehouse plans around, so it leads; the
+          volume and value figures underneath say how much movement that is. */}
+      <ReportKpiRow
+        headline={{
+          id: 'best-seller',
+          label: (<><Trophy className="h-3.5 w-3.5 text-amber-500" /> #1 Best Seller</>),
+          value: <span className="block truncate">{kpis.topFastestProduct?.productName || 'No movement yet'}</span>,
+          valueKind: 'text',
+          tone: 'amber',
+          hint: kpis.topFastestProduct ? (
+            <span className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-bold text-amber-700">
-                {kpis.topFastestProduct?.unitBreakdown && kpis.topFastestProduct.unitBreakdown.length > 0
+                {kpis.topFastestProduct.unitBreakdown && kpis.topFastestProduct.unitBreakdown.length > 0
                   ? kpis.topFastestProduct.unitBreakdown.map((b: any) => `${b.qty.toLocaleString()} ${b.unit}`).join(', ')
-                  : `${kpis.topFastestProduct?.totalUnitsSold.toLocaleString() || 0} cases`}
+                  : `${kpis.topFastestProduct.totalUnitsSold.toLocaleString()} cases`}
               </span>
-              <span className="text-slate-400">
-                {kpis.topFastestProduct ? `${kpis.topFastestProduct.dailyVelocity}/day` : ''}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Total QTY Dispatched */}
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Total Dispatched QTY</CardDescription>
-            <CardTitle className="text-2xl font-bold text-blue-700">{kpis.totalUnitsDispatched.toLocaleString()}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Cumulative items sold in period</CardContent>
-        </Card>
-
-        {/* Outflow Revenue */}
-        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Gross Movement Value</CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">{formatPeso(kpis.totalOutflowRevenue)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Total sales volume valuation</CardContent>
-        </Card>
-
-        {/* Daily Velocity */}
-        <Card className="rounded-2xl border border-purple-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-purple-600">Avg Daily Velocity</CardDescription>
-            <CardTitle className="text-2xl font-bold text-purple-700">{kpis.avgDailyTurnover} <span className="text-sm font-normal text-slate-500">units/day</span></CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Stock outflow rate</CardContent>
-        </Card>
-
-        {/* Active SKUs */}
-        <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-slate-500">Moving SKUs</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-800">{kpis.totalMovingSkus}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-400">Products with active movement</CardContent>
-        </Card>
-      </div>
+              <span className="text-slate-400">{kpis.topFastestProduct.dailyVelocity}/day</span>
+            </span>
+          ) : undefined,
+        }}
+        items={[
+          { label: 'Dispatched QTY', value: kpis.totalUnitsDispatched.toLocaleString(), hint: 'Items sold in period', tone: 'blue' },
+          { label: 'Movement Value', value: formatPeso(kpis.totalOutflowRevenue), hint: 'Outflow valuation', tone: 'emerald' },
+          { label: 'Avg Daily Velocity', value: <>{kpis.avgDailyTurnover} <span className="text-sm font-normal text-slate-500">units/day</span></>, hint: 'Stock outflow rate', tone: 'purple' },
+          { label: 'Moving SKUs', value: kpis.totalMovingSkus, hint: 'With active movement', tone: 'slate' },
+        ]}
+      />
 
       {/* Top 8 Fast-Moving Product Velocity Chart */}
       {top10ChartData.length > 0 && (

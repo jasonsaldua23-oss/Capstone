@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
-import { Loader2, Search, Truck } from 'lucide-react'
+import { FileText, Navigation, Search, Truck } from 'lucide-react'
 import { formatTripScheduledDay, getTripScheduledDateKey, isTripOverdue, tripStatusBadgeColors } from './trip-detail-format'
 
 type Trip = any
@@ -14,10 +14,14 @@ export function TripsListView({
   trips,
   isLoading,
   onSelectTrip,
+  onViewTripDetails,
 }: {
   trips: Trip[]
   isLoading: boolean
+  // Opens the running trip: map, navigation and proof of delivery.
   onSelectTrip: (trip: Trip) => void
+  // Opens the trip's paperwork: its purchase orders and who ordered them.
+  onViewTripDetails: (trip: Trip) => void
 }) {
   const statusColors = tripStatusBadgeColors
   const [deliverySearch, setDeliverySearch] = useState('')
@@ -102,31 +106,46 @@ export function TripsListView({
       ) : (
         <div className="space-y-3">
           {filteredDeliveryTrips.map((trip) => (
-            <Card key={trip.id} className="min-w-0 cursor-pointer rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(2,132,199,0.14)]" onClick={() => onSelectTrip(trip)}>
+            // The card body reads the paperwork; starting the run is its own
+            // deliberate button, since that screen turns on location tracking.
+            <Card key={trip.id} className="min-w-0 cursor-pointer rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(2,132,199,0.14)]" onClick={() => onViewTripDetails(trip)}>
               <CardContent className="min-w-0 p-4 sm:p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="break-words text-base font-bold tracking-tight text-slate-900">{trip.tripNumber}</p>
-                  </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="min-w-0 flex-1 break-words text-base font-bold tracking-tight text-slate-900">{trip.tripNumber}</p>
+                  <Badge className={`${statusColors[trip.status] || 'bg-gray-100'} shrink-0 px-2 py-0.5 text-xs`}>
+                    {trip.status.replace(/_/g, ' ')}
+                  </Badge>
+                </div>
+                <div className="mt-3 min-w-0 space-y-1">
+                  <p className="break-words text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
+                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
+                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripScheduledDay(trip)}</p>
+                </div>
+                {/* Side by side from 340px up; only the narrowest phones stack. */}
+                <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 min-[340px]:flex-row">
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-9 shrink-0 border-sky-200 px-3 text-xs font-medium text-sky-700 hover:bg-sky-50 max-[360px]:w-full"
+                    className="h-10 border-sky-200 px-3 text-sm font-medium text-sky-700 hover:bg-sky-50 min-[340px]:flex-1"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onViewTripDetails(trip)
+                    }}
+                  >
+                    <FileText className="size-4" />
+                    View Details
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-10 bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 min-[340px]:flex-1"
                     onClick={(event) => {
                       event.stopPropagation()
                       onSelectTrip(trip)
                     }}
                   >
-                    View Details
+                    <Navigation className="size-4" />
+                    Open Trip
                   </Button>
-                </div>
-                <Badge className={`${statusColors[trip.status] || 'bg-gray-100'} text-xs px-2 py-0.5 mt-2`}>
-                  {trip.status.replace(/_/g, ' ')}
-                </Badge>
-                <div className="mt-3 min-w-0 space-y-1">
-                  <p className="break-words text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
-                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
-                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripScheduledDay(trip)}</p>
                 </div>
               </CardContent>
             </Card>

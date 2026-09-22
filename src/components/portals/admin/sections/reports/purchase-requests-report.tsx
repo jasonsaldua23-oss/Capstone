@@ -24,9 +24,8 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer,
-  ComposedChart,
-  Area,
-  Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -35,8 +34,10 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDateTime, formatDayKey, withinRange, toIsoDateTime } from '../shared'
+import { formatPeso, formatDayKey, withinRange, toIsoDateTime } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+import { ReportKpiRow } from './report-kpi'
+import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 
 interface PurchaseRequestsReportProps {
   orders: any[]
@@ -104,10 +105,8 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
           list = list.filter((item) => new Date(item.date).getTime() <= toTime)
         }
       } else {
-        const cutoff = new Date()
-        // Today uses local midnight; numeric presets keep their existing rolling window.
-        if (datePreset !== 'today') cutoff.setDate(cutoff.getDate() - Number(datePreset))
-        cutoff.setHours(0, 0, 0, 0)
+        // Shared so every tab's window matches its chart; see resolveReportCutoff.
+        const cutoff = resolveReportCutoff(datePreset)
         list = list.filter((item) => withinRange(item.date, cutoff))
       }
     }
@@ -182,7 +181,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
       .map(([, values]) => values)
   }, [filteredPRs])
 
-  // The area carries daily volume; the lines split it into approval outcomes.
+  // Stacked daily bars show volume and its status breakdown without overlapping series.
   const chartInterpretation = useMemo(() => {
     const day = (row: any) => row.date
     return `${describeTrend(toPoints(chartData, day, (row: any) => row.total), {
@@ -231,7 +230,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
       accessor: (r) => r.reason || '—',
     },
     { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
-    { header: 'Date & Time', accessor: (r) => formatDateTime(r.date) },
+    { header: 'Date & Time', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
   const handleExportCsv = () => {
@@ -306,74 +305,56 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Total Requests</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">{kpis.total}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">100% of filtered requests</CardContent>
-        </Card>
+      {/* Approval throughput is the question here, so requested value leads and
+          the decision counts explain how it split. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Total Requested Value',
+          value: formatPeso(kpis.totalValue),
+          hint: 'Excludes rejected and cancelled requests',
+          tone: 'indigo',
+        }}
+        items={[
+          { label: 'Requests', value: kpis.total, tone: 'blue' },
+          {
+            label: 'Approved',
+            value: kpis.approved,
+            hint: kpis.total > 0 ? `${((kpis.approved / kpis.total) * 100).toFixed(1)}% approved` : undefined,
+            tone: 'emerald',
+          },
+          { label: 'Pending Review', value: kpis.pending, hint: 'Awaiting a decision', tone: 'amber' },
+          { label: 'Rejected', value: kpis.rejected, hint: 'Rejected or cancelled', tone: 'rose' },
+        ]}
+      />
 
-        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Approved PRs</CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">{kpis.approved}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">
-            {kpis.total > 0 ? ((kpis.approved / kpis.total) * 100).toFixed(1) : 0}% approval rate
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-amber-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-amber-600">Pending Review</CardDescription>
-            <CardTitle className="text-2xl font-bold text-amber-700">{kpis.pending}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Awaiting management action</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-rose-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-rose-600">Rejected / Cancelled</CardDescription>
-            <CardTitle className="text-2xl font-bold text-rose-700">{kpis.rejected}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Denied or withdrawn</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-indigo-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-indigo-600">Total Requested Value</CardDescription>
-            <CardTitle className="text-2xl font-bold text-indigo-700">{formatPeso(kpis.totalValue)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Excludes rejected and cancelled requests</CardContent>
-        </Card>
-      </div>
-
-      {/* A composed time-series separates total volume from individual request statuses. */}
+      {/* Each stack adds up to the daily total, so a separate total series is unnecessary. */}
       {chartData.length > 0 && (
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
+          <CardHeader className="p-4 pb-4">
             <CardTitle className="text-base font-semibold text-slate-800">Daily Purchase Request Trend</CardTitle>
-            <CardDescription className="text-xs text-slate-500">Total request volume and status movement over time</CardDescription>
+            <CardDescription className="text-xs text-slate-500">
+              Daily totals split by current status · Latest {chartData.length} {chartData.length === 1 ? 'day' : 'days'} with requests
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="h-56 w-full">
+            <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart data={chartData} accessibilityLayer barCategoryGap="30%" maxBarSize={36} margin={{ top: 12, right: 8, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} tickMargin={10} minTickGap={24} />
                   <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip
+                    cursor={{ fill: '#f1f5f9' }}
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    labelStyle={{ color: '#0f172a', fontWeight: 600, marginBottom: 8 }}
+                    itemStyle={{ color: '#475569', padding: '3px 0' }}
+                    labelFormatter={(label, payload) => `${label} · ${payload[0]?.payload.total ?? 0} requests`}
                   />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', color: '#64748b' }} />
-                  <Area type="monotone" dataKey="total" name="Total Requests" stroke="#2563eb" strokeWidth={2} fill="#dbeafe" fillOpacity={0.7} />
-                  <Line type="monotone" dataKey="approved" name="Approved" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="pending" name="Pending" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="rejected" name="Rejected" stroke="#f43f5e" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                </ComposedChart>
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: '11px', color: '#64748b' }} />
+                  <Bar dataKey="approved" name="Approved" stackId="requests" fill="#10b981" />
+                  <Bar dataKey="pending" name="Pending" stackId="requests" fill="#f59e0b" />
+                  <Bar dataKey="rejected" name="Rejected / Cancelled" stackId="requests" fill="#f43f5e" />
+                </BarChart>
               </ResponsiveContainer>
             </div>
             <ChartInterpretation text={chartInterpretation} />
@@ -517,7 +498,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
                       )}
                     </td>
                     <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
-                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
+                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>
                 ))
               ) : (

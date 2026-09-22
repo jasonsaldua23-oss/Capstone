@@ -31,7 +31,7 @@ import {
   stripOtherReasonPrefix,
 } from '@shared/customer-logic/feedback-reasons'
 import { formatPesoCompact, formatReportDateOnly } from './report-pdf'
-import { buildReportDateWindow, formatReportDateRangeLabel, type ReportDatePreset } from '../report-date-utils'
+import { buildReportDateWindow, formatReportDateRangeLabel, resolveReportCutoff, type ReportDatePreset } from '../report-date-utils'
 
 /**
  * Every dataset, chart series, KPI and export row the admin Reports screen derives
@@ -91,13 +91,10 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     warehouses,
   } = inputs
 
-  const rangeStart = useMemo(() => {
-    const start = new Date()
-    // Today starts at local midnight so earlier records from this calendar day remain visible.
-    if (rangeDays !== 'today') start.setDate(start.getDate() - Number(rangeDays))
-    start.setHours(0, 0, 0, 0)
-    return start
-  }, [rangeDays])
+  // Starts at local midnight so earlier records from this calendar day remain
+  // visible, and covers exactly the number of days the preset names - the same
+  // N-1 convention warehouseDateWindow below and the chart builders already use.
+  const rangeStart = useMemo(() => resolveReportCutoff(rangeDays), [rangeDays])
   const standardDateRangeLabel = useMemo(() => {
     const start = new Date(rangeStart)
     start.setHours(0, 0, 0, 0)

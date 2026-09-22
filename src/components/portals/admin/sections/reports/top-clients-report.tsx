@@ -33,8 +33,73 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeRanking, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDateTime, withinRange } from '../shared'
+import { formatPeso, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { isRevenueRecognized, summarizeCustomerMix } from '@/lib/report-metrics'
+import { ReportKpiRow } from './report-kpi'
+
+// Blue is the tab's existing series hue; amber pairs with it at CVD delta-E 37,
+// well clear of the 8 floor. Amber sits under 3:1 against white, so every segment
+// carries a visible label rather than relying on the fill alone.
+const CUSTOMER_MIX_COLORS = { new: '#f59e0b', returning: '#2563eb' } as const
+
+/**
+ * One 100% share bar. Labels sit beneath the bar so a thin segment still states
+ * its value, and each segment keeps a minimum width so a 1% share stays visible.
+ */
+function CustomerShareBar({
+  label,
+  total,
+  newValue,
+  returningValue,
+  newShare,
+  returningShare,
+  formatValue,
+}: {
+  label: string
+  total: string
+  newValue: number
+  returningValue: number
+  newShare: number
+  returningShare: number
+  formatValue: (value: number) => string
+}) {
+  const sum = newValue + returningValue
+  const newPercent = sum > 0 ? (newValue / sum) * 100 : 0
+  const returningPercent = sum > 0 ? 100 - newPercent : 0
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-sm font-medium text-slate-600">{label}</p>
+        <p className="text-lg font-bold text-slate-900">{total}</p>
+      </div>
+      <div
+        className="mt-2 flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-slate-100"
+        role="img"
+        aria-label={`${label}: ${formatValue(newValue)} new (${newShare}%), ${formatValue(returningValue)} returning (${returningShare}%)`}
+      >
+        {newValue > 0 ? (
+          <span className="h-full rounded-full" style={{ width: `${newPercent}%`, minWidth: 4, background: CUSTOMER_MIX_COLORS.new }} />
+        ) : null}
+        {returningValue > 0 ? (
+          <span className="h-full rounded-full" style={{ width: `${returningPercent}%`, minWidth: 4, background: CUSTOMER_MIX_COLORS.returning }} />
+        ) : null}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-slate-600">
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden className="inline-block size-2 rounded-sm" style={{ background: CUSTOMER_MIX_COLORS.new }} />
+          New {formatValue(newValue)} <span className="text-slate-400">({newShare}%)</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden className="inline-block size-2 rounded-sm" style={{ background: CUSTOMER_MIX_COLORS.returning }} />
+          Returning {formatValue(returningValue)} <span className="text-slate-400">({returningShare}%)</span>
+        </span>
+      </div>
+    </div>
+  )
+}
 
 interface TopClientsReportProps {
   orders: any[]
@@ -104,10 +169,8 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
           list = list.filter((o) => new Date(o.createdAt || o.date).getTime() <= toTime)
         }
       } else {
-        const cutoff = new Date()
-        // Today includes records from local midnight onward.
-        if (periodFilter !== 'today') cutoff.setDate(cutoff.getDate() - Number(periodFilter))
-        cutoff.setHours(0, 0, 0, 0)
+        // Shared so every tab's window matches its chart; see resolveReportCutoff.
+        const cutoff = resolveReportCutoff(periodFilter)
         list = list.filter((o) => withinRange(o.createdAt || o.date, cutoff))
       }
     }
@@ -127,6 +190,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
         barangay: string
         totalAmount: number
         orderCount: number
+        deliveredCount: number
         transactionsCount: number
         firstOrderDate: string
         mostRecentDate: string
@@ -146,7 +210,9 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
       // Key by ID or email or name
       const key = customerId || customerEmail || clientName
 
-      const orderAmount = Number(o.totalAmount || o.subtotal || 0)
+      // Revenue lands only once the order was delivered, the same rule the Orders
+      // tab uses. The order count still reflects everything the client placed.
+      const orderAmount = isRevenueRecognized(o) ? Math.max(0, Number(o.totalAmount || o.subtotal || 0)) : 0
       const orderDate = o.createdAt || new Date().toISOString()
 
       if (!clientStatsMap[key]) {
@@ -158,6 +224,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
           barangay: clientBarangay,
           totalAmount: 0,
           orderCount: 0,
+          deliveredCount: 0,
           transactionsCount: 0,
           firstOrderDate: orderDate,
           mostRecentDate: orderDate,
@@ -168,6 +235,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
       entry.totalAmount += orderAmount
       entry.orderCount += 1
       entry.transactionsCount += 1
+      if (isRevenueRecognized(o)) entry.deliveredCount += 1
 
       if (new Date(orderDate).getTime() > new Date(entry.mostRecentDate).getTime()) {
         entry.mostRecentDate = orderDate
@@ -200,25 +268,51 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
     return list
   }, [filteredOrders, customersMap, searchTerm, sortField])
 
+  // The "#1 Top Client" card and the revenue leaderboard mean the same thing no
+  // matter how the table below is sorted. They used to read rankedClients[0],
+  // so choosing "Most Recent Transaction" relabelled the latest buyer as #1.
+  const clientsByRevenue = useMemo(
+    () => [...rankedClients].sort((a, b) => b.totalAmount - a.totalAmount || b.orderCount - a.orderCount),
+    [rankedClients],
+  )
+
   // KPIs
   const kpis = useMemo(() => {
     const totalClients = rankedClients.length
     const totalRevenue = rankedClients.reduce((sum, c) => sum + c.totalAmount, 0)
     const avgPerClient = totalClients > 0 ? totalRevenue / totalClients : 0
-    const topClient = rankedClients[0] || null
+    const topClient = clientsByRevenue[0] || null
 
     return { totalClients, totalRevenue, avgPerClient, topClient }
-  }, [rankedClients])
+  }, [rankedClients, clientsByRevenue])
+
+  // New vs returning. Deliberately reads `orders`, not `filteredOrders`: a
+  // client's cohort comes from their whole purchase history, so a short range
+  // cannot relabel a long-standing client as new. Only the window's revenue is
+  // split between the two groups.
+  const customerMix = useMemo(() => {
+    let windowStart: Date | null = null
+    let windowEnd: Date | null = null
+    if (periodFilter === 'custom') {
+      windowStart = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null
+      windowEnd = dateTo ? new Date(`${dateTo}T23:59:59.999`) : null
+    } else if (periodFilter !== 'all') {
+      windowStart = resolveReportCutoff(periodFilter)
+    }
+    return summarizeCustomerMix(orders, { windowStart, windowEnd })
+  }, [orders, periodFilter, dateFrom, dateTo])
 
   // Chart Data: Top 8 Clients by Revenue
   const chartData = useMemo(() => {
-    return rankedClients.slice(0, 8).map((c, i) => ({
+    // A client whose only orders are still undelivered has no revenue yet, and a
+    // flat zero bar on a revenue leaderboard is noise rather than information.
+    return clientsByRevenue.filter((c) => c.totalAmount > 0).slice(0, 8).map((c, i) => ({
       name: c.name.length > 18 ? `${c.name.slice(0, 18)}...` : c.name,
       amount: c.totalAmount,
       orders: c.orderCount,
       rank: i + 1,
     }))
-  }, [rankedClients])
+  }, [clientsByRevenue])
 
   // The leaderboard is capped at eight clients, so the reading describes that same slice.
   const chartInterpretation = useMemo(() => {
@@ -231,7 +325,9 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
   }, [chartData])
 
   // Top 3 Podium
-  const topThree = rankedClients.slice(0, 3)
+  // The podium says "Rank 1 / Top performer", so it ranks by revenue too rather
+  // than by whatever the table below happens to be sorted on.
+  const topThree = clientsByRevenue.slice(0, 3)
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(rankedClients.length / pageSize))
@@ -247,7 +343,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
     { header: 'Barangay', key: 'barangay' },
     { header: 'Orders Placed', key: 'orderCount' },
     { header: 'Total Purchased (PHP)', accessor: (r) => Number(r.totalAmount || 0).toFixed(2) },
-    { header: 'Latest Transaction', accessor: (r) => formatDateTime(r.mostRecentDate) },
+    { header: 'Latest Transaction', accessor: (r) => formatReportTableDateTime(r.mostRecentDate) },
   ]
 
   const handleExportCsv = () => {
@@ -375,53 +471,88 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
         </Card>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Top Performer */}
-        <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <div className="flex items-center justify-between">
-              <CardDescription className="text-xs uppercase font-medium tracking-wide text-slate-500">
-                #1 Top Client
+      {/* Revenue is what the leaderboard ranks on, so it leads and the #1 client
+          sits beside it as the name behind the number. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Cumulative Revenue',
+          value: formatPeso(kpis.totalRevenue),
+          hint: 'Revenue from delivered orders only',
+          tone: 'emerald',
+        }}
+        items={[
+          {
+            id: 'top-client',
+            label: (<><Trophy className="h-3.5 w-3.5 text-blue-600" /> #1 Top Client</>),
+            value: <span className="block truncate">{kpis.topClient ? kpis.topClient.name : 'No records'}</span>,
+            valueKind: 'text',
+            hint: kpis.topClient ? `${formatPeso(kpis.topClient.totalAmount)} across ${kpis.topClient.orderCount} ${kpis.topClient.orderCount === 1 ? 'order' : 'orders'}` : undefined,
+            tone: 'blue',
+          },
+          { label: 'Active Clients', value: kpis.totalClients, hint: 'Placed orders in period', tone: 'purple' },
+          { label: 'Average Client Value', value: formatPeso(kpis.avgPerClient), hint: 'Revenue per active client', tone: 'indigo' },
+        ]}
+      />
+
+      {/* New vs returning. Buyers and pesos are different scales, so they get a
+          share bar each rather than sharing one axis. Two categories do not earn
+          a pie. */}
+      <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <CardHeader className="p-4 pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base font-semibold text-slate-800">Customer Mix</CardTitle>
+              <CardDescription className="mt-1 text-xs text-slate-500">
+                First-time against returning buyers. A client counts as returning when they had
+                already bought before this period, however short the period is.
               </CardDescription>
-              <Trophy className="h-4 w-4 text-blue-600" />
             </div>
-            <CardTitle className="text-xl font-bold text-slate-900 truncate">
-              {kpis.topClient ? kpis.topClient.name : 'No records'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs font-semibold text-blue-700">
-            {kpis.topClient ? `${formatPeso(kpis.topClient.totalAmount)} (${kpis.topClient.orderCount} orders)` : 'N/A'}
-          </CardContent>
-        </Card>
-
-        {/* Total Active Clients */}
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Active Purchasing Clients</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">{kpis.totalClients}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Clients with placed orders in period</CardContent>
-        </Card>
-
-        {/* Total Revenue */}
-        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Cumulative Revenue</CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">{formatPeso(kpis.totalRevenue)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Total client revenue in period</CardContent>
-        </Card>
-
-        {/* Average per Client */}
-        <Card className="rounded-2xl border border-purple-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-purple-600">Average Client Value</CardDescription>
-            <CardTitle className="text-2xl font-bold text-purple-700">{formatPeso(kpis.avgPerClient)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Average spending per active client</CardContent>
-        </Card>
-      </div>
+            <div className="flex items-center gap-3 text-xs font-medium text-slate-600">
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden className="inline-block size-2.5 rounded-sm" style={{ background: CUSTOMER_MIX_COLORS.new }} />
+                New
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden className="inline-block size-2.5 rounded-sm" style={{ background: CUSTOMER_MIX_COLORS.returning }} />
+                Returning
+              </span>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5 p-4 pt-0">
+          {customerMix.totalCustomers === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-500">
+              No delivered orders in this period, so there is no customer mix to show yet.
+            </p>
+          ) : (
+            <>
+              <CustomerShareBar
+                label="Buyers"
+                total={customerMix.totalCustomers.toLocaleString('en-US')}
+                newValue={customerMix.newCustomers}
+                returningValue={customerMix.returningCustomers}
+                newShare={customerMix.newCustomerShare}
+                returningShare={customerMix.returningCustomerShare}
+                formatValue={(value) => value.toLocaleString('en-US')}
+              />
+              <CustomerShareBar
+                label="Revenue"
+                total={formatPeso(customerMix.totalRevenue)}
+                newValue={customerMix.newRevenue}
+                returningValue={customerMix.returningRevenue}
+                newShare={customerMix.newRevenueShare}
+                returningShare={customerMix.returningRevenueShare}
+                formatValue={(value) => formatPeso(value)}
+              />
+              <p className="border-t border-slate-100 pt-3 text-xs text-slate-500">
+                {customerMix.returningCustomers > 0
+                  ? `Returning clients are ${customerMix.returningCustomerShare}% of buyers and bring ${customerMix.returningRevenueShare}% of revenue.`
+                  : 'Every buyer in this period was buying for the first time.'}
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Top 3 Podium Cards */}
       {topThree.length > 0 && (
@@ -563,7 +694,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
                       <td className="p-3.5 text-slate-600">{client.barangay}</td>
                       <td className="p-3.5 text-center font-semibold text-slate-900">{client.orderCount}</td>
                       <td className="p-3.5 text-right font-bold text-blue-700">{formatPeso(client.totalAmount)}</td>
-                      <td className="p-3.5 pr-4 text-right text-slate-500 whitespace-nowrap">{formatDateTime(client.mostRecentDate)}</td>
+                      <td className="p-3.5 pr-4 text-right text-slate-500 whitespace-nowrap">{formatReportTableDateTime(client.mostRecentDate)}</td>
                     </tr>
                   )
                 })

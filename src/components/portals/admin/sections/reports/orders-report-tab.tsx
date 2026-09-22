@@ -23,6 +23,7 @@ import { formatOrderReportStatus } from '@/lib/report-metrics'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, formatOrderCountLabel, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
+import { ReportKpiRow } from './report-kpi'
 
 /**
  * Order report tab: status filter, outcome charts and the order table.
@@ -70,14 +71,33 @@ export function OrdersReportTab({
         onStatusChange: setSelectedOrderStatus,
         showWarehouse: true,
       })}
-      {/* These KPI cards mirror the exported summary so the report headline numbers never drift. */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Card className="rounded-3xl border border-blue-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-blue-500">Total Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-slate-900">{orderKpi.totalOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">100% of filtered orders</p></CardHeader></Card>
-        <Card className="rounded-3xl border border-emerald-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-emerald-500">Delivered Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-emerald-700">{orderKpi.deliveredOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">{orderKpi.totalOrders > 0 ? ((orderKpi.deliveredOrders / orderKpi.totalOrders) * 100).toFixed(1) : '0.0'}% of filtered orders</p></CardHeader></Card>
-        <Card className="rounded-3xl border border-amber-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-amber-500">Pending Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-amber-600">{orderKpi.pendingOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">{orderKpi.totalOrders > 0 ? ((orderKpi.pendingOrders / orderKpi.totalOrders) * 100).toFixed(1) : '0.0'}% of filtered orders</p></CardHeader></Card>
-        <Card className="rounded-3xl border border-rose-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-rose-500">Cancelled Orders</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-rose-600">{orderKpi.cancelledOrders}</CardTitle><p className="mt-2 text-sm text-slate-500">{orderKpi.totalOrders > 0 ? ((orderKpi.cancelledOrders / orderKpi.totalOrders) * 100).toFixed(1) : '0.0'}% of filtered orders</p></CardHeader></Card>
-        <Card className="rounded-3xl border border-cyan-100 bg-white shadow-sm"><CardHeader className="p-5"><CardDescription className="text-xs uppercase tracking-wide text-cyan-500">Total Revenue</CardDescription><CardTitle className="mt-2 text-[34px] leading-none text-cyan-700">{formatPeso(orderKpi.totalRevenue)}</CardTitle><p className="mt-2 text-sm text-slate-500">Revenue from delivered orders only</p></CardHeader></Card>
-      </div>
+      {/* These KPI cards mirror the exported summary so the report headline
+          numbers never drift. Order count leads because the status mix below is
+          what this tab is for; revenue rides along as the value of that mix. */}
+      <ReportKpiRow
+        headline={{ label: 'Total Orders', value: orderKpi.totalOrders, hint: 'In the selected range', tone: 'blue' }}
+        items={[
+          {
+            label: 'Delivered',
+            value: orderKpi.deliveredOrders,
+            hint: orderKpi.totalOrders > 0 ? `${((orderKpi.deliveredOrders / orderKpi.totalOrders) * 100).toFixed(1)}% of orders` : undefined,
+            tone: 'emerald',
+          },
+          {
+            label: 'Pending',
+            value: orderKpi.pendingOrders,
+            hint: orderKpi.totalOrders > 0 ? `${((orderKpi.pendingOrders / orderKpi.totalOrders) * 100).toFixed(1)}% of orders` : undefined,
+            tone: 'amber',
+          },
+          {
+            label: 'Cancelled',
+            value: orderKpi.cancelledOrders,
+            hint: orderKpi.totalOrders > 0 ? `${((orderKpi.cancelledOrders / orderKpi.totalOrders) * 100).toFixed(1)}% of orders` : undefined,
+            tone: 'rose',
+          },
+          { label: 'Total Revenue', value: formatPeso(orderKpi.totalRevenue), hint: 'Delivered orders only', tone: 'cyan' },
+        ]}
+      />
 
       {/* The chart row tells the report story at a glance: volume first, outcome mix second. */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.5fr_1fr]">

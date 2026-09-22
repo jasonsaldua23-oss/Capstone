@@ -17,6 +17,7 @@ import { DriverPortalHeader } from './sections/layout/portal-header'
 import { useDriverPortalState } from './sections/layout/portal-state'
 import { ProfileView } from './sections/profile/profile-view'
 import { TripDetailView } from './sections/trips/trip-detail-view'
+import { TripDetailsView } from './sections/trips/trip-details-view'
 import { TripsListView } from './sections/trips/trips-list-view'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { PullToRefresh } from '../shared/pull-to-refresh'
@@ -46,6 +47,9 @@ export function DriverPortal() {
     openNativeCameraAppSettings,
   } = useDriverPortalState()
   const [headerUnreadCount, setHeaderUnreadCount] = useState(0)
+  // Reading a trip's paperwork is kept off `selectedTripId` on purpose: that id
+  // auto-starts location tracking, which browsing purchase orders must not do.
+  const [detailsTripId, setDetailsTripId] = useState<string | null>(null)
   // Fix: the bell must refresh even before the notification/profile page mounts.
   useEffect(() => {
     let disposed = false
@@ -84,6 +88,7 @@ export function DriverPortal() {
   // Fix: leave the trip detail before navigating away from its parent tab.
   useNativeBack(() => {
     if (selectedTripId) { setSelectedTripId(null); return true }
+    if (detailsTripId) { setDetailsTripId(null); return true }
     if (activeView !== 'home') { setActiveView('home'); return true }
     return false
   })
@@ -92,7 +97,20 @@ export function DriverPortal() {
   // rather than only Home and Trips doing so.
   const openDriverView = (view: 'home' | 'trips' | 'history' | 'profile') => {
     setSelectedTripId(null)
+    setDetailsTripId(null)
     setActiveView(view)
+  }
+
+  // The running trip and its paperwork are two screens, never stacked.
+  const openTripRun = (tripId: string) => {
+    setDetailsTripId(null)
+    setActiveView('trips')
+    setSelectedTripId(tripId)
+  }
+  const openTripPaperwork = (tripId: string) => {
+    setSelectedTripId(null)
+    setActiveView('trips')
+    setDetailsTripId(tripId)
   }
 
   const handleLogout = async () => {
@@ -131,14 +149,8 @@ export function DriverPortal() {
         {!hidePortalHeader ? (
           <DriverPortalHeader
             isTracking={isTracking}
-            onOpenHome={() => {
-              setActiveView('home')
-              setSelectedTripId(null)
-            }}
-            onOpenTrips={() => {
-              setActiveView('trips')
-              setSelectedTripId(null)
-            }}
+            onOpenHome={() => openDriverView('home')}
+            onOpenTrips={() => openDriverView('trips')}
             onOpenProfile={() => setActiveView('profile')}
             onLogout={handleLogout}
             onOpenNotifications={() => {
@@ -168,7 +180,7 @@ export function DriverPortal() {
           {/* Route-like animated transitions between views */}
           <AnimatePresence mode="wait" initial={false}>
             <motion.main
-              key={`${activeView}-${selectedTripId || 'none'}`}
+              key={`${activeView}-${selectedTripId || detailsTripId || 'none'}`}
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
@@ -192,25 +204,31 @@ export function DriverPortal() {
                   currentLocation={currentLocation}
                   onOpenTrips={() => {
                     // Fix: the dashboard action must navigate to the driver's trip list.
-                    setActiveView('trips')
-                    setSelectedTripId(null)
+                    openDriverView('trips')
                   }}
-                  onOpenActiveTrip={(trip) => {
-                    setActiveView('trips')
-                    setSelectedTripId(trip.id)
-                  }}
+                  onOpenActiveTrip={(trip) => openTripRun(trip.id)}
                   onStartTracking={startLocationTracking}
                 />
               )}
 
-              {activeView === 'trips' && !selectedTripId && (
+              {activeView === 'trips' && !selectedTripId && !detailsTripId && (
                 // Trips list when no specific trip is selected.
                 <TripsListView
                   trips={trips}
                   isLoading={isLoading}
-                  onSelectTrip={(trip) => setSelectedTripId(trip.id)}
+                  onSelectTrip={(trip) => openTripRun(trip.id)}
+                  onViewTripDetails={(trip) => openTripPaperwork(trip.id)}
                 />
               )}
+
+              {activeView === 'trips' && !selectedTripId && detailsTripId && (() => {
+                const detailsTrip = trips.find((t) => t.id === detailsTripId) ?? null
+                if (!detailsTrip) return null
+                return (
+                  // Read-only paperwork for one trip: its purchase orders and orderers.
+                  <TripDetailsView trip={detailsTrip} onBack={() => setDetailsTripId(null)} />
+                )
+              })()}
 
               {activeView === 'trips' && selectedTripId && (() => {
                 const selectedTrip = trips.find((t) => t.id === selectedTripId) ?? null
@@ -242,10 +260,7 @@ export function DriverPortal() {
                 <HistoryView
                   trips={trips}
                   isLoading={isLoading}
-                  onOpenTrip={(trip) => {
-                    setActiveView('trips')
-                    setSelectedTripId(trip.id)
-                  }}
+                  onOpenTrip={(trip) => openTripRun(trip.id)}
                 />
               )}
 
@@ -274,6 +289,7 @@ export function DriverPortal() {
                     if (refType === 'trip' || notifType === 'TRIP' || title.includes('trip') || message.includes('trip') || title.includes('assigned')) {
                       const matched = trips.find((t) => t.id === refId || t.tripNumber === refId)
                       // Fix: never land on a trip left open before the bell was pressed.
+                      setDetailsTripId(null)
                       setSelectedTripId(matched ? matched.id : refId || null)
                       setActiveView('trips')
                       return

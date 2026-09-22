@@ -19,10 +19,12 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComparison, describeRanking, toPoints } from '@/lib/chart-interpretation'
-import { formatDateTime } from '../shared'
+import {  } from '../shared'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
+import { ReportKpiRow } from './report-kpi'
+import { formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 
 /**
  * Inventory tab: product velocity, stock levels, movement and batch expiry.
@@ -129,13 +131,21 @@ export function InventoryReportTab({
           showWarehouse: true,
         })}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-5">
-          <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalSkus}</CardTitle><p className="text-[11px] text-slate-400">Products currently tracked</p></CardHeader></Card>
-          <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock SKUs</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.lowStock}</CardTitle><p className="text-[11px] text-slate-400">At or below reorder threshold</p></CardHeader></Card>
-          <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total On Hand</CardDescription><CardTitle className="text-[30px] leading-none">{inventoryKpi.totalQuantity}</CardTitle><p className="text-[11px] text-slate-400">Units currently available</p></CardHeader></Card>
-          <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock In</CardDescription><CardTitle className="text-[30px] leading-none text-blue-600">{inventoryKpi.stockIn}</CardTitle><p className="text-[11px] text-slate-400">Units received in selected period</p></CardHeader></Card>
-          <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stock Out</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{inventoryKpi.stockOut}</CardTitle><p className="text-[11px] text-slate-400">Units issued in selected period</p></CardHeader></Card>
-        </div>
+        {/* Low stock is the line that triggers action, so it leads; the volume
+            figures say how much stock that judgement is being made against. */}
+        <ReportKpiRow
+          headline={{
+            label: 'Low Stock SKUs',
+            value: inventoryKpi.lowStock,
+            hint: `of ${inventoryKpi.totalSkus} tracked, at or below reorder point`,
+            tone: inventoryKpi.lowStock > 0 ? 'amber' : 'emerald',
+          }}
+          items={[
+            { label: 'Total On Hand', value: inventoryKpi.totalQuantity, hint: 'Units available', tone: 'slate' },
+            { label: 'Stock In', value: inventoryKpi.stockIn, hint: 'Received in period', tone: 'blue' },
+            { label: 'Stock Out', value: inventoryKpi.stockOut, hint: 'Issued in period', tone: 'purple' },
+          ]}
+        />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Card className={chartCardClassName}>
@@ -290,7 +300,7 @@ export function InventoryReportTab({
                 <tbody>
                   {previewRows(inventoryMovementRows).map((row, index) => (
                     <tr key={`${row.createdAt}-${index}`} className="border-b last:border-0">
-                      <td className="p-3">{formatDateTime(row.createdAt)}</td>
+                      <td className="p-3">{formatReportTableDateTime(row.createdAt)}</td>
                       <td className="p-3">{String(row.product || 'N/A')}</td>
                       <td className="p-3">{String(row.sourceType || row.type || 'N/A')}</td>
                       <td className="p-3">{String(row.quantity || 0)}</td>

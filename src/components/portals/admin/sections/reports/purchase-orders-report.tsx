@@ -23,8 +23,7 @@ import {
 import {
   ResponsiveContainer,
   ComposedChart,
-  Area,
-  Line,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -33,8 +32,11 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDateTime, formatDayKey, withinRange } from '../shared'
+import { formatPeso, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+import { ReportKpiRow } from './report-kpi'
+import { buildDailyChartSeries } from '@/lib/report-metrics'
+import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 
 interface PurchaseOrdersReportProps {
   orders: any[]
@@ -120,10 +122,8 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
           list = list.filter((item) => new Date(item.date).getTime() <= toTime)
         }
       } else {
-        const cutoff = new Date()
-        // Today uses local midnight; numeric presets keep their existing rolling window.
-        if (datePreset !== 'today') cutoff.setDate(cutoff.getDate() - Number(datePreset))
-        cutoff.setHours(0, 0, 0, 0)
+        // Shared so every tab's window matches its chart; see resolveReportCutoff.
+        const cutoff = resolveReportCutoff(datePreset)
         list = list.filter((item) => withinRange(item.date, cutoff))
       }
     }
@@ -173,7 +173,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
 
   // Build a chronological time series so daily stage movement is easy to compare.
   const chartData = useMemo(() => {
-    const map: Record<string, { date: string; total: number; delivered: number; processing: number; cancelled: number }> = {}
+    const map: Record<string, { date: string; total: number; delivered: number; processing: number; cancelled: number; other: number }> = {}
     filteredPOs.forEach((item) => {
       const d = new Date(item.date)
       const key = formatDayKey(d)
@@ -184,6 +184,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
           delivered: 0,
           processing: 0,
           cancelled: 0,
+          other: 0,
         }
       }
       if (item.stage === 'DELIVERED' || item.stage === 'COMPLETED') {
@@ -192,17 +193,27 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
         map[key].cancelled += 1
       } else if (item.stage === 'PROCESSING') {
         map[key].processing += 1
+      } else {
+        // Approved, For Delivery and the rest used to count toward the total
+        // while matching no plotted series, so the total line floated above the
+        // others for a reason the chart never showed. The stack now accounts
+        // for every order, which is what makes its height a real total.
+        map[key].other += 1
       }
       map[key].total += 1
     })
 
-    return Object.entries(map)
-      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
-      .slice(-14)
-      .map(([, values]) => values)
+    return buildDailyChartSeries(map, {
+      days: 14,
+      fillEmpty: (dateKey) => {
+        const [, month, day] = dateKey.split('-')
+        return { date: `${Number(month)}/${Number(day)}`, total: 0, delivered: 0, processing: 0, cancelled: 0, other: 0 }
+      },
+    })
   }, [filteredPOs])
 
-  // The area carries daily volume; the lines split it into the stages the report tracks.
+  // The stack carries daily volume; the segments split it by stage, and every
+  // order lands in exactly one segment so the two readings agree.
   const chartInterpretation = useMemo(() => {
     const day = (row: any) => row.date
     return `${describeTrend(toPoints(chartData, day, (row: any) => row.total), {
@@ -213,8 +224,9 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
         { name: 'Delivered', points: toPoints(chartData, day, (row: any) => row.delivered) },
         { name: 'Processing', points: toPoints(chartData, day, (row: any) => row.processing) },
         { name: 'Cancelled', points: toPoints(chartData, day, (row: any) => row.cancelled) },
+        { name: 'Other stages', points: toPoints(chartData, day, (row: any) => row.other) },
       ],
-      { noun: 'stage-tagged purchase orders', entityNoun: 'stage' }
+      { noun: 'purchase orders', entityNoun: 'stage' }
     )}`
   }, [chartData])
 
@@ -250,7 +262,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
     { header: 'Client', key: 'client' },
     { header: 'PO Stage', key: 'stage' },
     { header: 'PO Total (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
-    { header: 'Created Date', accessor: (r) => formatDateTime(r.date) },
+    { header: 'Created Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
   const handleExportCsv = () => {
@@ -325,50 +337,27 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Total Purchase Orders</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">{kpis.total}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">100% of filtered POs</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Delivered / Fulfilled</CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">{kpis.delivered}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">
-            {kpis.total > 0 ? ((kpis.delivered / kpis.total) * 100).toFixed(1) : 0}% completion rate
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-cyan-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-cyan-600">Processing Orders</CardDescription>
-            <CardTitle className="text-2xl font-bold text-cyan-700">{kpis.processing}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Orders currently being prepared</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-rose-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-rose-600">Cancelled Orders</CardDescription>
-            <CardTitle className="text-2xl font-bold text-rose-700">{kpis.cancelled}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Cancelled before delivery</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-indigo-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-indigo-600">Total Purchase Value</CardDescription>
-            <CardTitle className="text-2xl font-bold text-indigo-700">{formatPeso(kpis.totalValue)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Excludes cancelled and rejected orders</CardContent>
-        </Card>
-      </div>
+      {/* Purchase value is the figure procurement is steering; the stage counts
+          explain how that value is distributed. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Total Purchase Value',
+          value: formatPeso(kpis.totalValue),
+          hint: 'Excludes cancelled and rejected orders',
+          tone: 'indigo',
+        }}
+        items={[
+          { label: 'Purchase Orders', value: kpis.total, tone: 'blue' },
+          {
+            label: 'Delivered',
+            value: kpis.delivered,
+            hint: kpis.total > 0 ? `${((kpis.delivered / kpis.total) * 100).toFixed(1)}% fulfilled` : undefined,
+            tone: 'emerald',
+          },
+          { label: 'Processing', value: kpis.processing, hint: 'Being prepared', tone: 'cyan' },
+          { label: 'Cancelled', value: kpis.cancelled, hint: 'Before delivery', tone: 'rose' },
+        ]}
+      />
 
       {/* A composed time-series separates overall PO volume from each stage trend. */}
       {chartData.length > 0 && (
@@ -388,10 +377,15 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', color: '#64748b' }} />
-                  <Area type="monotone" dataKey="total" name="Total Orders" stroke="#2563eb" strokeWidth={2} fill="#dbeafe" fillOpacity={0.7} />
-                  <Line type="monotone" dataKey="delivered" name="Delivered" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="processing" name="Processing" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="cancelled" name="Cancelled" stroke="#f43f5e" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  {/* Stacked, so the column height IS the day's total. The old
+                      chart drew the total as its own series on top of its parts,
+                      which squashed the stages into the bottom of the plot and
+                      put two near-identical blues in the legend. Counts are
+                      discrete, so bars rather than smoothed curves. */}
+                  <Bar dataKey="delivered" name="Delivered" fill="#10b981" stackId="po" />
+                  <Bar dataKey="processing" name="Processing" fill="#3b82f6" stackId="po" />
+                  <Bar dataKey="cancelled" name="Cancelled" fill="#f43f5e" stackId="po" />
+                  <Bar dataKey="other" name="Other stages" fill="#8b5cf6" stackId="po" radius={[4, 4, 0, 0]} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -532,7 +526,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
                     </td>
                     <td className="p-3.5">{getStageBadge(row.stage)}</td>
                     <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
-                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
+                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>
                 ))
               ) : (

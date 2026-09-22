@@ -512,6 +512,164 @@ export function formatOrderReportStatus(status: OrderReportStatus) {
   return 'Pending'
 }
 
+/**
+ * The one revenue rule for every report: money counts once the goods reached
+ * the customer.
+ *
+ * The tabs used to disagree. The Orders tab counted delivered orders only,
+ * while Top Clients, Transactions and Retail Sales counted everything that was
+ * not cancelled - so the same four orders in the same period read as P1,000 on
+ * one card and P9,000 on another, both labelled "Revenue". Retail Sales applied
+ * no status rule at all, so voided counter sales were counted as income.
+ *
+ * Reads the status off whichever field the caller's rows carry: plain orders use
+ * `status`, purchase-order rows use `stage`, retail rows use `retailStatus`.
+ */
+export function isRevenueRecognized(row: any): boolean {
+  const status = row?.status ?? row?.stage ?? row?.retailStatus
+  return normalizeOrderReportStatus(status) === 'DELIVERED'
+}
+
+/** Sum of a revenue-bearing amount over rows, applying the shared rule above. */
+export function sumRecognizedRevenue(rows: any[], getAmount: (row: any) => unknown): number {
+  return (Array.isArray(rows) ? rows : []).reduce(
+    (sum, row) => (isRevenueRecognized(row) ? sum + Math.max(0, asNumber(getAmount(row))) : sum),
+    0,
+  )
+}
+
+// ==== New vs returning customers ====
+
+export type CustomerMixSummary = {
+  newCustomers: number
+  returningCustomers: number
+  totalCustomers: number
+  newRevenue: number
+  returningRevenue: number
+  totalRevenue: number
+  /** Share of buying customers in the window, 0-100. */
+  newCustomerShare: number
+  returningCustomerShare: number
+  /** Share of window revenue, 0-100. */
+  newRevenueShare: number
+  returningRevenueShare: number
+}
+
+const EMPTY_CUSTOMER_MIX: CustomerMixSummary = {
+  newCustomers: 0,
+  returningCustomers: 0,
+  totalCustomers: 0,
+  newRevenue: 0,
+  returningRevenue: 0,
+  totalRevenue: 0,
+  newCustomerShare: 0,
+  returningCustomerShare: 0,
+  newRevenueShare: 0,
+  returningRevenueShare: 0,
+}
+
+/**
+ * Splits the customers who bought inside a window into first-time and returning,
+ * and splits the window's revenue the same way.
+ *
+ * A customer's cohort is decided by their first delivered order across ALL
+ * history, not just the selected window. Deciding it from the window alone would
+ * relabel every long-standing client as "new" whenever the range is short, which
+ * is the trap that makes retention charts read backwards.
+ *
+ * `allOrders` must therefore be the unfiltered order list; the window is applied
+ * here. Only revenue-recognized orders count, matching `isRevenueRecognized`.
+ */
+export function summarizeCustomerMix(
+  allOrders: any[],
+  options: {
+    windowStart?: Date | null
+    windowEnd?: Date | null
+    getCustomerKey?: (order: any) => string
+    getAmount?: (order: any) => unknown
+  } = {},
+): CustomerMixSummary {
+  const orders = Array.isArray(allOrders) ? allOrders : []
+  const getCustomerKey =
+    options.getCustomerKey ||
+    ((order: any) =>
+      String(
+        order?.customer?.id ||
+          order?.customerId ||
+          order?.customer_id ||
+          String(order?.customer?.email || order?.customerEmail || '').toLowerCase() ||
+          order?.customer?.name ||
+          order?.shippingName ||
+          '',
+      ).trim())
+  const getAmount = options.getAmount || ((order: any) => order?.totalAmount ?? order?.subtotal)
+
+  // The date a purchase actually completed is what places a customer in time.
+  const purchaseDate = (order: any) => toDate(order?.deliveredAt) || toDate(order?.timeline?.deliveredAt) || toDate(order?.createdAt)
+
+  const firstPurchaseAt = new Map<string, number>()
+  for (const order of orders) {
+    if (!isRevenueRecognized(order)) continue
+    const key = getCustomerKey(order)
+    if (!key) continue
+    const when = purchaseDate(order)
+    if (!when) continue
+    const time = when.getTime()
+    const existing = firstPurchaseAt.get(key)
+    if (existing === undefined || time < existing) firstPurchaseAt.set(key, time)
+  }
+
+  if (firstPurchaseAt.size === 0) return { ...EMPTY_CUSTOMER_MIX }
+
+  const startMs = options.windowStart ? options.windowStart.getTime() : Number.NEGATIVE_INFINITY
+  const endMs = options.windowEnd ? options.windowEnd.getTime() : Number.POSITIVE_INFINITY
+
+  const newKeys = new Set<string>()
+  const returningKeys = new Set<string>()
+  let newRevenue = 0
+  let returningRevenue = 0
+
+  for (const order of orders) {
+    if (!isRevenueRecognized(order)) continue
+    const key = getCustomerKey(order)
+    if (!key) continue
+    const when = purchaseDate(order)
+    if (!when) continue
+    const time = when.getTime()
+    if (time < startMs || time > endMs) continue
+
+    const amount = Math.max(0, asNumber(getAmount(order)))
+    // Their first ever purchase landing inside this window is what makes them new.
+    const isNew = (firstPurchaseAt.get(key) ?? time) >= startMs
+    if (isNew) {
+      newKeys.add(key)
+      newRevenue += amount
+    } else {
+      returningKeys.add(key)
+      returningRevenue += amount
+    }
+  }
+
+  const newCustomers = newKeys.size
+  const returningCustomers = returningKeys.size
+  const totalCustomers = newCustomers + returningCustomers
+  const totalRevenue = newRevenue + returningRevenue
+  const share = (part: number, whole: number) => (whole > 0 ? roundRate((part / whole) * 100) : 0)
+
+  return {
+    newCustomers,
+    returningCustomers,
+    totalCustomers,
+    newRevenue,
+    returningRevenue,
+    totalRevenue,
+    newCustomerShare: share(newCustomers, totalCustomers),
+    returningCustomerShare: share(returningCustomers, totalCustomers),
+    newRevenueShare: share(newRevenue, totalRevenue),
+    returningRevenueShare: share(returningRevenue, totalRevenue),
+  }
+}
+
 // Build a short readable item line so the report table can stay dense without hiding order content.
 export function summarizeOrderItems(items: any[]) {
   const normalizedItems = Array.isArray(items) ? items : []
@@ -1452,4 +1610,55 @@ export function summarizeFeedbackParticipation(
       ? Math.round((reviewedIds.size / deliveredIds.size) * 100)
       : 0,
   }
+}
+
+// ==== Daily chart series ====
+
+/**
+ * Turns a day-keyed bucket map into a left-to-right time series.
+ *
+ * Two report charts used to `return Object.values(map).slice(-14)`. Object key
+ * order is insertion order, and insertion followed the table's sort control, so
+ * the Transactions and Logistics trends were drawn newest-to-oldest whenever the
+ * table was on "Newest First" - a rising line appeared to climb into the past -
+ * and `slice(-14)` then kept the OLDEST fourteen days rather than the latest.
+ * The chart's direction must not depend on a sort dropdown.
+ *
+ * Days with no activity are filled in rather than dropped, so the horizontal
+ * spacing represents real elapsed time instead of closing the gaps.
+ *
+ * `byDay` keys must be `YYYY-MM-DD` (see `formatDayKey`), which sort correctly
+ * as plain strings.
+ */
+export function buildDailyChartSeries<T>(
+  byDay: Record<string, T>,
+  options: { days?: number; fillEmpty: (dateKey: string) => T },
+): T[] {
+  const keys = Object.keys(byDay).sort()
+  if (keys.length === 0) return []
+
+  const toDayKey = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const parseKey = (key: string) => {
+    const [year, month, day] = key.split('-').map(Number)
+    return new Date(year, (month || 1) - 1, day || 1)
+  }
+
+  const filled: T[] = []
+  const cursor = parseKey(keys[0])
+  const last = parseKey(keys[keys.length - 1])
+  // A runaway range would allocate forever, so cap the walk at four years.
+  for (let guard = 0; cursor.getTime() <= last.getTime() && guard < 1500; guard += 1) {
+    const key = toDayKey(cursor)
+    filled.push(byDay[key] ?? options.fillEmpty(key))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  const days = options.days
+  return days && days > 0 ? filled.slice(-days) : filled
 }

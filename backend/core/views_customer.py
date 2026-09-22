@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
-from django.db.models import F, Q, Sum
+from django.db.models import F, Prefetch, Q, Sum
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -29,8 +29,11 @@ from .api_utils import (
 from .models import (
     Customer,
     LocationLog,
+    MixedCaseComponent,
     Order,
+    OrderDepositRefundClaim,
     OrderDepositRefundRequest,
+    OrderItem,
     OrderStatus,
     OrderTimeline,
     ProductPackaging,
@@ -175,14 +178,42 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
         return _err("Unauthorized", 401)
     if request.method == "GET":
         page, size, off = _pagination(request)
+        # Fix: use the serializer's page-wide caches; plain prefetches are bypassed
+        # by its select_related calls and otherwise repeat queries for every order.
+        serialized_components = Prefetch(
+            "mixed_case_components",
+            queryset=MixedCaseComponent.objects.select_related("product").order_by("created_at", "id"),
+            to_attr="_serialized_mixed_case_components",
+        )
         qs = _real_orders(
             Order.objects.select_related("customer", "timeline")
-            .prefetch_related("items__product")
+            .prefetch_related(
+                Prefetch(
+                    "items",
+                    queryset=OrderItem.objects.select_related("product").prefetch_related(serialized_components),
+                    to_attr="_serialized_order_items",
+                ),
+                Prefetch(
+                    "deposit_refund_claims",
+                    queryset=OrderDepositRefundClaim.objects.select_related("product", "container_type"),
+                    to_attr="_serialized_refund_claims",
+                ),
+            )
             .filter(customer_id=p.get("userId"))
         ).order_by("-created_at")
         total = qs.count()
         rows = list(qs[off : off + size])
         order_ids = [str(row.id) for row in rows]
+        # Batch shared warehouse and delivery receipt lookups for the current page.
+        warehouse_ids = {row.warehouse_id for row in rows if row.warehouse_id}
+        warehouse_lookup = {row.id: row for row in Warehouse.objects.filter(id__in=warehouse_ids)}
+        # Undelivered orders do not expose stock-out receipts, so skip that work.
+        delivered_order_ids = [
+            str(row.id) for row in rows
+            if _normalize_order_status(row.status) == OrderStatus.DELIVERED
+            or getattr(getattr(row, "timeline", None), "delivered_at", None)
+        ]
+        delivery_transactions = legacy._build_delivery_transactions_map(delivered_order_ids)
         adjustments = empties_adjustments_for_orders([str(row.id) for row in rows])
         # Backfill legacy POD fields from trip stops without one query per order.
         pod_drop_points = _build_order_pod_drop_point_map(order_ids)
@@ -190,7 +221,7 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
         customer_product_ids = {
             str(item.product_id)
             for row in rows
-            for item in (getattr(row, "_serialized_order_items", None) or row.items.all())
+            for item in row._serialized_order_items
             if getattr(item, "product_id", None)
         }
         customer_packaging_cache = {
@@ -204,6 +235,8 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
             "orders": [
                 _serialize_order(
                     row,
+                    warehouse_lookup=warehouse_lookup,
+                    delivery_transactions=delivery_transactions.get(str(row.id), {}),
                     empties_adjustment=adjustments.get(str(row.id)),
                     packaging_cache=customer_packaging_cache,
                     pod_drop_point=pod_drop_points.get(str(row.id)),

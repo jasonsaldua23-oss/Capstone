@@ -18,6 +18,10 @@ import {
   summarizeFeedbackParticipation,
   buildOrderReportRows,
   buildOrderReportStatusBreakdown,
+  buildDailyChartSeries,
+  isRevenueRecognized,
+  sumRecognizedRevenue,
+  summarizeCustomerMix,
   buildOrderReportStatusOptions,
   buildOrderReportVolumeChart,
   buildInventoryMovementChart,
@@ -45,6 +49,11 @@ import {
   getFeedbackOptionsForRating,
   inferFeedbackDimensions,
 } from '../../shared/customer-logic/src/feedback-reasons.ts'
+import {
+  buildReportDateWindow,
+  resolveReportCutoff,
+  resolveReportSpanDays,
+} from '../components/portals/admin/sections/report-date-utils.ts'
 
 test('inventory shows complete loose sets as cases and preserves remaining bottles', () => {
   const item = { quantity: 33, reservedQuantity: 24, looseBottles: 12, product: { quantityPerCase: 12 } }
@@ -596,4 +605,122 @@ test('unrelated text does not get forced onto a dimension', () => {
   assert.equal(classifyFeedbackReason('I love chocolate', 5).dimension, 'overall')
   assert.equal(classifyFeedbackReason('everything was perfect, salamat', 5).dimension, 'overall')
   assert.deepEqual(inferFeedbackDimensions('no comment'), ['overall'])
+})
+
+test('date presets cover exactly the number of days they name', () => {
+  // "Past 7 Days" used to span eight: the cutoff went a full seven days back and
+  // the end stayed at tonight. The chart builders always counted N days ending
+  // today, so a tab's table and its chart reported on different windows.
+  const now = new Date(2026, 8, 22, 15, 0, 0)
+  const spanDays = (preset: 'today' | '7' | '30' | '90' | '365') => {
+    const window = buildReportDateWindow(preset, undefined, undefined, now)
+    assert.ok(window.start && window.end)
+    return Math.round((window.end.getTime() - window.start.getTime()) / 86400000)
+  }
+
+  assert.equal(spanDays('today'), 1)
+  assert.equal(spanDays('7'), 7)
+  assert.equal(spanDays('30'), 30)
+  assert.equal(spanDays('90'), 90)
+  assert.equal(spanDays('365'), 365)
+
+  // The cutoff is midnight, so an order placed first thing that morning is in.
+  const week = buildReportDateWindow('7', undefined, undefined, now)
+  assert.equal(week.start?.getDate(), 16)
+  assert.equal(week.start?.getHours(), 0)
+  assert.equal(resolveReportSpanDays('7'), 7)
+  assert.equal(resolveReportCutoff('today', now).getDate(), 22)
+})
+
+test('every tab recognises revenue on delivery and only on delivery', () => {
+  // These four orders used to total P1,000 on the Orders tab and P9,000 on Top
+  // Clients, Transactions and Retail Sales - all four cards labelled "Revenue".
+  const orders = [
+    { status: 'DELIVERED', totalAmount: 1000 },
+    { status: 'OUT_FOR_DELIVERY', totalAmount: 5000 },
+    { status: 'PENDING', totalAmount: 3000 },
+    { status: 'CANCELLED', totalAmount: 9000 },
+  ]
+  assert.equal(sumRecognizedRevenue(orders, (row) => row.totalAmount), 1000)
+
+  // The rule reads whichever status field the caller's rows carry.
+  assert.equal(isRevenueRecognized({ status: 'DELIVERED' }), true)
+  assert.equal(isRevenueRecognized({ stage: 'COMPLETED' }), true)
+  assert.equal(isRevenueRecognized({ retailStatus: 'COMPLETED' }), true)
+  assert.equal(isRevenueRecognized({ retailStatus: 'VOIDED' }), false)
+  assert.equal(isRevenueRecognized({ status: 'OUT_FOR_DELIVERY' }), false)
+  assert.equal(isRevenueRecognized({ status: 'REJECTED' }), false)
+  // A negative amount cannot pull the total down.
+  assert.equal(sumRecognizedRevenue([{ status: 'DELIVERED', totalAmount: -500 }], (r) => r.totalAmount), 0)
+})
+
+test('customer mix reads cohorts from all history, not from the window', () => {
+  const orders = [
+    // Bought long before the window, and again inside it: returning.
+    { customer: { id: 'c1' }, status: 'DELIVERED', totalAmount: 400, deliveredAt: '2025-01-10T08:00:00' },
+    { customer: { id: 'c1' }, status: 'DELIVERED', totalAmount: 600, deliveredAt: '2026-09-18T08:00:00' },
+    // First ever purchase falls inside the window: new.
+    { customer: { id: 'c2' }, status: 'DELIVERED', totalAmount: 250, deliveredAt: '2026-09-19T08:00:00' },
+    // Never delivered, so neither a customer nor revenue.
+    { customer: { id: 'c3' }, status: 'CANCELLED', totalAmount: 9999, deliveredAt: '2026-09-19T08:00:00' },
+    // Delivered outside the window entirely.
+    { customer: { id: 'c4' }, status: 'DELIVERED', totalAmount: 700, deliveredAt: '2024-05-01T08:00:00' },
+  ]
+
+  const mix = summarizeCustomerMix(orders, {
+    windowStart: new Date(2026, 8, 16, 0, 0, 0),
+    windowEnd: new Date(2026, 8, 22, 23, 59, 59, 999),
+  })
+
+  assert.equal(mix.newCustomers, 1)
+  assert.equal(mix.returningCustomers, 1)
+  assert.equal(mix.totalCustomers, 2)
+  assert.equal(mix.newRevenue, 250)
+  assert.equal(mix.returningRevenue, 600)
+  assert.equal(mix.totalRevenue, 850)
+  assert.equal(mix.returningRevenueShare, 70.6)
+  assert.equal(mix.newRevenueShare, 29.4)
+
+  // Narrowing the window must not turn the long-standing client into a new one.
+  const narrow = summarizeCustomerMix(orders, {
+    windowStart: new Date(2026, 8, 18, 0, 0, 0),
+    windowEnd: new Date(2026, 8, 22, 23, 59, 59, 999),
+  })
+  assert.equal(narrow.newCustomers, 1)
+  assert.equal(narrow.returningCustomers, 1)
+
+  // No orders at all is an empty mix, not a division by zero.
+  const empty = summarizeCustomerMix([], {})
+  assert.equal(empty.totalCustomers, 0)
+  assert.equal(empty.returningRevenueShare, 0)
+})
+
+test('daily chart series runs oldest to newest and keeps the latest days', () => {
+  // Insertion order here is newest-first, the order the table's sort produced.
+  const byDay = {
+    '2026-09-22': { dateKey: '2026-09-22', amount: 500 },
+    '2026-09-21': { dateKey: '2026-09-21', amount: 400 },
+    '2026-09-18': { dateKey: '2026-09-18', amount: 300 },
+  }
+  const fillEmpty = (dateKey: string) => ({ dateKey, amount: 0 })
+
+  const series = buildDailyChartSeries(byDay, { fillEmpty })
+  // Oldest first, and 9/19 and 9/20 are filled rather than dropped.
+  assert.deepEqual(series.map((row) => row.dateKey), [
+    '2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22',
+  ])
+  assert.deepEqual(series.map((row) => row.amount), [300, 0, 0, 400, 500])
+
+  // `days` keeps the most recent window, not the oldest one.
+  const recent = buildDailyChartSeries(byDay, { fillEmpty, days: 2 })
+  assert.deepEqual(recent.map((row) => row.dateKey), ['2026-09-21', '2026-09-22'])
+
+  // Insertion order must not change the result.
+  const reordered = buildDailyChartSeries(
+    { '2026-09-18': byDay['2026-09-18'], '2026-09-22': byDay['2026-09-22'], '2026-09-21': byDay['2026-09-21'] },
+    { fillEmpty },
+  )
+  assert.deepEqual(reordered.map((row) => row.dateKey), series.map((row) => row.dateKey))
+
+  assert.deepEqual(buildDailyChartSeries({}, { fillEmpty }), [])
 })

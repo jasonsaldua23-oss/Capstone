@@ -31,8 +31,11 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDateTime, formatDayKey, withinRange } from '../shared'
+import { formatPeso, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { buildDailyChartSeries, isRevenueRecognized } from '@/lib/report-metrics'
+import { ReportKpiRow } from './report-kpi'
 
 interface TransactionsReportProps {
   orders: any[]
@@ -125,10 +128,8 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
           list = list.filter((item) => new Date(item.date).getTime() <= toTime)
         }
       } else {
-        const cutoff = new Date()
-        // Today uses local midnight; numeric presets keep their existing rolling window.
-        if (datePreset !== 'today') cutoff.setDate(cutoff.getDate() - Number(datePreset))
-        cutoff.setHours(0, 0, 0, 0)
+        // Shared so every tab's window matches its chart; see resolveReportCutoff.
+        const cutoff = resolveReportCutoff(datePreset)
         list = list.filter((item) => withinRange(item.date, cutoff))
       }
     }
@@ -172,10 +173,10 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
   // KPIs
   const kpis = useMemo(() => {
     const totalCount = filteredTransactions.length
-    // Cancelled and rejected transactions stay in the ledger but do not count as revenue.
-    const revenueTransactions = filteredTransactions.filter(
-      (item) => !['CANCELLED', 'REJECTED'].includes(item.status)
-    )
+    // Revenue is recognised on delivery, the one rule every Reports tab now uses.
+    // This used to count anything not cancelled, so orders still in the warehouse
+    // were reported as income under the same "Revenue" label as the Orders tab.
+    const revenueTransactions = filteredTransactions.filter((item) => isRevenueRecognized(item))
     const totalVolume = revenueTransactions.reduce((sum, item) => sum + (item.amount || 0), 0)
     const paidCount = filteredTransactions.filter((item) => item.paymentStatus === 'PAID').length
     const avgValue = revenueTransactions.length > 0 ? totalVolume / revenueTransactions.length : 0
@@ -187,7 +188,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
   const chartData = useMemo(() => {
     const map: Record<string, { date: string; amount: number; count: number }> = {}
     filteredTransactions
-      .filter((item) => !['CANCELLED', 'REJECTED'].includes(item.status))
+      .filter((item) => isRevenueRecognized(item))
       .forEach((item) => {
         const d = new Date(item.date)
         const key = formatDayKey(d)
@@ -202,7 +203,16 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
         map[key].count += 1
       })
 
-    return Object.values(map).slice(-14)
+    // Oldest to newest, quiet days included, and the newest 14 days kept. The
+    // plain Object.values(map) this replaced followed the table's sort control,
+    // so the trend was drawn backwards whenever the table showed newest first.
+    return buildDailyChartSeries(map, {
+      days: 14,
+      fillEmpty: (dateKey) => {
+        const [, month, day] = dateKey.split('-')
+        return { date: `${Number(month)}/${Number(day)}`, amount: 0, count: 0 }
+      },
+    })
   }, [filteredTransactions])
 
   // Cancelled and rejected rows are already excluded upstream, so this reads booked value only.
@@ -268,7 +278,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
     { header: 'Client / Customer', key: 'client' },
     { header: 'Status', key: 'status' },
     { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
-    { header: 'Transaction Date', accessor: (r) => formatDateTime(r.date) },
+    { header: 'Transaction Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
   const handleExportCsv = () => {
@@ -343,33 +353,19 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Total Transactions</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">{kpis.totalCount}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">All matching ledger entries</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Gross Transaction Revenue</CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">{formatPeso(kpis.totalVolume)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Excludes cancelled and rejected transactions</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-purple-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-purple-600">Average Transaction Value</CardDescription>
-            <CardTitle className="text-2xl font-bold text-purple-700">{formatPeso(kpis.avgValue)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Mean value of valid transactions</CardContent>
-        </Card>
-
-      </div>
+      {/* The ledger exists to answer "how much did we take", so revenue leads. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Gross Transaction Revenue',
+          value: formatPeso(kpis.totalVolume),
+          hint: 'Revenue from delivered orders only',
+          tone: 'emerald',
+        }}
+        items={[
+          { label: 'Transactions', value: kpis.totalCount, hint: 'Matching ledger entries', tone: 'blue' },
+          { label: 'Average Value', value: formatPeso(kpis.avgValue), hint: 'Per delivered transaction', tone: 'purple' },
+        ]}
+      />
 
       {/* Daily Revenue Trend */}
       {chartData.length > 0 && (
@@ -555,7 +551,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
                     <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
-                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
+                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>
                 ))
               ) : (

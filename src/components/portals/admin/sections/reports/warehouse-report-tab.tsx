@@ -18,6 +18,7 @@ import { describeRanking, describeTrend, toPoints } from '@/lib/chart-interpreta
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
+import { ReportKpiRow } from './report-kpi'
 
 /**
  * Warehouse tab: storage capacity and utilization only. Stock levels, movement and
@@ -82,13 +83,21 @@ export function WarehouseReportTab({
         showStatus: false,
       })}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-5">
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Registered Warehouses</CardDescription><CardTitle className="text-[30px] leading-none">{warehouses.length}</CardTitle><p className="text-[11px] text-slate-400">Storage facilities on record</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Capacity</CardDescription><CardTitle className="text-[30px] leading-none">{totalCapacity.toLocaleString()}</CardTitle><p className="text-[11px] text-slate-400">Units of configured storage</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Stored Units</CardDescription><CardTitle className="text-[30px] leading-none text-blue-600">{storedUnits.toLocaleString()}</CardTitle><p className="text-[11px] text-slate-400">Units currently occupying space</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Remaining Capacity</CardDescription><CardTitle className="text-[30px] leading-none text-emerald-600">{remainingCapacity.toLocaleString()}</CardTitle><p className="text-[11px] text-slate-400">Units of space still free</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Utilization</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{formatPercentValue(utilizationPercent)}</CardTitle><p className="text-[11px] text-slate-400">Share of capacity in use</p></CardHeader></Card>
-      </div>
+      {/* Utilization is the number that decides whether more space is needed,
+          so it leads; the raw capacity figures explain how it was derived. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Capacity Utilization',
+          value: formatPercentValue(utilizationPercent),
+          hint: `${storedUnits.toLocaleString()} of ${totalCapacity.toLocaleString()} units in use`,
+          tone: 'amber',
+        }}
+        items={[
+          { label: 'Warehouses', value: warehouses.length, hint: 'Facilities on record', tone: 'slate' },
+          { label: 'Stored Units', value: storedUnits.toLocaleString(), hint: 'Occupying space', tone: 'blue' },
+          { label: 'Remaining', value: remainingCapacity.toLocaleString(), hint: 'Units still free', tone: 'emerald' },
+        ]}
+      />
 
       <Card className={chartCardClassName}>
         <CardHeader className="pb-3">

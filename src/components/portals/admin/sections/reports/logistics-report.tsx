@@ -29,11 +29,15 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatDateTime, formatDayKey, withinRange, normalizeTripStatus, toArray } from '../shared'
+import { formatDayKey, withinRange, normalizeTripStatus, toArray } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { buildDailyChartSeries } from '@/lib/report-metrics'
+import { ReportKpiRow } from './report-kpi'
 
 interface LogisticsReportProps {
   trips: any[]
@@ -133,10 +137,8 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
           list = list.filter((item) => new Date(item.date).getTime() <= toTime)
         }
       } else {
-        const cutoff = new Date()
-        // Today uses local midnight; numeric presets keep their existing rolling window.
-        if (datePreset !== 'today') cutoff.setDate(cutoff.getDate() - Number(datePreset))
-        cutoff.setHours(0, 0, 0, 0)
+        // Shared so every tab's window matches its chart; see resolveReportCutoff.
+        const cutoff = resolveReportCutoff(datePreset)
         list = list.filter((item) => withinRange(item.date, cutoff))
       }
     }
@@ -205,7 +207,15 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       else map[key].planned += 1
     })
 
-    return Object.values(map).slice(-14)
+    // Same fix as the Transactions trend: date order, not insertion order, and
+    // the most recent 14 days rather than the oldest 14.
+    return buildDailyChartSeries(map, {
+      days: 14,
+      fillEmpty: (dateKey) => {
+        const [, month, day] = dateKey.split('-')
+        return { date: `${Number(month)}/${Number(day)}`, completed: 0, inProgress: 0, planned: 0 }
+      },
+    })
   }, [filteredLogistics])
 
   // The stacked bars read as a daily volume plus a mix of trip outcomes.
@@ -255,9 +265,9 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       accessor: (r) => `${r.completedDrops}/${r.totalDrops} drops (${r.completionRate}%)`,
     },
     { header: 'Status', key: 'status' },
-    { header: 'Departure', accessor: (r) => (r.departureTime ? formatDateTime(r.departureTime) : 'N/A') },
-    { header: 'Completion', accessor: (r) => (r.completionTime ? formatDateTime(r.completionTime) : 'In Progress') },
-    { header: 'Trip Date', accessor: (r) => formatDateTime(r.date) },
+    { header: 'Departure', accessor: (r) => (r.departureTime ? formatReportTableDateTime(r.departureTime) : 'N/A') },
+    { header: 'Completion', accessor: (r) => (r.completionTime ? formatReportTableDateTime(r.completionTime) : 'In Progress') },
+    { header: 'Trip Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
   const handleExportCsv = () => {
@@ -332,52 +342,27 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Total Trips Dispatched</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">{kpis.totalTrips}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">100% of filtered routes</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Completed Trips</CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">{kpis.completedTrips}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">
-            {kpis.totalTrips > 0 ? ((kpis.completedTrips / kpis.totalTrips) * 100).toFixed(1) : 0}% success rate
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-purple-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-purple-600">Active In-Transit</CardDescription>
-            <CardTitle className="text-2xl font-bold text-purple-700">{kpis.inProgressTrips}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Currently on the road</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-cyan-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-cyan-600">Planned Dispatch</CardDescription>
-            <CardTitle className="text-2xl font-bold text-cyan-700">{kpis.plannedTrips}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Scheduled for route</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-indigo-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-indigo-600">Drop Point Fulfillment</CardDescription>
-            <CardTitle className="text-2xl font-bold text-indigo-700">{kpis.overallDropRate}%</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">
-            {kpis.completedDrops} of {kpis.totalDrops} total stops
-          </CardContent>
-        </Card>
-      </div>
+      {/* Drop-point fulfilment is what the dispatch desk is judged on, so it
+          leads; the trip counts that explain it sit beside it as support. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Drop Point Fulfillment',
+          value: `${kpis.overallDropRate}%`,
+          hint: `${kpis.completedDrops} of ${kpis.totalDrops} stops delivered`,
+          tone: 'indigo',
+        }}
+        items={[
+          { label: 'Trips Dispatched', value: kpis.totalTrips, tone: 'blue' },
+          {
+            label: 'Completed',
+            value: kpis.completedTrips,
+            hint: kpis.totalTrips > 0 ? `${((kpis.completedTrips / kpis.totalTrips) * 100).toFixed(1)}% of trips` : undefined,
+            tone: 'emerald',
+          },
+          { label: 'In Transit', value: kpis.inProgressTrips, hint: 'On the road now', tone: 'purple' },
+          { label: 'Planned', value: kpis.plannedTrips, hint: 'Not yet started', tone: 'cyan' },
+        ]}
+      />
 
       {/* Daily Trips Trend */}
       {chartData.length > 0 && (
@@ -392,12 +377,20 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
                 <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  {/* Fit the axis to the data: the default picked a 0-4 scale for days that
+                      never exceed one trip, leaving the bars as slivers at the bottom. */}
+                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} allowDecimals={false} domain={[0, (max: number) => Math.max(1, Math.ceil(max))]} />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
-                  <Bar dataKey="completed" name="Completed" fill="#10b981" radius={[4, 4, 0, 0]} stackId="a" />
-                  <Bar dataKey="inProgress" name="In Transit" fill="#a855f7" radius={[4, 4, 0, 0]} stackId="a" />
+                  {/* Three colours with nothing naming them made this chart
+                      unreadable; the interpretation strip below was carrying the
+                      whole message on its own. */}
+                  <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
+                  <Bar dataKey="completed" name="Completed" fill="#10b981" stackId="a" />
+                  <Bar dataKey="inProgress" name="In Transit" fill="#a855f7" stackId="a" />
+                  {/* Only the top of the stack is rounded, so the segments below
+                      read as one column rather than three stacked pills. */}
                   <Bar dataKey="planned" name="Planned" fill="#3b82f6" radius={[4, 4, 0, 0]} stackId="a" />
                 </BarChart>
               </ResponsiveContainer>
@@ -564,9 +557,9 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
                       </div>
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
-                    <td className="p-3.5 text-slate-600 whitespace-nowrap">{row.departureTime ? formatDateTime(row.departureTime) : 'Not departed'}</td>
-                    <td className="p-3.5 text-slate-600 whitespace-nowrap">{row.completionTime ? formatDateTime(row.completionTime) : 'In progress'}</td>
-                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
+                    <td className="p-3.5 text-slate-600 whitespace-nowrap">{row.departureTime ? formatReportTableDateTime(row.departureTime) : 'Not departed'}</td>
+                    <td className="p-3.5 text-slate-600 whitespace-nowrap">{row.completionTime ? formatReportTableDateTime(row.completionTime) : 'In progress'}</td>
+                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>
                 ))
               ) : (

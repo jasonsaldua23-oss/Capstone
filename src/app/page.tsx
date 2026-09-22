@@ -2,10 +2,10 @@
 
 import { useState, useEffect, createContext, useContext, Component, ErrorInfo, ReactNode, useMemo, useRef, type Dispatch, type SetStateAction } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { LoginSuccess } from '@/components/shared/login-success'
-import { AdminPortal, CustomerPortal, DriverPortal, WarehousePortal } from '@/components/portals'
 import { clearTabAuthToken, getTabAuthToken, setTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor, logoutTabAuthSession } from '@/lib/client-auth'
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
 import type { AuthUser, PortalType } from '@/types'
@@ -18,6 +18,24 @@ import { resetInstallPromptForNewSession, retainCapturedInstallPromptForPortal }
 import { getLockedPortal } from '@/lib/native/portal-lock'
 import { isManifestPortal, manifestPathForPortal, siteWideManifestPortal } from '@/lib/portal-manifest'
 import { homePathForPortal, loginPathForPortal, portalFromAppPath } from '@/lib/portal-scope'
+
+// Keep the existing loading screen visible while the selected portal chunk loads.
+function PortalLoading() {
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <p className="text-gray-600">Loading...</p>
+      </div>
+    </div>
+  )
+}
+
+// Load only the authenticated portal instead of downloading all four on entry.
+const AdminPortal = dynamic(() => import('@/components/portals/admin/AdminPortal').then((mod) => mod.AdminPortal), { loading: PortalLoading })
+const CustomerPortal = dynamic(() => import('@/components/portals/customer/CustomerPortal').then((mod) => mod.CustomerPortal), { loading: PortalLoading })
+const DriverPortal = dynamic(() => import('@/components/portals/driver/DriverPortal').then((mod) => mod.DriverPortal), { loading: PortalLoading })
+const WarehousePortal = dynamic(() => import('@/components/portals/warehouse/WarehousePortal').then((mod) => mod.WarehousePortal), { loading: PortalLoading })
 
 // Auth Context
 interface AuthContextType {
@@ -474,14 +492,7 @@ export default function Home() {
 
   // Render loading feedback before hydration too, avoiding an empty navigation frame.
   if (isLoading || !isMounted) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    )
+    return <PortalLoading />
   }
 
   // Keep transient session failures on this page instead of redirecting away.

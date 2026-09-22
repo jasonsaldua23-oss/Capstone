@@ -36,8 +36,11 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDateTime, formatDayKey } from '../shared'
+import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+import { resolveReportCutoff, resolveReportSpanDays, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { isRevenueRecognized } from '@/lib/report-metrics'
+import { ReportKpiRow } from './report-kpi'
 
 function getItemSize(item: any): string {
   if (Array.isArray(item?.sizes) && item.sizes.length > 0) {
@@ -152,13 +155,12 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
         prevLabel = 'prior matching period'
       }
     } else if (periodMode !== 'all') {
-      const days = periodMode === 'today' ? 1 : Number(periodMode)
-      const currentStart = new Date(now)
-      if (periodMode !== 'today') currentStart.setDate(now.getDate() - days)
-      currentStart.setHours(0, 0, 0, 0)
-      currentStartTime = currentStart.getTime()
+      const days = resolveReportSpanDays(periodMode)
+      currentStartTime = resolveReportCutoff(periodMode, now).getTime()
+      // The prior window must be the same length as the current one. It used to be
+      // a flat N days against a current window of N+1, so growth always read high.
       prevEndTime = currentStartTime
-      prevStartTime = currentStartTime - days * 24 * 60 * 60 * 1000
+      prevStartTime = currentStartTime - (currentEndTime - currentStartTime)
       label = periodMode === 'today' ? 'Today' : periodMode === '365' ? 'Past 1 Year' : `Past ${days} Days`
       prevLabel = periodMode === 'today' ? 'Yesterday' : periodMode === '365' ? 'Prior 1 Year' : `Prior ${days} Days`
     }
@@ -210,12 +212,16 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
 
   // Period Metrics & Growth Calculation
   const metrics = useMemo(() => {
-    const currentSales = currentPeriodItems.reduce((sum, item) => sum + item.amount, 0)
-    const currentTxCount = currentPeriodItems.length
+    // Retail had no status rule at all, so a voided counter sale was counted as
+    // income. Sales now follow the same recognition rule as every other tab.
+    const currentEarning = currentPeriodItems.filter((item) => isRevenueRecognized(item))
+    const prevEarning = prevPeriodItems.filter((item) => isRevenueRecognized(item))
+    const currentSales = currentEarning.reduce((sum, item) => sum + item.amount, 0)
+    const currentTxCount = currentEarning.length
     const currentAvgValue = currentTxCount > 0 ? currentSales / currentTxCount : 0
 
-    const prevSales = prevPeriodItems.reduce((sum, item) => sum + item.amount, 0)
-    const prevTxCount = prevPeriodItems.length
+    const prevSales = prevEarning.reduce((sum, item) => sum + item.amount, 0)
+    const prevTxCount = prevEarning.length
 
     const salesGrowth = prevSales > 0 ? ((currentSales - prevSales) / prevSales) * 100 : currentSales > 0 ? 100 : 0
     const txGrowth = prevTxCount > 0 ? ((currentTxCount - prevTxCount) / prevTxCount) * 100 : currentTxCount > 0 ? 100 : 0
@@ -235,7 +241,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
   const trendChartData = useMemo(() => {
     const map: Record<string, { label: string; sales: number; count: number; dateSort: number }> = {}
 
-    currentPeriodItems.forEach((item) => {
+    currentPeriodItems.filter((item) => isRevenueRecognized(item)).forEach((item) => {
       const d = new Date(item.date)
       let key = ''
       let label = ''
@@ -315,7 +321,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
     },
     { header: 'Status', key: 'status' },
     { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
-    { header: 'Date & Time', accessor: (r) => formatDateTime(r.date) },
+    { header: 'Date & Time', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
   const handleExportCsv = () => {
@@ -421,70 +427,46 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
         </Card>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Total Sales */}
-        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Total Retail Sales</CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">{formatPeso(metrics.currentSales)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="flex items-center gap-1.5 text-xs">
+      {/* Retail is a till: takings lead, and the growth clause says against what. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Total Retail Sales',
+          value: formatPeso(metrics.currentSales),
+          tone: 'emerald',
+          hint: (
+            <span className="flex items-center gap-1.5">
               {metrics.salesGrowth >= 0 ? (
-                <span className="flex items-center text-emerald-600 font-semibold">
+                <span className="flex items-center font-semibold text-emerald-600">
                   <TrendingUp className="mr-0.5 h-3.5 w-3.5" /> +{metrics.salesGrowth.toFixed(1)}%
                 </span>
               ) : (
-                <span className="flex items-center text-rose-600 font-semibold">
+                <span className="flex items-center font-semibold text-rose-600">
                   <TrendingDown className="mr-0.5 h-3.5 w-3.5" /> {metrics.salesGrowth.toFixed(1)}%
                 </span>
               )}
               <span className="text-slate-400">vs {prevPeriodLabel}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Total Transactions */}
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Transactions Count</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">{metrics.currentTxCount}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="flex items-center gap-1.5 text-xs">
-              {metrics.txGrowth >= 0 ? (
-                <span className="flex items-center text-blue-600 font-semibold">
-                  <TrendingUp className="mr-0.5 h-3.5 w-3.5" /> +{metrics.txGrowth.toFixed(1)}%
+            </span>
+          ),
+        }}
+        items={[
+          {
+            label: 'Transactions',
+            value: metrics.currentTxCount,
+            tone: 'blue',
+            hint: (
+              <span className="flex items-center gap-1.5">
+                <span className={`flex items-center font-semibold ${metrics.txGrowth >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
+                  {metrics.txGrowth >= 0 ? <TrendingUp className="mr-0.5 h-3.5 w-3.5" /> : <TrendingDown className="mr-0.5 h-3.5 w-3.5" />}
+                  {metrics.txGrowth >= 0 ? '+' : ''}{metrics.txGrowth.toFixed(1)}%
                 </span>
-              ) : (
-                <span className="flex items-center text-rose-600 font-semibold">
-                  <TrendingDown className="mr-0.5 h-3.5 w-3.5" /> {metrics.txGrowth.toFixed(1)}%
-                </span>
-              )}
-              <span className="text-slate-400">vs {prevPeriodLabel}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Average Transaction Value */}
-        <Card className="rounded-2xl border border-purple-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-purple-600">Average Basket Size</CardDescription>
-            <CardTitle className="text-2xl font-bold text-purple-700">{formatPeso(metrics.currentAvgValue)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Mean gross receipt value</CardContent>
-        </Card>
-
-        {/* Prior Period Benchmark */}
-        <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-slate-500">Prior Period Revenue</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-700">{formatPeso(metrics.prevSales)}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-400">Baseline ({prevPeriodLabel})</CardContent>
-        </Card>
-      </div>
+                <span className="text-slate-400">vs {prevPeriodLabel}</span>
+              </span>
+            ),
+          },
+          { label: 'Average Basket', value: formatPeso(metrics.currentAvgValue), hint: 'Per transaction', tone: 'purple' },
+          { label: 'Prior Period', value: formatPeso(metrics.prevSales), hint: prevPeriodLabel, tone: 'slate' },
+        ]}
+      />
 
       {/* Sales Trend Chart */}
       {trendChartData.length > 0 && (
@@ -630,7 +612,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
                       <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Completed</Badge>
                     </td>
                     <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
-                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
+                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>
                 ))
               ) : (

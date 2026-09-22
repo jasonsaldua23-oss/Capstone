@@ -34,8 +34,10 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatDateTime, formatDayKey, withinRange } from '../shared'
+import { formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
+import { ReportKpiRow } from './report-kpi'
+import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 
 interface ReplacementRecordsReportProps {
   replacements: any[]
@@ -273,10 +275,8 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
           list = list.filter((item) => new Date(item.date).getTime() <= toTime)
         }
       } else {
-        const cutoff = new Date()
-        // Today uses local midnight; numeric presets keep their existing rolling window.
-        if (datePreset !== 'today') cutoff.setDate(cutoff.getDate() - Number(datePreset))
-        cutoff.setHours(0, 0, 0, 0)
+        // Shared so every tab's window matches its chart; see resolveReportCutoff.
+        const cutoff = resolveReportCutoff(datePreset)
         list = list.filter((item) => withinRange(item.date, cutoff))
       }
     }
@@ -434,7 +434,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
           : 'Reported',
     },
     { header: 'Loss (₱)', accessor: (r) => r.loss > 0 ? `₱${r.loss.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—' },
-    { header: 'Reported Date', accessor: (r) => formatDateTime(r.date) },
+    { header: 'Reported Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
   const handleExportCsv = () => {
@@ -509,50 +509,22 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">Total Replacements</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">{kpis.total}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">100% of reported records</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-emerald-600">Resolved / Replaced</CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">{kpis.resolved}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">
-            {kpis.total > 0 ? ((kpis.resolved / kpis.total) * 100).toFixed(1) : 0}% resolution rate
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-blue-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-blue-600">In Investigation</CardDescription>
-            <CardTitle className="text-2xl font-bold text-blue-700">{kpis.inProgress}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Being inspected or routed</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-amber-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-amber-600">Pending Action</CardDescription>
-            <CardTitle className="text-2xl font-bold text-amber-700">{kpis.pending}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Awaiting customer service triage</CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-indigo-100 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <CardDescription className="text-xs uppercase font-medium tracking-wide text-indigo-600">Total Units Replaced</CardDescription>
-            <CardTitle className="text-2xl font-bold text-indigo-700">{kpis.totalUnits}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 text-xs text-slate-500">Cumulative items exchanged</CardContent>
-        </Card>
-      </div>
+      {/* What matters on a replacements desk is how much of the queue is closed,
+          so the resolved share leads and the open buckets explain the rest. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Resolved / Replaced',
+          value: kpis.total > 0 ? `${((kpis.resolved / kpis.total) * 100).toFixed(1)}%` : '0.0%',
+          hint: `${kpis.resolved} of ${kpis.total} reported records closed`,
+          tone: 'emerald',
+        }}
+        items={[
+          { label: 'Reported', value: kpis.total, tone: 'blue' },
+          { label: 'In Investigation', value: kpis.inProgress, hint: 'Being inspected', tone: 'cyan' },
+          { label: 'Pending Action', value: kpis.pending, hint: 'Awaiting triage', tone: 'amber' },
+          { label: 'Units Replaced', value: kpis.totalUnits, hint: 'Items exchanged', tone: 'indigo' },
+        ]}
+      />
 
       {/* Trend Chart */}
       {chartData.length > 0 && (
@@ -765,7 +737,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
                         <span className="text-slate-400 text-[11px]">—</span>
                       )}
                     </td>
-                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatDateTime(row.date)}</td>
+                    <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>
                 ))
               ) : (

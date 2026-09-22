@@ -19,10 +19,12 @@ import {
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import type { FeedbackServiceDimension } from '@shared/customer-logic/feedback-reasons'
-import { formatDateTime } from '../shared'
+import {  } from '../shared'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
+import { ReportKpiRow } from './report-kpi'
+import { formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 
 /**
  * Client feedback tab: the rating spread, what each review was actually about,
@@ -117,16 +119,30 @@ export function FeedbackReportTab({
         showStatus: false,
       })}
       {/* Feedback has no response workflow, so only measurable submission metrics are shown. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Feedback</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.total}</CardTitle><p className="text-[11px] text-slate-400">{feedbackKpi.ratedCount} rated in selected period</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Average Rating</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.avgRating.toFixed(2)}</CardTitle><p className="text-[11px] text-slate-400">Across rated submissions</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Participation Rate</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackParticipation.participationRate}%</CardTitle><p className="text-[11px] text-slate-400">{feedbackParticipation.reviewedOrders} of {feedbackParticipation.deliveredOrders} delivered orders reviewed</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Described In Own Words</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.describedCount}</CardTitle><p className="text-[11px] text-slate-400">Wrote instead of ticking a phrase</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Positive Ratings</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.positiveRate}%</CardTitle><p className="text-[11px] text-slate-400">{feedbackKpi.positiveCount} rated 4–5 stars</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Neutral Ratings</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.neutralRate}%</CardTitle><p className="text-[11px] text-slate-400">{feedbackKpi.neutralCount} rated 3 stars</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Negative Ratings</CardDescription><CardTitle className="text-[30px] leading-none">{feedbackKpi.negativeRate}%</CardTitle><p className="text-[11px] text-slate-400">{feedbackKpi.negativeCount} rated 1–2 stars</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Distinct Complaints</CardDescription><CardTitle className="text-[30px] leading-none">{negativeReasonTotal}</CardTitle><p className="text-[11px] text-slate-400">Negative reasons raised in range</p></CardHeader></Card>
-      </div>
+      {/* The average rating is the headline this tab answers to; the polarity
+          split and participation say how much that average can be trusted. */}
+      <ReportKpiRow
+        headline={{
+          label: 'Average Rating',
+          value: feedbackKpi.avgRating.toFixed(2),
+          hint: `Across ${feedbackKpi.ratedCount} rated submissions`,
+          tone: 'indigo',
+        }}
+        items={[
+          { label: 'Positive', value: `${feedbackKpi.positiveRate}%`, hint: `${feedbackKpi.positiveCount} rated 4-5 stars`, tone: 'emerald' },
+          { label: 'Neutral', value: `${feedbackKpi.neutralRate}%`, hint: `${feedbackKpi.neutralCount} rated 3 stars`, tone: 'amber' },
+          { label: 'Negative', value: `${feedbackKpi.negativeRate}%`, hint: `${feedbackKpi.negativeCount} rated 1-2 stars`, tone: 'rose' },
+          {
+            label: 'Participation',
+            value: `${feedbackParticipation.participationRate}%`,
+            hint: `${feedbackParticipation.reviewedOrders} of ${feedbackParticipation.deliveredOrders} delivered orders reviewed`,
+            tone: 'blue',
+          },
+          { label: 'Total Feedback', value: feedbackKpi.total, hint: `${feedbackKpi.ratedCount} carried a rating`, tone: 'slate' },
+          { label: 'Described In Own Words', value: feedbackKpi.describedCount, hint: 'Wrote instead of ticking a phrase', tone: 'purple' },
+          { label: 'Distinct Complaints', value: negativeReasonTotal, hint: 'Negative reasons raised in range', tone: 'cyan' },
+        ]}
+      />
       <Card className={chartCardClassName}>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Ratings Distribution</CardTitle>
@@ -302,7 +318,7 @@ export function FeedbackReportTab({
                           {issue.count}x · {issue.share}% · avg {issue.avgRating.toFixed(1)}
                         </span>
                       </div>
-                      <p className="mt-1 text-[11px] text-gray-400">Last reported {formatDateTime(issue.lastSeenAt as any)}</p>
+                      <p className="mt-1 text-[11px] text-gray-400">Last reported {formatReportTableDateTime(issue.lastSeenAt as any)}</p>
                     </div>
                   </div>
                 ))}
@@ -338,7 +354,7 @@ export function FeedbackReportTab({
               <tbody>
                 {previewRows(feedbackRows).map((row, index) => (
                   <tr key={`${row.id || row.createdAt}-${index}`} className="border-b last:border-0 align-top">
-                    <td className="p-3">{formatDateTime(row.createdAt)}</td>
+                    <td className="p-3">{formatReportTableDateTime(row.createdAt)}</td>
                     <td className="p-3">{String(row.customer || 'N/A')}</td>
                     <td className="p-3">{String(row.orderNumber || 'N/A')}</td>
                     <td className="p-3">{String(row.source || 'N/A')}</td>

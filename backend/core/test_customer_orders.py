@@ -4,7 +4,9 @@ import json
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import Client, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from .auth import create_token
@@ -14,6 +16,7 @@ from .models import (
     DropPointType,
     Inventory,
     InventoryTransaction,
+    MixedCaseComponent,
     Notification,
     Order,
     OrderItem,
@@ -192,6 +195,42 @@ class CustomerOrdersApiContractTests(TestCase):
                 "type": "staff",
             }
         )
+
+    def test_customer_order_list_queries_do_not_grow_per_order(self) -> None:
+        # Regression: hydrate items, mixed cases, and refund claims once per page.
+        product = Product.objects.create(sku="QUERY-PRODUCT", name="Query Product", unit="case", price=100)
+
+        def create_order(index):
+            order = Order.objects.create(
+                order_number=f"ORD-QUERY-{index}", customer=self.customer,
+                status=OrderStatus.PREPARING, subtotal=100, total_amount=100,
+            )
+            item = OrderItem.objects.create(
+                order=order, product=product, product_name=product.name,
+                item_type="MIXED_CASE", quantity=1, unit_price=100, total_price=100,
+            )
+            MixedCaseComponent.objects.create(
+                order_item=item, product=product, product_name=product.name,
+                quantity_per_case=1, case_count=1, total_base_units=1,
+                unit_price=100, component_subtotal=100,
+            )
+
+        def read_orders():
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(
+                    "/api/customer/orders", HTTP_AUTHORIZATION=f"Bearer {self.customer_token}",
+                )
+            self.assertEqual(response.status_code, 200)
+            return len(queries), response.json()["orders"]
+
+        create_order(0)
+        single_count, _ = read_orders()
+        for index in range(1, 5):
+            create_order(index)
+        page_count, orders = read_orders()
+        self.assertEqual(len(orders), 5)
+        self.assertTrue(all(len(order["items"][0]["components"]) == 1 for order in orders))
+        self.assertEqual(page_count, single_count, f"Queries grew from {single_count} to {page_count}")
 
     def test_customer_orders_returns_only_authenticated_customer_orders_and_shape(self) -> None:
         own_order = Order.objects.create(

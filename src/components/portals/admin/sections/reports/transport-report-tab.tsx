@@ -20,6 +20,7 @@ import { describeComposition, describeRanking, toPoints } from '@/lib/chart-inte
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
+import { ReportKpiRow } from './report-kpi'
 
 /**
  * Transportation tab: driver performance filters, charts and tables.
@@ -113,12 +114,15 @@ export function TransportReportTab({
           </select>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Drivers</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Registered drivers</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Active Drivers</CardDescription><CardTitle className="text-[30px] leading-none text-emerald-600">{driverPerformanceKpi.active}</CardTitle><p className="text-[11px] text-emerald-600">Currently active</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Avg Rating</CardDescription><CardTitle className="text-[30px] leading-none">{driverPerformanceKpi.avgRating}</CardTitle><p className="text-[11px] text-slate-400">Out of 5.0</p></CardHeader></Card>
-        <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Total Trips</CardDescription><CardTitle className="text-[30px] leading-none text-blue-700">{driverPerformanceKpi.totalTrips}</CardTitle><p className="text-[11px] text-slate-400">Trips assigned to listed drivers</p></CardHeader></Card>
-      </div>
+      {/* Trips run is the output this tab reports on; the driver counts and the
+          rating explain who produced it and how well. */}
+      <ReportKpiRow
+        headline={{ label: 'Total Trips', value: driverPerformanceKpi.totalTrips, hint: 'Assigned to listed drivers', tone: 'blue' }}
+        items={[
+          { label: 'Active Drivers', value: driverPerformanceKpi.active, hint: `of ${driverPerformanceKpi.total} registered`, tone: 'emerald' },
+          { label: 'Avg Rating', value: <>{driverPerformanceKpi.avgRating} <span className="text-sm font-normal text-slate-500">/ 5.0</span></>, tone: 'purple' },
+        ]}
+      />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card className={chartCardClassName}>
           <CardHeader className="pb-3">
