@@ -232,8 +232,9 @@ def allocatable_standard_cases(inventory: Inventory, product: Product | None = N
         available_cases += min(batch_units // per_case, remaining_units // per_case)
 
     # Fix: legacy purchase-order reservations can live only in the case counter.
-    # Match the approval guard so displayed sellable cases exclude those reservations.
-    counter_available = max(0, _int(inventory.quantity, 0) - _int(inventory.reserved_quantity, 0))
+    # Include complete loose sets, which the allocator can repack into cases.
+    physical_cases = max(0, _int(inventory.quantity, 0)) + max(0, _int(inventory.loose_bottles, 0)) // per_case
+    counter_available = max(0, physical_cases - _int(inventory.reserved_quantity, 0))
     return min(available_cases, available_base_units(inventory, resolved_product) // per_case, counter_available)
 
 

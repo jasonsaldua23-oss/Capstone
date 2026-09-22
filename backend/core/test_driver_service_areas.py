@@ -107,9 +107,8 @@ class NewCustomerAccessTests(TestCase):
             catalog = products_collection(catalog_request)
             self.assertEqual(catalog.status_code, 200)
             row = next(row for row in json.loads(catalog.content)['products'] if row['id'] == product.id)
-            # The batch is the physical source of truth; the fixture has not
-            # created a matching reservation for its legacy reserved counter.
-            self.assertEqual(row['availableQuantity'], 12)
+            # Available stock excludes the two cases held by the legacy reservation counter.
+            self.assertEqual(row['availableQuantity'], 10)
         inventory = Inventory.objects.get(product=product)
         checkout = RequestFactory().post('/api/customer/orders', HTTP_AUTHORIZATION=f'Bearer {token}', data=json.dumps({
             'warehouseId': warehouse.id, 'items': [{'productId': product.id, 'quantity': 1}],
