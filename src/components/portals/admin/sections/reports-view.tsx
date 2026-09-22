@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useQueries, useQueryClient } from '@tanstack/react-query'
+import { REPORT_DATASETS, REPORT_DEPENDENCIES, type ReportDataset } from './reports/report-data-plan'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { subscribeDataSync } from '@/lib/data-sync'
@@ -55,6 +57,10 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+// Stable empty collections keep inactive report derivations from recomputing.
+const EMPTY_REPORT_ROWS: any[] = []
+const REPORT_DATASET_NAMES = Object.keys(REPORT_DATASETS) as ReportDataset[]
+
 export function ReportsView() {
   const { user } = useAuth()
   const [activeReportTab, setActiveReportTab] = useState('purchase_requests')
@@ -72,103 +78,58 @@ export function ReportsView() {
   const [warehouseDatePreset, setWarehouseDatePreset] = useState<ReportDatePreset>('30')
   const [warehouseDateFrom, setWarehouseDateFrom] = useState('')
   const [warehouseDateTo, setWarehouseDateTo] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
-  const [orders, setOrders] = useState<any[]>([])
-  const [trips, setTrips] = useState<any[]>([])
-  const [drivers, setDrivers] = useState<any[]>([])
-  const [warehouses, setWarehouses] = useState<any[]>([])
-  const [inventory, setInventory] = useState<any[]>([])
-  const [inventoryTransactions, setInventoryTransactions] = useState<any[]>([])
-  const [replacementsData, setReplacementsData] = useState<any[]>([])
-  const [feedback, setFeedback] = useState<any[]>([])
-  const [stockBatches, setStockBatches] = useState<any[]>([])
-  const [customers, setCustomers] = useState<any[]>([])
-  const [retailSales, setRetailSales] = useState<any[]>([])
+  const queryClient = useQueryClient()
+  const requiredDatasets = REPORT_DEPENDENCIES[activeReportTab] || REPORT_DEPENDENCIES.purchase_requests
+  // Fix: enable only the selected report's queries, retaining complete collections
+  // in the existing query cache for tab switches and return visits.
+  const reportQueries = useQueries({
+    queries: REPORT_DATASET_NAMES.map((name) => ({
+      queryKey: ['report-data', user?.id, name],
+      enabled: Boolean(user?.id) && requiredDatasets.includes(name),
+      staleTime: 60_000,
+      retry: false, // safeFetchJson already owns request retries.
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        const dataset = REPORT_DATASETS[name]
+        const result = name === 'orders'
+          ? await fetchAllPaginatedCollection<any>(dataset.endpoint, 'orders', { signal }, {
+              retries: 1, timeoutMs: 20000, pageSize: 200, maxPages: 100,
+            })
+          : await safeFetchJson(dataset.endpoint, { signal }, { retries: 1, timeoutMs: 20000 })
+        // A failed dataset must not become a cached, apparently empty financial report.
+        if (!result.ok) throw new Error(`Unable to load report data (${name}). Please retry.`)
+        return getCollection<any>(result.data, dataset.keys)
+      },
+    })),
+  })
+  const requiredQueries = reportQueries.filter((_, index) => requiredDatasets.includes(REPORT_DATASET_NAMES[index]))
+  const isLoading = requiredQueries.some((query) => query.isPending)
+  const loadError = requiredQueries.find((query) => query.isError)?.error
+  const rows = (name: ReportDataset) => reportQueries[REPORT_DATASET_NAMES.indexOf(name)].data || EMPTY_REPORT_ROWS
+  const orders = rows('orders')
+  const trips = rows('trips')
+  const drivers = rows('drivers')
+  const warehouses = rows('warehouses')
+  const inventory = rows('inventory')
+  const inventoryTransactions = rows('inventoryTransactions')
+  const replacementsData = rows('replacements')
+  const feedback = rows('feedback')
+  const stockBatches = rows('stockBatches')
+  const customers = rows('customers')
+  const retailSales = rows('retailSales')
   const reportBranding = {
     companyName: "Ann Ann's Beverages Trading",
   }
-  useEffect(() => {
-    let isMounted = true
 
-    async function fetchReportsPack() {
-      setIsLoading(true)
-      try {
-        const [ordersRes, tripsRes, driversRes, warehousesRes, inventoryRes, transactionsRes, replacementsRes, feedbackRes, stockBatchesRes, customersRes, retailSalesRes] = await Promise.all([
-          fetchAllPaginatedCollection<any>('/api/orders', 'orders', undefined, {
-            retries: 1,
-            timeoutMs: 20000,
-            pageSize: 200,
-            maxPages: 100,
-          }),
-          safeFetchJson('/api/trips?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/drivers?limit=500&includeSample=true', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/warehouses?limit=200', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/inventory?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/inventory-transactions?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/replacements?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/feedback?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/stock-batches?page=1&pageSize=2000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/customers?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-          safeFetchJson('/api/retail/sales?limit=1000', undefined, { retries: 1, timeoutMs: 20000 }),
-        ])
-
-        if (!isMounted) return
-
-        setOrders(ordersRes.ok ? getCollection<any>(ordersRes.data, ['orders']) : [])
-        setTrips(tripsRes.ok ? getCollection<any>(tripsRes.data, ['trips']) : [])
-        setDrivers(driversRes.ok ? getCollection<any>(driversRes.data, ['drivers']) : [])
-        setWarehouses(warehousesRes.ok ? getCollection<any>(warehousesRes.data, ['warehouses']) : [])
-        setInventory(inventoryRes.ok ? getCollection<any>(inventoryRes.data, ['inventory']) : [])
-        setInventoryTransactions(transactionsRes.ok ? getCollection<any>(transactionsRes.data, ['transactions']) : [])
-        const fallbackReplacements = ordersRes.ok ? getCollection<any>(ordersRes.data, ['replacements']) : []
-        setReplacementsData(replacementsRes.ok ? getCollection<any>(replacementsRes.data, ['replacements']) : fallbackReplacements)
-        setFeedback(feedbackRes.ok ? getCollection<any>(feedbackRes.data, ['feedback']) : [])
-        // The stock batches endpoint returns `stockBatches`, not `batches`, so read the real collection key first.
-        setStockBatches(stockBatchesRes.ok ? getCollection<any>(stockBatchesRes.data, ['stockBatches', 'batches']) : [])
-        setCustomers(customersRes.ok ? getCollection<any>(customersRes.data, ['customers', 'users']) : [])
-        setRetailSales(retailSalesRes.ok ? getCollection<any>(retailSalesRes.data, ['sales', 'retailSales']) : [])
-      } catch (error) {
-        console.error('Failed to load reports pack:', error)
-        if (isMounted) {
-          setOrders([])
-          setTrips([])
-          setDrivers([])
-          setWarehouses([])
-          setInventory([])
-          setInventoryTransactions([])
-          setReplacementsData([])
-          setFeedback([])
-          setStockBatches([])
-          setCustomers([])
-          setRetailSales([])
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
-      }
+  useEffect(() => subscribeDataSync((message) => {
+    if (message.scopes.some((scope) => [
+      'orders', 'trips', 'inventory', 'inventory-transactions', 'stocks',
+      'stock-batches', 'feedback', 'replacements', 'customers', 'warehouses', 'drivers',
+    ].includes(scope))) {
+      // Invalidate cached tabs too; only enabled queries refetch immediately.
+      // Background refreshes keep the current report visible instead of resetting it.
+      void queryClient.invalidateQueries({ queryKey: ['report-data', user?.id] })
     }
-
-    fetchReportsPack()
-
-    const unsubscribe = subscribeDataSync((message) => {
-      if (
-        message.scopes.includes('orders') ||
-        message.scopes.includes('trips') ||
-        message.scopes.includes('inventory') ||
-        message.scopes.includes('stocks') ||
-        message.scopes.includes('feedback') ||
-        message.scopes.includes('replacements')
-      ) {
-        void fetchReportsPack()
-      }
-    })
-
-    return () => {
-      isMounted = false
-      unsubscribe()
-    }
-  }, [])
+  }), [queryClient, user?.id])
 
   const {
     driverPerformanceKpi,
@@ -640,7 +601,12 @@ export function ReportsView() {
         </div>
       </div>
 
-      {isLoading ? (
+      {loadError ? (
+        <div role="alert" className="space-y-3">
+          <p>{loadError.message}</p>
+          <Button variant="outline" onClick={() => void Promise.all(requiredQueries.map((query) => query.refetch()))}>Retry</Button>
+        </div>
+      ) : isLoading ? (
         <PortalDashboardSkeleton />
       ) : (
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
