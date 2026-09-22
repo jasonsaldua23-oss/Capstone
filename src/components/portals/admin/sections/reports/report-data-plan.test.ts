@@ -3,15 +3,24 @@ import { test } from 'node:test'
 import { setImmediate } from 'node:timers/promises'
 import { QueryClient, QueriesObserver } from '@tanstack/react-query'
 // @ts-ignore Node's test runner reads this TypeScript source directly.
-import { REPORT_DATASETS, REPORT_DEPENDENCIES, type ReportDataset } from './report-data-plan.ts'
+import { getReportUserId, REPORT_DATASETS, REPORT_DEPENDENCIES, type ReportDataset } from './report-data-plan.ts'
+
+test('report identity supports backend staff sessions and existing client profiles', () => {
+  assert.equal(getReportUserId({ userId: 'staff-user' }), 'staff-user')
+  assert.equal(getReportUserId({ id: 'client-user' }), 'client-user')
+  assert.equal(getReportUserId({ userId: 'staff-user', id: 'other' }), 'staff-user')
+  assert.equal(getReportUserId(null), undefined)
+})
 
 test('opening Reports avoids unrelated requests, reuses orders, and refreshes invalidated tabs', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
   const names = Object.keys(REPORT_DATASETS) as ReportDataset[]
   const calls: ReportDataset[] = []
+  // Regression: production staff sessions have userId but no id; queries must still start.
+  const reportUserId = getReportUserId({ userId: 'test-user' })
   const options = (tab: string) => names.map((name) => ({
-    queryKey: ['report-data', 'test-user', name],
-    enabled: REPORT_DEPENDENCIES[tab].includes(name),
+    queryKey: ['report-data', reportUserId, name],
+    enabled: Boolean(reportUserId) && REPORT_DEPENDENCIES[tab].includes(name),
     staleTime: 60_000,
     queryFn: async () => { calls.push(name); return [{ id: `${name}-record` }] },
   }))

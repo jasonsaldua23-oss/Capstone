@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
-import { REPORT_DATASETS, REPORT_DEPENDENCIES, type ReportDataset } from './reports/report-data-plan'
+import { getReportUserId, REPORT_DATASETS, REPORT_DEPENDENCIES, type ReportDataset } from './reports/report-data-plan'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { subscribeDataSync } from '@/lib/data-sync'
@@ -63,6 +63,8 @@ const REPORT_DATASET_NAMES = Object.keys(REPORT_DATASETS) as ReportDataset[]
 
 export function ReportsView() {
   const { user } = useAuth()
+  // Fix: use the backend's staff identity for both query loading and cache invalidation.
+  const reportUserId = getReportUserId(user)
   const [activeReportTab, setActiveReportTab] = useState('purchase_requests')
   const [rangeDays, setRangeDays] = useState<'today' | '7' | '30' | '90'>('30')
   const [selectedDriver, setSelectedDriver] = useState('all')
@@ -84,8 +86,8 @@ export function ReportsView() {
   // in the existing query cache for tab switches and return visits.
   const reportQueries = useQueries({
     queries: REPORT_DATASET_NAMES.map((name) => ({
-      queryKey: ['report-data', user?.id, name],
-      enabled: Boolean(user?.id) && requiredDatasets.includes(name),
+      queryKey: ['report-data', reportUserId, name],
+      enabled: Boolean(reportUserId) && requiredDatasets.includes(name),
       staleTime: 60_000,
       retry: false, // safeFetchJson already owns request retries.
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
@@ -127,9 +129,9 @@ export function ReportsView() {
     ].includes(scope))) {
       // Invalidate cached tabs too; only enabled queries refetch immediately.
       // Background refreshes keep the current report visible instead of resetting it.
-      void queryClient.invalidateQueries({ queryKey: ['report-data', user?.id] })
+      void queryClient.invalidateQueries({ queryKey: ['report-data', reportUserId] })
     }
-  }), [queryClient, user?.id])
+  }), [queryClient, reportUserId])
 
   const {
     driverPerformanceKpi,

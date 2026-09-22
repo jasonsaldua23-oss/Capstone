@@ -17,6 +17,11 @@ export const REPORT_DATASETS = {
 
 export type ReportDataset = keyof typeof REPORT_DATASETS
 
+// Fix: staff auth responses use userId; retain id support for existing client profiles.
+export function getReportUserId(user: { userId?: string; id?: string } | null | undefined) {
+  return user?.userId || user?.id
+}
+
 export const REPORT_DEPENDENCIES: Record<string, readonly ReportDataset[]> = {
   purchase_requests: ['orders'],
   purchase_orders: ['orders'],
