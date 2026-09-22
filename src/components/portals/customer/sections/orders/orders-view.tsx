@@ -701,9 +701,8 @@ export function CustomerOrdersView(props: any) {
                     <div className="space-y-1.5 border-l border-slate-200 pl-2.5 md:pl-3">
                       {isDelivered && (
                         <Button
-                          variant="outline"
                           size="sm"
-                          className="h-7 w-full text-[11px] rounded-md border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          className="h-7 w-full rounded-md bg-emerald-600 text-[11px] text-white hover:bg-emerald-500"
                           onClick={() => {
                             if (typeof setSelectedOrder === 'function') setSelectedOrder(o)
                             setIsReceiptDialogOpen?.(true)

@@ -390,9 +390,8 @@ export function CustomerOrderDetailPage(props: any) {
           </button>
           {isDelivered && (
             <Button
-              variant="outline"
               size="sm"
-              className="h-8 rounded-lg border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50"
+              className="h-8 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-500"
               onClick={() => {
                 if (typeof setSelectedOrder === 'function') setSelectedOrder(order)
                 setIsReceiptDialogOpen?.(true)

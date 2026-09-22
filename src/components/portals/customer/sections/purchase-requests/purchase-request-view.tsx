@@ -413,8 +413,7 @@ export function CustomerPurchaseRequestView(props: any) {
 
                     {status === 'APPROVED' && (
                       <Button
-                        variant="outline"
-                        className="h-8 w-full rounded-md border-emerald-200 bg-emerald-50/50 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100"
+                        className="h-8 w-full rounded-md bg-emerald-600 text-[11px] font-medium text-white hover:bg-emerald-500"
                         onClick={() => {
                           setSelectedOrder?.(o)
                           setActiveView?.('orders')
