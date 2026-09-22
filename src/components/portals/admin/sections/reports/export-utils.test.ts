@@ -1,7 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PDFDocument, PDFPage } from 'pdf-lib'
-import { exportReportPdf, printReportTable } from './export-utils'
+// @ts-ignore Node's test runner loads this TypeScript source directly.
+import { cleanReportPdfColumns, exportReportPdf, printReportTable } from './export-utils.ts'
+
+test('PDF column cleanup removes redundant purchase document fields', () => {
+  const columns = ['PO Number', 'PR Ref', 'Order Ref', 'Client', 'PO Stage', 'Created Date'].map((header) => ({ header }))
+  assert.deepEqual(
+    cleanReportPdfColumns('Purchase Orders Report', columns).map((column) => column.header),
+    ['PO Number', 'PR Ref', 'Client', 'PO Stage'],
+  )
+})
 
 // Regression: exercise the real PDF renderer while capturing its browser download.
 test('PDF retains rows, columns and long cell values across pages', async () => {
