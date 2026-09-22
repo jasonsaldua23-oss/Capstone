@@ -291,7 +291,8 @@ export function SystemLoginPage({
         credentials: 'include',
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential, rememberMe }),
+        // Google sign-in always uses the same persistent session as "Keep me logged in".
+        body: JSON.stringify({ credential, rememberMe: true }),
       }), { fallbackError: null })
       const data = await response.json().catch(() => null)
 
@@ -314,7 +315,7 @@ export function SystemLoginPage({
         return false
       }
 
-      return completeSystemLogin(data.user, data.token, rememberMe)
+      return completeSystemLogin(data.user, data.token, true)
     } catch (error) {
       console.error('Staff Google login failed unexpectedly:', error)
       toast.error('Unable to reach Google sign-in. Please check your connection and try again.')
@@ -323,7 +324,7 @@ export function SystemLoginPage({
       googleRequestInFlightRef.current = false
       setIsLoading(false)
     }
-  }, [completeSystemLogin, rememberMe])
+  }, [completeSystemLogin])
 
   const renderGoogleButton = useCallback(() => {
     if (!googleSignInAvailable || !googleButtonRef.current || !window.google?.accounts?.id) return
@@ -379,7 +380,7 @@ export function SystemLoginPage({
         toast.error(data?.error || 'Invalid or expired verification code.')
         return false
       }
-      return completeSystemLogin(data.user, data.token, rememberMe)
+      return completeSystemLogin(data.user, data.token, loginMethod === 'google' ? true : rememberMe)
     } catch {
       toast.error('Unable to verify the code. Please try again.')
       return false

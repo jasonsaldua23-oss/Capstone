@@ -121,11 +121,12 @@ export function DriverBottomNav({
       {/*
         Phone bar. The `max-height` variant is for a phone in a truck mount: in
         landscape the icon and label sit on one line and the bar gives back the
-        vertical space the map and stop list need.
+        vertical space the map and stop list need. Its vertical padding and tab
+        height match the customer phone bar.
       */}
       <nav
         aria-label="Driver sections"
-        className={`fixed inset-x-0 bottom-0 z-30 border-t pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pt-2 md:hidden ${HAIRLINE} ${BED}`}
+        className={`fixed inset-x-0 bottom-0 z-30 border-t pb-[max(0.375rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pt-1.5 md:hidden ${HAIRLINE} ${BED}`}
       >
         <ul className="grid grid-cols-4 gap-1.5">
           {DRIVER_DESTINATIONS.map(({ view, label, icon: Icon }) => {
@@ -135,7 +136,7 @@ export function DriverBottomNav({
                 <Button
                   variant="ghost"
                   aria-current={isActive ? 'page' : undefined}
-                  className={`relative h-15 w-full flex-col gap-1.5 rounded-xl px-1 [@media(max-height:30rem)]:h-11 [@media(max-height:30rem)]:flex-row [@media(max-height:30rem)]:gap-3 ${FOCUS_RING} ${isActive ? ACTIVE_TAB : IDLE_TAB}`}
+                  className={`relative h-14 w-full flex-col gap-1.5 rounded-xl px-1 [@media(max-height:30rem)]:h-11 [@media(max-height:30rem)]:flex-row [@media(max-height:30rem)]:gap-3 ${FOCUS_RING} ${isActive ? ACTIVE_TAB : IDLE_TAB}`}
                   onClick={openDestination[view]}
                 >
                   {isActive ? (
