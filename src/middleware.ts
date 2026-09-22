@@ -144,6 +144,11 @@ function isAllowedAuthRouteForVariant(pathname: string, variant: AppVariant): bo
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  // Fix: the pooled proxy is an internal rewrite destination. Public callers must
+  // enter through /api so the existing portal and authentication checks still run.
+  if (pathname === '/django-api' || pathname.startsWith('/django-api/')) {
+    return new NextResponse(null, { status: 404 })
+  }
   const variant = resolveVariant()
   // The Driver and Shop apps stamp their portal into the user agent, because every
   // portal shares this origin and Capacitor can only restrict the shell by host.
