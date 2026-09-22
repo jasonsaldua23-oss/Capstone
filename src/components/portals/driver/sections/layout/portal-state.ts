@@ -841,9 +841,12 @@ export function useDriverPortalState() {
               if (status.error) {
                 toast.error(status.error, { id: 'driver-native-tracking' })
                 // The foreground service cannot read refreshed WebView credentials itself.
-                // Re-send the current scoped session immediately instead of waiting for app focus.
+                // Re-send the scoped session as soon as it changes instead of waiting for
+                // app focus - but only then: an unconditional restart here reset the
+                // service's backoff on every rejection and retried the same upload ~2.5s
+                // apart, which is what made this toast flicker.
                 if (/connection is refreshing/i.test(status.error)) {
-                  void nativeTrackingRef.current?.refresh().catch((error) => {
+                  void nativeTrackingRef.current?.refreshIfCredentialsChanged().catch((error) => {
                     toast.error(error instanceof Error ? error.message : 'Location connection could not refresh.')
                   })
                 }

@@ -850,3 +850,64 @@ class DriverProfileApiContractTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["success"])
         self.assertEqual(payload["error"], "Forbidden")
+
+
+class NativeUploaderRequestOriginTests(TestCase):
+    """The Driver app's foreground service uploads GPS from native code, not the WebView.
+
+    It sends the WebView's session cookie *and* a Bearer token, but as a native HTTP
+    client it sends no Origin or Referer. That shape was being rejected as an
+    untrusted browser request, which blocked every background upload with a 403.
+    """
+
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver = User.objects.create(
+            email="native.uploader.driver@example.com",
+            password="hashed",
+            name="Native Uploader Driver",
+            role="DRIVER",
+            is_active=True,
+        )
+        self.token = create_token(
+            {
+                "userId": self.driver.id,
+                "email": self.driver.email,
+                "name": self.driver.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+        self.fix = {"latitude": 10.6765, "longitude": 122.9509, "accuracy": 15}
+
+    def _post(self, **headers):
+        return self.client.post(
+            "/api/driver/location", data=self.fix, content_type="application/json", **headers
+        )
+
+    def test_native_service_sending_cookie_and_bearer_without_origin_is_accepted(self) -> None:
+        self.client.cookies["auth_token_staff"] = self.token
+        response = self._post(HTTP_AUTHORIZATION=f"Bearer {self.token}", HTTP_X_PORTAL="driver")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(LocationLog.objects.filter(driver=self.driver).count(), 1)
+
+    def test_cookie_only_request_without_origin_is_still_treated_as_untrusted(self) -> None:
+        # A forged form post carries the ambient cookie and nothing else. Only the
+        # Authorization header - which a browser cannot attach cross-site - marks a
+        # request as native.
+        self.client.cookies["auth_token_staff"] = self.token
+        response = self._post(HTTP_X_PORTAL="driver")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"], "Untrusted request origin")
+        self.assertFalse(LocationLog.objects.filter(driver=self.driver).exists())
+
+    def test_browser_request_with_bearer_and_cookie_from_untrusted_origin_is_still_rejected(self) -> None:
+        self.client.cookies["auth_token_staff"] = self.token
+        response = self._post(
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+            HTTP_X_PORTAL="driver",
+            HTTP_ORIGIN="https://evil.example",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"], "Untrusted request origin")
+        self.assertFalse(LocationLog.objects.filter(driver=self.driver).exists())

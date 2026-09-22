@@ -29,10 +29,19 @@ class ApiInputSecurityMiddleware:
             # Bearer-only native clients have no ambient cookies. Browser origins
             # are checked even with a Bearer header to protect cookie fallback.
             origin = request.headers.get("Origin")
+            referer = request.headers.get("Referer", "")
             has_cookie = any(name.startswith("auth_token") for name in request.COOKIES)
-            bearer_only = request.headers.get("Authorization", "").lower().startswith("bearer ") and not has_cookie
-            if (origin or has_cookie) and not bearer_only:
-                source = origin or request.headers.get("Referer", "")
+            has_bearer = request.headers.get("Authorization", "").lower().startswith("bearer ")
+            bearer_only = has_bearer and not has_cookie
+            # The Driver app's foreground service is a third shape: it forwards the
+            # WebView's cookie as a fallback credential *and* a Bearer token, but as a
+            # native HTTP client it sends neither Origin nor Referer. A browser cannot
+            # forge that - it stamps every POST with Origin, and it cannot attach an
+            # Authorization header cross-site without a CORS preflight the allowed
+            # origin list rejects - so the request is native, not a forged form post.
+            native_service = has_bearer and not origin and not referer
+            if (origin or has_cookie) and not bearer_only and not native_service:
+                source = origin or referer
                 parsed = urlsplit(source)
                 source_origin = f"{parsed.scheme}://{parsed.netloc}"
                 allowed = set(settings.CORS_ALLOWED_ORIGINS) | {f"{request.scheme}://{request.get_host()}"}
