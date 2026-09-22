@@ -231,7 +231,10 @@ def allocatable_standard_cases(inventory: Inventory, product: Product | None = N
         # Added: the allocator repacks complete loose sets under the stock lock.
         available_cases += min(batch_units // per_case, remaining_units // per_case)
 
-    return min(available_cases, available_base_units(inventory, resolved_product) // per_case)
+    # Fix: legacy purchase-order reservations can live only in the case counter.
+    # Match the approval guard so displayed sellable cases exclude those reservations.
+    counter_available = max(0, _int(inventory.quantity, 0) - _int(inventory.reserved_quantity, 0))
+    return min(available_cases, available_base_units(inventory, resolved_product) // per_case, counter_available)
 
 
 def normalize_checkout_items(raw_items: Any) -> tuple[list[dict[str, Any]], Decimal]:
