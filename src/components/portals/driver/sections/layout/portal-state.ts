@@ -22,8 +22,6 @@ interface Trip {
   warehouseId?: string | null
   warehouseLatitude?: number | null
   warehouseLongitude?: number | null
-  startLatitude?: number | null
-  startLongitude?: number | null
   warehouse?: {
     id?: string
     name?: string
@@ -87,7 +85,6 @@ interface DropPoint {
     warehouseCity?: string | null
     warehouseProvince?: string | null
     totalAmount?: number | null
-    loadedAt?: string | null
     isDriverAssigned?: boolean
     assignedDriverName?: string | null
     items?: Array<{

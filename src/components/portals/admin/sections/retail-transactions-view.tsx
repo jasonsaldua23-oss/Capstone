@@ -60,8 +60,6 @@ type RetailSale = {
   walkInContact?: string
   walkInNotes?: string
   customerPhone?: string
-  fulfillmentType: string
-  pickupStatus: string
   subtotal: string | number
   taxAmount: string | number
   depositTotal: string | number

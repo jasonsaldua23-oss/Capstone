@@ -50,7 +50,6 @@ class Command(BaseCommand):
     def _simple_values(self):
         for model, field in (
             (User, "avatar"),
-            (User, "license_photo_url"),
             (Customer, "avatar"),
             (Order, "pod_photo_url"),
             (TripDropPoint, "delivery_photo"),

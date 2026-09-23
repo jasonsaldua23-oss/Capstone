@@ -13,7 +13,6 @@ from .mixed_case import (
     available_base_units,
     consume_order_reservations,
     normalize_checkout_items,
-    receive_component_return,
     release_order_reservations,
     reserve_order_item,
 )
@@ -26,10 +25,7 @@ from .models import (
     OrderItem,
     OrderItemType,
     OrderStatus,
-    PackagingProfile,
     Product,
-    Replacement,
-    ReplacementLine,
     StockBatch,
     Warehouse,
 )
@@ -51,16 +47,6 @@ class MixedCaseFixtureMixin:
             password="hashed",
             name="Mixed Customer",
         )
-        self.profile = PackagingProfile.objects.create(
-            code="BOTTLE-12OZ-24",
-            name="12 oz glass bottle",
-            container_type="Glass bottle",
-            container_size="12 oz",
-            standard_units_per_case=24,
-            allowed_mixed_case_capacities=[12, 24],
-            compatibility_key="glass|12oz|24",
-            base_unit_label="bottle",
-        )
         self.products = []
         for index, name in enumerate(["Pepsi", "Mountain Dew", "Orange"]):
             product = Product.objects.create(
@@ -71,7 +57,6 @@ class MixedCaseFixtureMixin:
                 category="Carbonated(Glass)",
                 sizes=["12oz"],
                 quantity_per_unit=24,
-                packaging_profile=self.profile,
             )
             inventory = Inventory.objects.create(
                 warehouse=self.warehouse,
@@ -515,113 +500,6 @@ class MixedCaseInventoryTests(MixedCaseFixtureMixin, TestCase):
 
         self.assertFalse(InventoryReservation.objects.filter(order_item=item).exists())
 
-    def test_partial_component_returns_restore_only_received_units_once(self):
-        order, item = self.create_mixed_item()
-        reserve_order_item(item, "FEFO", "tester")
-        consume_order_reservations(order, "tester")
-        component = item.mixed_case_components.select_related("product").order_by("id").first()
-        replacement = Replacement.objects.create(
-            replacement_number="RPL-RETURN-1",
-            order=order,
-            customer_id=self.customer.id,
-            reason="Damaged",
-            pickup_address="1 Warehouse Road",
-            pickup_city="Silay",
-            pickup_province="Negros Occidental",
-            pickup_zip_code="6116",
-        )
-        line = ReplacementLine.objects.create(
-            replacement=replacement,
-            original_order_item=item,
-            mixed_case_component=component,
-            product=component.product,
-            product_name=component.product_name,
-            product_sku=component.product_sku,
-            base_unit_label="bottle",
-            requested_base_units=12,
-            reason="Damaged",
-        )
-        first = receive_component_return(
-            replacement=replacement,
-            request_id="return-1",
-            returned_lines=[{"replacementLineId": line.id, "quantityBaseUnits": 5}],
-            performed_by="tester",
-        )
-        duplicate = receive_component_return(
-            replacement=replacement,
-            request_id="return-1",
-            returned_lines=[{"replacementLineId": line.id, "quantityBaseUnits": 5}],
-            performed_by="tester",
-        )
-        self.assertEqual(first.id, duplicate.id)
-        inventory = Inventory.objects.get(product=component.product, warehouse=self.warehouse)
-        self.assertEqual(inventory.loose_bottles, 17)
-        receive_component_return(
-            replacement=replacement,
-            request_id="return-2",
-            returned_lines=[{"replacementLineId": line.id, "quantityBaseUnits": 7}],
-            performed_by="tester",
-        )
-        inventory.refresh_from_db()
-        line.refresh_from_db()
-        # Full loose sets return to cases without changing the total base units.
-        self.assertEqual((inventory.quantity, inventory.loose_bottles), (2, 0))
-        self.assertEqual(line.returned_base_units, 12)
-
-    def test_depleted_source_batch_is_preserved_and_reactivated_by_return(self):
-        for inventory in Inventory.objects.filter(warehouse=self.warehouse):
-            inventory.quantity = 1
-            inventory.save(update_fields=["quantity", "updated_at"])
-            inventory.batches.update(quantity=1, loose_units=0, status="ACTIVE")
-
-        order, item = self.create_mixed_item(case_count=2, number="ORD-DEPLETED-RETURN")
-        reserve_order_item(item, "FEFO", "tester")
-        consume_order_reservations(order, "tester")
-
-        component = item.mixed_case_components.select_related("product").order_by("id").first()
-        reservation = InventoryReservation.objects.get(mixed_case_component=component)
-        source_batch_id = reservation.stock_batch_id
-        source_batch = StockBatch.objects.get(id=source_batch_id)
-        self.assertEqual(source_batch.quantity, 0)
-        self.assertEqual(source_batch.loose_units, 0)
-        self.assertEqual(source_batch.status, "DEPLETED")
-
-        replacement = Replacement.objects.create(
-            replacement_number="RPL-DEPLETED-RETURN",
-            order=order,
-            customer_id=self.customer.id,
-            reason="Damaged",
-            pickup_address="1 Warehouse Road",
-            pickup_city="Silay",
-            pickup_province="Negros Occidental",
-            pickup_zip_code="6116",
-        )
-        line = ReplacementLine.objects.create(
-            replacement=replacement,
-            original_order_item=item,
-            mixed_case_component=component,
-            product=component.product,
-            product_name=component.product_name,
-            product_sku=component.product_sku,
-            base_unit_label="bottle",
-            requested_base_units=24,
-            reason="Damaged",
-        )
-        receive_component_return(
-            replacement=replacement,
-            request_id="depleted-return-1",
-            returned_lines=[{"replacementLineId": line.id, "quantityBaseUnits": 24}],
-            performed_by="tester",
-        )
-
-        source_batch.refresh_from_db()
-        inventory = Inventory.objects.get(product=component.product, warehouse=self.warehouse)
-        self.assertEqual((source_batch.quantity, source_batch.loose_units), (1, 0))
-        self.assertEqual(source_batch.status, "ACTIVE")
-        self.assertEqual(inventory.quantity, 1)
-        self.assertEqual(inventory.loose_bottles, 0)
-
-
 class MixedCaseApiTests(MixedCaseFixtureMixin, TestCase):
     def setUp(self):
         self.build_fixture(case_stock=2)
@@ -705,8 +583,6 @@ class MixedCaseApiTests(MixedCaseFixtureMixin, TestCase):
 
 
 class MixedCaseConcurrencyTests(MixedCaseFixtureMixin, TransactionTestCase):
-    reset_sequences = True
-
     def setUp(self):
         self.build_fixture(case_stock=1)
 
@@ -735,7 +611,7 @@ class MixedCaseConcurrencyTests(MixedCaseFixtureMixin, TransactionTestCase):
         def worker(item_id):
             close_old_connections()
             try:
-                item = OrderItem.objects.select_related("order", "product__packaging_profile").get(id=item_id)
+                item = OrderItem.objects.select_related("order", "product").get(id=item_id)
                 barrier.wait(timeout=10)
                 with transaction.atomic():
                     reserve_order_item(item, "FEFO", "tester")

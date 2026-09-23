@@ -30,10 +30,8 @@ export type TransportReportTabProps = {
   driverPerformanceStatusOptions: ReportDatasets['driverPerformanceStatusOptions']
   drivers: any[]
   reportToolbar: ReportToolbarRenderer
-  selectedDriverRating: 'all' | '4_up' | '3_up' | 'below_3'
   selectedDriverTripVolume: 'all' | 'with_trips' | '10_plus'
   selectedTripStatus: string
-  setSelectedDriverRating: Dispatch<SetStateAction<'all' | '4_up' | '3_up' | 'below_3'>>
   setSelectedDriverTripVolume: Dispatch<SetStateAction<'all' | 'with_trips' | '10_plus'>>
   setSelectedTripStatus: Dispatch<SetStateAction<string>>
   transportCompletionBandChart: ReportDatasets['transportCompletionBandChart']
@@ -47,10 +45,8 @@ export function TransportReportTab({
   driverPerformanceStatusOptions,
   drivers,
   reportToolbar,
-  selectedDriverRating,
   selectedDriverTripVolume,
   selectedTripStatus,
-  setSelectedDriverRating,
   setSelectedDriverTripVolume,
   setSelectedTripStatus,
   transportCompletionBandChart,
@@ -93,17 +89,6 @@ export function TransportReportTab({
         <div className="flex flex-wrap items-center gap-2">
           <select
             className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-            value={selectedDriverRating}
-            onChange={(event) => setSelectedDriverRating(event.target.value as 'all' | '4_up' | '3_up' | 'below_3')}
-            title="Filter by driver rating"
-          >
-            <option value="all">All Ratings</option>
-            <option value="4_up">4.0 and above</option>
-            <option value="3_up">3.0 and above</option>
-            <option value="below_3">Below 3.0</option>
-          </select>
-          <select
-            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
             value={selectedDriverTripVolume}
             onChange={(event) => setSelectedDriverTripVolume(event.target.value as 'all' | 'with_trips' | '10_plus')}
             title="Filter by total trips"
@@ -114,13 +99,12 @@ export function TransportReportTab({
           </select>
         </div>
       </div>
-      {/* Trips run is the output this tab reports on; the driver counts and the
-          rating explain who produced it and how well. */}
+      {/* Trips run and completed drop points measure transport performance. */}
       <ReportKpiRow
         headline={{ label: 'Total Trips', value: driverPerformanceKpi.totalTrips, hint: 'Assigned to listed drivers', tone: 'blue' }}
         items={[
           { label: 'Active Drivers', value: driverPerformanceKpi.active, hint: `of ${driverPerformanceKpi.total} registered`, tone: 'emerald' },
-          { label: 'Avg Rating', value: <>{driverPerformanceKpi.avgRating} <span className="text-sm font-normal text-slate-500">/ 5.0</span></>, tone: 'purple' },
+          { label: 'Total Drivers', value: driverPerformanceKpi.total, hint: 'Registered driver accounts', tone: 'purple' },
         ]}
       />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -215,7 +199,6 @@ export function TransportReportTab({
               <thead className="border-b bg-gray-50">
                 <tr>
                   <th className="p-3 text-left">Driver Name</th>
-                  <th className="p-3 text-left">Rating</th>
                   <th className="p-3 text-left">Total Trips</th>
                   <th className="p-3 text-left">Delivered Drop Points</th>
                   <th className="p-3 text-left">Completion %</th>
@@ -226,7 +209,6 @@ export function TransportReportTab({
                 {previewRows(transportDriverRows).map((row, index) => (
                   <tr key={`${row.driverName}-${index}`} className="border-b last:border-0">
                     <td className="p-3 font-medium">{String(row.driverName || 'N/A')}</td>
-                    <td className="p-3">{String(row.rating || 'N/A')}</td>
                     <td className="p-3">{String(row.totalTrips || 0)}</td>
                     <td className="p-3">{String(row.deliveredDropPoints || 0)}/{String(row.dropPointsTotal || 0)}</td>
                     <td className="p-3">{String(row.completionRate || '0%')}</td>

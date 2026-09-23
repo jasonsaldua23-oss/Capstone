@@ -13,7 +13,7 @@ from . import views_api as legacy
 from .api_constants import DRIVER_RESTRICTIONS, DRIVER_STATUSES, PHILIPPINE_PHONE_ERROR
 from .api_utils import error as _err, json_body as _json_body, ok as _ok
 from .driver_license import license_code_vehicle_error
-from .models import DriverServiceArea, DriverStatus, RoleType, User, Vehicle, VehicleStatus
+from .models import DriverStatus, RoleType, User, Vehicle, VehicleStatus
 
 
 # Resolved through views_api so tests and runtime overrides that rebind
@@ -237,7 +237,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         page, size, off = _pagination(request)
         show_sample = str(request.GET.get("includeSample") or request.GET.get("showSample") or "").strip().lower() in {"1", "true", "yes", "on"}
         base_qs = _annotate_driver_delivery_counts(
-            User.objects.prefetch_related("assigned_vehicles", "service_areas").filter(role="DRIVER")
+            User.objects.prefetch_related("assigned_vehicles").filter(role="DRIVER")
         )
         qs = (base_qs if show_sample else _real_drivers(base_qs)).order_by("-created_at")
         if request.GET.get("active") == "true":
@@ -248,7 +248,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
         for driver in rows:
             row = _serialize_model(driver, exclude={"password"})
             row["status"] = driver.driver_status
-            row["serviceAreas"] = [area.city for area in driver.service_areas.all()]
+            row["serviceAreas"] = driver.service_area_cities
             row["phone"] = driver.phone
             row["totalDeliveries"] = int(getattr(driver, "completed_delivery_count", 0) or 0)
             row["user"] = _serialize_model(driver, exclude={"password"})
@@ -273,9 +273,9 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             driver = User.objects.select_for_update().filter(id=body.get("id"), role=RoleType.DRIVER).first()
             if not driver:
                 return _err("Driver not found", 404)
-            driver.service_areas.exclude(city__in=normalized).delete()
-            for city in normalized:
-                DriverServiceArea.objects.get_or_create(driver=driver, city=city, defaults={"assigned_by": actor.id})
+            # Persist assignments on the locked account and trigger the existing User sync stamp.
+            driver.set_service_areas(normalized, actor.id)
+            driver.save(update_fields=["service_areas", "updated_at"])
         return _ok({"success": True, "serviceAreas": normalized})
     # Admins monitor driver records; operational profile changes are not admin actions.
     staff, err = _require_warehouse_operator(request)
@@ -309,7 +309,6 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             user.license_expiry = parsed_license_expiry
         else:
             user.license_expiry = timezone.now() + timedelta(days=365)
-        user.emergency_contact = body.get("emergencyContact")
         driver_status = _normalize_driver_status(body.get("status") or DriverStatus.ACTIVE)
         if driver_status not in DRIVER_STATUSES:
             return _err("Status must be Active, OnLeave, or Inactive", 400)
@@ -344,8 +343,6 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
     # accepted here — writing it would only desynchronise it from the trip records.
     mapping = [
         ("licenseType", "license_type"),
-        ("emergencyContact", "emergency_contact"),
-        ("rating", "rating"),
     ]
     for key, attr in mapping:
         if key in body:

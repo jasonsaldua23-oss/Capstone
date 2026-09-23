@@ -1,8 +1,6 @@
 """The deliveries figure on a driver comes from their completed delivery drop points.
 
-User.total_deliveries is never incremented anywhere in the codebase, so it reported 0
-for every driver no matter how many orders they had delivered. The API now derives the
-number from the trip records instead.
+The API derives the number from trip records instead of storing a duplicate counter.
 """
 import json
 from unittest.mock import patch
@@ -35,8 +33,6 @@ class DriverDeliveryCountTests(TestCase):
             phone="+639171234567",
             license_number="D09-22-000984",
             license_type="C",
-            # The stale stored counter must not leak into the reported figure.
-            total_deliveries=0,
         )
         self.other_driver = User.objects.create(
             email="other.driver@gmail.com",
@@ -121,9 +117,7 @@ class DriverDeliveryCountTests(TestCase):
         row = self._list_drivers()[self.driver.id]
         self.assertEqual(row["user"]["totalDeliveries"], 1)
 
-    def test_the_stale_stored_counter_does_not_override_the_derived_figure(self):
-        self.driver.total_deliveries = 999
-        self.driver.save(update_fields=["total_deliveries"])
+    def test_the_derived_figure_uses_completed_drop_points(self):
         trip = self._trip(self.driver, "TRIP-0007")
         self._drop_point(trip, DropPointStatus.COMPLETED, sequence=1)
         self.assertEqual(self._list_drivers()[self.driver.id]["totalDeliveries"], 1)

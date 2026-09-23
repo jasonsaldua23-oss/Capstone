@@ -339,11 +339,9 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
   const exportColumns: ExportColumn[] = [
     { header: 'Rank', accessor: (r: any) => `#${r.rank || 1}` },
     { header: 'Client Name', key: 'name' },
-    { header: 'Email', key: 'email' },
     { header: 'Barangay', key: 'barangay' },
     { header: 'Orders Placed', key: 'orderCount' },
     { header: 'Total Purchased (PHP)', accessor: (r) => Number(r.totalAmount || 0).toFixed(2) },
-    { header: 'Latest Transaction', accessor: (r) => formatReportTableDateTime(r.mostRecentDate) },
   ]
 
   const handleExportCsv = () => {
@@ -380,9 +378,9 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
   }
 
   return (
-    <div className="report-design-system space-y-6">
+    <div className="report-design-system flex flex-col gap-6">
       {/* Header with Period Switcher & Export */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="order-[-2] flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Top Clients Analytics</h2>
           <p className="text-sm text-slate-500">Ranking of high-value wholesale and commercial clients by purchase frequency, volume, and customer lifetime value.</p>
@@ -397,7 +395,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
               setCurrentPage(1)
             }}
             aria-label="Filter top clients by date range"
-            className="h-11 min-w-[190px] rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            className="order-last h-11 min-w-[190px] basis-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
           >
             <option value="all">All Time</option>
             <option value="today">Today</option>
@@ -441,7 +439,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
 
       {/* Custom Date Pickers */}
       {periodFilter === 'custom' && (
-        <Card className="p-3 border border-slate-200 bg-white">
+        <Card className="order-[-1] border border-slate-200 bg-white p-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-slate-600">Custom Date Range:</span>
             <input
@@ -625,7 +623,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
       )}
 
       {/* Filter and Sort Toolbar */}
-      <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <Card className="order-[-1] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />

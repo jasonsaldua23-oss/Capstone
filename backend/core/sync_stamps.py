@@ -80,6 +80,10 @@ def _model_scope_map() -> dict[type, tuple[str, ...]]:
     return {
         # Orders, including retail POS sales, which are Orders on a retail channel.
         m.Order: ("orders",),
+        m.PurchaseRequest: ("orders",),
+        m.PurchaseOrder: ("orders",),
+        m.RetailSale: ("orders",),
+        m.OrderCharge: ("orders",),
         m.OrderItem: ("orders",),
         m.OrderTimeline: ("orders",),
         m.OrderDepositRefundClaim: ("orders",),
@@ -95,13 +99,11 @@ def _model_scope_map() -> dict[type, tuple[str, ...]]:
         m.ProductPackaging: ("products",),
         m.ContainerType: ("products",),
         m.MixedCaseComponent: ("products",),
-        m.PackagingProfile: ("products",),
         m.Warehouse: ("warehouses",),
         # Logistics.
         m.Trip: ("trips",),
         m.TripDropPoint: ("trips",),
         m.Vehicle: ("vehicles", "drivers"),
-        m.DriverServiceArea: ("drivers",),
         # Staff accounts carry the driver records since the Driver model was folded in.
         m.User: ("drivers",),
         # Customer-facing records.
@@ -111,10 +113,8 @@ def _model_scope_map() -> dict[type, tuple[str, ...]]:
         m.DepositTransaction: ("customers", "orders"),
         m.BottleReturn: ("orders",),
         m.BottleReturnLine: ("orders",),
-        m.Replacement: ("replacements",),
+        m.Replacement: ("orders", "replacements"),
         m.ReplacementLine: ("replacements",),
-        m.ReturnReceipt: ("replacements",),
-        m.ReturnReceiptLine: ("replacements",),
         m.Feedback: ("feedback",),
         m.Notification: ("notifications",),
         # Intentionally unwatched: LocationLog is written every few seconds by every

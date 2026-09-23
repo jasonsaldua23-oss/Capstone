@@ -65,6 +65,21 @@ function formatProductNameWithSize(item: any): string {
     : cleanName
 }
 
+// Keep a mixed case and its contents grouped instead of merging every product name.
+function formatRetailProducts(items: any[], fallbackCount: number): string {
+  if (!Array.isArray(items) || items.length === 0) return `${fallbackCount} item(s)`
+  return items.map((item: any) => {
+    const quantity = Number(item.quantity || item.qty || 1)
+    const components = Array.isArray(item.components) ? item.components : []
+    if (components.length === 0) return `${formatProductNameWithSize(item)} x${quantity}`
+    const contents = components.map((component: any) => {
+      const componentQty = Number(component.quantityPerCase || component.quantityBaseUnits || component.quantity || 0)
+      return `${formatProductNameWithSize(component)} x${componentQty}`
+    }).join('; ')
+    return `${formatProductNameWithSize(item)} x${quantity} | Components: ${contents}`
+  }).join(' | ')
+}
+
 interface RetailSalesReportProps {
   orders: any[]
   retailSales?: any[]
@@ -293,31 +308,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
     { header: 'Customer', key: 'customer' },
     {
       header: 'Products',
-      accessor: (r) =>
-        Array.isArray(r.items) && r.items.length > 0
-          ? r.items
-              .map((item: any) => {
-                const isMixedCase =
-                  String(item.itemType || item.item_type || item.mode || '').toUpperCase() === 'MIXED_CASE' ||
-                  (Array.isArray(item.components) && item.components.length > 0) ||
-                  /mixed\s*case/i.test(String(item.productName || item.name || ''))
-                const hasComponents = Array.isArray(item.components) && item.components.length > 0
-                const qty = Number(item.quantity || item.qty || 1)
-                if (isMixedCase && hasComponents) {
-                  const compList = item.components
-                    .map((c: any) => {
-                      const cName = formatProductNameWithSize(c)
-                      const cQty = Number(c.quantityPerCase || c.quantityBaseUnits || c.quantity || 0)
-                      return `${cName} ×${cQty}`
-                    })
-                    .join(', ')
-                  return `${formatProductNameWithSize(item)} ×${qty} [${compList}]`
-                }
-                const name = formatProductNameWithSize(item)
-                return `${name} ×${qty}`
-              })
-              .join('; ')
-          : `${r.itemsCount} item(s)`,
+      accessor: (r) => formatRetailProducts(r.items, r.itemsCount),
     },
     { header: 'Status', key: 'status' },
     { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
@@ -356,9 +347,9 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
   }
 
   return (
-    <div className="report-design-system space-y-6">
+    <div className="report-design-system flex flex-col gap-6">
       {/* Header with Mode Switcher & Export */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="order-[-2] flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Retail Sales Reports</h2>
           <p className="text-sm text-slate-500">Retail POS performance, revenue velocity, period growth rates, and customer basket sizes.</p>
@@ -373,7 +364,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
               setCurrentPage(1)
             }}
             aria-label="Filter retail sales by date range"
-            className="h-11 min-w-[190px] rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            className="order-last h-11 min-w-[190px] basis-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
           >
             <option value="all">All Time</option>
             <option value="today">Today</option>
@@ -417,7 +408,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
 
       {/* Custom dates appear only when the shared Custom Date Range option is selected. */}
       {periodMode === 'custom' && (
-        <Card className="border border-slate-200 bg-white p-3 shadow-sm">
+        <Card className="order-[-1] border border-slate-200 bg-white p-3 shadow-sm">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-slate-600">Custom Date Range:</span>
             <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setCurrentPage(1) }} className="h-9 w-auto text-xs" aria-label="Retail sales date from" />
@@ -509,7 +500,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       )}
 
       {/* Filter & Search Bar */}
-      <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <Card className="order-[-1] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -572,12 +563,12 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
 
                             if (isMixedCase && hasComponents) {
                               return (
-                                <div key={idx} className="space-y-1">
+                                <div key={idx} className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
                                   <div className="flex items-center gap-1.5">
                                     <span className="font-semibold text-slate-800 leading-snug">{mainName}</span>
                                     <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">×{qty}</span>
                                   </div>
-                                  <div className="pl-2 border-l-2 border-slate-200 space-y-0.5">
+                                  <div className="grid gap-1 border-l-2 border-slate-300 pl-2">
                                     {item.components.map((comp: any, cIdx: number) => {
                                       const compName = formatProductNameWithSize(comp)
                                       const compQty = Number(comp.quantityPerCase || comp.quantityBaseUnits || comp.quantity || 0)

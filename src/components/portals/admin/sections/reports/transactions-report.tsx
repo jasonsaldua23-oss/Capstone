@@ -60,6 +60,10 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
 
     // Add Wholesale and regular Online orders
     orders.forEach((o) => {
+      // Replacement deliveries resolve existing sales and are not new transactions.
+      const isReplacementOrder = Boolean(o.isScheduledReplacement) ||
+        String(o.orderNumber || '').trim().toUpperCase().startsWith('RPL-')
+      if (isReplacementOrder) return
       const channel = String(o.salesChannel || 'ONLINE').toUpperCase()
       const txNumber = o.retailTransactionNumber || o.orderNumber || `TX-${o.id?.slice(-8)}`
       const client = o.customer?.name || o.shippingName || o.walkInName || 'Client / Customer'
@@ -313,9 +317,9 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
   }
 
   return (
-    <div className="report-design-system space-y-6">
+    <div className="report-design-system flex flex-col gap-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="order-[-2] flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Transaction Records</h2>
           <p className="text-sm text-slate-500">Complete financial ledger of wholesale and retail sales transactions across all sales channels.</p>
@@ -406,7 +410,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       )}
 
       {/* Filter Bar */}
-      <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <Card className="order-[-1] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {/* Search */}
           <div className="relative">

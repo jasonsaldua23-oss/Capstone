@@ -856,7 +856,6 @@ class TripExecutionApiContractTests(TestCase):
             total_amount=20,
             warehouse_id=warehouse.id,
             ready_to_load_at=timezone.now() - timedelta(days=1),
-            loaded_at=timezone.now() - timedelta(hours=8),
             warehouse_dispatched_at=timezone.now() - timedelta(hours=2),
         )
         OrderTimeline.objects.create(order=order, delivery_date=timezone.now())
@@ -940,7 +939,6 @@ class TripExecutionApiContractTests(TestCase):
             total_amount=50,
             warehouse_id=warehouse.id,
             ready_to_load_at=timezone.now() - timedelta(days=1),
-            loaded_at=timezone.now() - timedelta(hours=8),
             warehouse_dispatched_at=timezone.now() - timedelta(hours=2),
         )
         order.shipping_name = "Trip Exec Customer"
@@ -1007,7 +1005,6 @@ class TripExecutionApiContractTests(TestCase):
         self.assertEqual(self.dp_1.status, "FAILED")
         self.assertEqual(inventory.reserved_quantity, 2)
         self.assertEqual(order.status, OrderStatus.RESCHEDULED)
-        self.assertIsNone(order.loaded_at)
         self.assertIsNone(order.warehouse_dispatched_at)
         self.assertEqual(self.trip.completed_drop_points, 1)
         self.assertEqual(self.trip.status, TripStatus.PLANNED)

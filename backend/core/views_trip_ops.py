@@ -768,9 +768,8 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
             timeline = getattr(order, "timeline", None)
             if next_status == "FAILED" and reschedule_requested:
                 order.status = OrderStatus.RESCHEDULED
-                order.loaded_at = None
                 order.warehouse_dispatched_at = None
-                update_fields = ["status", "loaded_at", "warehouse_dispatched_at", "updated_at"]
+                update_fields = ["status", "warehouse_dispatched_at", "updated_at"]
                 if not order.ready_to_load_at:
                     order.ready_to_load_at = now
                     update_fields.append("ready_to_load_at")

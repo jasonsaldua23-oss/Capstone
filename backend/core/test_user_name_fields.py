@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from django.test import RequestFactory, TestCase
 
-from .models import Customer, DriverServiceArea, RoleType, User
+from .models import Customer, RoleType, User
 from .views_api import auth_register, customer_detail, user_detail, users_collection
 
 VALID_PASSWORD = "Str0ng!Passw0rd"
@@ -90,8 +90,8 @@ class UserCreationNameFieldTests(TestCase):
         response = self._create({"name": "Driver", "serviceArea": "talisay"})
         self.assertEqual(response.status_code, 201, response.content)
         user = User.objects.get(email="new.driver@gmail.com")
-        area = user.service_areas.get()
-        self.assertEqual((area.city, area.assigned_by), ("talisay", "admin-1"))
+        area = user.service_areas[0]
+        self.assertEqual((area["city"], area["assigned_by"]), ("talisay", "admin-1"))
 
     def test_driver_requires_supported_service_area(self):
         for area in ["", "bacolod"]:
@@ -102,7 +102,7 @@ class UserCreationNameFieldTests(TestCase):
     def test_non_driver_does_not_require_service_area(self):
         response = self._create({"name": "Staff", "roleId": RoleType.WAREHOUSE_STAFF, "serviceArea": ""})
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertFalse(User.objects.get(email="new.driver@gmail.com").service_areas.exists())
+        self.assertFalse(User.objects.get(email="new.driver@gmail.com").service_areas)
 
     def test_driver_service_area_is_returned_for_editing(self):
         self._create({"name": "Driver", "serviceArea": "silay"})
@@ -122,7 +122,8 @@ class UserCreationNameFieldTests(TestCase):
         response = self._update(user, {"roleId": RoleType.DRIVER, "serviceArea": "talisay"})
 
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(list(DriverServiceArea.objects.filter(driver=user).values_list("city", flat=True)), ["talisay"])
+        user.refresh_from_db()
+        self.assertEqual(user.service_area_cities, ["talisay"])
         self.assertEqual(json.loads(response.content)["user"]["serviceArea"], "talisay")
 
     def test_staff_update_rejects_numbers_without_changing_the_name(self):
@@ -148,7 +149,7 @@ class UserCreationNameFieldTests(TestCase):
         response = self._update(user, {"roleId": RoleType.DRIVER, "serviceArea": "bacolod"})
 
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertEqual(list(user.service_areas.values_list("city", flat=True)), ["silay"])
+        self.assertEqual(user.service_area_cities, ["silay"])
 
 
 class CustomerNameValidationTests(TestCase):

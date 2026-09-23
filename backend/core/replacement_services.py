@@ -463,15 +463,20 @@ def _create_scheduled_replacement_order(
     # Serialize concurrent scheduling of the same replacement: the loser waits
     # here, then re-reads the notes below and returns the winner's order rather
     # than creating a second one.
+    caller_replacement = replacement
     with transaction.atomic():
         locked = Replacement.objects.select_for_update().filter(id=replacement.id).first()
         if locked is not None:
-            replacement.notes = locked.notes
-        return _create_scheduled_replacement_order_locked(
+            replacement = locked
+        replacement_order = _create_scheduled_replacement_order_locked(
             replacement,
             scheduled_date=scheduled_date,
             staff_user_id=staff_user_id,
         )
+        # Keep the caller's instance current because the view saves it again.
+        caller_replacement.notes = replacement.notes
+        caller_replacement.delivery_transaction_id = replacement.delivery_transaction_id
+        return replacement_order
 
 
 def _create_scheduled_replacement_order_locked(
@@ -481,7 +486,7 @@ def _create_scheduled_replacement_order_locked(
     staff_user_id: str | None,
 ) -> Order:
     meta = _extract_replacement_meta(replacement.notes)
-    existing_order_id = str(meta.get("replacementOrderId") or "").strip()
+    existing_order_id = str(replacement.delivery_transaction_id or meta.get("replacementOrderId") or "").strip()
     if existing_order_id:
         existing_order = Order.objects.filter(id=existing_order_id).first()
         if existing_order:
@@ -543,8 +548,6 @@ def _create_scheduled_replacement_order_locked(
         status=OrderStatus.CONFIRMED,
         priority="high",
         subtotal=0,
-        tax=0,
-        shipping_cost=0,
         discount=0,
         total_amount=0,
         payment_status="pending",
@@ -708,7 +711,9 @@ def _create_scheduled_replacement_order_locked(
             "scheduledBy": staff_user_id,
         },
     )
-    replacement.save(update_fields=["notes", "updated_at"])
+    # A replacement shipment belongs directly to its replacement request.
+    replacement.delivery_transaction = replacement_order
+    replacement.save(update_fields=["delivery_transaction", "notes", "updated_at"])
     return replacement_order
 
 
@@ -724,12 +729,13 @@ def _reschedule_replacement_delivery(
     back on every later call, so a date that has come and gone is corrected by
     moving that order's delivery timeline instead of scheduling a second one.
     """
+    caller_replacement = replacement
     with transaction.atomic():
         locked = Replacement.objects.select_for_update().filter(id=replacement.id).first()
         if locked is not None:
-            replacement.notes = locked.notes
+            replacement = locked
         meta = _extract_replacement_meta(replacement.notes)
-        replacement_order_id = str(meta.get("replacementOrderId") or "").strip()
+        replacement_order_id = str(replacement.delivery_transaction_id or meta.get("replacementOrderId") or "").strip()
         replacement_order_number = str(meta.get("replacementOrderNumber") or "").strip()
         replacement_order = None
         if replacement_order_id:
@@ -764,12 +770,15 @@ def _reschedule_replacement_delivery(
             },
         )
         replacement.save(update_fields=["notes", "updated_at"])
+        # Prevent the view's later save from restoring pre-reschedule metadata.
+        caller_replacement.notes = replacement.notes
+        caller_replacement.delivery_transaction_id = replacement.delivery_transaction_id
         return replacement_order
 
 
 def _is_linked_replacement_order_delivered(entry: Replacement, *, order_cache: dict[str, Any] | None = None) -> bool:
     meta = _extract_replacement_meta(getattr(entry, "notes", ""))
-    replacement_order_id = str(meta.get("replacementOrderId") or "").strip()
+    replacement_order_id = str(entry.delivery_transaction_id or meta.get("replacementOrderId") or "").strip()
     replacement_order_number = str(meta.get("replacementOrderNumber") or "").strip()
     replacement_order = None
     if replacement_order_id:
@@ -788,7 +797,23 @@ def _is_linked_replacement_order_delivered(entry: Replacement, *, order_cache: d
 
 
 def _is_replacement_closed(entry: Replacement, *, order_cache: dict[str, Any] | None = None) -> bool:
-    if _is_linked_replacement_order_delivered(entry, order_cache=order_cache):
+    meta = _extract_replacement_meta(getattr(entry, "notes", ""))
+    replacement_order_id = str(entry.delivery_transaction_id or meta.get("replacementOrderId") or "").strip()
+    replacement_order_number = str(meta.get("replacementOrderNumber") or "").strip()
+    replacement_order = None
+    if replacement_order_id:
+        replacement_order = order_cache.get(replacement_order_id) if order_cache is not None else None
+        if replacement_order is None:
+            replacement_order = Order.objects.filter(id=replacement_order_id).only("status").first()
+    elif replacement_order_number:
+        replacement_order = order_cache.get(replacement_order_number) if order_cache is not None else None
+        if replacement_order is None:
+            replacement_order = Order.objects.filter(order_number=replacement_order_number).only("status").first()
+    if replacement_order and _normalize_order_status(replacement_order.status) in {
+        OrderStatus.DELIVERED,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+    }:
         return True
     normalized = _normalize_replacement_status(entry.status, entry.replacement_mode)
     return normalized in {

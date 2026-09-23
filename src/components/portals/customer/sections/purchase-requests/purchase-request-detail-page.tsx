@@ -53,7 +53,7 @@ function formatDateTime(rawDate: any): { date: string; time: string | null } {
 
 export function CustomerPurchaseRequestDetailPage(props: any) {
   const {
-    order,
+    order: transaction,
     onBack,
     formatPeso,
     getProductImage = (url?: string | null) => url || '/placeholder-product.png',
@@ -62,6 +62,9 @@ export function CustomerPurchaseRequestDetailPage(props: any) {
     setActiveView,
     setSelectedOrder,
   } = props
+
+  // Keep the PR document stable when its linked PO is updated or cancelled.
+  const order = transaction ? { ...transaction, ...transaction.purchaseRequest?.snapshot } : null
 
   if (!order) return null
 

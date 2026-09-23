@@ -33,8 +33,6 @@ interface DriverProfileApiResponse {
     avatar?: string | null;
     phone?: string | null;
     role?: string;
-    emergencyContact?: string | null;
-    emergency_contact?: string | null;
     licenseNumber?: string | null;
     license_number?: string | null;
     licenseType?: string | null;
@@ -72,7 +70,6 @@ export interface DriverProfileUpdateInput {
   lastName: string;
   suffix: string;
   phone: string;
-  emergencyContact: string;
   licenseNumber: string;
   licenseType: string;
   licenseExpiry: string;
@@ -95,7 +92,6 @@ function toDriverProfile(payload: DriverProfileApiResponse["driver"]): DriverPro
     phone: account.phone ?? payload.phone ?? null,
     role: "DRIVER",
     type: "staff",
-    emergencyContact: payload.emergencyContact ?? payload.emergency_contact ?? null,
     licenseNumber: payload.licenseNumber ?? payload.license_number ?? null,
     licenseType: payload.licenseType ?? payload.license_type ?? null,
     licenseExpiry: payload.licenseExpiry ?? payload.license_expiry ?? null,

@@ -177,7 +177,6 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
     }
     declared_products = list(
         Product.objects.filter(Q(id__in=declared_product_ids) | Q(name__in=legacy_product_names))
-        .select_related("packaging_profile")
     ) if declared_product_ids or legacy_product_names else []
     products_by_id = {str(product.id): product for product in declared_products}
     products_by_name: dict[str, list[Product]] = {}
@@ -188,7 +187,7 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
     for balance in balances:
         associated_packagings = list(
             ProductPackaging.objects.filter(container_type=balance.container_type, is_active=True)
-            .select_related("product", "product__packaging_profile", "packaging_profile")
+            .select_related("product")
             .order_by("-is_primary", "created_at")
         )
         container_key = str(balance.container_type_id)
@@ -227,11 +226,6 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             if not product or not str(product.name or "").strip():
                 continue
             sizes = [str(size).strip() for size in (product.sizes or []) if str(size).strip()]
-            if not sizes:
-                profile = product.packaging_profile
-                profile_size = str(getattr(profile, "container_size", "") or "").strip()
-                if profile_size:
-                    sizes = [profile_size]
             size_label = ", ".join(sizes)
             exact_label = f"{product.name} - {size_label}" if size_label else str(product.name)
             if exact_label not in product_labels:

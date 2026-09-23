@@ -70,7 +70,6 @@ export function ReportsView() {
   const [selectedDriver, setSelectedDriver] = useState('all')
   const [selectedOrderStatus, setSelectedOrderStatus] = useState('all')
   const [selectedTripStatus, setSelectedTripStatus] = useState('all')
-  const [selectedDriverRating, setSelectedDriverRating] = useState<'all' | '4_up' | '3_up' | 'below_3'>('all')
   const [selectedDriverTripVolume, setSelectedDriverTripVolume] = useState<'all' | 'with_trips' | '10_plus'>('all')
   const [selectedMovementType, setSelectedMovementType] = useState('all')
   const [selectedReplacementStatus, setSelectedReplacementStatus] = useState('all')
@@ -196,7 +195,6 @@ export function ReportsView() {
     rangeDays,
     replacementsData,
     selectedDriver,
-    selectedDriverRating,
     selectedDriverTripVolume,
     selectedMovementType,
     selectedOrderStatus,
@@ -245,7 +243,7 @@ export function ReportsView() {
         },
       ],
     })
-    await downloadPdf(`inventory-report-${stamp}.pdf`, 'Inventory Movement Report', inventoryExportRows, {
+    await downloadPdf(`inventory-report-${stamp}.pdf`, 'Inventory Report', inventoryExportRows, {
       ...reportBranding,
       summaryLines: inventorySummaryLines,
       rangeLabel: standardDateRangeLabel,
@@ -271,7 +269,6 @@ export function ReportsView() {
     setSelectedDriver('all')
     setSelectedOrderStatus('all')
     setSelectedTripStatus('all')
-    setSelectedDriverRating('all')
     setSelectedDriverTripVolume('all')
     setSelectedMovementType('all')
     setSelectedReplacementStatus('all')
@@ -430,14 +427,16 @@ export function ReportsView() {
         <Button variant="outline" className="gap-2 rounded-lg border-slate-200" onClick={resetFilters}>
           Reset Filters
         </Button>
-        <Button variant="outline" className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50" onClick={exportCurrentCsv} disabled={isLoading}>
+        <Button variant="outline" className="order-[-1] h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50" onClick={exportCurrentCsv} disabled={isLoading}>
           <FileSpreadsheet className="h-4 w-4" />
           Export CSV
         </Button>
-        <Button variant="outline" className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
+        <Button variant="outline" className="order-[-1] h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
           <Download className="h-4 w-4" />
           {`Export ${title} PDF`}
         </Button>
+        {/* Force every filter onto the row below the export actions. */}
+        <div aria-hidden className="order-[-1] basis-full" />
       </div>
     </div>
   )
@@ -464,7 +463,7 @@ export function ReportsView() {
   const exportInventoryPdf = async (stamp: string) => {
     await downloadPdf(
       `inventory-report-${stamp}.pdf`,
-      'Inventory Movement Report',
+      'Inventory Report',
       inventoryExportRows,
       {
         ...reportBranding,
@@ -520,7 +519,7 @@ export function ReportsView() {
       orders: { title: 'Order Report', rows: orderExportRows, summaryLines: orderSummaryLines },
       transport: { title: 'Transportation Driver Performance Report', rows: transportExportRows, summaryLines: transportSummaryLines },
       warehouse: { title: 'Warehouse Utilization Report', rows: warehouseUtilizationRowsForExport, summaryLines: warehouseSummaryLines },
-      inventory: { title: 'Inventory Movement Report', rows: inventoryExportRows, summaryLines: inventorySummaryLines },
+      inventory: { title: 'Inventory Report', rows: inventoryExportRows, summaryLines: inventorySummaryLines },
       replacement: { title: 'Replacement Handling Report', rows: replacementRows, summaryLines: replacementSummaryLines },
       feedback: { title: 'Client Feedback & Service Evaluation Report', rows: feedbackExportRows, summaryLines: feedbackSummaryLines },
     }
@@ -647,10 +646,8 @@ export function ReportsView() {
               driverPerformanceStatusOptions={driverPerformanceStatusOptions}
               drivers={drivers}
               reportToolbar={reportToolbar}
-              selectedDriverRating={selectedDriverRating}
               selectedDriverTripVolume={selectedDriverTripVolume}
               selectedTripStatus={selectedTripStatus}
-              setSelectedDriverRating={setSelectedDriverRating}
               setSelectedDriverTripVolume={setSelectedDriverTripVolume}
               setSelectedTripStatus={setSelectedTripStatus}
               transportCompletionBandChart={transportCompletionBandChart}

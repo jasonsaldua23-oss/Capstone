@@ -89,13 +89,12 @@ def _normalize_order_items_for_checkout(raw_items: Any) -> tuple[list[dict[str, 
     return normalized_items, subtotal
 
 
-def _compute_order_totals(body: dict[str, Any], subtotal: float) -> tuple[float, float, float, float]:
+def _compute_order_totals(body: dict[str, Any], subtotal: float) -> tuple[float, float, float]:
     # Required: orders have no tax or shipping fees, even if an older client sends them.
     shipping_cost = 0.0
-    tax = 0.0
     discount = float(body.get("discount") or 0)
     total = float(subtotal - discount)
-    return tax, shipping_cost, discount, total
+    return shipping_cost, discount, total
 
 
 def _count_discount_eligible_cases(items: list[dict[str, Any]]) -> int:
@@ -338,8 +337,7 @@ def _create_order_from_checkout_payload(
     body: dict[str, Any],
     normalized_items: list[dict[str, Any]],
     subtotal: float,
-    tax: float,
-    shipping_cost: float,
+    shipping_cost: float = 0,
     discount: float,
     total_amount: float,
     selected_warehouse_id: str | None,
@@ -349,6 +347,9 @@ def _create_order_from_checkout_payload(
     performed_by: str | None,
     discount_breakdown: dict[str, Any] | None = None,
 ) -> Order:
+    # Shipping fees are not part of the system; retain the argument only for the
+    # existing checkout call contract while keeping it out of Transaction.
+    del shipping_cost
     pr_number = _generate_next_purchase_workflow_number("purchase_request_number", "PR")
 
     order = Order.objects.create(
@@ -363,13 +364,10 @@ def _create_order_from_checkout_payload(
         status=OrderStatus.PENDING,
         priority=body.get("priority") or "normal",
         subtotal=0,
-        tax=0,
-        shipping_cost=shipping_cost,
         discount=discount,
         discount_type=str((discount_breakdown or {}).get("type") or DISCOUNT_NO),
         discount_name=str((discount_breakdown or {}).get("name") or "No Discount"),
         discount_percent_applied=float((discount_breakdown or {}).get("percent") or 0),
-        discount_amount_per_case_applied=float((discount_breakdown or {}).get("amountPerCase") or 0),
         discount_per_case_applied=float((discount_breakdown or {}).get("perCaseDiscount") or 0),
         discount_cases_affected=max(0, _int((discount_breakdown or {}).get("casesAffected"), 0)),
         discount_applied_by_name=(discount_breakdown or {}).get("appliedByName"),
@@ -558,7 +556,6 @@ def _create_order_from_checkout_payload(
         order_item.save(update_fields=["notes"])
 
     order.subtotal = subtotal
-    order.tax = tax
     # A refund request identifies the product and empty count. The value reduces
     # this order now, while the claim reserves those empties for driver collection.
     applied_deposit_credit = _create_deposit_refund_claims(
@@ -579,15 +576,12 @@ def _create_order_from_checkout_payload(
     order.shipping_latitude = shipping_latitude
     order.shipping_longitude = shipping_longitude
     order.notes = body.get("notes")
-    order.special_instructions = body.get("specialInstructions")
     order.save(
         update_fields=[
             "subtotal",
-            "tax",
             "discount_type",
             "discount_name",
             "discount_percent_applied",
-            "discount_amount_per_case_applied",
             "discount_per_case_applied",
             "discount_cases_affected",
             "discount_applied_by_name",
@@ -604,7 +598,6 @@ def _create_order_from_checkout_payload(
             "shipping_latitude",
             "shipping_longitude",
             "notes",
-            "special_instructions",
             "updated_at",
         ]
     )

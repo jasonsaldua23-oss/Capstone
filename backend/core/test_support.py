@@ -29,16 +29,8 @@ class Driver:
                 user.license_type = kwargs.get("license_type")
             if "license_expiry" in kwargs:
                 user.license_expiry = kwargs.get("license_expiry")
-            if "emergency_contact" in kwargs:
-                user.emergency_contact = kwargs.get("emergency_contact")
-            if "rating" in kwargs:
-                user.rating = kwargs.get("rating")
-            if "total_deliveries" in kwargs:
-                user.total_deliveries = kwargs.get("total_deliveries")
             if "is_active" in kwargs:
                 user.is_active = bool(kwargs.get("is_active"))
-            if "hired_at" in kwargs:
-                user.hired_at = kwargs.get("hired_at")
             user.save()
             user.user = user
             return user

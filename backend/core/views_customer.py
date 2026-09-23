@@ -186,7 +186,8 @@ def customer_orders(request: HttpRequest) -> JsonResponse:
             to_attr="_serialized_mixed_case_components",
         )
         qs = _real_orders(
-            Order.objects.select_related("customer", "timeline")
+            # Load document headers with the page to avoid per-order PR/PO queries.
+            Order.objects.select_related("customer", "timeline", "purchase_request", "purchase_order")
             .prefetch_related(
                 Prefetch(
                     "items",

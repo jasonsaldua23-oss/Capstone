@@ -266,7 +266,8 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
 
     user_avatar = User.objects.filter(
         id=account_id,
-    ).filter(Q(avatar__in=media_urls) | Q(license_photo_url__in=media_urls)).exists()
+        avatar__in=media_urls,
+    ).exists()
     if user_avatar:
         return True
 
@@ -293,7 +294,7 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
             or TripDropPoint.objects.filter(delivery_photo__in=media_urls).exists()
             or _matching_replacements(media_urls).exists()
             or Customer.objects.filter(avatar__in=media_urls).exists()
-            or User.objects.filter(Q(avatar__in=media_urls) | Q(license_photo_url__in=media_urls)).exists()
+            or User.objects.filter(avatar__in=media_urls).exists()
         )
 
     if role == RoleType.DRIVER:
@@ -375,4 +376,3 @@ def private_media(request: HttpRequest, path: str) -> JsonResponse | FileRespons
     if not _private_media_access_allowed(payload, _media_url_candidates(normalized_path)):
         return _err("Forbidden", 403)
     return _private_media_response(normalized_path)
-

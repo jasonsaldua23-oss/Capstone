@@ -60,15 +60,23 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
       .filter((o) => {
         // Exclude retail-only counter sales if they don't have PR lifecycle
         const channel = String(o.salesChannel || '').toUpperCase()
-        return channel !== 'RETAIL_POS'
+        return channel !== 'RETAIL_POS' && !o.isScheduledReplacement && !String(o.orderNumber || '').startsWith('RPL-')
       })
-      .map((o) => {
+      .map((transaction) => {
+        // Approved PRs use their locked snapshot, independent of later PO edits.
+        const o = { ...transaction, ...transaction.purchaseRequest?.snapshot }
         const prNumber = o.purchaseRequestNumber || o.requestId || `PR-${o.orderNumber || o.id?.slice(-6)}`
         const requester = o.customer?.name || o.shippingName || o.walkInName || 'Customer / Requester'
         const status = String(o.requestStatus || (o.status === 'CANCELLED' || o.status === 'REJECTED' ? 'REJECTED' : o.status === 'PENDING' ? 'PENDING_APPROVAL' : 'APPROVED')).toUpperCase()
         const approver = o.approvedByName || (status === 'APPROVED' ? 'Operations Admin' : null)
         const rejector = o.rejectedByName || (status === 'REJECTED' ? 'Operations Admin' : null)
-        const reason = o.rejectionReason || o.cancellationReason || ''
+        // Approved requests are immutable purchase-order inputs. Order cancellation
+        // reasons belong to the later PO lifecycle and must not leak back into the PR.
+        const reason = status === 'REJECTED'
+          ? String(o.rejectionReason || '')
+          : status === 'CANCELLED'
+            ? String(o.cancellationReason || o.rejectionReason || '')
+            : ''
         const date = o.createdAt || o.updatedAt || new Date().toISOString()
         const amount = Number(o.totalAmount || o.subtotal || 0)
         return {
@@ -265,9 +273,9 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
   }
 
   return (
-    <div className="report-design-system space-y-6">
+    <div className="report-design-system flex flex-col gap-6">
       {/* Header & Controls */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="order-[-2] flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Purchase Requests Report</h2>
           <p className="text-sm text-slate-500">Centralized log of all purchase requests, approval records, and valuation.</p>
@@ -363,7 +371,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
       )}
 
       {/* Filter Bar */}
-      <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <Card className="order-[-1] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Search */}
           <div className="relative">

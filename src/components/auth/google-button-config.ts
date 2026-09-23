@@ -49,8 +49,8 @@ const MIN_WIDTH = 240
 
 /** `size: 'medium'` renders a 32px-tall control. */
 const CONTROL_HEIGHT = 32
-/** Match the h-9 (36px) Log in button height. Scale = 36/32 = 1.125 — minimal font inflation while keeping full-width. */
-const TARGET_HEIGHT = 36
+/** Match CONTROL_HEIGHT exactly so scale = 1 — no CSS scaling, native font size preserved. */
+const TARGET_HEIGHT = 32
 const MAX_SCALE = TARGET_HEIGHT / CONTROL_HEIGHT
 
 /** Options shared by both login pages; `width` is filled in per container. */

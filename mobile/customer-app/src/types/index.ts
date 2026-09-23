@@ -25,7 +25,6 @@ export interface CustomerProfile extends CustomerUser {
   discountOption?: string | null;
   discountStatus?: string | null;
   discountPercent?: number | null;
-  discountAmountPerCase?: number | null;
   bottleBalances?: CustomerBottleBalance[];
 }
 

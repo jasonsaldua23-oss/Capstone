@@ -95,7 +95,6 @@ const initialProfileForm: DriverProfileUpdateInput = {
   lastName: "",
   suffix: "",
   phone: "",
-  emergencyContact: "",
   licenseNumber: "",
   licenseType: "",
   licenseExpiry: "",
@@ -451,7 +450,6 @@ export default function App() {
       lastName: nextProfile.lastName || fallbackNameParts.slice(1).join(" "),
       suffix: nextProfile.suffix || "",
       phone: nextProfile.phone || "",
-      emergencyContact: nextProfile.emergencyContact || "",
       licenseNumber: nextProfile.licenseNumber || "",
       licenseType: nextProfile.licenseType || "",
       licenseExpiry: nextProfile.licenseExpiry ? String(nextProfile.licenseExpiry).slice(0, 10) : "",
@@ -1830,8 +1828,6 @@ export default function App() {
                 onChangeText={(value) => setProfileForm((current) => ({ ...current, suffix: value }))} />
               <Field label="Phone Number" value={profileForm.phone} placeholder="09XX XXX XXXX"
                 onChangeText={(value) => setProfileForm((current) => ({ ...current, phone: value }))} />
-              <Field label="Emergency Contact" value={profileForm.emergencyContact} placeholder="Emergency contact"
-                onChangeText={(value) => setProfileForm((current) => ({ ...current, emergencyContact: value }))} />
               <Field label="Email Address" value={profile?.email || user?.email || ""} editable={false}
                 placeholder="Enter your Gmail address" onChangeText={() => {}} />
             </View>

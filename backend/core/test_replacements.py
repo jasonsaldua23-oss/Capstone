@@ -318,6 +318,30 @@ class WarehouseReplacementRescheduleContractTests(TestCase):
         self.assertEqual(response.status_code, 403, response.content)
         self.assertEqual(response.json()["error"], "Only warehouse staff can reschedule replacement deliveries")
 
+    @patch("core.views_api._email_order_cancelled_to_customer")
+    def test_cancelling_delivery_closes_replacement_and_removes_active_schedule(self, _email_customer) -> None:
+        replacement, replacement_order = self._scheduled_replacement(
+            "CANCELLED-001",
+            scheduled_date=timezone.localdate() + timedelta(days=1),
+        )
+
+        response = self.client.patch(
+            f"/api/orders/{replacement_order.id}/status",
+            data=json.dumps({"status": "CANCELLED", "reason": "Replacement delivery cancelled"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.warehouse_token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        replacement.refresh_from_db()
+        self.assertEqual(replacement.status, ReplacementStatus.CANCELLED)
+        serialized = _serialize_replacement(replacement)
+        self.assertEqual(serialized["status"], ReplacementStatus.CANCELLED)
+        self.assertEqual(serialized["replacementOrderStatus"], OrderStatus.CANCELLED)
+        self.assertIsNone(serialized["scheduledDeliveryDate"])
+        self.assertIsNone(serialized["replacementOrderId"])
+        self.assertEqual(serialized["linkedReplacementOrderId"], replacement_order.id)
+
 
 class CustomerReplacementRequestContractTests(TestCase):
     def setUp(self) -> None:

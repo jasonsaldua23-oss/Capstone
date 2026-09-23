@@ -101,7 +101,6 @@ interface CustomerApiResponse {
     discountOption?: string | null;
     discountStatus?: string | null;
     discountPercent?: number | null;
-    discountAmountPerCase?: number | null;
     twoFactorEnabled?: boolean;
     loginAlertsEnabled?: boolean;
     bottleBalances?: CustomerProfile["bottleBalances"];
@@ -176,7 +175,6 @@ function toCustomerProfile(payload: CustomerApiResponse["customer"]): CustomerPr
     discountOption: payload.discountOption ?? null,
     discountStatus: payload.discountStatus ?? null,
     discountPercent: payload.discountPercent ?? null,
-    discountAmountPerCase: payload.discountAmountPerCase ?? null,
     twoFactorEnabled: payload.twoFactorEnabled ?? false,
     loginAlertsEnabled: payload.loginAlertsEnabled ?? true,
     bottleBalances: payload.bottleBalances ?? [],

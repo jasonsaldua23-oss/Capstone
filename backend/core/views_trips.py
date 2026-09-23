@@ -141,7 +141,7 @@ def _vehicle_overload_message(vehicle: Vehicle, assigned_weight: float) -> str |
 def _driver_service_area_error(driver: User, cities) -> str | None:
     if not driver.is_active or driver.driver_status != DriverStatus.ACTIVE:
         return "Selected driver is not active or is on leave"
-    allowed = set(driver.service_areas.values_list("city", flat=True))
+    allowed = set(driver.service_area_cities)
     # Every delivery destination must be explicitly assigned by an admin.
     excluded = sorted({str(city or "").strip() for city in cities
                        if " ".join(str(city or "").split()).casefold() not in allowed})
@@ -285,11 +285,14 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         linked_rep_order_ids: set[str] = set()
         linked_rep_order_numbers: set[str] = set()
         if all_order_ids:
-            for replacement in Replacement.objects.select_related("order", "order__customer").filter(order_id__in=all_order_ids):
+            for replacement in Replacement.objects.select_related("order", "order__customer", "delivery_transaction").filter(order_id__in=all_order_ids):
                 order_returns_map.setdefault(str(replacement.order_id), []).append(replacement)
                 meta = _extract_replacement_meta(getattr(replacement, "notes", ""))
-                r_id = str(meta.get("replacementOrderId") or "").strip()
-                r_num = str(meta.get("replacementOrderNumber") or "").strip()
+                r_id = str(replacement.delivery_transaction_id or meta.get("replacementOrderId") or "").strip()
+                r_num = (
+                    str(getattr(replacement.delivery_transaction, "order_number", "") or "").strip()
+                    or str(meta.get("replacementOrderNumber") or "").strip()
+                )
                 if r_id:
                     linked_rep_order_ids.add(r_id)
                 if r_num:

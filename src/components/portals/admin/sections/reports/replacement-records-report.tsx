@@ -412,15 +412,15 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     { header: 'Client', key: 'client' },
     {
       header: 'Original Item',
-      accessor: (r) => (r.lines as any[]).map((l: any) => l.productName).join('\n'),
+      key: 'lineProductName',
     },
     {
       header: 'Qty',
-      accessor: (r) => (r.lines as any[]).map((l: any) => `${l.qty} ${l.unitLabel}`).join('\n'),
+      accessor: (r) => `${r.lineQty} ${r.lineUnitLabel}`,
     },
     {
       header: 'Reason',
-      accessor: (r) => (r.lines as any[]).map((l: any) => l.reason).join('\n'),
+      key: 'lineReason',
     },
     {
       header: 'Status',
@@ -437,8 +437,19 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     { header: 'Reported Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
+  // Each replaced item gets its own exported row so its quantity and reason stay aligned.
+  const replacementExportRows = useMemo(() => filteredReplacements.flatMap((replacement) =>
+    replacement.lines.map((line: { productName: string; qty: number; unitLabel: string; reason: string }) => ({
+      ...replacement,
+      lineProductName: line.productName,
+      lineQty: line.qty,
+      lineUnitLabel: line.unitLabel,
+      lineReason: line.reason,
+    }))
+  ), [filteredReplacements])
+
   const handleExportCsv = () => {
-    exportToCsv(`replacement-records-${new Date().toISOString().slice(0, 10)}.csv`, exportColumns, filteredReplacements)
+    exportToCsv(`replacement-records-${new Date().toISOString().slice(0, 10)}.csv`, exportColumns, replacementExportRows)
   }
 
   const handleExportPdf = () => {
@@ -446,7 +457,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
       `replacement-records-${new Date().toISOString().slice(0, 10)}.pdf`,
       'Replacement Records Report',
       exportColumns,
-      filteredReplacements,
+      replacementExportRows,
       [
         `Total Replacements: ${kpis.total}`,
         `Resolved: ${kpis.resolved} | In-Progress: ${kpis.inProgress} | Pending: ${kpis.pending}`,
@@ -459,7 +470,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     printReportTable(
       'Replacement Records Report',
       exportColumns,
-      filteredReplacements,
+      replacementExportRows,
       [
         `Total Replacements: ${kpis.total}`,
         `Resolved: ${kpis.resolved} | In-Progress: ${kpis.inProgress} | Pending: ${kpis.pending}`,
@@ -469,9 +480,9 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
   }
 
   return (
-    <div className="report-design-system space-y-6">
+    <div className="report-design-system flex flex-col gap-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="order-[-2] flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Replacement Records Report</h2>
           <p className="text-sm text-slate-500">Dedicated log of item damages, replacements, return processing, and approval audit trails.</p>
@@ -556,7 +567,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
       )}
 
       {/* Filter Bar */}
-      <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <Card className="order-[-1] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {/* Search */}
           <div className="relative">

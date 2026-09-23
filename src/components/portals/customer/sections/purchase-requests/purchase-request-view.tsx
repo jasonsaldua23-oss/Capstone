@@ -147,7 +147,7 @@ export function CustomerPurchaseRequestView(props: any) {
           .trim()
           .toUpperCase()
           .startsWith('RPL-') && !o?.isScheduledReplacement
-    )
+    ).map((order) => ({ ...order, ...order.purchaseRequest?.snapshot }))
   }, [orders])
 
   // Filter by active tab and search query

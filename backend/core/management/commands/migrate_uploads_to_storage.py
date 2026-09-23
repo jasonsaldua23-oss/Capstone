@@ -23,7 +23,6 @@ from core.models import Customer, Order, Product, Replacement, TripDropPoint, Us
 URL_FIELDS = [
     (Product, "image_url", "product image"),
     (User, "avatar", "staff avatar"),
-    (User, "license_photo_url", "license photo"),
     (Customer, "avatar", "customer avatar"),
     (TripDropPoint, "delivery_photo", "proof of delivery"),
     (Order, "pod_photo_url", "order proof of delivery"),

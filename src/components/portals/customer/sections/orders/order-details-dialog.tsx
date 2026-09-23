@@ -211,7 +211,7 @@ export function CustomerOrderDetailsDialog(props: any) {
       0,
     )
     // Removed fee rows; exclude historical fees from residuals so they are not relabeled as other charges.
-    const tax = Number(o?.tax || 0)
+    // Tax is not part of order totals.
     const shipping = Number(o?.shippingCost || 0)
     const total = Number(o?.totalAmount || 0)
     const depositRefund = (Array.isArray(o?.depositRefundClaims) ? o.depositRefundClaims : []).reduce(
@@ -222,7 +222,7 @@ export function CustomerOrderDetailsDialog(props: any) {
     // always adds up to the total the customer is charged.
     let appliedDeposit = deposit
     // Fix: an applied empty refund is its own deduction, not an unnamed negative charge.
-    let other = Math.round((total - (subtotal - discount + deposit + tax + shipping - depositRefund)) * 100) / 100
+    let other = Math.round((total - (subtotal - discount + deposit + shipping - depositRefund)) * 100) / 100
     if (other < 0 && appliedDeposit > 0) {
       // Some older orders record a per-item deposit that was never added to the
       // total. Charge the line only for the part the customer actually paid rather

@@ -28,7 +28,6 @@ from .auth import hash_password
 from .models import (
     Customer,
     CustomerApprovalStatus,
-    DriverServiceArea,
     Order,
     OrderStatus,
     RoleType,
@@ -141,7 +140,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         return _err("Only administrators can create staff accounts", 403)
     if request.method == "GET":
         page, size, off = _pagination(request)
-        qs = User.objects.prefetch_related("service_areas").all().order_by("-created_at")
+        qs = User.objects.all().order_by("-created_at")
         # Fix: drivers need their own profile, not the staff directory.
         if actor_role == RoleType.DRIVER:
             qs = qs.filter(id=staff.get("userId"))
@@ -154,7 +153,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         for user in rows:
             row = _serialize_model(user, exclude={"password"})
             # Added: populate the driver edit form with its persisted service area.
-            row["serviceAreas"] = [area.city for area in user.service_areas.all()]
+            row["serviceAreas"] = user.service_area_cities
             row["serviceArea"] = row["serviceAreas"][0] if row["serviceAreas"] else ""
             users.append(row)
         return _ok({"success": True, "users": users, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
@@ -220,7 +219,8 @@ def users_collection(request: HttpRequest) -> JsonResponse:
             is_active=bool(body.get("isActive", True)),
         )
         if role == RoleType.DRIVER:
-            DriverServiceArea.objects.create(driver=user, city=service_area, assigned_by=staff.get("userId"))
+            user.set_service_areas([service_area], staff.get("userId"))
+            user.save(update_fields=["service_areas", "updated_at"])
     warnings: list[str] = []
     try:
         _email_new_staff_credentials(user, password)
@@ -240,7 +240,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
         logger.exception("Failed to create staff notifications for new user=%s", user.id)
         warnings.append("staff_notification_failed")
     serialized_user = _serialize_model(user, exclude={"password"})
-    serialized_user["serviceAreas"] = [area.city for area in user.service_areas.all()]
+    serialized_user["serviceAreas"] = user.service_area_cities
     serialized_user["serviceArea"] = serialized_user["serviceAreas"][0] if serialized_user["serviceAreas"] else ""
     payload: dict[str, Any] = {"success": True, "user": serialized_user}
     if warnings:
@@ -255,7 +255,7 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     if err:
         return err
     try:
-        user = User.objects.prefetch_related("service_areas").get(id=user_id)
+        user = User.objects.get(id=user_id)
     except User.DoesNotExist:
         return _err("User not found", 404)
     actor_role = str(staff.get("role") or "").upper()
@@ -270,7 +270,7 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         return _err("This account cannot be deleted by this session", 403)
     if request.method == "GET":
         row = _serialize_model(user, exclude={"password"})
-        row["serviceAreas"] = [area.city for area in user.service_areas.all()]
+        row["serviceAreas"] = user.service_area_cities
         row["serviceArea"] = row["serviceAreas"][0] if row["serviceAreas"] else ""
         return _ok({"success": True, "user": row})
     if request.method == "DELETE":
@@ -314,7 +314,7 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         if service_area not in {"silay", "talisay"}:
             return _err("Select Silay or Talisay as the driver's service area", 400)
     # Fix: legacy missing service areas must not block unrelated profile/password updates.
-    if role_change_requested and requested_role == RoleType.DRIVER and not service_area_supplied and not user.service_areas.exists():
+    if role_change_requested and requested_role == RoleType.DRIVER and not service_area_supplied and not user.service_areas:
         return _err("Select Silay or Talisay as the driver's service area", 400)
     if email_change_requested or role_change_requested:
         existing_message = _staff_email_conflict_message(requested_email, requested_role, exclude_user_id=user.id)
@@ -405,20 +405,17 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
         if existing_message:
             return _err(existing_message, 409)
     with transaction.atomic():
-        user.save()
         if user.role != RoleType.DRIVER:
             # A non-driver account must not retain routing assignments.
-            user.service_areas.all().delete()
+            user.service_areas = []
         elif service_area_supplied:
             # The UI intentionally assigns one operational city per driver.
-            user.service_areas.all().delete()
-            DriverServiceArea.objects.create(
-                driver=user,
-                city=service_area,
-                assigned_by=str(staff.get("userId") or ""),
-            )
+            user.service_areas = []
+            user.set_service_areas([service_area], str(staff.get("userId") or ""))
+        # Save account details and its assignments together in the User row.
+        user.save()
     row = _serialize_model(user, exclude={"password"})
-    row["serviceAreas"] = [area.city for area in user.service_areas.all()]
+    row["serviceAreas"] = user.service_area_cities
     row["serviceArea"] = row["serviceAreas"][0] if row["serviceAreas"] else ""
     return _ok({"success": True, "user": row})
 
@@ -610,14 +607,12 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         "discountOption",
         "discountStatus",
         "discountPercent",
-        "discountAmountPerCase",
     }
     if p.get("type") == "staff" and any(key in body for key in discount_keys):
         staff_role = str(p.get("role") or "").strip().upper()
         option = str(body.get("discountOption") or getattr(c, "discount_option", DISCOUNT_NO)).strip().upper()
         status = str(body.get("discountStatus") or getattr(c, "discount_status", DISCOUNT_REMOVED)).strip().upper()
         percent = float(body.get("discountPercent") if body.get("discountPercent") is not None else getattr(c, "discount_percent", 0) or 0)
-        amount_per_case = float(body.get("discountAmountPerCase") if body.get("discountAmountPerCase") is not None else getattr(c, "discount_amount_per_case", 0) or 0)
 
         if option not in set(DISCOUNT_PRESET_PERCENT.keys()) | {DISCOUNT_OTHER}:
             return _err("Invalid discount option", 400)
@@ -626,19 +621,16 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
 
         if option in DISCOUNT_PRESET_PERCENT:
             percent = float(DISCOUNT_PRESET_PERCENT[option])
-            amount_per_case = 0.0
         elif option == DISCOUNT_OTHER:
             percent = max(0.0, percent)
             if percent <= 0:
                 return _err("For Other discount, set a custom percent", 400)
             if percent > 25 and staff_role != RoleType.SUPER_ADMIN:
                 return _err("Only owner can apply custom discount above 25%", 403)
-            amount_per_case = 0.0
 
         c.discount_option = option
         c.discount_status = status
         c.discount_percent = percent
-        c.discount_amount_per_case = amount_per_case
         c.discount_applied_by_user_id = str(p.get("userId") or "").strip() or None
         c.discount_applied_by_name = str(p.get("name") or "").strip() or None
         c.discount_updated_at = timezone.now()

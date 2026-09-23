@@ -90,7 +90,6 @@ export interface OrderWithItems {
   status: string
   priority: string
   subtotal: number
-  tax: number
   shippingCost: number
   discount: number
   totalAmount: number
@@ -106,7 +105,6 @@ export interface OrderWithItems {
   shippingLatitude: number | null
   shippingLongitude: number | null
   notes: string | null
-  specialInstructions: string | null
   confirmedAt: Date | null
   processedAt: Date | null
   shippedAt: Date | null
@@ -154,7 +152,6 @@ export interface TripWithDetails {
       phone: string | null
     }
     licenseNumber: string
-    rating: number
   }
   vehicleId: string
   vehicle: {
@@ -320,7 +317,6 @@ export interface OrderFormData {
   shippingCountry: string
   items: OrderItemFormData[]
   notes?: string
-  specialInstructions?: string
 }
 
 export interface OrderItemFormData {

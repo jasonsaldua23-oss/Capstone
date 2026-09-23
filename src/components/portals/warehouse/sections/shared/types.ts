@@ -89,10 +89,6 @@ export type WarehouseReplacementsViewProps = {
   selectedReplacement: any | null
   setSelectedReplacement: (value: any | null) => void
   buildReplacementLines: (replacement: any, meta: any) => any[]
-  receiveReplacementReturn: (
-    replacementId: string,
-    returnedLines: Array<{ replacementLineId: string; quantityBaseUnits: number }>
-  ) => Promise<void>
 }
 
 export type WarehouseLiveTrackingViewProps = {

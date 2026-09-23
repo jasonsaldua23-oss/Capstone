@@ -703,7 +703,6 @@ class DriverProfileApiContractTests(TestCase):
             license_number="LIC-PROFILE-001",
             license_type="C",
             license_expiry=timezone.now() + timedelta(days=365),
-            emergency_contact="Old Contact",
             is_active=True,
         )
 
@@ -794,14 +793,14 @@ class DriverProfileApiContractTests(TestCase):
         self.assertEqual(payload["driver"]["user"]["phone"], "09171234567")
         self.assertEqual(payload["driver"]["licenseNumber"], "D09-22-000984")
         self.assertEqual(payload["driver"]["licenseType"], "C")
-        self.assertIsNone(payload["driver"]["licensePhotoUrl"])
+        self.assertNotIn("licensePhotoUrl", payload["driver"])
 
         self.driver.refresh_from_db()
         self.driver_user.refresh_from_db()
-        self.assertEqual(self.driver.emergency_contact, "Updated Emergency Contact")
+        # Retired profile fields from older clients must not be persisted or returned.
+        self.assertNotIn("emergencyContact", response.json()["driver"])
         self.assertEqual(self.driver.license_number, "D09-22-000984")
         self.assertEqual(self.driver.license_type, "C")
-        self.assertIsNone(self.driver.license_photo_url)
         self.assertEqual(self.driver_user.name, "Updated Driver")
         self.assertEqual(self.driver_user.first_name, "Updated")
         self.assertEqual(self.driver_user.last_name, "Driver")

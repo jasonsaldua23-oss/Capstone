@@ -50,7 +50,6 @@ export type ReportDatasetsInputs = {
   rangeDays: 'today' | '7' | '30' | '90'
   replacementsData: any[]
   selectedDriver: string
-  selectedDriverRating: 'all' | '4_up' | '3_up' | 'below_3'
   selectedDriverTripVolume: 'all' | 'with_trips' | '10_plus'
   selectedMovementType: string
   selectedOrderStatus: string
@@ -77,7 +76,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     rangeDays,
     replacementsData,
     selectedDriver,
-    selectedDriverRating,
     selectedDriverTripVolume,
     selectedMovementType,
     selectedOrderStatus,
@@ -480,9 +478,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       const completionRate = stats.dropPointsTotal > 0 ? Math.round((stats.deliveredDropPoints / stats.dropPointsTotal) * 100) : 0
       const profileDeliveries = Number(
         (driver as any).totalDeliveries ??
-        (driver as any).total_deliveries ??
         (driver as any).user?.totalDeliveries ??
-        (driver as any).user?.total_deliveries ??
         0
       ) || 0
       const totalDeliveries = Math.max(profileDeliveries, Number(stats.deliveredDropPoints || 0))
@@ -490,7 +486,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       return {
         driverId: String(driver.id || ''),
         driverName: driver.user?.name || driver.name || 'N/A',
-        rating: Number(driver.rating || 0).toFixed(1),
         totalDeliveries,
         totalTrips: stats.total,
         completedTrips: stats.completed,
@@ -513,19 +508,12 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       .filter((row) => selectedDriver === 'all' || String(row.driverId || '') === selectedDriver)
       .filter((row) => selectedTripStatus === 'all' || String(row.isActive || '') === selectedTripStatus)
       .filter((row) => {
-        const rating = Number(row.rating || 0)
-        if (selectedDriverRating === '4_up') return rating >= 4
-        if (selectedDriverRating === '3_up') return rating >= 3
-        if (selectedDriverRating === 'below_3') return rating < 3
-        return true
-      })
-      .filter((row) => {
         const totalTrips = Number(row.totalTrips || 0)
         if (selectedDriverTripVolume === 'with_trips') return totalTrips > 0
         if (selectedDriverTripVolume === '10_plus') return totalTrips >= 10
         return true
       })
-  }, [driverPerformanceRows, selectedDriver, selectedTripStatus, selectedDriverRating, selectedDriverTripVolume])
+  }, [driverPerformanceRows, selectedDriver, selectedTripStatus, selectedDriverTripVolume])
 
   // Low Stock Alert Rows - tracks products below minimum stock levels
   const lowStockRows = useMemo(() => {
@@ -917,11 +905,8 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   const driverPerformanceKpi = useMemo(() => {
     const total = transportDriverRows.length
     const active = transportDriverRows.filter((row) => row.isActive === 'Active').length
-    const avgRating = transportDriverRows.length > 0
-      ? transportDriverRows.reduce((acc, row) => acc + Number(row.rating), 0) / transportDriverRows.length
-      : 0
     const totalTrips = transportDriverRows.reduce((acc, row) => acc + Number(row.totalTrips || 0), 0)
-    return { total, active, avgRating: avgRating.toFixed(1), totalTrips }
+    return { total, active, totalTrips }
   }, [transportDriverRows])
 
   const transportCompletionBandChart = useMemo(() => {
@@ -958,15 +943,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       }))
   }, [transportDriverRows])
 
-  const transportRatingVsTripsScatter = useMemo(() => {
-    return transportDriverRows.map((row) => ({
-      name: String(row.driverName || 'N/A'),
-      rating: Number(row.rating || 0),
-      trips: Number(row.totalTrips || 0),
-      completionRate: Number(String(row.completionRate || '0').replace('%', '')),
-    }))
-  }, [transportDriverRows])
-
   const lowStockKpi = useMemo(() => {
     const critical = lowStockRows.filter((row) => row.status === 'CRITICAL').length
     const outOfStock = lowStockRows.filter((row) => row.status === 'OUT_OF_STOCK').length
@@ -998,7 +974,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   const transportExportRows = useMemo(() => {
     return transportDriverRows.map((row) => ({
       driverName: row.driverName,
-      rating: row.rating,
       totalTrips: row.totalTrips,
       deliveredDropPoints: `${row.deliveredDropPoints || 0}/${row.dropPointsTotal || 0}`,
       completionRate: row.completionRate,
@@ -1007,13 +982,21 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   }, [transportDriverRows])
 
   const inventoryExportRows = useMemo(() => {
-    return inventoryMovementRows.map((row) => ({
-      createdAt: row.createdAt,
-      product: row.product,
-      type: row.sourceType || row.type,
-      quantity: row.quantity,
+    // Export current inventory itself; movement history remains a separate on-screen table.
+    return inventory.map((row: any) => ({
+      product: formatReportProductName(row?.product || row),
+      sku: row?.product?.sku || row?.sku || 'N/A',
+      warehouse: row?.warehouse?.name || row?.warehouseName || 'N/A',
+      quantityOnHand: getInventoryQuantity(row),
+      quantityAvailable: getInventoryAvailableQty(row),
+      reorderPoint: getInventoryThreshold(row),
+      stockStatus: getInventoryAvailableQty(row) <= 0
+        ? 'OUT OF STOCK'
+        : getInventoryAvailableQty(row) <= getInventoryThreshold(row)
+          ? 'LOW STOCK'
+          : 'HEALTHY',
     }))
-  }, [inventoryMovementRows])
+  }, [inventory])
 
   const feedbackExportRows = useMemo(() => {
     const toDateOnly = (value: unknown) => {
@@ -1032,7 +1015,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       sentiment: row.sentiment,
       serviceAreas: row.serviceAreasLabel,
       feedbackDetails: row.detailsLabel,
-      inOwnWords: row.describedText ? 'Yes' : 'No',
     }))
   }, [feedbackRows])
 
@@ -1048,7 +1030,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   const transportSummaryLines = useMemo(() => ([
     `Total Drivers: ${driverPerformanceKpi.total}`,
     `Active Drivers: ${driverPerformanceKpi.active}`,
-    `Average Rating: ${driverPerformanceKpi.avgRating}`,
     `Total Trips: ${driverPerformanceKpi.totalTrips}`,
     `Delivered Drop Points: ${transportDriverRows.reduce((acc, row) => acc + Number(row.deliveredDropPoints || 0), 0)}/${transportDriverRows.reduce((acc, row) => acc + Number(row.dropPointsTotal || 0), 0)}`,
   ]), [driverPerformanceKpi, transportDriverRows])
@@ -1093,12 +1074,12 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   ), [warehouseCapacityTrendExportRows, warehouseDateWindow])
 
   const inventorySummaryLines = useMemo(() => ([
-    `Total Movements: ${inventoryMovementSummary.totalMovements}`,
-    `Stock In: ${inventoryMovementSummary.stockIn} units`,
-    `Stock Out: ${inventoryMovementSummary.stockOut} units`,
+    `Inventory Rows: ${inventoryExportRows.length}`,
+    `Total On Hand: ${inventoryKpi.totalQuantity} units`,
+    `Total Available: ${inventory.reduce((sum, row) => sum + getInventoryAvailableQty(row), 0)} units`,
     `Low Stock Items: ${lowStockKpi.total} (${lowStockKpi.critical} critical, ${lowStockKpi.outOfStock} out of stock)`,
     `Expiring Batches: ${stockExpiryKpi.total} (${stockExpiryKpi.critical} critical, ${stockExpiryKpi.expired} expired, ${stockExpiryKpi.warning} warning)`,
-  ]), [inventoryMovementSummary, lowStockKpi, stockExpiryKpi])
+  ]), [inventory, inventoryExportRows, inventoryKpi, lowStockKpi, stockExpiryKpi])
 
   const replacementSummaryLines = useMemo(() => ([
     `Total Cases: ${replacementKpi.total}`,
@@ -1128,7 +1109,6 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   const driverPerformanceSummaryLines = useMemo(() => ([
     `Total Drivers: ${driverPerformanceKpi.total}`,
     `Active Drivers: ${driverPerformanceKpi.active}`,
-    `Average Rating: ${driverPerformanceKpi.avgRating}`,
     `Total Trips: ${driverPerformanceKpi.totalTrips}`,
   ]), [driverPerformanceKpi])
 

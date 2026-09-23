@@ -164,22 +164,6 @@ export async function quoteMixedCase(body: {
   return { response, data }
 }
 
-export async function receiveReplacementReturn(
-  replacementId: string,
-  body: {
-    requestId: string
-    returnedLines: Array<{ replacementLineId: string; quantityBaseUnits: number }>
-  }
-) {
-  const response = await fetch(`/api/replacements/${replacementId}/receive-return`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(body),
-  })
-  const data = await response.json().catch(() => ({}))
-  return { response, data }
-}
 
 export async function cancelCustomerOrder(orderId: string, reason: string) {
   const response = await fetch(`/api/customer/orders/${orderId}/cancel`, {

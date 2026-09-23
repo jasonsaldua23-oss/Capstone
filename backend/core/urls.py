@@ -78,8 +78,6 @@ urlpatterns = [
     path("retail/quote", retail_v.retail_quote),
     path("retail/sales", retail_v.retail_sales_collection),
     path("retail/sales/<str:sale_id>", retail_v.retail_sale_detail),
-    path("retail/sales/<str:sale_id>/payment", retail_v.retail_sale_payment),
-    path("retail/sales/<str:sale_id>/pickup-status", retail_v.retail_sale_pickup_status),
     path("retail/sales/<str:sale_id>/cancel", retail_v.retail_sale_cancel),
     path("orders", order_v.orders_collection),
     path("replacements", customer_v.replacements_collection),

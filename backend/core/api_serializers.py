@@ -40,6 +40,7 @@ from .models import (
     Trip,
     TripDropPoint,
     TripStatus,
+    User,
     Vehicle,
     Warehouse,
 )
@@ -131,6 +132,9 @@ def _serialize_model(obj: Any, include: dict[str, Any] | None = None, exclude: s
     include = include or {}
     exclude = exclude or set()
     raw = model_to_dict(obj)
+    if isinstance(obj, User):
+        # Keep the public city-list contract; assignment audit details stay internal.
+        raw["service_areas"] = obj.service_area_cities
     raw["id"] = getattr(obj, "id", raw.get("id"))
     out: dict[str, Any] = {}
     for key, val in raw.items():
@@ -200,6 +204,8 @@ def _serialize_order(
     primary_admin_phone: Any = _NOT_PROVIDED,
 ) -> dict[str, Any]:
     data = _serialize_model(order)
+    # Existing clients still render this amount; the database no longer stores a constant zero column.
+    data["shippingCost"] = 0
     data["status"] = _normalize_order_status(data.get("status"))
     # What the empties count added to this order, so every portal can show the
     # charge and say what it is for. Callers listing many orders pass a prebuilt
@@ -270,7 +276,7 @@ def _serialize_order(
         "type": getattr(order, "discount_type", DISCOUNT_NO),
         "status": getattr(order, "discount_status", DISCOUNT_REMOVED),
         "percent": float(getattr(order, "discount_percent_applied", 0) or 0),
-        "amountPerCase": float(getattr(order, "discount_amount_per_case_applied", 0) or 0),
+        "amountPerCase": 0.0,
         "perCaseDiscount": float(getattr(order, "discount_per_case_applied", 0) or 0),
         "casesAffected": max(0, _int(getattr(order, "discount_cases_affected", 0), 0)),
         "totalDiscount": float(getattr(order, "discount", 0) or 0),
@@ -468,6 +474,41 @@ def _serialize_order(
         item_row["inventoryTransactionIds"] = delivery_transaction_ids_by_item.get(item_id, [])
     data["inventoryTransactionIds"] = delivery_transaction_ids
     data["inventoryTransactionId"] = delivery_transaction_ids[0] if delivery_transaction_ids else None
+    # PR pages render the preserved request; PO screens keep the live transaction.
+    request = getattr(order, "purchase_request", None)
+    purchase_order = getattr(order, "purchase_order", None)
+    data["purchaseRequest"] = None
+    if request:
+        def camel_snapshot(value):
+            if isinstance(value, dict):
+                return {_camel(key): camel_snapshot(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [camel_snapshot(item) for item in value]
+            return value
+
+        snapshot = camel_snapshot(request.snapshot)
+        # The API's customer object is distinct from the snapshot's FK value.
+        snapshot.pop("customer", None)
+        snapshot["purchaseRequestNumber"] = request.number
+        snapshot["requestStatus"] = request.status
+        # Retain the existing item display contract and exclude later PO charges.
+        snapshot["amountDue"] = snapshot.get("totalAmount", 0)
+        snapshot["emptiesAdjustment"] = None
+        snapshot["discountDetails"] = {
+            "totalDiscount": snapshot.get("discount", 0),
+            "percent": snapshot.get("discountPercentApplied", 0),
+        }
+        for item in snapshot.get("items", []):
+            item["components"] = item.pop("mixedCaseComponents", [])
+        data["purchaseRequest"] = {
+            "id": request.pk, "number": request.number, "status": request.status,
+            "lockedAt": request.locked_at.isoformat() if request.locked_at else None,
+            "snapshot": snapshot,
+        }
+    data["purchaseOrder"] = {
+        "id": purchase_order.pk, "number": purchase_order.number,
+        "purchaseRequestId": purchase_order.purchase_request_id,
+    } if purchase_order else None
     return data
 
 
@@ -490,7 +531,7 @@ def _serialize_replacement(
     order = getattr(entry, "order", None)
     warehouse_id = str(getattr(order, "warehouse_id", "") or "").strip() or None
     if not warehouse_id:
-        trip_id = str(getattr(entry, "trip_id", "") or "").strip() or str(meta.get("tripId") or "").strip()
+        trip_id = str(meta.get("tripId") or "").strip()
         if trip_id:
             source_trip = Trip.objects.filter(id=trip_id).only("warehouse_id").first()
             warehouse_id = str(getattr(source_trip, "warehouse_id", "") or "").strip() or None
@@ -542,7 +583,7 @@ def _serialize_replacement(
     } if order else None
     data["replacementMode"] = _normalize_replacement_mode(data.get("replacementMode"))
     data["scheduledDeliveryDate"] = str(meta.get("scheduledDeliveryDate") or "").strip() or None
-    linked_replacement_order_id = str(meta.get("replacementOrderId") or "").strip() or None
+    linked_replacement_order_id = str(entry.delivery_transaction_id or meta.get("replacementOrderId") or "").strip() or None
     linked_replacement_order_number = str(meta.get("replacementOrderNumber") or "").strip() or None
     data["replacementOrderId"] = linked_replacement_order_id
     data["replacementOrderNumber"] = linked_replacement_order_number
@@ -565,6 +606,10 @@ def _serialize_replacement(
 
     replacement_drop_point = None
     if linked_replacement_order:
+        # Use the direct relationship as the source of truth without loading it twice.
+        linked_replacement_order_number = str(linked_replacement_order.order_number or "").strip() or None
+        data["replacementOrderNumber"] = linked_replacement_order_number
+        data["linkedReplacementOrderNumber"] = linked_replacement_order_number
         linked_order_key = str(linked_replacement_order.id)
         if replacement_pod_cache is not None and linked_order_key in replacement_pod_cache:
             replacement_drop_point = replacement_pod_cache[linked_order_key]
@@ -598,11 +643,23 @@ def _serialize_replacement(
         "submittedAt": replacement_pod_submitted_at.isoformat() if replacement_pod_submitted_at else None,
     }
     normalized_status = _normalize_replacement_status(data.get("status"), data.get("replacementMode"))
-    delivered_linked_replacement_order = _is_linked_replacement_order_delivered(entry, order_cache=order_cache)
+    linked_replacement_order_status = (
+        _normalize_order_status(getattr(linked_replacement_order, "status", None))
+        if linked_replacement_order
+        else None
+    )
+    data["replacementOrderStatus"] = linked_replacement_order_status
+    delivered_linked_replacement_order = linked_replacement_order_status == OrderStatus.DELIVERED
     if delivered_linked_replacement_order:
         normalized_status = ReplacementStatus.COMPLETED
         # Once linked replacement order is delivered, this replacement must no longer
         # be treated as scheduled/in-progress by downstream UIs.
+        data["scheduledDeliveryDate"] = None
+        data["replacementOrderId"] = None
+        data["replacementOrderNumber"] = None
+    elif linked_replacement_order_status in {OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+        # Fix: a closed delivery cannot remain actionable in the scheduled list.
+        normalized_status = ReplacementStatus.CANCELLED
         data["scheduledDeliveryDate"] = None
         data["replacementOrderId"] = None
         data["replacementOrderNumber"] = None
@@ -984,7 +1041,6 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     "warehouseAddress": _strip_default_country_suffix(str(getattr(order_warehouse, "address", "") or "").strip()) or None,
                     "warehouseCity": str(getattr(order_warehouse, "city", "") or "").strip() or None,
                     "warehouseProvince": str(getattr(order_warehouse, "province", "") or "").strip() or None,
-                    "loadedAt": dp.order.loaded_at.isoformat() if dp.order.loaded_at else None,
                     "status": _normalize_order_status(dp.order.status),
                     "totalCases": order_load_cases,
                     "totalWeight": round(order_load_weight, 2),
@@ -1044,9 +1100,7 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                             "isClosed": _is_replacement_closed(entry, order_cache=ctx.get("order_cache")),
                         }
                         for entry in order_returns
-                        if not dp.order_id
-                        or not str(entry.drop_point_id or "").strip()
-                        or str(entry.drop_point_id or "") == str(dp.id)
+                        if not dp.order_id or entry.order_id == dp.order_id
                     ],
                 }
 

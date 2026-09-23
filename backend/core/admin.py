@@ -8,7 +8,6 @@ from .models import (
     Order,
     Product,
     ReplacementLine,
-    ReturnReceipt,
     Trip,
     User,
     Vehicle,
@@ -34,5 +33,3 @@ admin.site.register(Trip)
 admin.site.register(MixedCaseComponent)
 admin.site.register(InventoryReservation)
 admin.site.register(ReplacementLine)
-admin.site.register(ReturnReceipt)
-

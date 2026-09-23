@@ -224,14 +224,14 @@ export default function DriverNavigationMap({ trip, currentLocation, fullScreen 
   }, [currentLocation, fallbackOrigin]);
 
   const routeWaypoints = useMemo(() => {
-    const warehouseLongitude = Number(trip.startLongitude ?? trip.warehouseLongitude ?? trip.warehouse?.longitude);
-    const warehouseLatitude = Number(trip.startLatitude ?? trip.warehouseLatitude ?? trip.warehouse?.latitude);
+    const warehouseLongitude = Number(trip.warehouseLongitude ?? trip.warehouse?.longitude);
+    const warehouseLatitude = Number(trip.warehouseLatitude ?? trip.warehouse?.latitude);
     const origin = Number.isFinite(warehouseLongitude) && Number.isFinite(warehouseLatitude)
       ? [warehouseLongitude, warehouseLatitude] as RouteCoordinate
       : fallbackOrigin;
     if (!origin || allStops.length === 0) return [];
     return [origin, ...allStops.map((point) => [Number(point.longitude), Number(point.latitude)] as RouteCoordinate)];
-  }, [allStops, fallbackOrigin, trip.startLatitude, trip.startLongitude, trip.warehouseLatitude, trip.warehouseLongitude, trip.warehouse?.latitude, trip.warehouse?.longitude]);
+  }, [allStops, fallbackOrigin, trip.warehouseLatitude, trip.warehouseLongitude, trip.warehouse?.latitude, trip.warehouse?.longitude]);
 
   const routeWaypointKey = routeWaypoints.map((point) => point.join(",")).join(";");
 

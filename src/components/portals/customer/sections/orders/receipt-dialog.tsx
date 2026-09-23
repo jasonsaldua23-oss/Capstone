@@ -71,13 +71,13 @@ export function CustomerReceiptDialog(props: any) {
   // Added: show delivery empties charges in both the preview and downloaded receipt.
   const orderTotal = getOrderTotalWithEmpties(selectedOrder)
   // Removed fee rows; retain historical residual accounting without relabeling old fees.
-  const orderTax = Number(selectedOrder?.tax || 0)
+  // Tax is not part of receipt totals.
   const orderShipping = Number(selectedOrder?.shippingCost || 0)
   const recordedDeposit = (selectedOrder?.items || []).reduce(
     (sum: number, item: any) => sum + Number(item?.netDeposit ?? item?.depositTotal ?? 0), 0,
   )
   // Match the order details breakdown: older orders may store deposits not included in the total.
-  const remainingCharges = Math.round((Number(selectedOrder?.totalAmount || 0) - (orderSubtotal - orderDiscount + orderTax + orderShipping)) * 100) / 100
+  const remainingCharges = Math.round((Number(selectedOrder?.totalAmount || 0) - (orderSubtotal - orderDiscount + orderShipping)) * 100) / 100
   const orderDeposit = Math.min(recordedDeposit, Math.max(0, remainingCharges))
   const otherCharges = Math.round((remainingCharges - orderDeposit) * 100) / 100
   const orderDiscountPercent = (() => {

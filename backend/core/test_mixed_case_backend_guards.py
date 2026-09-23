@@ -7,7 +7,7 @@ from django.db import close_old_connections
 from django.test import RequestFactory, TestCase, TransactionTestCase, skipUnlessDBFeature
 from django.utils import timezone
 
-from .mixed_case import available_base_units, consume_order_reservations, receive_component_return, reserve_order_item
+from .mixed_case import available_base_units, consume_order_reservations, reserve_order_item
 from .models import (
     Customer,
     Inventory,
@@ -17,10 +17,8 @@ from .models import (
     OrderItem,
     OrderStatus,
     OrderTimeline,
-    PackagingProfile,
     Replacement,
     ReplacementLine,
-    ReturnReceipt,
     RoleType,
     StockBatch,
     User,
@@ -203,8 +201,8 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         created = Order.objects.get(request_id=payload["requestId"])
         self.assertEqual(created.status, OrderStatus.PENDING)
         self.assertEqual(created.payment_status, "pending")
-        self.assertEqual(created.tax, 0)
-        self.assertEqual(created.shipping_cost, 0)
+        self.assertNotIn("tax", {field.name for field in Order._meta.fields})
+        self.assertEqual(json.loads(response.content)["order"]["shippingCost"], 0)
         self.assertEqual(created.total_amount, 187.5)
 
     def test_checkout_rejects_a_mixed_case_that_favours_one_product(self):
@@ -289,55 +287,6 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         self.assertEqual(over_cap.status_code, 400, over_cap.content)
         self.assertEqual(fractional.status_code, 400, fractional.content)
         self.assertFalse(Replacement.objects.exists())
-
-    def test_returns_are_capped_across_replacement_lines_for_the_same_source(self):
-        order, item = self.create_mixed_item(number="ORD-CUMULATIVE-RETURN")
-        reserve_order_item(item, "FEFO", "guard")
-        consume_order_reservations(order, "guard")
-        component = item.mixed_case_components.select_related("product").order_by("id").first()
-
-        lines = []
-        for index in range(2):
-            replacement = Replacement.objects.create(
-                replacement_number=f"RPL-CUMULATIVE-RETURN-{index}",
-                order=order,
-                customer_id=self.customer.id,
-                reason="Damaged",
-                pickup_address="1 Guard Road",
-                pickup_city="Silay",
-                pickup_province="Negros Occidental",
-                pickup_zip_code="6116",
-            )
-            lines.append(
-                ReplacementLine.objects.create(
-                    replacement=replacement,
-                    original_order_item=item,
-                    mixed_case_component=component,
-                    product=component.product,
-                    product_name=component.product_name,
-                    product_sku=component.product_sku,
-                    base_unit_label="bottle",
-                    requested_base_units=8,
-                    reason="Damaged",
-                )
-            )
-
-        receive_component_return(
-            replacement=lines[0].replacement,
-            request_id="cumulative-return-1",
-            returned_lines=[{"replacementLineId": lines[0].id, "quantityBaseUnits": 8}],
-            performed_by="guard",
-        )
-        with self.assertRaisesMessage(ValueError, "remaining consumed source allocation"):
-            receive_component_return(
-                replacement=lines[1].replacement,
-                request_id="cumulative-return-2",
-                returned_lines=[{"replacementLineId": lines[1].id, "quantityBaseUnits": 5}],
-                performed_by="guard",
-            )
-        self.assertFalse(ReturnReceipt.objects.filter(request_id="cumulative-return-2").exists())
-        inventory = Inventory.objects.get(product=component.product, warehouse=self.warehouse)
-        self.assertEqual(inventory.loose_bottles, 20)
 
     def test_product_edits_require_a_warehouse_operator(self):
         driver = {"type": "staff", "userId": "driver-1", "role": RoleType.DRIVER}
@@ -553,73 +502,11 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
 
 
 class MixedCaseBackendGuardConcurrencyTests(MixedCaseFixtureMixin, TransactionTestCase):
-    reset_sequences = True
+    # IDs are strings; SQLite no longer has an autoincrement table to reset.
+    reset_sequences = False
 
     def setUp(self):
         self.build_fixture(case_stock=2)
-
-    @skipUnlessDBFeature("has_select_for_update")
-    def test_concurrent_return_retry_creates_one_receipt_and_restores_once(self):
-        order, item = self.create_mixed_item(number="ORD-CONCURRENT-RETURN")
-        reserve_order_item(item, "FEFO", "guard")
-        consume_order_reservations(order, "guard")
-        component = item.mixed_case_components.select_related("product").order_by("id").first()
-        replacement = Replacement.objects.create(
-            replacement_number="RPL-CONCURRENT-RETURN",
-            order=order,
-            customer_id=self.customer.id,
-            reason="Damaged",
-            pickup_address="1 Guard Road",
-            pickup_city="Silay",
-            pickup_province="Negros Occidental",
-            pickup_zip_code="6116",
-        )
-        line = ReplacementLine.objects.create(
-            replacement=replacement,
-            original_order_item=item,
-            mixed_case_component=component,
-            product=component.product,
-            product_name=component.product_name,
-            product_sku=component.product_sku,
-            base_unit_label="bottle",
-            requested_base_units=12,
-            reason="Damaged",
-        )
-        barrier = threading.Barrier(2)
-        results = []
-        result_lock = threading.Lock()
-
-        def worker():
-            close_old_connections()
-            try:
-                local_replacement = Replacement.objects.get(id=replacement.id)
-                barrier.wait(timeout=10)
-                receipt = receive_component_return(
-                    replacement=local_replacement,
-                    request_id="concurrent-return-key",
-                    returned_lines=[{"replacementLineId": line.id, "quantityBaseUnits": 5}],
-                    performed_by="guard",
-                )
-                result = receipt.id
-            except Exception as exc:  # pragma: no cover - assertion reports exact failure
-                result = f"ERROR:{type(exc).__name__}:{exc}"
-            finally:
-                close_old_connections()
-            with result_lock:
-                results.append(result)
-
-        threads = [threading.Thread(target=worker) for _ in range(2)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=20)
-
-        self.assertEqual(len(results), 2)
-        self.assertFalse(any(result.startswith("ERROR:") for result in results), results)
-        self.assertEqual(len(set(results)), 1)
-        self.assertEqual(ReturnReceipt.objects.filter(request_id="concurrent-return-key").count(), 1)
-        inventory = Inventory.objects.get(product=component.product, warehouse=self.warehouse)
-        self.assertEqual(inventory.loose_bottles, 17)
 
     @skipUnlessDBFeature("has_select_for_update")
     def test_concurrent_replacement_scheduling_is_singleton_and_delivery_updates_progress(self):

@@ -16,7 +16,6 @@ export interface DriverProfile extends AuthUser {
   middleName?: string | null;
   lastName?: string | null;
   suffix?: string | null;
-  emergencyContact?: string | null;
   licenseNumber?: string | null;
   licenseType?: string | null;
   licenseExpiry?: string | null;
@@ -168,8 +167,6 @@ export interface DriverTrip {
   warehouseId?: string | null;
   warehouseLatitude?: number | null;
   warehouseLongitude?: number | null;
-  startLatitude?: number | null;
-  startLongitude?: number | null;
   warehouse?: {
     id?: string | null;
     name?: string | null;

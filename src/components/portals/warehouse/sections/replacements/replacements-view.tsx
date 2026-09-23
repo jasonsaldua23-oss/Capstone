@@ -44,10 +44,8 @@ export function WarehouseReplacementsView({
   selectedReplacement,
   setSelectedReplacement,
   buildReplacementLines,
-  receiveReplacementReturn,
 }: WarehouseReplacementsViewProps) {
   const [rowScheduleDates, setRowScheduleDates] = useState<Record<string, string>>({})
-  const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({})
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [scheduleConfirmId, setScheduleConfirmId] = useState<string | null>(null)
   const [processConfirmId, setProcessConfirmId] = useState<string | null>(null)
@@ -792,7 +790,6 @@ export function WarehouseReplacementsView({
       <Dialog open={!!selectedReplacement} onOpenChange={(open) => {
         if (!open) {
           setSelectedReplacement(null)
-          setReturnQuantities({})
         }
       }}>
         <DialogContent className="max-h-[90vh] w-[95vw] sm:max-w-4xl overflow-y-auto p-0">
@@ -800,7 +797,6 @@ export function WarehouseReplacementsView({
             const meta = parseIssueMeta(selectedReplacement.notes)
             const evidenceUrls = collectEvidenceUrls(selectedReplacement, meta)
             const replacementLines = buildReplacementLines(selectedReplacement, meta)
-            const normalizedReturnLines = replacementLines.filter((line: any) => String(line?.replacementLineId || line?.id || '').trim())
             const replacementPod = selectedReplacement?.replacementDeliveryPod || null
             const showReplacementPod = Boolean(
               String(replacementPod?.deliveryPhoto || '').trim() ||
@@ -1000,59 +996,7 @@ export function WarehouseReplacementsView({
                   </div>
                 ) : null}
                 </div>
-                {normalizedReturnLines.some((line: any) => Number(line.quantityToReplace || 0) > Number(line.returnedBaseUnits || 0)) ? (
-                  <div className="mx-6 mb-4 rounded-md border border-emerald-200 bg-emerald-50/60 p-3">
-                    <p className="text-sm font-semibold text-emerald-900">Receive returned damaged items</p>
-                    <p className="mt-1 text-xs text-emerald-800">Quantities are base units and will be restored to their original stock batches as loose inventory.</p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      {normalizedReturnLines.map((line: any) => {
-                        const lineId = String(line.replacementLineId || line.id)
-                        const remaining = Math.max(0, Number(line.quantityToReplace || 0) - Number(line.returnedBaseUnits || 0))
-                        if (remaining <= 0) return null
-                        return (
-                          <label key={lineId} className="space-y-1 text-xs text-slate-700">
-                            <span>{line.originalProductName} (max {remaining} {line.baseUnitLabel || 'unit'}s)</span>
-                            <input
-                              type="number"
-                              min={0}
-                              max={remaining}
-                              value={returnQuantities[lineId] || ''}
-                              onChange={(event) => setReturnQuantities((current) => ({ ...current, [lineId]: event.target.value }))}
-                              className="h-9 w-full rounded-md border border-slate-300 bg-white px-3"
-                            />
-                          </label>
-                        )
-                      })}
-                    </div>
-                    <Button
-                      size="sm"
-                      className="mt-3 bg-emerald-600 text-white hover:bg-emerald-500"
-                      disabled={updatingReplacementId === selectedReplacement.id || !Object.values(returnQuantities).some((value) => Number(value) > 0)}
-                      onClick={async () => {
-                        const returnedLines = normalizedReturnLines
-                          .map((line: any) => {
-                            const replacementLineId = String(line.replacementLineId || line.id)
-                            const remaining = Math.max(0, Number(line.quantityToReplace || 0) - Number(line.returnedBaseUnits || 0))
-                            return {
-                              replacementLineId,
-                              quantityBaseUnits: Math.min(remaining, Math.max(0, Math.floor(Number(returnQuantities[replacementLineId] || 0)))),
-                            }
-                          })
-                          .filter((line: any) => line.quantityBaseUnits > 0)
-                        if (returnedLines.length === 0) return
-                        try {
-                          await receiveReplacementReturn(selectedReplacement.id, returnedLines)
-                          setReturnQuantities({})
-                        } catch {
-                          // The parent displays the server error and preserves entered quantities for correction.
-                        }
-                      }}
-                    >
-                      {updatingReplacementId === selectedReplacement.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Receive return
-                    </Button>
-                  </div>
-                ) : null}
+                {/* Damaged-item receiving was retired; replacement delivery remains available. */}
                 {/* Workflow actions are available in the table row. */}
               </>
             )

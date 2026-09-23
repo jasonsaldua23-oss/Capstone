@@ -27,6 +27,7 @@ from .models import (
     DepositTransaction,
     MixedCaseComponent,
     Order,
+    OrderCharge,
     OrderDepositRefundClaim,
     ProductPackaging,
     TripDropPoint,
@@ -630,7 +631,6 @@ def record_collected_empties(
         "status": bottle_return.status,
         "lines": summary_lines,
         "shortfallAmount": float(shortfall_amount),
-        "remainingBalance": float(getattr(order, "remaining_balance", 0) or 0),
     }
 
 
@@ -657,15 +657,18 @@ def _charge_shortfall(
         if line["shortQuantity"] > 0
     )
 
-    previous_balance = Decimal(str(getattr(order, "remaining_balance", 0) or 0))
-    order.remaining_balance = previous_balance + shortfall_amount
+    # Preserve the amount due as an accounting entry after retiring remaining_balance.
+    OrderCharge.objects.create(
+        order=order, amount=shortfall_amount,
+        reason="EMPTIES_SHORTFALL", reference_id=bottle_return.id,
+    )
     note_line = (
         f"Empties shortfall on delivery: {short_summary} declared but not handed over. "
         f"PHP {shortfall_amount:,.2f} deposit is due."
     )
     existing_notes = str(getattr(order, "notes", "") or "").strip()
     order.notes = f"{existing_notes}\n{note_line}".strip() if existing_notes else note_line
-    order.save(update_fields=["remaining_balance", "notes", "updated_at"])
+    order.save(update_fields=["notes", "updated_at"])
 
     ledger = get_or_create_deposit_ledger(customer)
     short_lines = [line for line in summary_lines if line["shortQuantity"] > 0]

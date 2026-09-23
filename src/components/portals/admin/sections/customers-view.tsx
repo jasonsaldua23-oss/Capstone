@@ -327,7 +327,6 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
           discountOption,
           discountStatus: discountStatus === 'ACTIVE' ? 'ACTIVE' : 'REMOVED',
           discountPercent: Number(discountPercent || 0),
-          discountAmountPerCase: 0,
         }),
       })
       const payload = await response.json().catch(() => ({}))

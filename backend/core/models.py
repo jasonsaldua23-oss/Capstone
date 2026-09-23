@@ -1,6 +1,6 @@
 import uuid
 
-from django.db import models
+from django.db import models, transaction
 from django.db.models.functions import Lower, Trim
 from django.utils import timezone
 
@@ -124,19 +124,6 @@ class SalesChannel(models.TextChoices):
     RETAIL_POS = "RETAIL_POS", "Retail"
 
 
-class RetailFulfillmentType(models.TextChoices):
-    IMMEDIATE = "IMMEDIATE", "Immediate / Walk-in Sale"
-    CUSTOMER_PICKUP = "CUSTOMER_PICKUP", "Customer Pickup"
-
-
-class RetailPickupStatus(models.TextChoices):
-    NOT_APPLICABLE = "NOT_APPLICABLE", "Not Applicable"
-    PENDING_PICKUP = "PENDING_PICKUP", "Pending Pickup"
-    READY_FOR_PICKUP = "READY_FOR_PICKUP", "Ready for Pickup"
-    PICKED_UP_COMPLETED = "PICKED_UP_COMPLETED", "Picked Up / Completed"
-    CANCELLED = "CANCELLED", "Cancelled"
-
-
 class RetailTransactionStatus(models.TextChoices):
     OPEN = "OPEN", "Open"
     RESERVED = "RESERVED", "Reserved"
@@ -178,15 +165,11 @@ class User(models.Model):
     role = models.CharField(max_length=50, choices=RoleType.choices, default=RoleType.CUSTOMER)
     license_number = models.CharField(max_length=120, blank=True, null=True, unique=True)
     license_type = models.CharField(max_length=30, blank=True, null=True)
-    # Added: stores the uploaded driver's license image used by both driver and admin editors.
-    license_photo_url = models.TextField(blank=True, null=True)
     license_expiry = models.DateTimeField(blank=True, null=True)
-    emergency_contact = models.CharField(max_length=255, blank=True, null=True)
-    rating = models.FloatField(default=5.0)
-    total_deliveries = models.IntegerField(default=0)
-    hired_at = models.DateTimeField(blank=True, null=True)
     # Added: operational driver availability is separate from account activation.
     driver_status = models.CharField(max_length=20, choices=DriverStatus.choices, default=DriverStatus.ACTIVE)
+    # Store each city and its assignment audit details on the driver account.
+    service_areas = models.JSONField(default=list, blank=True)
     is_active = models.BooleanField(default=True)
     two_factor_enabled = models.BooleanField(default=False)
     login_alerts_enabled = models.BooleanField(default=True)
@@ -201,15 +184,21 @@ class User(models.Model):
         constraints = [models.UniqueConstraint(Lower(Trim("email")), name="unique_staff_email_canonical")]
 
 
-class DriverServiceArea(models.Model):
-    # Explicit assignments replace assumptions based on driver names or addresses.
-    driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name='service_areas')
-    city = models.CharField(max_length=100)
-    assigned_by = models.CharField(max_length=25)
-    assigned_at = models.DateTimeField(default=timezone.now)
+    @property
+    def service_area_cities(self):
+        return [area["city"] for area in self.service_areas]
 
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=['driver', 'city'], name='unique_driver_service_city')]
+    def set_service_areas(self, cities, assigned_by):
+        # Retained cities keep their original audit details when fleet assignments change.
+        existing = {area["city"]: area for area in self.service_areas}
+        self.service_areas = [
+            existing.get(city) or {
+                "city": city,
+                "assigned_by": assigned_by,
+                "assigned_at": timezone.now().isoformat(),
+            }
+            for city in dict.fromkeys(cities)
+        ]
 
 
 class Customer(models.Model):
@@ -232,7 +221,6 @@ class Customer(models.Model):
     longitude = models.FloatField(blank=True, null=True)
     discount_option = models.CharField(max_length=50, default="NO_DISCOUNT")
     discount_percent = models.FloatField(default=0)
-    discount_amount_per_case = models.FloatField(default=0)
     discount_status = models.CharField(max_length=30, default="REMOVED")
     discount_applied_by_user_id = models.CharField(max_length=25, blank=True, null=True)
     discount_applied_by_name = models.CharField(max_length=255, blank=True, null=True)
@@ -330,26 +318,6 @@ class Warehouse(models.Model):
         db_table = "Warehouse"
 
 
-class PackagingProfile(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    code = models.CharField(max_length=120, unique=True)
-    name = models.CharField(max_length=255)
-    container_type = models.CharField(max_length=100)
-    container_size = models.CharField(max_length=100)
-    standard_units_per_case = models.PositiveIntegerField()
-    allowed_mixed_case_capacities = models.JSONField(default=list, blank=True)
-    compatibility_key = models.CharField(max_length=255, db_index=True)
-    base_unit_label = models.CharField(max_length=50, default="unit")
-    is_returnable = models.BooleanField(default=False)
-    default_deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "PackagingProfile"
-
-
 class Product(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     sku = models.CharField(max_length=120, unique=True)
@@ -363,7 +331,6 @@ class Product(models.Model):
     category = models.CharField(max_length=150, blank=True, null=True)
     sizes = models.JSONField(default=list, blank=True)
     quantity_per_unit = models.IntegerField(blank=True, null=True)
-    packaging_profile = models.ForeignKey(PackagingProfile, on_delete=models.PROTECT, null=True, blank=True, related_name="products")
     packaging_type = models.CharField(
         max_length=20,
         choices=[("RETURNABLE", "Returnable"), ("NON_RETURNABLE", "Non-Returnable")],
@@ -446,6 +413,7 @@ class StockBatch(models.Model):
 
 
 class Order(models.Model):
+    # Compatibility model name: shared stock/delivery references now live in Transaction.
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     order_number = models.CharField(max_length=120, unique=True)
     request_id = models.CharField(max_length=120, blank=True, null=True, unique=True)
@@ -453,13 +421,10 @@ class Order(models.Model):
     status = models.CharField(max_length=50, choices=OrderStatus.choices, default=OrderStatus.PENDING)
     priority = models.CharField(max_length=30, default="normal")
     subtotal = models.FloatField()
-    tax = models.FloatField(default=0)
-    shipping_cost = models.FloatField(default=0)
     discount = models.FloatField(default=0)
     discount_type = models.CharField(max_length=30, default="NO_DISCOUNT")
     discount_name = models.CharField(max_length=120, blank=True, null=True)
     discount_percent_applied = models.FloatField(default=0)
-    discount_amount_per_case_applied = models.FloatField(default=0)
     discount_per_case_applied = models.FloatField(default=0)
     discount_cases_affected = models.IntegerField(default=0)
     discount_applied_by_name = models.CharField(max_length=255, blank=True, null=True)
@@ -467,18 +432,6 @@ class Order(models.Model):
     total_amount = models.FloatField()
     payment_status = models.CharField(max_length=50, default="pending")
     sales_channel = models.CharField(max_length=20, choices=SalesChannel.choices, default=SalesChannel.ONLINE, db_index=True)
-    fulfillment_type = models.CharField(max_length=30, choices=RetailFulfillmentType.choices, blank=True, null=True)
-    pickup_status = models.CharField(max_length=30, choices=RetailPickupStatus.choices, default=RetailPickupStatus.NOT_APPLICABLE, db_index=True)
-    retail_status = models.CharField(max_length=20, choices=RetailTransactionStatus.choices, blank=True, null=True, db_index=True)
-    retail_transaction_number = models.CharField(max_length=120, blank=True, null=True, unique=True)
-    retail_request_id = models.CharField(max_length=120, blank=True, null=True, unique=True)
-    walk_in_name = models.CharField(max_length=255, blank=True, null=True)
-    walk_in_contact = models.CharField(max_length=100, blank=True, null=True)
-    walk_in_notes = models.TextField(blank=True, null=True)
-    amount_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    remaining_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    created_by_user = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, related_name="retail_orders_created")
-    created_by_name = models.CharField(max_length=255, blank=True, null=True)
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)
     shipping_name = models.CharField(max_length=255, blank=True, null=True)
     shipping_phone = models.CharField(max_length=100, blank=True, null=True)
@@ -490,13 +443,11 @@ class Order(models.Model):
     shipping_latitude = models.FloatField(blank=True, null=True)
     shipping_longitude = models.FloatField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
-    special_instructions = models.TextField(blank=True, null=True)
     pod_recipient_name = models.CharField(max_length=255, blank=True, null=True)
     pod_photo_url = models.TextField(blank=True, null=True)
     pod_submitted_at = models.DateTimeField(blank=True, null=True)
 
     ready_to_load_at = models.DateTimeField(blank=True, null=True)
-    loaded_at = models.DateTimeField(blank=True, null=True)
     warehouse_dispatched_at = models.DateTimeField(blank=True, null=True)
 
     purchase_request_number = models.CharField(max_length=120, blank=True, null=True, db_index=True)
@@ -519,7 +470,73 @@ class Order(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "Order"
+        db_table = "Transaction"
+
+    def save(self, *args, **kwargs):
+        # The shared transaction and its purchase documents must commit together.
+        with transaction.atomic(using=kwargs.get("using") or self._state.db):
+            super().save(*args, **kwargs)
+
+
+class RetailSale(models.Model):
+    # Retail-specific data is stored separately from purchase documents.
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, primary_key=True, related_name="retail_sale")
+    retail_status = models.CharField(max_length=20, choices=RetailTransactionStatus.choices, blank=True, null=True, db_index=True)
+    retail_transaction_number = models.CharField(max_length=120, blank=True, null=True, unique=True)
+    retail_request_id = models.CharField(max_length=120, blank=True, null=True, unique=True)
+    walk_in_name = models.CharField(max_length=255, blank=True, null=True)
+    walk_in_contact = models.CharField(max_length=100, blank=True, null=True)
+    walk_in_notes = models.TextField(blank=True, null=True)
+    created_by_user = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, related_name="retail_orders_created")
+    created_by_name = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        db_table = "RetailSale"
+
+
+class PurchaseRequest(models.Model):
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    transaction = models.OneToOneField(Order, on_delete=models.PROTECT, related_name="purchase_request")
+    number = models.CharField(max_length=120, unique=True)
+    status = models.CharField(max_length=50, choices=PurchaseRequestStatus.choices)
+    # Snapshot preserves the submitted items, prices, address and review decision.
+    snapshot = models.JSONField(default=dict)
+    locked_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "PurchaseRequest"
+
+    def save(self, *args, **kwargs):
+        # An approved request is historical evidence; later PO changes cannot edit it.
+        if not self._state.adding and type(self).objects.filter(pk=self.pk, locked_at__isnull=False).exists():
+            raise ValueError("Approved purchase requests cannot be updated")
+        super().save(*args, **kwargs)
+
+
+class PurchaseOrder(models.Model):
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    transaction = models.OneToOneField(Order, on_delete=models.PROTECT, related_name="purchase_order")
+    purchase_request = models.OneToOneField(PurchaseRequest, on_delete=models.PROTECT, related_name="purchase_order")
+    number = models.CharField(max_length=120, unique=True)
+    approved_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "PurchaseOrder"
+
+
+class OrderCharge(models.Model):
+    # Charges belong to accounting records, not a mutable balance column on an order.
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name="charges")
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.CharField(max_length=100)
+    reference_id = models.CharField(max_length=25, blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "OrderCharge"
 
 
 class OrderTimeline(models.Model):
@@ -601,8 +618,6 @@ class Trip(models.Model):
     warehouse_id = models.CharField(max_length=25, blank=True, null=True)
     created_by_user_id = models.CharField(max_length=25, blank=True, null=True)
     status = models.CharField(max_length=50, choices=TripStatus.choices, default=TripStatus.PLANNED)
-    start_latitude = models.FloatField(blank=True, null=True)
-    start_longitude = models.FloatField(blank=True, null=True)
     planned_start_at = models.DateTimeField(blank=True, null=True)
     actual_start_at = models.DateTimeField(blank=True, null=True)
     actual_end_at = models.DateTimeField(blank=True, null=True)
@@ -667,6 +682,8 @@ class LocationLog(models.Model):
 
 
 class Replacement(models.Model):
+    # The scheduled shipment belongs directly to its replacement request.
+    delivery_transaction = models.OneToOneField(Order, on_delete=models.PROTECT, blank=True, null=True, related_name="scheduled_replacement")
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     replacement_number = models.CharField(max_length=120, unique=True)
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="replacements")
@@ -681,8 +698,6 @@ class Replacement(models.Model):
     replacement_quantity = models.IntegerField(blank=True, null=True)
     damage_photo_url = models.TextField(blank=True, null=True)
     damage_photo_urls = models.TextField(blank=True, null=True)
-    trip_id = models.CharField(max_length=25, blank=True, null=True)
-    drop_point_id = models.CharField(max_length=25, blank=True, null=True)
     pickup_address = models.TextField()
     pickup_city = models.CharField(max_length=100)
     pickup_province = models.CharField(max_length=100)
@@ -823,29 +838,6 @@ class ReplacementLine(models.Model):
         ]
 
 
-class ReturnReceipt(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    request_id = models.CharField(max_length=120, unique=True)
-    replacement = models.ForeignKey("Replacement", on_delete=models.CASCADE, related_name="return_receipts")
-    received_by = models.CharField(max_length=100, blank=True, null=True)
-    received_at = models.DateTimeField(default=timezone.now)
-
-    class Meta:
-        db_table = "ReturnReceipt"
-
-
-class ReturnReceiptLine(models.Model):
-    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
-    receipt = models.ForeignKey(ReturnReceipt, on_delete=models.CASCADE, related_name="lines")
-    replacement_line = models.ForeignKey(ReplacementLine, on_delete=models.PROTECT, related_name="return_receipt_lines")
-    product = models.ForeignKey(Product, on_delete=models.SET_NULL, blank=True, null=True, related_name="return_receipt_lines")
-    stock_batch = models.ForeignKey("StockBatch", on_delete=models.PROTECT, blank=True, null=True, related_name="return_receipt_lines")
-    quantity_base_units = models.PositiveIntegerField()
-
-    class Meta:
-        db_table = "ReturnReceiptLine"
-
-
 class ContainerType(models.Model):
     """Physical container configuration shared by orders, returns, and POS."""
 
@@ -884,13 +876,6 @@ class ProductPackaging(models.Model):
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="packaging_options")
     container_type = models.ForeignKey(ContainerType, on_delete=models.PROTECT, related_name="product_packagings")
-    packaging_profile = models.ForeignKey(
-        PackagingProfile,
-        on_delete=models.SET_NULL,
-        related_name="product_packagings",
-        blank=True,
-        null=True,
-    )
     units_per_container = models.IntegerField(default=1, help_text="e.g., 1 (bottle), 24 (crate)")
     containers_per_case = models.IntegerField(default=24, help_text="e.g., 24 bottles per case")
     is_primary = models.BooleanField(default=False, help_text="Default packaging for ordering")

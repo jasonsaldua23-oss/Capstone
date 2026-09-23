@@ -221,7 +221,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const [walkInContact, setWalkInContact] = useState('')
   const [walkInNotes, setWalkInNotes] = useState('')
   const [amountTendered, setAmountTendered] = useState('')
-  const fulfillmentType = 'IMMEDIATE'
   const [mixedCapacity, setMixedCapacity] = useState(12)
   const [mixedQuantities, setMixedQuantities] = useState<Record<string, number>>({})
 
@@ -501,8 +500,6 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         contactNumber: walkInContact.trim(),
         notes: walkInNotes.trim(),
       },
-      fulfillmentType,
-      amountPaid: Number(amountTendered || 0),
       items: cart.map(({ key: _key, ...line }) => {
         // Cart recipes are per case; the API expects total bottles across all ordered cases.
         if (line.mode === 'MIXED_CASE') {
@@ -538,7 +535,8 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...requestBody(), quoteToken: quoted.quoteToken, idempotencyKey: crypto.randomUUID() }),
       })
-      setReceipt(payload.sale)
+      // Tendered cash is displayed for this checkout only and is never persisted.
+      setReceipt({ ...payload.sale, amountTendered: Number(amountTendered || 0), change: Math.max(0, Number(amountTendered || 0) - Number(payload.sale.grandTotal)) })
       // Fix: a committed retail sale changes shared stock, not only the POS lists.
       invalidateInventoryStockCaches()
       emitDataSync(['inventory', 'stock-batches', 'inventory-transactions'])
@@ -570,7 +568,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         body: JSON.stringify({ warehouseId, ...body }),
       })
       setReceipt(payload.sale)
-      // Fix: cancellations/restocking and pickup completion must refresh inventory too.
+      // Fix: cancellations and restocking must refresh inventory too.
       invalidateInventoryStockCaches()
       emitDataSync(['inventory', 'stock-batches', 'inventory-transactions'])
       toast.success('Retail transaction updated')
@@ -1555,14 +1553,16 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                   <span>Total Amount</span>
                   <span className="text-emerald-600">{peso(receipt.grandTotal)}</span>
                 </div>
+                {receipt.amountTendered !== undefined && <>
                 <div className="flex justify-between text-slate-700">
                   <span>Amount Tendered</span>
-                  <span className="font-semibold text-slate-900">{peso(receipt.amountPaid)}</span>
+                  <span className="font-semibold text-slate-900">{peso(receipt.amountTendered)}</span>
                 </div>
                 <div className="flex justify-between text-[15px] font-semibold text-slate-900">
                   <span>Total Change</span>
                   <span className="text-blue-600">{peso(receipt.change)}</span>
                 </div>
+                </>}
               </div>
 
               {/* Management Controls for Open Transaction */}

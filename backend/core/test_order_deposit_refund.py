@@ -76,8 +76,6 @@ class CustomerOrderDepositRefundTests(TestCase):
                 ],
             }],
             subtotal=240,
-            tax=0,
-            shipping_cost=0,
             discount=0,
             total_amount=240,
             selected_warehouse_id=None,
@@ -204,8 +202,6 @@ class CustomerOrderDepositRefundTests(TestCase):
                 "totalPrice": 200,
             }],
             subtotal=200,
-            tax=0,
-            shipping_cost=0,
             discount=0,
             total_amount=200,
             selected_warehouse_id=None,
@@ -283,8 +279,6 @@ class CustomerOrderDepositRefundTests(TestCase):
                     "emptyReturnedQuantity": 24,
                 }],
                 subtotal=245,
-                tax=0,
-                shipping_cost=0,
                 discount=0,
                 total_amount=245,
                 selected_warehouse_id=None,
@@ -345,8 +339,6 @@ class CustomerOrderDepositRefundTests(TestCase):
                 "totalPrice": 200,
             }],
             subtotal=200,
-            tax=0,
-            shipping_cost=0,
             discount=0,
             total_amount=200,
             selected_warehouse_id=None,
@@ -387,7 +379,7 @@ class CustomerOrderDepositRefundTests(TestCase):
         self.assertEqual(claim.collected_amount, Decimal("50.00"))
         self.assertEqual(balance.bottles_outstanding, 20)
         self.assertEqual(balance.deposit_balance, Decimal("40.00"))
-        self.assertEqual(order.remaining_balance, Decimal("10.00"))
+        self.assertEqual(order.charges.get().amount, Decimal("10.00"))
         self.assertEqual(result["shortfallAmount"], 10.0)
 
     def test_customer_can_apply_empty_refund_to_an_existing_paid_but_undelivered_po(self) -> None:

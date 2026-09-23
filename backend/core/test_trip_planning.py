@@ -12,7 +12,6 @@ from django.utils import timezone
 from .auth import create_token
 from .models import (
     Customer,
-    DriverServiceArea,
     LocationLog,
     Notification,
     Order,
@@ -819,7 +818,8 @@ class TripsPostCreationContractTests(TestCase):
                 "updated_at",
             ]
         )
-        DriverServiceArea.objects.create(driver=self.driver_user, city="talisay", assigned_by=self.admin_user.id)
+        self.driver_user.set_service_areas(["talisay"], self.admin_user.id)
+        self.driver_user.save(update_fields=["service_areas"])
         self.admin_token = create_token(
             {
                 "userId": self.admin_user.id,

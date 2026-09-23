@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.contrib.auth.hashers import make_password
 
 from core.models import (
-    User, Customer, Warehouse, PackagingProfile, Product,
+    User, Customer, Warehouse, Product,
     Inventory, StockBatch, InventoryTransaction,
     Order, OrderItem, OrderTimeline,
     Vehicle, Trip, TripDropPoint, LocationLog,
@@ -669,27 +669,10 @@ class Command(BaseCommand):
         return drivers, vehicles
 
     def seed_products(self):
-        self.stdout.write("Seeding 37 PepsiCo Products & Packaging Profiles...")
+        self.stdout.write("Seeding 37 PepsiCo Products...")
         products_map = {}
 
         for col, pdef in PRODUCT_DEFS.items():
-            # Packaging profile
-            pkg_code = f"PKG-{pdef['sku']}"
-            pkg, _ = PackagingProfile.objects.get_or_create(
-                code=pkg_code,
-                defaults={
-                    'name': f"{pdef['name']} Packaging",
-                    'container_type': 'BOTTLE' if 'Glass' in pdef['category'] or 'PET' in pdef['category'] else 'CAN',
-                    'container_size': pdef['size'],
-                    'standard_units_per_case': pdef['units_per_case'],
-                    'base_unit_label': 'bottle' if 'Can' not in pdef['category'] else 'can',
-                    'compatibility_key': f"COMPAT-{pdef['size'].upper()}",
-                    'is_returnable': pdef['is_returnable'],
-                    'default_deposit_amount': Decimal('0.00'),  # Empties excluded
-                    'is_active': True
-                }
-            )
-
             # Product
             prod, _ = Product.objects.get_or_create(
                 sku=pdef['sku'],
@@ -855,8 +838,6 @@ class Command(BaseCommand):
                     'priority': 'NORMAL',
                     'subtotal': subtotal,
                     'total_amount': subtotal,
-                    'shipping_cost': Decimal('0.00'),
-                    'tax': Decimal('0.00'),
                     'created_at': order_date,
                     'updated_at': order_date
                 }
@@ -912,8 +893,6 @@ class Command(BaseCommand):
                     'vehicle': vehicles[0],
                     'warehouse_id': warehouse.id,
                     'status': 'DELIVERED',
-                    'start_latitude': warehouse.latitude,
-                    'start_longitude': warehouse.longitude,
                     'planned_start_at': now - timedelta(days=1, hours=8),
                     'actual_start_at': now - timedelta(days=1, hours=8),
                     'actual_end_at': now - timedelta(days=1, hours=2)
@@ -947,8 +926,6 @@ class Command(BaseCommand):
                     'vehicle': vehicles[1],
                     'warehouse_id': warehouse.id,
                     'status': 'IN_TRANSIT',
-                    'start_latitude': warehouse.latitude,
-                    'start_longitude': warehouse.longitude,
                     'planned_start_at': now - timedelta(hours=2),
                     'actual_start_at': now - timedelta(hours=2)
                 }
@@ -993,8 +970,6 @@ class Command(BaseCommand):
                     'vehicle': vehicles[2],
                     'warehouse_id': warehouse.id,
                     'status': 'ASSIGNED',
-                    'start_latitude': warehouse.latitude,
-                    'start_longitude': warehouse.longitude,
                     'planned_start_at': now + timedelta(days=1, hours=8)
                 }
             )

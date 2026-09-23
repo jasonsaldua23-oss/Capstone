@@ -91,8 +91,8 @@ def _create_customer_notification(*, customer: Customer | None, title: str, mess
     return legacy._create_customer_notification(customer=customer, title=title, message=message, notification_type=notification_type, reference_type=reference_type, reference_id=reference_id)
 
 
-def _create_order_from_checkout_payload(*, customer: Customer, body: dict[str, Any], normalized_items: list[dict[str, Any]], subtotal: float, tax: float, shipping_cost: float, discount: float, total_amount: float, selected_warehouse_id: str | None, shipping_latitude: Any, shipping_longitude: Any, payment_status: str, performed_by: str | None, discount_breakdown: dict[str, Any] | None=None) -> Order:
-    return legacy._create_order_from_checkout_payload(customer=customer, body=body, normalized_items=normalized_items, subtotal=subtotal, tax=tax, shipping_cost=shipping_cost, discount=discount, total_amount=total_amount, selected_warehouse_id=selected_warehouse_id, shipping_latitude=shipping_latitude, shipping_longitude=shipping_longitude, payment_status=payment_status, performed_by=performed_by, discount_breakdown=discount_breakdown)
+def _create_order_from_checkout_payload(*, customer: Customer, body: dict[str, Any], normalized_items: list[dict[str, Any]], subtotal: float, shipping_cost: float, discount: float, total_amount: float, selected_warehouse_id: str | None, shipping_latitude: Any, shipping_longitude: Any, payment_status: str, performed_by: str | None, discount_breakdown: dict[str, Any] | None=None) -> Order:
+    return legacy._create_order_from_checkout_payload(customer=customer, body=body, normalized_items=normalized_items, subtotal=subtotal, shipping_cost=shipping_cost, discount=discount, total_amount=total_amount, selected_warehouse_id=selected_warehouse_id, shipping_latitude=shipping_latitude, shipping_longitude=shipping_longitude, payment_status=payment_status, performed_by=performed_by, discount_breakdown=discount_breakdown)
 
 
 def _create_scheduled_replacement_order(replacement: Replacement, *, scheduled_date: date, staff_user_id: str | None) -> Order:
@@ -310,7 +310,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         if s:
             where &= Q(order_number__icontains=s) | Q(customer__name__icontains=s)
         # POS receipts belong to the retail transaction history, not the regular order workflow.
-        orders_qs = Order.objects.select_related("customer", "timeline").filter(where).exclude(
+        orders_qs = Order.objects.select_related("customer", "timeline", "purchase_request", "purchase_order").filter(where).exclude(
             sales_channel=SalesChannel.RETAIL_POS
         )
         if include_items != "none":
@@ -525,7 +525,6 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                 total_cases=total_cases,
             )
             # Required: neither regular orders nor retail charge tax or shipping fees.
-            tax = 0.0
             shipping_cost = 0.0
             discount = float(discount_breakdown.get("totalDiscount") or 0)
             total = float(subtotal - discount)
@@ -535,7 +534,6 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                     body=body,
                     normalized_items=normalized_items,
                     subtotal=subtotal,
-                    tax=tax,
                     shipping_cost=shipping_cost,
                     discount=discount,
                     total_amount=total,
@@ -1102,6 +1100,13 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
                 o.notes = f"{existing_notes}\n{note_line}".strip() if existing_notes else note_line
                 update_fields.append("notes")
             o.save(update_fields=list(dict.fromkeys(update_fields)))
+
+            if next_status in {OrderStatus.CANCELLED, OrderStatus.REJECTED}:
+                # Fix: the replacement request and its delivery cannot expose
+                # conflicting active/closed states after the delivery is closed.
+                Replacement.objects.filter(delivery_transaction=o).exclude(
+                    status__in=[ReplacementStatus.CANCELLED, ReplacementStatus.COMPLETED]
+                ).update(status=ReplacementStatus.CANCELLED, updated_at=now)
 
             timeline, _ = OrderTimeline.objects.get_or_create(order=o)
             if next_status == OrderStatus.RESCHEDULED and rescheduled_delivery_at is not None:

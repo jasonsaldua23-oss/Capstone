@@ -29,8 +29,6 @@ from .retail_pos import (
     serialize_retail_product,
     serialize_retail_quote,
     serialize_retail_sale,
-    update_retail_payment,
-    update_retail_pickup_status,
 )
 # Transitional imports preserve the controller's existing authorization, sample-data,
 # and pagination behavior while Retail POS moves behind its own module boundary.
@@ -100,7 +98,7 @@ def _retail_sale_queryset(warehouse: Warehouse | None = None):
     # Fix: Order stores warehouse_id as a scalar field, so Django cannot follow
     # a nonexistent "warehouse" relation with select_related().
     qs = (
-        Order.objects.select_related("customer", "created_by_user")
+        Order.objects.select_related("customer", "retail_sale", "retail_sale__created_by_user")
         .prefetch_related(
             "items__product",
             "items__mixed_case_components__product",
@@ -190,7 +188,7 @@ def retail_sales_collection(request: HttpRequest) -> JsonResponse:
         request_id = str(body.get("idempotencyKey") or "").strip()
         if not request_id:
             return _err("idempotencyKey is required")
-        existing_sale = _retail_sale_queryset(warehouse).filter(retail_request_id=request_id).first()
+        existing_sale = _retail_sale_queryset(warehouse).filter(retail_sale__retail_request_id=request_id).first()
         if existing_sale is not None:
             return _ok({"success": True, "sale": serialize_retail_sale(existing_sale), "created": False})
         quote_token = str(body.get("quoteToken") or "").strip()
@@ -218,7 +216,7 @@ def retail_sales_collection(request: HttpRequest) -> JsonResponse:
             )
         except IntegrityError:
             existing = Order.objects.filter(
-                retail_request_id=str(body.get("idempotencyKey") or "").strip(),
+                retail_sale__retail_request_id=str(body.get("idempotencyKey") or "").strip(),
                 sales_channel=SalesChannel.RETAIL_POS,
                 warehouse_id=warehouse.id,
             ).first()
@@ -235,16 +233,13 @@ def retail_sales_collection(request: HttpRequest) -> JsonResponse:
     search = str(request.GET.get("search") or "").strip()
     if search:
         queryset = queryset.filter(
-            Q(retail_transaction_number__icontains=search)
+            Q(retail_sale__retail_transaction_number__icontains=search)
             | Q(customer__name__icontains=search)
-            | Q(walk_in_name__icontains=search)
-            | Q(walk_in_contact__icontains=search)
+            | Q(retail_sale__walk_in_name__icontains=search)
+            | Q(retail_sale__walk_in_contact__icontains=search)
         )
     field_filters = {
-        "paymentStatus": "payment_status",
-        "fulfillmentType": "fulfillment_type",
-        "pickupStatus": "pickup_status",
-        "transactionStatus": "retail_status",
+        "transactionStatus": "retail_sale__retail_status",
     }
     for query_name, model_name in field_filters.items():
         value = str(request.GET.get(query_name) or "").strip().upper()
@@ -283,46 +278,6 @@ def retail_sale_detail(request: HttpRequest, sale_id: str) -> JsonResponse:
 
 
 @csrf_exempt
-@require_http_methods(["PATCH"])
-def retail_sale_payment(request: HttpRequest, sale_id: str) -> JsonResponse:
-    payload_data, warehouse, error = _require_retail_warehouse(request)
-    if error:
-        return error
-    sale = _retail_sale_queryset(warehouse).filter(id=sale_id).first()
-    if sale is None:
-        return _err("Retail transaction not found", 404)
-    staff = User.objects.filter(id=payload_data.get("userId"), is_active=True).first()
-    if staff is None:
-        return _err("Staff account is unavailable", 403)
-    try:
-        sale = update_retail_payment(sale, _json_body(request).get("amountPaid"), staff)
-    except ValueError as exc:
-        return _retail_error(exc)
-    sale = _retail_sale_queryset(warehouse).get(id=sale.id)
-    return _ok({"success": True, "sale": serialize_retail_sale(sale)})
-
-
-@csrf_exempt
-@require_http_methods(["PATCH"])
-def retail_sale_pickup_status(request: HttpRequest, sale_id: str) -> JsonResponse:
-    payload_data, warehouse, error = _require_retail_warehouse(request)
-    if error:
-        return error
-    sale = _retail_sale_queryset(warehouse).filter(id=sale_id).first()
-    if sale is None:
-        return _err("Retail transaction not found", 404)
-    staff = User.objects.filter(id=payload_data.get("userId"), is_active=True).first()
-    if staff is None:
-        return _err("Staff account is unavailable", 403)
-    try:
-        sale = update_retail_pickup_status(sale, _json_body(request).get("pickupStatus"), staff)
-    except ValueError as exc:
-        return _retail_error(exc)
-    sale = _retail_sale_queryset(warehouse).get(id=sale.id)
-    return _ok({"success": True, "sale": serialize_retail_sale(sale)})
-
-
-@csrf_exempt
 @require_http_methods(["POST"])
 def retail_sale_cancel(request: HttpRequest, sale_id: str) -> JsonResponse:
     payload_data, warehouse, error = _require_retail_warehouse(request)
@@ -346,4 +301,3 @@ def retail_sale_cancel(request: HttpRequest, sale_id: str) -> JsonResponse:
         return _retail_error(exc)
     sale = _retail_sale_queryset(warehouse).get(id=sale.id)
     return _ok({"success": True, "sale": serialize_retail_sale(sale)})
-

@@ -86,10 +86,9 @@ def _persist_stock_batch_quantity(batch: StockBatch) -> None:
     Remove empty batches only when no stock or protected history needs them.
     """
     if _int(getattr(batch, "quantity", 0), 0) <= 0:
-        # Fix: reservations and return receipts must retain their source batch;
-        # remaining loose units are also physical stock and cannot be deleted.
+        # Keep source batches referenced by reservations and any remaining loose stock.
         has_loose_stock = _int(batch.loose_units, 0) > 0
-        if has_loose_stock or batch.reservations.exists() or batch.return_receipt_lines.exists():
+        if has_loose_stock or batch.reservations.exists():
             batch.quantity = 0
             batch.status = "ACTIVE" if has_loose_stock else "DEPLETED"
             batch.save(update_fields=["quantity", "status", "updated_at"])

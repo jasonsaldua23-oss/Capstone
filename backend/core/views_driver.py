@@ -452,7 +452,6 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         return _err(PERSON_NAME_NUMBER_ERROR, 400)
     next_license_number: str | None = None
     for key, attr in [
-        ("emergencyContact", "emergency_contact"),
         ("licenseNumber", "license_number"),
         ("licenseType", "license_type"),
     ]:

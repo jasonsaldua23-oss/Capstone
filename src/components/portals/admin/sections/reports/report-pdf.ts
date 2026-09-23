@@ -26,7 +26,7 @@ export type ReportPdfOptions = {
 
 // Keep the existing call contract; visible KPI values now come from summaryLines.
 export type ReportPdfContext = {
-  driverPerformanceKpi: { total: number; active: number; avgRating: string; totalTrips: number }
+  driverPerformanceKpi: { total: number; active: number; totalTrips: number }
   feedbackExportRows: any[]
   inventoryMovementSummary: InventoryMovementSummary
   replacementRows: any[]

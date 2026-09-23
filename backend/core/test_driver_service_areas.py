@@ -1,12 +1,15 @@
 import json
+from importlib import import_module
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase, RequestFactory, SimpleTestCase
+from django.db import connection
+from django.db.migrations.loader import MigrationLoader
+from django.test import TestCase, RequestFactory, SimpleTestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from .auth import create_token, extract_token
-from .models import User, DriverServiceArea, Warehouse, Vehicle, Order, Trip, Product, Inventory, StockBatch, Customer, CustomerApprovalStatus
+from .models import User, Warehouse, Vehicle, Order, Trip, Product, Inventory, StockBatch, Customer, CustomerApprovalStatus
 from .views_api import drivers_collection, _driver_service_area_error, trips_collection, trip_detail, auth_register, auth_me, products_collection, _issue_email_verification_token, customer_orders, order_status_update, customer_order_cancel
 
 
@@ -18,13 +21,15 @@ class DriverServiceAreaTests(TestCase):
     def assign(self, actor, areas):
         request = RequestFactory().put('/api/drivers', data=json.dumps({'id': self.driver.id, 'serviceAreas': areas}), content_type='application/json')
         with patch('core.views_api._require_staff', return_value=({'userId': actor.id, 'role': actor.role}, None)):
-            return drivers_collection(request)
+            response = drivers_collection(request)
+        self.driver.refresh_from_db()
+        return response
 
     def test_admin_assignment_is_normalized_audited_and_checks_every_city(self):
         self.assertEqual(self.assign(self.admin, ['City A', ' city   a ']).status_code, 200)
-        area = DriverServiceArea.objects.get(driver=self.driver)
-        self.assertEqual((area.city, area.assigned_by), ('city a', self.admin.id))
-        self.assertIsNotNone(area.assigned_at)
+        area = self.driver.service_areas[0]
+        self.assertEqual((area["city"], area["assigned_by"]), ('city a', self.admin.id))
+        self.assertIsNotNone(area["assigned_at"])
         self.assertIsNone(_driver_service_area_error(self.driver, ['CITY A']))
         self.assertIsNotNone(_driver_service_area_error(self.driver, ['City A', 'City B']))
         self.assertEqual(self.assign(self.admin, ['City A', 'City B']).status_code, 200)
@@ -33,7 +38,16 @@ class DriverServiceAreaTests(TestCase):
     def test_warehouse_cannot_grant_itself_areas(self):
         warehouse = User.objects.create(email='area-warehouse@example.test', name='Warehouse', role='WAREHOUSE_STAFF')
         self.assertEqual(self.assign(warehouse, ['City A']).status_code, 403)
-        self.assertFalse(self.driver.service_areas.exists())
+        self.assertFalse(self.driver.service_areas)
+
+    def test_retained_city_keeps_audit_details_and_assignment_can_be_cleared(self):
+        self.assign(self.admin, ['City A'])
+        original = self.driver.service_areas[0].copy()
+        self.assign(self.admin, ['City A', 'City B'])
+        self.assertEqual(self.driver.service_areas[0], original)
+        self.assign(self.admin, [])
+        self.assertEqual(self.driver.service_areas, [])
+        self.assertIsNotNone(_driver_service_area_error(self.driver, ['City A']))
 
     def test_unassigned_and_on_leave_drivers_are_ineligible(self):
         self.assertIsNotNone(_driver_service_area_error(self.driver, ['City A']))
@@ -59,6 +73,83 @@ class DriverServiceAreaTests(TestCase):
         with patch('core.views_api._require_staff', return_value=({'userId': self.admin.id, 'role': self.admin.role}, None)):
             response = trip_detail(request, 'not-needed')
         self.assertEqual(response.status_code, 403)
+
+
+class ServiceAreaMigrationTests(TransactionTestCase):
+    @override_settings(MIGRATION_MODULES={})
+    def test_multiple_assignments_and_audit_details_survive_round_trip(self):
+        # Exercise the real schema/data operations against the isolated test database.
+        loader = MigrationLoader(None)
+        redundant_fields_before = loader.project_state([('core', '0133_remove_unused_transaction_fields')])
+        redundant_fields_migration = import_module('core.migrations.0134_remove_redundant_cross_table_fields').Migration(
+            '0134_remove_redundant_cross_table_fields', 'core'
+        )
+        with connection.schema_editor() as editor:
+            redundant_fields_migration.unapply(redundant_fields_before, editor)
+
+        def restore_current_redundant_fields_schema():
+            with connection.schema_editor() as editor:
+                redundant_fields_migration.apply(redundant_fields_before.clone(), editor)
+
+        self.addCleanup(restore_current_redundant_fields_schema)
+        license_photo_before = loader.project_state([('core', '0131_remove_user_driver_profile_fields')])
+        license_photo_migration = import_module('core.migrations.0132_remove_user_license_photo_url').Migration(
+            '0132_remove_user_license_photo_url', 'core'
+        )
+        with connection.schema_editor() as editor:
+            license_photo_migration.unapply(license_photo_before, editor)
+
+        def restore_current_license_photo_schema():
+            with connection.schema_editor() as editor:
+                license_photo_migration.apply(license_photo_before.clone(), editor)
+
+        self.addCleanup(restore_current_license_photo_schema)
+        user_fields_before = loader.project_state([('core', '0130_separate_transaction_documents')])
+        user_fields_migration = import_module('core.migrations.0131_remove_user_driver_profile_fields').Migration(
+            '0131_remove_user_driver_profile_fields', 'core'
+        )
+        # Restore the three older User columns while this test exercises migration 0128.
+        with connection.schema_editor() as editor:
+            user_fields_migration.unapply(user_fields_before, editor)
+
+        def restore_current_user_schema():
+            with connection.schema_editor() as editor:
+                user_fields_migration.apply(user_fields_before.clone(), editor)
+
+        self.addCleanup(restore_current_user_schema)
+        before = loader.project_state([('core', '0127_remove_unused_return_receipts')])
+        migration = import_module('core.migrations.0128_move_service_areas_to_user').Migration(
+            '0128_move_service_areas_to_user', 'core'
+        )
+        with connection.schema_editor() as editor:
+            migration.unapply(before, editor)
+        try:
+            OldUser = before.apps.get_model('core', 'User')
+            OldArea = before.apps.get_model('core', 'DriverServiceArea')
+            driver = OldUser.objects.create(email='migration@example.test', name='Driver', role='DRIVER')
+            unassigned = OldUser.objects.create(email='unassigned@example.test', name='Staff')
+            assigned_at = timezone.now() - timedelta(days=10)
+            for city in ['silay', 'talisay']:
+                OldArea.objects.create(driver=driver, city=city, assigned_by='original-admin', assigned_at=assigned_at)
+        finally:
+            with connection.schema_editor() as editor:
+                migration.apply(before.clone(), editor)
+        expected = [
+            {'city': city, 'assigned_by': 'original-admin', 'assigned_at': assigned_at.isoformat()}
+            for city in ['silay', 'talisay']
+        ]
+        self.assertEqual(User.objects.get(pk=driver.pk).service_areas, expected)
+        self.assertEqual(User.objects.get(pk=unassigned.pk).service_areas, [])
+        self.assertNotIn('core_driverservicearea', connection.introspection.table_names())
+        with connection.schema_editor() as editor:
+            migration.unapply(before, editor)
+        try:
+            restored = list(OldArea.objects.filter(driver_id=driver.pk).order_by('city'))
+            self.assertEqual([area.city for area in restored], ['silay', 'talisay'])
+            self.assertTrue(all(area.assigned_by == 'original-admin' and area.assigned_at == assigned_at for area in restored))
+        finally:
+            with connection.schema_editor() as editor:
+                migration.apply(before.clone(), editor)
 
 
 class PortalCookieTests(SimpleTestCase):

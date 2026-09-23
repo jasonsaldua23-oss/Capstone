@@ -321,8 +321,6 @@ _OWNERS = {
     "retail_quote": "views_retail",
     "retail_sale_cancel": "views_retail",
     "retail_sale_detail": "views_retail",
-    "retail_sale_payment": "views_retail",
-    "retail_sale_pickup_status": "views_retail",
     "retail_sales_collection": "views_retail",
     "roles_list": "views_users",
     "stock_batches_bulk_collection": "views_stock",

@@ -64,8 +64,7 @@ class PrelaunchAccessGuardTests(TestCase):
         self.assertEqual(order.customer_id, self.customer.id)
         self.assertEqual(order.status, "PENDING")
         self.assertEqual(order.request_status, "PENDING_APPROVAL")
-        self.assertEqual(order.tax, 0)
-        self.assertEqual(order.shipping_cost, 0)
+        self.assertNotIn("tax", {field.name for field in Order._meta.fields})
         self.assertEqual(order.total_amount, 240)
 
     def test_order_totals_ignore_removed_fee_fields(self):
@@ -74,7 +73,7 @@ class PrelaunchAccessGuardTests(TestCase):
             with self.subTest(value=value):
                 self.assertEqual(
                     _compute_order_totals({"tax": value, "shippingCost": value, "discount": 20}, 240),
-                    (0, 0, 20, 220),
+                    (0, 20, 220),
                 )
 
 

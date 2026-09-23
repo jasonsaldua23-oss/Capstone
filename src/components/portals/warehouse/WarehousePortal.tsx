@@ -92,7 +92,6 @@ import {
   getDaysLeft,
   getMaxOrderUpdatedAt,
   parseIssueMeta,
-  receiveReplacementReturn,
   deriveOrderFulfillmentSummaryImpl,
   formatAllocatedQtyLabelImpl,
   getWarehouseDisplayOrderStatusImpl,
@@ -1499,7 +1498,6 @@ export function WarehousePortal() {
               selectedReplacement={selectedReplacement}
               setSelectedReplacement={setSelectedReplacement}
               buildReplacementLines={buildReplacementLines}
-              receiveReplacementReturn={receiveReplacementReturn}
             />
           )}
 

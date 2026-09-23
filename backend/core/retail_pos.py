@@ -36,14 +36,13 @@ from .models import (
     InventoryTransaction,
     MixedCaseComponent,
     Order,
+    RetailSale,
     OrderItem,
     OrderItemType,
     OrderStatus,
     Product,
     ProductPackaging,
     ReservationStatus,
-    RetailFulfillmentType,
-    RetailPickupStatus,
     RetailSaleMode,
     RetailTransactionStatus,
     SalesChannel,
@@ -126,35 +125,11 @@ def calculate_deposit_amount(
     return money(money(unit_deposit) * Decimal(uncovered))
 
 
-def calculate_payment_summary(
-    product_total: Decimal,
-    deposit_total: Decimal,
-    amount_paid: Decimal,
-) -> dict[str, Decimal | str]:
+def calculate_sale_totals(product_total: Decimal, deposit_total: Decimal) -> dict[str, Decimal]:
+    # Cash tendered and change are UI-only; persist only the actual sale totals.
     product = money(product_total)
     deposit = money(deposit_total)
-    paid = money(amount_paid)
-    grand_total = money(product + deposit)
-    if paid < 0:
-        raise ValueError("Amount paid cannot be negative")
-    # Added: cash tendered may exceed the total; the excess is returned as change.
-    remaining = money(max(grand_total - paid, Decimal("0.00")))
-    change = money(max(paid - grand_total, Decimal("0.00")))
-    if paid == 0:
-        status = "UNPAID"
-    elif remaining == 0:
-        status = "PAID"
-    else:
-        status = "PARTIALLY_PAID"
-    return {
-        "productTotal": product,
-        "deposit": deposit,
-        "grandTotal": grand_total,
-        "amountPaid": paid,
-        "remainingBalance": remaining,
-        "change": change,
-        "paymentStatus": status,
-    }
+    return {"productTotal": product, "deposit": deposit, "grandTotal": money(product + deposit)}
 
 
 def _primary_packaging(product: Product) -> ProductPackaging | None:
@@ -434,7 +409,7 @@ def quote_retail_cart(*, warehouse: Warehouse, payload: dict[str, Any]) -> dict[
 
     product_total = money(sum((line["productSubtotal"] for line in lines), Decimal("0")))
     deposit_total = money(sum((line["deposit"] for line in lines), Decimal("0")))
-    payment = calculate_payment_summary(product_total, deposit_total, money(payload.get("amountPaid", 0)))
+    payment = calculate_sale_totals(product_total, deposit_total)
     fingerprint_rows = [
         {
             "mode": line["mode"],
@@ -527,10 +502,6 @@ def serialize_retail_quote(quote: dict[str, Any]) -> dict[str, Any]:
         "emptyBottlesProvided": quote["totalEmptyBottlesProvided"],
         "deposit": _money_text(payment["deposit"]),
         "grandTotal": _money_text(payment["grandTotal"]),
-        "amountPaid": _money_text(payment["amountPaid"]),
-        "remainingBalance": _money_text(payment["remainingBalance"]),
-        "change": _money_text(payment["change"]),
-        "paymentStatus": payment["paymentStatus"],
         "fingerprint": quote["fingerprint"],
     }
 
@@ -592,9 +563,9 @@ def _next_retail_number() -> str:
     year = timezone.now().year
     # New retail receipts use the dedicated RCP prefix; existing POS receipts remain unchanged.
     prefix = f"RCP-{year}-"
-    sequence = Order.objects.filter(retail_transaction_number__startswith=prefix).count() + 1
+    sequence = Order.objects.filter(retail_sale__retail_transaction_number__startswith=prefix).count() + 1
     candidate = f"{prefix}{sequence:04d}"
-    while Order.objects.filter(Q(retail_transaction_number=candidate) | Q(order_number=candidate)).exists():
+    while Order.objects.filter(Q(retail_sale__retail_transaction_number=candidate) | Q(order_number=candidate)).exists():
         sequence += 1
         candidate = f"{prefix}{sequence:04d}"
     return candidate
@@ -726,7 +697,7 @@ def _record_retail_deposits_and_returns(order: Order, performed_by: str) -> Bott
                 order_item=allocation["orderItem"],
                 container_type=container_type,
                 container_count=uncovered,
-                reason=f"Retail deposit for {uncovered} uncovered {container_type.name}(s) — {order.retail_transaction_number}",
+                reason=f"Retail deposit for {uncovered} uncovered {container_type.name}(s) — {order.retail_sale.retail_transaction_number}",
                 reference_type="retail_sale",
                 reference_id=order.id,
                 performed_by=performed_by,
@@ -791,45 +762,40 @@ def create_retail_sale(
     request_id = str(payload.get("idempotencyKey") or "").strip()
     if not request_id:
         raise ValueError("idempotencyKey is required")
-    existing = Order.objects.filter(retail_request_id=request_id, sales_channel=SalesChannel.RETAIL_POS).first()
+    existing = Order.objects.filter(retail_sale__retail_request_id=request_id, sales_channel=SalesChannel.RETAIL_POS).first()
     if existing:
         return existing, False
 
     customer, walk_in = _resolve_retail_customer(payload)
-    fulfillment = str(payload.get("fulfillmentType") or RetailFulfillmentType.IMMEDIATE).strip().upper()
-    if fulfillment not in {RetailFulfillmentType.IMMEDIATE, RetailFulfillmentType.CUSTOMER_PICKUP}:
-        fulfillment = RetailFulfillmentType.IMMEDIATE
     quote = quote_retail_cart(warehouse=warehouse, payload=payload)
     if not expected_fingerprint or quote["fingerprint"] != expected_fingerprint:
         raise ValueError("Product, pricing, packaging, deposit, or inventory configuration changed; refresh the quote")
 
     number = _next_retail_number()
     payment = quote["payment"]
-    immediate = fulfillment == RetailFulfillmentType.IMMEDIATE
+    # Retail checkout completes the sale and consumes stock immediately.
     order = Order.objects.create(
         order_number=number,
-        retail_transaction_number=number,
-        retail_request_id=request_id,
         customer=customer,
-        status=OrderStatus.DELIVERED if immediate else OrderStatus.PENDING,
+        status=OrderStatus.DELIVERED,
         priority="normal",
         subtotal=float(payment["productTotal"]),
-        tax=0,
-        shipping_cost=0,
         discount=0,
         total_amount=float(payment["grandTotal"]),
-        payment_status=str(payment["paymentStatus"]),
-        amount_paid=payment["amountPaid"],
-        remaining_balance=payment["remainingBalance"],
         warehouse_id=warehouse.id,
         sales_channel=SalesChannel.RETAIL_POS,
-        fulfillment_type=fulfillment,
-        pickup_status=(RetailPickupStatus.NOT_APPLICABLE if immediate else RetailPickupStatus.PENDING_PICKUP),
-        retail_status=(RetailTransactionStatus.COMPLETED if immediate else RetailTransactionStatus.RESERVED),
+        notes=walk_in["notes"],
+    )
+
+    # Persist the sale header separately; stock/deposit links retain the transaction ID.
+    RetailSale.objects.create(
+        order=order,
+        retail_transaction_number=number,
+        retail_request_id=request_id,
+        retail_status=RetailTransactionStatus.COMPLETED,
         walk_in_name=walk_in["name"],
         walk_in_contact=walk_in["contact"],
         walk_in_notes=walk_in["notes"],
-        notes=walk_in["notes"],
         created_by_user=staff,
         created_by_name=staff.name,
     )
@@ -899,8 +865,7 @@ def create_retail_sale(
             reserve_order_item(item, "FEFO", staff.name)
 
     _record_retail_deposits_and_returns(order, staff.name)
-    if immediate:
-        consume_order_reservations(order, staff.name)
+    consume_order_reservations(order, staff.name)
     return order, True
 
 
@@ -921,8 +886,6 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
         item_sizes = []
         if item.product and isinstance(item.product.sizes, list) and item.product.sizes:
             item_sizes = [str(s).strip() for s in item.product.sizes if str(s).strip()]
-        elif item.product and item.product.packaging_profile and item.product.packaging_profile.container_size:
-            item_sizes = [str(item.product.packaging_profile.container_size).strip()]
 
         components = []
         components_for_item = sorted(
@@ -932,8 +895,6 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
             comp_sizes = []
             if component.product and isinstance(component.product.sizes, list) and component.product.sizes:
                 comp_sizes = [str(s).strip() for s in component.product.sizes if str(s).strip()]
-            elif component.product and component.product.packaging_profile and component.product.packaging_profile.container_size:
-                comp_sizes = [str(component.product.packaging_profile.container_size).strip()]
 
             components.append(
                 {
@@ -994,32 +955,32 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
         }
         for row in order.bottle_returns.all().order_by("created_at", "id")
     ]
-    customer_name = order.customer.name if order.customer else (order.walk_in_name or "Walk-in Customer")
+    customer_name = order.customer.name if order.customer else (order.retail_sale.walk_in_name or "Walk-in Customer")
     warehouse = getattr(order, "warehouse", None) or (Warehouse.objects.filter(id=order.warehouse_id).first() if order.warehouse_id else None)
     # Fix: serialize the resolved warehouse name instead of referencing an undefined variable.
     warehouse_name = warehouse.name if warehouse else None
     warehouse_code = warehouse.code if warehouse else None
     return {
         "id": order.id,
-        "transactionNumber": order.retail_transaction_number or order.order_number,
+        "transactionNumber": order.retail_sale.retail_transaction_number or order.order_number,
         "orderNumber": order.order_number,
         "date": order.created_at.isoformat(),
         "createdAt": order.created_at.isoformat(),
         "customer": (
             {"type": "EXISTING", "id": order.customer_id, "name": customer_name, "contactNumber": order.customer.phone}
             if order.customer
-            else {"type": "WALK_IN", "id": None, "name": customer_name, "contactNumber": order.walk_in_contact}
+            else {"type": "WALK_IN", "id": None, "name": customer_name, "contactNumber": order.retail_sale.walk_in_contact}
         ),
         "customerType": "EXISTING" if order.customer else "WALK_IN",
         "customerName": customer_name,
-        "walkInName": order.walk_in_name,
-        "walkInContact": order.walk_in_contact,
-        "walkInNotes": order.walk_in_notes,
-        "customerPhone": order.customer.phone if order.customer else order.walk_in_contact,
+        "walkInName": order.retail_sale.walk_in_name,
+        "walkInContact": order.retail_sale.walk_in_contact,
+        "walkInNotes": order.retail_sale.walk_in_notes,
+        "customerPhone": order.customer.phone if order.customer else order.retail_sale.walk_in_contact,
         "warehouseId": order.warehouse_id,
         "warehouseName": warehouse_name,
         "warehouseCode": warehouse_code,
-        "staff": {"id": order.created_by_user_id, "name": order.created_by_name},
+        "staff": {"id": order.retail_sale.created_by_user_id, "name": order.retail_sale.created_by_name},
         "items": items,
         "productTotal": _money_text(order.subtotal),
         "subtotal": _money_text(order.subtotal),
@@ -1028,58 +989,12 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
         "depositTotal": _money_text(money(order.total_amount) - money(order.subtotal)),
         "grandTotal": _money_text(order.total_amount),
         "totalAmount": _money_text(order.total_amount),
-        "amountPaid": _money_text(order.amount_paid),
-        "remainingBalance": _money_text(order.remaining_balance),
-        "change": _money_text(max(money(order.amount_paid) - money(order.total_amount), Decimal("0.00"))),
-        "paymentStatus": order.payment_status,
-        "fulfillmentType": order.fulfillment_type,
-        "pickupStatus": order.pickup_status,
-        "transactionStatus": order.retail_status,
+        "transactionStatus": order.retail_sale.retail_status,
         "bottleReturns": bottle_returns,
         "cancelledAt": order.cancelled_at.isoformat() if order.cancelled_at else None,
         "cancelledBy": order.cancelled_by_name,
         "cancellationReason": order.cancellation_reason,
     }
-
-
-@transaction.atomic
-def update_retail_payment(order: Order, amount_paid: Any, staff: User) -> Order:
-    locked = Order.objects.select_for_update().get(id=order.id, sales_channel=SalesChannel.RETAIL_POS)
-    if locked.retail_status == RetailTransactionStatus.CANCELLED:
-        raise ValueError("Cancelled retail transactions cannot be paid")
-    deposit = money(locked.total_amount) - money(locked.subtotal)
-    payment = calculate_payment_summary(money(locked.subtotal), deposit, money(amount_paid))
-    locked.amount_paid = payment["amountPaid"]
-    locked.remaining_balance = payment["remainingBalance"]
-    locked.payment_status = str(payment["paymentStatus"])
-    locked.notes = f"{locked.notes or ''}\nPayment updated by {staff.name} at {timezone.now().isoformat()}".strip()
-    locked.save(update_fields=["amount_paid", "remaining_balance", "payment_status", "notes", "updated_at"])
-    return locked
-
-
-@transaction.atomic
-def update_retail_pickup_status(order: Order, next_status: str, staff: User) -> Order:
-    locked = Order.objects.select_for_update().get(id=order.id, sales_channel=SalesChannel.RETAIL_POS)
-    if locked.fulfillment_type != RetailFulfillmentType.CUSTOMER_PICKUP:
-        raise ValueError("Pickup status applies only to Customer Pickup transactions")
-    requested = str(next_status or "").strip().upper()
-    if requested == locked.pickup_status:
-        return locked
-    allowed = {
-        RetailPickupStatus.PENDING_PICKUP: {RetailPickupStatus.READY_FOR_PICKUP},
-        RetailPickupStatus.READY_FOR_PICKUP: {RetailPickupStatus.PICKED_UP_COMPLETED},
-        RetailPickupStatus.PICKED_UP_COMPLETED: set(),
-        RetailPickupStatus.CANCELLED: set(),
-    }
-    if requested not in allowed.get(locked.pickup_status, set()):
-        raise ValueError(f"Invalid pickup transition from {locked.pickup_status} to {requested}")
-    if requested == RetailPickupStatus.PICKED_UP_COMPLETED:
-        consume_order_reservations(locked, staff.name)
-        locked.retail_status = RetailTransactionStatus.COMPLETED
-        locked.status = OrderStatus.DELIVERED
-    locked.pickup_status = requested
-    locked.save(update_fields=["pickup_status", "retail_status", "status", "updated_at"])
-    return locked
 
 
 def _restock_consumed_retail_inventory(order: Order, performed_by: str) -> None:
@@ -1129,7 +1044,7 @@ def _restock_consumed_retail_inventory(order: Order, performed_by: str) -> None:
             mixed_case_component_id=reservation.mixed_case_component_id,
             case_capacity_snapshot=reservation.order_item.case_capacity,
             case_count_snapshot=reservation.order_item.quantity,
-            notes=f"Retail sale cancellation restock for {order.retail_transaction_number}",
+            notes=f"Retail sale cancellation restock for {order.retail_sale.retail_transaction_number}",
         )
 
 
@@ -1160,7 +1075,7 @@ def _reverse_retail_deposit_and_returns(order: Order, performed_by: str) -> None
             order_item=original.order_item,
             container_type=original.container_type,
             container_count=original.container_count,
-            reason=f"Retail cancellation reversal — {order.retail_transaction_number}",
+            reason=f"Retail cancellation reversal — {order.retail_sale.retail_transaction_number}",
             reference_type="retail_sale_cancellation",
             reference_id=order.id,
             performed_by=performed_by,
@@ -1207,7 +1122,7 @@ def cancel_retail_sale(
     empties_restored_to_customer: bool,
 ) -> Order:
     locked = Order.objects.select_for_update().get(id=order.id, sales_channel=SalesChannel.RETAIL_POS)
-    if locked.retail_status == RetailTransactionStatus.CANCELLED:
+    if locked.retail_sale.retail_status == RetailTransactionStatus.CANCELLED:
         return locked
     returned_count = sum(locked.items.values_list("empty_covered_quantity", flat=True))
     if returned_count > 0 and not empties_restored_to_customer:
@@ -1218,8 +1133,8 @@ def cancel_retail_sale(
         _restock_consumed_retail_inventory(locked, staff.name)
     _reverse_retail_deposit_and_returns(locked, staff.name)
     locked.status = OrderStatus.CANCELLED
-    locked.retail_status = RetailTransactionStatus.CANCELLED
-    locked.pickup_status = RetailPickupStatus.CANCELLED if locked.fulfillment_type == RetailFulfillmentType.CUSTOMER_PICKUP else RetailPickupStatus.NOT_APPLICABLE
+    locked.retail_sale.retail_status = RetailTransactionStatus.CANCELLED
+    locked.retail_sale.save(update_fields=["retail_status"])
     locked.cancelled_by_user_id = staff.id
     locked.cancelled_by_name = staff.name
     locked.cancellation_reason = str(reason or "").strip() or "Retail transaction cancelled"
@@ -1227,8 +1142,6 @@ def cancel_retail_sale(
     locked.save(
         update_fields=[
             "status",
-            "retail_status",
-            "pickup_status",
             "cancelled_by_user_id",
             "cancelled_by_name",
             "cancellation_reason",

@@ -295,6 +295,9 @@ def _expire_past_delivery_purchase_requests(order_ids: list[str] | None = None) 
             )
             if not updated:
                 continue
+            # QuerySet.update bypasses post_save; retain the separate PR decision too.
+            from .purchase_documents import sync_purchase_documents
+            sync_purchase_documents(order)
             # Fix: cancellation and reservation release must commit together.
             _release_order_reservations(order, None)
             OrderTimeline.objects.filter(order_id=order.id).update(cancelled_at=now, updated_at=now)

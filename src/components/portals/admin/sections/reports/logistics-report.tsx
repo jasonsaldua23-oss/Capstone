@@ -302,9 +302,9 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
   }
 
   return (
-    <div className="report-design-system space-y-6">
+    <div className="report-design-system flex flex-col gap-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="order-[-2] flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Logistics & Delivery Records</h2>
           <p className="text-sm text-slate-500">Fleet dispatch tracking, assigned vehicles, drivers, drop point success, and route milestones.</p>
@@ -401,7 +401,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       )}
 
       {/* Filter Bar */}
-      <Card className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <Card className="order-[-1] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {/* Search */}
           <div className="relative">

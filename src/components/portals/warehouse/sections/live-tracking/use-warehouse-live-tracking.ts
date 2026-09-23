@@ -188,12 +188,10 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
         const nextDropPoint = nextPendingIndex !== -1 ? dropPoints[nextPendingIndex] : null
         const warehouseStartLat =
           toCoordinate(trip?.warehouseLatitude) ??
-          toCoordinate(trip?.warehouse?.latitude) ??
-          toCoordinate(trip?.startLatitude)
+          toCoordinate(trip?.warehouse?.latitude)
         const warehouseStartLng =
           toCoordinate(trip?.warehouseLongitude) ??
-          toCoordinate(trip?.warehouse?.longitude) ??
-          toCoordinate(trip?.startLongitude)
+          toCoordinate(trip?.warehouse?.longitude)
         const warehouseStart =
           warehouseStartLat !== null && warehouseStartLng !== null
             ? ([warehouseStartLat, warehouseStartLng] as [number, number])

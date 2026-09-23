@@ -17,6 +17,8 @@ from .models import (
     OrderTimeline,
     OrderStatus,
     PurchaseOrderStage,
+    PurchaseOrder,
+    PurchaseRequest,
     PurchaseRequestStatus,
     Product,
     Replacement,
@@ -134,6 +136,27 @@ class PurchaseRequestWorkflowTests(TestCase):
         self.assertEqual(self.order.request_status, PurchaseRequestStatus.CANCELLED)
         self.assertEqual(self.order.cancellation_reason, "Delivery date expired before approval")
         self.assertFalse(bool(self.order.purchase_order_number))
+
+    def test_approved_request_is_a_locked_document_linked_to_one_po(self):
+        self.test_warehouse_approval_creates_purchase_order_metadata()
+        request = PurchaseRequest.objects.get(transaction=self.order)
+        purchase_order = PurchaseOrder.objects.get(transaction=self.order)
+        self.assertEqual(purchase_order.purchase_request_id, request.pk)
+        self.assertIsNotNone(request.locked_at)
+        snapshot = request.snapshot.copy()
+        # Later fulfillment cancellation belongs to the PO, never to its original PR.
+        self.order.status = OrderStatus.CANCELLED
+        self.order.cancellation_reason = 'Delivery cancelled after approval'
+        self.order.total_amount = 125
+        self.order.save()
+        request.refresh_from_db()
+        self.assertEqual(request.snapshot, snapshot)
+        self.assertIsNone(request.snapshot['cancellation_reason'])
+        self.assertEqual(request.snapshot['total_amount'], 100)
+        self.assertEqual(PurchaseOrder.objects.filter(transaction=self.order).count(), 1)
+        request.status = PurchaseRequestStatus.CANCELLED
+        with self.assertRaisesMessage(ValueError, 'cannot be updated'):
+            request.save()
 
     def test_orders_list_expires_pending_request_with_past_delivery_date(self) -> None:
         timeline = self.order.timeline

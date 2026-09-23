@@ -731,29 +731,3 @@ export function formatIssueStatusImpl(entry: WarehouseReplacementItem, deps: For
   if (normalizedStatus === 'IN_PROGRESS') return 'In Progress'
   return 'Reported'
 }
-
-export const receiveReplacementReturn = async (
-  replacementId: string,
-  returnedLines: Array<{ replacementLineId: string; quantityBaseUnits: number }>
-) => {
-  try {
-    const response = await fetch(`/api/replacements/${replacementId}/receive-return`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        requestId: `ret-${Date.now()}`,
-        returnedLines,
-      }),
-    })
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok || payload?.success === false) {
-      throw new Error(payload?.error || payload?.message || 'Failed to process replacement return')
-    }
-    toast.success('Replacement return received successfully')
-    emitDataSync(['replacements', 'inventory', 'stock-batches'])
-  } catch (error: any) {
-    toast.error(error?.message || 'Failed to process replacement return')
-    throw error
-  }
-}

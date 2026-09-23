@@ -17,5 +17,4 @@ def ensure_demo_accounts() -> None:
         license_number=f"DEMO-DRIVER-{driver_user.id[-6:].upper()}",
         license_type="B",
         license_expiry=timezone.now() + timedelta(days=1500),
-        hired_at=timezone.now(),
     )
