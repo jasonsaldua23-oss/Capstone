@@ -38,6 +38,7 @@ import { formatPeso, formatDayKey, withinRange, toIsoDateTime } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
 import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { formatOrderItemsForExport, isCancelledReportStatus } from '@/lib/report-metrics'
 
 interface PurchaseRequestsReportProps {
   orders: any[]
@@ -54,10 +55,13 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 15
 
-  // Extract purchase requests from orders (wholesale orders with PR number or request status)
+  // Extract only real purchase-request documents. A transaction can remain for
+  // audit history after its PurchaseRequest row is deleted and must not recreate
+  // a phantom PR from legacy number/status fields.
   const rawPRList = useMemo(() => {
     return orders
       .filter((o) => {
+        if (!o.purchaseRequest) return false
         // Exclude retail-only counter sales if they don't have PR lifecycle
         const channel = String(o.salesChannel || '').toUpperCase()
         return channel !== 'RETAIL_POS' && !o.isScheduledReplacement && !String(o.orderNumber || '').startsWith('RPL-')
@@ -67,7 +71,18 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
         const o = { ...transaction, ...transaction.purchaseRequest?.snapshot }
         const prNumber = o.purchaseRequestNumber || o.requestId || `PR-${o.orderNumber || o.id?.slice(-6)}`
         const requester = o.customer?.name || o.shippingName || o.walkInName || 'Customer / Requester'
-        const status = String(o.requestStatus || (o.status === 'CANCELLED' || o.status === 'REJECTED' ? 'REJECTED' : o.status === 'PENDING' ? 'PENDING_APPROVAL' : 'APPROVED')).toUpperCase()
+        const rawStatus = String(
+          o.requestStatus || (
+            isCancelledReportStatus(o.status)
+              ? 'CANCELLED'
+              : o.status === 'REJECTED'
+                ? 'REJECTED'
+                : o.status === 'PENDING'
+                  ? 'PENDING_APPROVAL'
+                  : 'APPROVED'
+          )
+        ).toUpperCase()
+        const status = isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus
         const approver = o.approvedByName || (status === 'APPROVED' ? 'Operations Admin' : null)
         const rejector = o.rejectedByName || (status === 'REJECTED' ? 'Operations Admin' : null)
         // Approved requests are immutable purchase-order inputs. Order cancellation
@@ -93,6 +108,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
           amount,
           date,
           itemsCount: Array.isArray(o.items) ? o.items.length : 0,
+          products: formatOrderItemsForExport(o.items),
         }
       })
   }, [orders])
@@ -229,16 +245,19 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
   }
 
   const exportColumns: ExportColumn[] = [
-    { header: 'PR Number', key: 'prNumber' },
+    { header: 'PR Number', key: 'prNumber', widthWeight: 1.15 },
     { header: 'Order Ref', key: 'orderNumber' },
-    { header: 'Requester', key: 'requester' },
-    { header: 'Status', key: 'status' },
+    { header: 'Requester', key: 'requester', widthWeight: 1.15 },
+    // Give product sizes and mixed-case component lines room to wrap cleanly.
+    { header: 'Products', key: 'products', widthWeight: 2.75 },
+    { header: 'Status', key: 'status', widthWeight: 0.9 },
     {
       header: 'Reason',
       accessor: (r) => r.reason || '—',
+      widthWeight: 1.15,
     },
-    { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
-    { header: 'Date & Time', accessor: (r) => formatReportTableDateTime(r.date) },
+    { header: 'Amount (₱)', accessor: (r) => Number(r.amount || 0).toFixed(2), widthWeight: 1 },
+    { header: 'Date & Time', accessor: (r) => formatReportTableDateTime(r.date), widthWeight: 1.2 },
   ]
 
   const handleExportCsv = () => {

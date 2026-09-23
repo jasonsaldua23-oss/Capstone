@@ -1,0 +1,881 @@
+{
+  "generatedAt": "2026-09-23T13:37:06.901374+00:00",
+  "database": "Django in-memory SQLite via config.settings_case_runner",
+  "djangoExitCode": 0,
+  "nodeExitCode": 0,
+  "cases": [
+    {
+      "id": "TC-01",
+      "title": "Admin or owner valid login",
+      "module": "Authentication",
+      "layer": "Backend contract plus browser UI",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_valid_staff_credentials_create_token_and_update_last_login"
+      ],
+      "observed": [
+        "test_valid_staff_credentials_create_token_and_update_last_login (core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_valid_staff_credentials_create_token_and_update_last_login) ... ok"
+      ]
+    },
+    {
+      "id": "TC-02",
+      "title": "Role-based portal redirection",
+      "module": "Authentication",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_generic_staff_login_returns_the_account_role",
+        "core.test_google_oauth_audiences.UnifiedLoginTests.test_password_sign_in_routes_an_existing_customer"
+      ],
+      "observed": [
+        "test_generic_staff_login_returns_the_account_role (core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_generic_staff_login_returns_the_account_role) ... ok",
+        "test_password_sign_in_routes_an_existing_customer (core.test_google_oauth_audiences.UnifiedLoginTests.test_password_sign_in_routes_an_existing_customer) ... ok"
+      ]
+    },
+    {
+      "id": "TC-03",
+      "title": "Invalid login is rejected",
+      "module": "Authentication",
+      "layer": "Backend contract plus browser UI",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_invalid_staff_password_is_rejected_without_updating_last_login"
+      ],
+      "observed": [
+        "test_invalid_staff_password_is_rejected_without_updating_last_login (core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_invalid_staff_password_is_rejected_without_updating_last_login) ... Authentication failure portal=admin account_hash=6481bd74fb1c source_ip=127.0.0.1 count=1 ... ok"
+      ]
+    },
+    {
+      "id": "TC-04",
+      "title": "Client registration submission",
+      "module": "Authentication",
+      "layer": "Backend contract plus browser UI",
+      "result": "Pass",
+      "checks": [
+        "core.test_customer_registration_approval.RegistrationIsPendingTests.test_registration_is_received_without_a_session"
+      ],
+      "observed": [
+        "test_registration_is_received_without_a_session (core.test_customer_registration_approval.RegistrationIsPendingTests.test_registration_is_received_without_a_session) ... ok"
+      ]
+    },
+    {
+      "id": "TC-05",
+      "title": "Valid OTP activates client access",
+      "module": "Authentication",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_customer_email_verification_request_and_confirm_issue_token"
+      ],
+      "observed": [
+        "test_customer_email_verification_request_and_confirm_issue_token (core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_customer_email_verification_request_and_confirm_issue_token) ... ok"
+      ]
+    },
+    {
+      "id": "TC-06",
+      "title": "Invalid OTP is rejected",
+      "module": "Authentication",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_login_two_factor_rejects_invalid_otp"
+      ],
+      "observed": [
+        "test_login_two_factor_rejects_invalid_otp (core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_login_two_factor_rejects_invalid_otp) ... Login OTP failure account_hash=6481bd74fb1c source_ip=127.0.0.1 count=1 ... ok"
+      ]
+    },
+    {
+      "id": "TC-07",
+      "title": "Owner creates staff or driver credentials",
+      "module": "Authentication",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_user_name_fields.UserCreationNameFieldTests.test_structured_name_parts_are_persisted",
+        "core.test_user_name_fields.UserCreationNameFieldTests.test_driver_service_area_is_saved_during_creation"
+      ],
+      "observed": [
+        "test_structured_name_parts_are_persisted (core.test_user_name_fields.UserCreationNameFieldTests.test_structured_name_parts_are_persisted) ... ok",
+        "test_driver_service_area_is_saved_during_creation (core.test_user_name_fields.UserCreationNameFieldTests.test_driver_service_area_is_saved_during_creation) ... ok"
+      ]
+    },
+    {
+      "id": "TC-08",
+      "title": "Duplicate email and weak password validation",
+      "module": "Authentication",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_single_warehouse.SingleWarehouseApiContractTests.test_duplicate_email_is_rejected_across_account_types",
+        "core.test_auth_sessions.PasswordPolicyContractTests.test_users_collection_rejects_weak_password"
+      ],
+      "observed": [
+        "test_duplicate_email_is_rejected_across_account_types (core.test_single_warehouse.SingleWarehouseApiContractTests.test_duplicate_email_is_rejected_across_account_types) ... ok",
+        "test_users_collection_rejects_weak_password (core.test_auth_sessions.PasswordPolicyContractTests.test_users_collection_rejects_weak_password) ... ok"
+      ]
+    },
+    {
+      "id": "TC-09",
+      "title": "Client password reset through OTP",
+      "module": "Authentication",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_password_reset_otp_updates_customer_password"
+      ],
+      "observed": [
+        "test_password_reset_otp_updates_customer_password (core.test_auth_trip_feedback_flows.AuthenticationFlowTests.test_password_reset_otp_updates_customer_password) ... ok"
+      ]
+    },
+    {
+      "id": "TC-10",
+      "title": "Owner resets staff or driver password",
+      "module": "Authentication",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_single_warehouse.SingleWarehouseApiContractTests.test_admin_can_reset_selected_user_password_without_user_otp"
+      ],
+      "observed": [
+        "test_admin_can_reset_selected_user_password_without_user_otp (core.test_single_warehouse.SingleWarehouseApiContractTests.test_admin_can_reset_selected_user_password_without_user_otp) ... ok"
+      ]
+    },
+    {
+      "id": "TC-11",
+      "title": "Employee profile updates persist",
+      "module": "Profile",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_sessions.StaffPhoneValidationContractTests.test_staff_phone_update_persists_valid_philippine_mobile",
+        "core.test_driver_api.DriverProfileApiContractTests.test_driver_profile_put_updates_avatar"
+      ],
+      "observed": [
+        "test_staff_phone_update_persists_valid_philippine_mobile (core.test_auth_sessions.StaffPhoneValidationContractTests.test_staff_phone_update_persists_valid_philippine_mobile) ... ok",
+        "test_driver_profile_put_updates_avatar (core.test_driver_api.DriverProfileApiContractTests.test_driver_profile_put_updates_avatar) ... ok"
+      ]
+    },
+    {
+      "id": "TC-12",
+      "title": "Invalid employee profile data is rejected",
+      "module": "Profile",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_sessions.StaffPhoneValidationContractTests.test_staff_phone_update_rejects_non_numeric_or_invalid_mobile",
+        "core.test_driver_api.DriverProfileApiContractTests.test_driver_profile_rejects_invalid_phone_and_past_license_expiry"
+      ],
+      "observed": [
+        "test_staff_phone_update_rejects_non_numeric_or_invalid_mobile (core.test_auth_sessions.StaffPhoneValidationContractTests.test_staff_phone_update_rejects_non_numeric_or_invalid_mobile) ... ok",
+        "test_driver_profile_rejects_invalid_phone_and_past_license_expiry (core.test_driver_api.DriverProfileApiContractTests.test_driver_profile_rejects_invalid_phone_and_past_license_expiry) ... ok"
+      ]
+    },
+    {
+      "id": "TC-13",
+      "title": "Driver license profile details are saved",
+      "module": "Profile",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_driver_api.DriverProfileApiContractTests.test_driver_profile_put_updates_driver_and_user_fields"
+      ],
+      "observed": [
+        "test_driver_profile_put_updates_driver_and_user_fields (core.test_driver_api.DriverProfileApiContractTests.test_driver_profile_put_updates_driver_and_user_fields) ... ok"
+      ]
+    },
+    {
+      "id": "TC-14",
+      "title": "Client profile and delivery coordinates are retained",
+      "module": "Profile",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_customer_orders.CustomerTrackingApiContractTests.test_customer_profile_put_persists_first_and_last_names",
+        "core.test_customer_orders.CustomerOrdersPostApiContractTests.test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided"
+      ],
+      "observed": [
+        "test_customer_profile_put_persists_first_and_last_names (core.test_customer_orders.CustomerTrackingApiContractTests.test_customer_profile_put_persists_first_and_last_names) ... ok",
+        "test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided (core.test_customer_orders.CustomerOrdersPostApiContractTests.test_customer_orders_post_auto_assigns_nearest_fulfillable_warehouse_when_not_provided) ... ok"
+      ]
+    },
+    {
+      "id": "TC-15",
+      "title": "Unsupported delivery location is rejected",
+      "module": "Profile",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_driver_service_areas.DriverServiceAreaTests.test_trip_endpoint_rejects_unassigned_destination_without_creating_trip"
+      ],
+      "observed": [
+        "test_trip_endpoint_rejects_unassigned_destination_without_creating_trip (core.test_driver_service_areas.DriverServiceAreaTests.test_trip_endpoint_rejects_unassigned_destination_without_creating_trip) ... ok"
+      ]
+    },
+    {
+      "id": "TC-16",
+      "title": "Vehicle records support delivery planning",
+      "module": "Master Data",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_trip_planning.RoutePlanStructureContractTests.test_route_plan_get_returns_drivers_vehicles_orders_and_grouped_plans"
+      ],
+      "observed": [
+        "test_route_plan_get_returns_drivers_vehicles_orders_and_grouped_plans (core.test_trip_planning.RoutePlanStructureContractTests.test_route_plan_get_returns_drivers_vehicles_orders_and_grouped_plans) ... ok"
+      ]
+    },
+    {
+      "id": "TC-17",
+      "title": "Duplicate or conflicting vehicle use is prevented",
+      "module": "Master Data",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_trip_execution.TripExecutionApiContractTests.test_trip_start_refuses_second_active_trip_and_leaves_it_planned"
+      ],
+      "observed": [
+        "test_trip_start_refuses_second_active_trip_and_leaves_it_planned (core.test_trip_execution.TripExecutionApiContractTests.test_trip_start_refuses_second_active_trip_and_leaves_it_planned) ... ok"
+      ]
+    },
+    {
+      "id": "TC-18",
+      "title": "Driver-to-vehicle assignment is accepted",
+      "module": "Master Data",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_driver_license_qualification.DriverVehicleAssignmentApiTests.test_assigning_code_c_driver_to_truck_succeeds"
+      ],
+      "observed": [
+        "test_assigning_code_c_driver_to_truck_succeeds (core.test_driver_license_qualification.DriverVehicleAssignmentApiTests.test_assigning_code_c_driver_to_truck_succeeds) ... ok"
+      ]
+    },
+    {
+      "id": "TC-19",
+      "title": "Active-trip assignment conflict is prevented",
+      "module": "Master Data",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_driver_api.DriverVehicleActiveTripValidationTests.test_vehicle_update_rejects_unassignment_during_active_trip"
+      ],
+      "observed": [
+        "test_vehicle_update_rejects_unassignment_during_active_trip (core.test_driver_api.DriverVehicleActiveTripValidationTests.test_vehicle_update_rejects_unassignment_during_active_trip) ... ok"
+      ]
+    },
+    {
+      "id": "TC-20",
+      "title": "Product registration calculates packaging data",
+      "module": "Master Data",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_product_weights.ProductWeightApiContractTests.test_registration_calculates_weight_without_client_value",
+        "core.test_upload_storage.ProductImageUploadTests.test_the_file_bytes_are_sent_to_the_bucket"
+      ],
+      "observed": [
+        "test_registration_calculates_weight_without_client_value (core.test_product_weights.ProductWeightApiContractTests.test_registration_calculates_weight_without_client_value) ... ok",
+        "test_the_file_bytes_are_sent_to_the_bucket (core.test_upload_storage.ProductImageUploadTests.test_the_file_bytes_are_sent_to_the_bucket) ... ok"
+      ]
+    },
+    {
+      "id": "TC-21",
+      "title": "Invalid product specifications are rejected",
+      "module": "Master Data",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_product_weights.ProductWeightApiContractTests.test_registration_rejects_product_when_weight_cannot_be_calculated"
+      ],
+      "observed": [
+        "test_registration_rejects_product_when_weight_cannot_be_calculated (core.test_product_weights.ProductWeightApiContractTests.test_registration_rejects_product_when_weight_cannot_be_calculated) ... ok"
+      ]
+    },
+    {
+      "id": "TC-22",
+      "title": "Stock batch receiving records inventory movement",
+      "module": "Inventory",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_warehouse_inventory.BulkStockInExistingProductContractTests.test_retry_does_not_duplicate_quantity_or_product",
+        "core.test_stock_batch_transaction_sync.StockBatchTransactionSyncTests.test_edit_preserves_stock_in_transaction_and_appends_adjustments"
+      ],
+      "observed": [
+        "test_retry_does_not_duplicate_quantity_or_product (core.test_warehouse_inventory.BulkStockInExistingProductContractTests.test_retry_does_not_duplicate_quantity_or_product) ... ok",
+        "test_edit_preserves_stock_in_transaction_and_appends_adjustments (core.test_stock_batch_transaction_sync.StockBatchTransactionSyncTests.test_edit_preserves_stock_in_transaction_and_appends_adjustments) ... ok"
+      ]
+    },
+    {
+      "id": "TC-23",
+      "title": "Expired or invalid stock receipt is rejected",
+      "module": "Inventory",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_warehouse_inventory.BulkStockInExistingProductContractTests.test_bulk_stock_in_rejects_past_expiry_date",
+        "core.test_mixed_case_backend_guards.MixedCaseBackendGuardTests.test_product_opening_stock_is_batch_backed_and_fractional_stock_is_rejected"
+      ],
+      "observed": [
+        "test_bulk_stock_in_rejects_past_expiry_date (core.test_warehouse_inventory.BulkStockInExistingProductContractTests.test_bulk_stock_in_rejects_past_expiry_date) ... ok",
+        "test_product_opening_stock_is_batch_backed_and_fractional_stock_is_rejected (core.test_mixed_case_backend_guards.MixedCaseBackendGuardTests.test_product_opening_stock_is_batch_backed_and_fractional_stock_is_rejected) ... ok"
+      ]
+    },
+    {
+      "id": "TC-24",
+      "title": "Inventory transaction history is scoped and auditable",
+      "module": "Inventory",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_warehouse_inventory.WarehouseStaffInventoryScopeContractTests.test_inventory_transactions_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_transactions"
+      ],
+      "observed": [
+        "test_inventory_transactions_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_transactions (core.test_warehouse_inventory.WarehouseStaffInventoryScopeContractTests.test_inventory_transactions_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_transactions) ... ok"
+      ]
+    },
+    {
+      "id": "TC-25",
+      "title": "Inventory thresholds and stock health update",
+      "module": "Inventory",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_inventory_alerts.InventoryStockAlertTests.test_reorder_and_out_of_stock_transitions_notify_admin_and_warehouse_staff"
+      ],
+      "observed": [
+        "test_reorder_and_out_of_stock_transitions_notify_admin_and_warehouse_staff (core.test_inventory_alerts.InventoryStockAlertTests.test_reorder_and_out_of_stock_transitions_notify_admin_and_warehouse_staff) ... ok"
+      ]
+    },
+    {
+      "id": "TC-26",
+      "title": "Negative or invalid stock quantity is prevented",
+      "module": "Inventory",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_stock_batch_transaction_sync.StockBatchTransactionSyncTests.test_batch_increase_cannot_exceed_warehouse_capacity",
+        "core.test_mixed_case_backend_guards.MixedCaseBackendGuardTests.test_inventory_adjustments_are_ledgered_and_keep_reserved_counters_nonnegative"
+      ],
+      "observed": [
+        "test_batch_increase_cannot_exceed_warehouse_capacity (core.test_stock_batch_transaction_sync.StockBatchTransactionSyncTests.test_batch_increase_cannot_exceed_warehouse_capacity) ... ok",
+        "test_inventory_adjustments_are_ledgered_and_keep_reserved_counters_nonnegative (core.test_mixed_case_backend_guards.MixedCaseBackendGuardTests.test_inventory_adjustments_are_ledgered_and_keep_reserved_counters_nonnegative) ... ok"
+      ]
+    },
+    {
+      "id": "TC-27",
+      "title": "Client order is created",
+      "module": "Orders",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_customer_orders.CustomerOrdersApiContractTests.test_customer_order_create_defaults_to_pending"
+      ],
+      "observed": [
+        "test_customer_order_create_defaults_to_pending (core.test_customer_orders.CustomerOrdersApiContractTests.test_customer_order_create_defaults_to_pending) ... ok"
+      ]
+    },
+    {
+      "id": "TC-28",
+      "title": "Mixed case is priced and processed",
+      "module": "Orders",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_mixed_case.MixedCaseApiTests.test_checkout_is_server_priced_and_idempotent"
+      ],
+      "observed": [
+        "test_checkout_is_server_priced_and_idempotent (core.test_mixed_case.MixedCaseApiTests.test_checkout_is_server_priced_and_idempotent) ... ok"
+      ]
+    },
+    {
+      "id": "TC-29",
+      "title": "Checkout cannot exceed available stock",
+      "module": "Orders",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_customer_orders.CustomerOrdersPostApiContractTests.test_large_insufficient_request_remains_visible_without_over_reserving"
+      ],
+      "observed": [
+        "test_large_insufficient_request_remains_visible_without_over_reserving (core.test_customer_orders.CustomerOrdersPostApiContractTests.test_large_insufficient_request_remains_visible_without_over_reserving) ... ok"
+      ]
+    },
+    {
+      "id": "TC-30",
+      "title": "Limited stock cannot be fulfilled twice",
+      "module": "Orders",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_customer_orders.CustomerOrdersPostApiContractTests.test_second_purchase_request_submission_does_not_overbook_reserved_stock"
+      ],
+      "observed": [
+        "test_second_purchase_request_submission_does_not_overbook_reserved_stock (core.test_customer_orders.CustomerOrdersPostApiContractTests.test_second_purchase_request_submission_does_not_overbook_reserved_stock) ... ok"
+      ]
+    },
+    {
+      "id": "TC-31",
+      "title": "Warehouse order queue returns scoped details",
+      "module": "Orders",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_warehouse_inventory.WarehouseStaffInventoryScopeContractTests.test_orders_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_orders",
+        "core.test_order_workflow.PaginationGuardsContractTests.test_orders_include_returns_always_exposes_customer_display_name"
+      ],
+      "observed": [
+        "test_orders_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_orders (core.test_warehouse_inventory.WarehouseStaffInventoryScopeContractTests.test_orders_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_orders) ... ok",
+        "test_orders_include_returns_always_exposes_customer_display_name (core.test_order_workflow.PaginationGuardsContractTests.test_orders_include_returns_always_exposes_customer_display_name) ... ok"
+      ]
+    },
+    {
+      "id": "TC-32",
+      "title": "Purchase order advances to preparation",
+      "module": "Orders",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_order_workflow.PurchaseRequestWorkflowTests.test_warehouse_approval_creates_purchase_order_metadata",
+        "core.test_order_workflow.OrderStatusTransitionApiContractTests.test_preparing_status_updates_order_and_timeline"
+      ],
+      "observed": [
+        "test_warehouse_approval_creates_purchase_order_metadata (core.test_order_workflow.PurchaseRequestWorkflowTests.test_warehouse_approval_creates_purchase_order_metadata) ... ok",
+        "test_preparing_status_updates_order_and_timeline (core.test_order_workflow.OrderStatusTransitionApiContractTests.test_preparing_status_updates_order_and_timeline) ... ok"
+      ]
+    },
+    {
+      "id": "TC-33",
+      "title": "Trip management data is available",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_trip_planning.RoutePlanStructureContractTests.test_route_plan_get_returns_drivers_vehicles_orders_and_grouped_plans"
+      ],
+      "observed": [
+        "test_route_plan_get_returns_drivers_vehicles_orders_and_grouped_plans (core.test_trip_planning.RoutePlanStructureContractTests.test_route_plan_get_returns_drivers_vehicles_orders_and_grouped_plans) ... ok"
+      ]
+    },
+    {
+      "id": "TC-34",
+      "title": "Delivery trip is created with stops",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_trip_planning.TripsPostCreationContractTests.test_trips_post_creates_trip_with_drop_points_and_total_count"
+      ],
+      "observed": [
+        "test_trips_post_creates_trip_with_drop_points_and_total_count (core.test_trip_planning.TripsPostCreationContractTests.test_trips_post_creates_trip_with_drop_points_and_total_count) ... ok"
+      ]
+    },
+    {
+      "id": "TC-35",
+      "title": "Vehicle load capacity is validated",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_trip_planning.TripsPostCreationContractTests.test_trips_post_rejects_vehicle_overload_and_reports_excess_weight"
+      ],
+      "observed": [
+        "test_trips_post_rejects_vehicle_overload_and_reports_excess_weight (core.test_trip_planning.TripsPostCreationContractTests.test_trips_post_rejects_vehicle_overload_and_reports_excess_weight) ... ok"
+      ]
+    },
+    {
+      "id": "TC-36",
+      "title": "Camera and location capture metadata is validated",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_pod_overlay.PodOverlayTests.test_parses_valid_capture_metadata",
+        "core.test_upload_endpoints.UploadEndpointsAuthContractTests.test_upload_pod_image_requires_driver_role"
+      ],
+      "observed": [
+        "test_parses_valid_capture_metadata (core.test_pod_overlay.PodOverlayTests.test_parses_valid_capture_metadata) ... ok",
+        "test_upload_pod_image_requires_driver_role (core.test_upload_endpoints.UploadEndpointsAuthContractTests.test_upload_pod_image_requires_driver_role) ... ok"
+      ]
+    },
+    {
+      "id": "TC-37",
+      "title": "Trip starts and GPS updates are accepted",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_trip_execution.TripExecutionApiContractTests.test_trip_start_sets_in_progress_and_actual_start_at",
+        "core.test_driver_api.DriverLocationAccuracyContractTests.test_degraded_but_usable_gps_sample_updates_the_driver_location"
+      ],
+      "observed": [
+        "test_trip_start_sets_in_progress_and_actual_start_at (core.test_trip_execution.TripExecutionApiContractTests.test_trip_start_sets_in_progress_and_actual_start_at) ... ok",
+        "test_degraded_but_usable_gps_sample_updates_the_driver_location (core.test_driver_api.DriverLocationAccuracyContractTests.test_degraded_but_usable_gps_sample_updates_the_driver_location) ... ok"
+      ]
+    },
+    {
+      "id": "TC-38",
+      "title": "Proof of delivery image contains capture overlay",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_pod_overlay.PodOverlayTests.test_burns_overlay_into_readable_jpeg"
+      ],
+      "observed": [
+        "test_burns_overlay_into_readable_jpeg (core.test_pod_overlay.PodOverlayTests.test_burns_overlay_into_readable_jpeg) ... ok"
+      ]
+    },
+    {
+      "id": "TC-39",
+      "title": "Live driver location uses the latest valid fix",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_trip_planning.TripsCollectionTrackingContractTests.test_trips_collection_include_tracking_and_date_filter",
+        "core.test_driver_api.DriverLocationAccuracyContractTests.test_inaccurate_sample_cannot_overwrite_reliable_driver_location"
+      ],
+      "observed": [
+        "test_trips_collection_include_tracking_and_date_filter (core.test_trip_planning.TripsCollectionTrackingContractTests.test_trips_collection_include_tracking_and_date_filter) ... ok",
+        "test_inaccurate_sample_cannot_overwrite_reliable_driver_location (core.test_driver_api.DriverLocationAccuracyContractTests.test_inaccurate_sample_cannot_overwrite_reliable_driver_location) ... ok"
+      ]
+    },
+    {
+      "id": "TC-40",
+      "title": "Client delivery tracking and POD are exposed",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_customer_orders.CustomerTrackingApiContractTests.test_customer_tracking_returns_status_and_order_status_for_compatibility",
+        "core.test_customer_orders.CustomerOrdersApiContractTests.test_customer_orders_falls_back_to_completed_stop_pod_photo"
+      ],
+      "observed": [
+        "test_customer_tracking_returns_status_and_order_status_for_compatibility (core.test_customer_orders.CustomerTrackingApiContractTests.test_customer_tracking_returns_status_and_order_status_for_compatibility) ... ok",
+        "test_customer_orders_falls_back_to_completed_stop_pod_photo (core.test_customer_orders.CustomerOrdersApiContractTests.test_customer_orders_falls_back_to_completed_stop_pod_photo) ... ok"
+      ]
+    },
+    {
+      "id": "TC-41",
+      "title": "Pending trip can be cancelled safely",
+      "module": "Transportation",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_trip_planning.RoutePlanStructureContractTests.test_trip_delete_rejects_non_planned_trip"
+      ],
+      "observed": [
+        "test_trip_delete_rejects_non_planned_trip (core.test_trip_planning.RoutePlanStructureContractTests.test_trip_delete_rejects_non_planned_trip) ... ok"
+      ]
+    },
+    {
+      "id": "TC-42",
+      "title": "Client submits a replacement claim with evidence",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_replacements.CustomerReplacementRequestContractTests.test_claim_stores_exactly_the_evidence_it_was_sent"
+      ],
+      "observed": [
+        "test_claim_stores_exactly_the_evidence_it_was_sent (core.test_replacements.CustomerReplacementRequestContractTests.test_claim_stores_exactly_the_evidence_it_was_sent) ... ok"
+      ]
+    },
+    {
+      "id": "TC-43",
+      "title": "Replacement claim requires valid evidence",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTests.test_invalid_images_rejected_and_upload_names_do_not_collide"
+      ],
+      "observed": [
+        "test_invalid_images_rejected_and_upload_names_do_not_collide (core.test_prelaunch_access_guards.PrelaunchRemainingSecurityTests.test_invalid_images_rejected_and_upload_names_do_not_collide) ... ok"
+      ]
+    },
+    {
+      "id": "TC-44",
+      "title": "Replacement quantity is capped",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_mixed_case_backend_guards.MixedCaseBackendGuardTests.test_standard_replacement_cap_uses_server_capacity_and_rejects_fractional_quantity"
+      ],
+      "observed": [
+        "test_standard_replacement_cap_uses_server_capacity_and_rejects_fractional_quantity (core.test_mixed_case_backend_guards.MixedCaseBackendGuardTests.test_standard_replacement_cap_uses_server_capacity_and_rejects_fractional_quantity) ... ok"
+      ]
+    },
+    {
+      "id": "TC-45",
+      "title": "Warehouse replacement list is scoped",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_warehouse_inventory.WarehouseStaffInventoryScopeContractTests.test_replacements_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_replacements"
+      ],
+      "observed": [
+        "test_replacements_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_replacements (core.test_warehouse_inventory.WarehouseStaffInventoryScopeContractTests.test_replacements_endpoint_for_warehouse_staff_returns_only_assigned_warehouse_replacements) ... ok"
+      ]
+    },
+    {
+      "id": "TC-46",
+      "title": "Replacement details include claim evidence",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_replacements.CustomerReplacementRequestContractTests.test_completed_replacement_serializes_linked_order_pod"
+      ],
+      "observed": [
+        "test_completed_replacement_serializes_linked_order_pod (core.test_replacements.CustomerReplacementRequestContractTests.test_completed_replacement_serializes_linked_order_pod) ... ok"
+      ]
+    },
+    {
+      "id": "TC-47",
+      "title": "Verified replacement enters processing",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_replacements.WarehouseReplacementProcessingContractTests.test_warehouse_starts_processing_before_scheduling_replacement"
+      ],
+      "observed": [
+        "test_warehouse_starts_processing_before_scheduling_replacement (core.test_replacements.WarehouseReplacementProcessingContractTests.test_warehouse_starts_processing_before_scheduling_replacement) ... ok"
+      ]
+    },
+    {
+      "id": "TC-48",
+      "title": "Replacement rejection state is enforced",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_replacements.CustomerReplacementRequestContractTests.test_customer_replacement_request_rejects_if_previous_replacement_was_rejected"
+      ],
+      "observed": [
+        "test_customer_replacement_request_rejects_if_previous_replacement_was_rejected (core.test_replacements.CustomerReplacementRequestContractTests.test_customer_replacement_request_rejects_if_previous_replacement_was_rejected) ... ok"
+      ]
+    },
+    {
+      "id": "TC-49",
+      "title": "Replacement redelivery is scheduled",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_replacements.WarehouseReplacementRescheduleContractTests.test_past_due_replacement_delivery_moves_to_the_new_date"
+      ],
+      "observed": [
+        "test_past_due_replacement_delivery_moves_to_the_new_date (core.test_replacements.WarehouseReplacementRescheduleContractTests.test_past_due_replacement_delivery_moves_to_the_new_date) ... ok"
+      ]
+    },
+    {
+      "id": "TC-50",
+      "title": "Replacement redelivery completes with POD",
+      "module": "Replacements",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_order_workflow.DeliveryLifecycleFlowContractTests.test_delivery_lifecycle_end_to_end",
+        "core.test_replacements.CustomerReplacementRequestContractTests.test_completed_replacement_serializes_linked_order_pod"
+      ],
+      "observed": [
+        "test_delivery_lifecycle_end_to_end (core.test_order_workflow.DeliveryLifecycleFlowContractTests.test_delivery_lifecycle_end_to_end) ... ok",
+        "test_completed_replacement_serializes_linked_order_pod (core.test_replacements.CustomerReplacementRequestContractTests.test_completed_replacement_serializes_linked_order_pod) ... ok"
+      ]
+    },
+    {
+      "id": "TC-51",
+      "title": "Client rating and category feedback is saved",
+      "module": "Feedback",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_trip_feedback_flows.FeedbackFlowTests.test_completed_order_feedback_is_persisted",
+        "core.test_notifications_feedback.FeedbackDescribedReasonTests.test_other_reason_is_stored_verbatim"
+      ],
+      "observed": [
+        "test_completed_order_feedback_is_persisted (core.test_auth_trip_feedback_flows.FeedbackFlowTests.test_completed_order_feedback_is_persisted) ... ok",
+        "test_other_reason_is_stored_verbatim (core.test_notifications_feedback.FeedbackDescribedReasonTests.test_other_reason_is_stored_verbatim) ... ok"
+      ]
+    },
+    {
+      "id": "TC-52",
+      "title": "Duplicate order feedback is prevented",
+      "module": "Feedback",
+      "layer": "Backend contract",
+      "result": "Pass",
+      "checks": [
+        "core.test_auth_trip_feedback_flows.FeedbackFlowTests.test_duplicate_feedback_for_the_same_order_is_rejected"
+      ],
+      "observed": [
+        "test_duplicate_feedback_for_the_same_order_is_rejected (core.test_auth_trip_feedback_flows.FeedbackFlowTests.test_duplicate_feedback_for_the_same_order_is_rejected) ... ok"
+      ]
+    },
+    {
+      "id": "TC-53",
+      "title": "Feedback KPIs and rating distribution are calculated",
+      "module": "Feedback",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "feedback KPI totals and period deltas come from one row set",
+        "dimension breakdown returns every bucket and counts each review once per dimension"
+      ],
+      "observed": [
+        "\u2714 feedback KPI totals and period deltas come from one row set (1.4361ms)",
+        "\u2714 dimension breakdown returns every bucket and counts each review once per dimension (1.6872ms)"
+      ]
+    },
+    {
+      "id": "TC-54",
+      "title": "Feedback ratings map to filterable dimensions",
+      "module": "Feedback",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "every rating option in the shared catalogs maps to a known service dimension",
+        "feedback messages parse into reasons and map onto service dimensions"
+      ],
+      "observed": [
+        "\u2714 every rating option in the shared catalogs maps to a known service dimension (2.1981ms)",
+        "\u2714 feedback messages parse into reasons and map onto service dimensions (5.4073ms)"
+      ]
+    },
+    {
+      "id": "TC-55",
+      "title": "Report access and module loading",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "report identity supports backend staff sessions and existing client profiles",
+        "opening Reports avoids unrelated requests, reuses orders, and refreshes invalidated tabs"
+      ],
+      "observed": [
+        "\u2714 report identity supports backend staff sessions and existing client profiles (1.823ms)",
+        "\u2714 opening Reports avoids unrelated requests, reuses orders, and refreshes invalidated tabs (23.7817ms)"
+      ]
+    },
+    {
+      "id": "TC-56",
+      "title": "Retail sales filters and KPIs",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "date presets cover exactly the number of days they name",
+        "every tab recognises revenue on delivery and only on delivery"
+      ],
+      "observed": [
+        "\u2714 date presets cover exactly the number of days they name (1.0292ms)",
+        "\u2714 every tab recognises revenue on delivery and only on delivery (0.5812ms)"
+      ]
+    },
+    {
+      "id": "TC-57",
+      "title": "Transportation performance report and PDF",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "active trip counting uses normalized trip statuses",
+        "PDF retains rows, columns and long cell values across pages"
+      ],
+      "observed": [
+        "\u2714 active trip counting uses normalized trip statuses (0.5624ms)",
+        "\u2714 PDF retains rows, columns and long cell values across pages (255.3859ms)"
+      ]
+    },
+    {
+      "id": "TC-58",
+      "title": "Inventory movement report and PDF",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "inventory movement selectors keep only in and out and chart totals match row totals",
+        "PDF retains rows, columns and long cell values across pages"
+      ],
+      "observed": [
+        "\u2714 inventory movement selectors keep only in and out and chart totals match row totals (50.3647ms)",
+        "\u2714 PDF retains rows, columns and long cell values across pages (255.3859ms)"
+      ]
+    },
+    {
+      "id": "TC-59",
+      "title": "Replacement report sources and filters",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "report dependencies include the sources used by charts and exports",
+        "date presets cover exactly the number of days they name"
+      ],
+      "observed": [
+        "\u2714 report dependencies include the sources used by charts and exports (0.616ms)",
+        "\u2714 date presets cover exactly the number of days they name (1.0292ms)"
+      ]
+    },
+    {
+      "id": "TC-60",
+      "title": "Feedback satisfaction report and PDF",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "feedback KPI totals and period deltas come from one row set",
+        "PDF retains rows, columns and long cell values across pages"
+      ],
+      "observed": [
+        "\u2714 feedback KPI totals and period deltas come from one row set (1.4361ms)",
+        "\u2714 PDF retains rows, columns and long cell values across pages (255.3859ms)"
+      ]
+    },
+    {
+      "id": "TC-61",
+      "title": "CSV export preserves structured records",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "CSV export includes headers, escaped values and every row"
+      ],
+      "observed": [
+        "\u2714 CSV export includes headers, escaped values and every row (1.3517ms)"
+      ]
+    },
+    {
+      "id": "TC-62",
+      "title": "PDF export preserves printable layout",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "PDF retains rows, columns and long cell values across pages",
+        "PDF column cleanup removes redundant purchase document fields"
+      ],
+      "observed": [
+        "\u2714 PDF retains rows, columns and long cell values across pages (255.3859ms)",
+        "\u2714 PDF column cleanup removes redundant purchase document fields (2.2419ms)"
+      ]
+    },
+    {
+      "id": "TC-63",
+      "title": "Empty export does not create a file",
+      "module": "Reports",
+      "layer": "Frontend contract",
+      "result": "Pass",
+      "checks": [
+        "empty CSV export does not create a download"
+      ],
+      "observed": [
+        "\u2714 empty CSV export does not create a download (0.2766ms)"
+      ]
+    }
+  ]
+}

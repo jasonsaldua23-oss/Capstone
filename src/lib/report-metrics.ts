@@ -69,10 +69,16 @@ export type WarehouseOrderStats = {
 
 export type OrderReportStatus = 'DELIVERED' | 'PENDING' | 'CANCELLED'
 
+// Treat backend and POS spelling variants as the same cancelled business outcome.
+export function isCancelledReportStatus(status: unknown): boolean {
+  return ['CANCELLED', 'CANCELED', 'VOIDED'].includes(String(status || '').trim().toUpperCase())
+}
+
 export type OrderReportRow = {
   orderNumber: string
   customer: string
   itemSummary: string
+  exportItemSummary: string
   productNameWithSize: string
   productCategory: string
   totalQuantity: number
@@ -151,8 +157,9 @@ function getRangeGranularity(rangeDays: string) {
 
 // Product names appear in several report tables and charts, so size formatting is centralized here for consistency.
 export function getReportProductSizeLabel(product: any) {
-  const sizes = Array.isArray(product?.sizes)
-    ? product.sizes.map((entry: any) => String(entry || '').trim()).filter(Boolean)
+  const rawSizes = Array.isArray(product?.sizes) ? product.sizes : product?.product?.sizes
+  const sizes = Array.isArray(rawSizes)
+    ? rawSizes.map((entry: any) => String(entry || '').trim()).filter(Boolean)
     : []
   if (sizes.length > 0) return sizes.join(', ')
 
@@ -161,17 +168,40 @@ export function getReportProductSizeLabel(product: any) {
     product?.size ??
     product?.productSize ??
     product?.variantSize ??
+    product?.product?.sizeLabel ??
+    product?.product?.size ??
+    product?.product?.productSize ??
     ''
   ).trim()
   if (fallback) return fallback
 
-  return String(product?.unit || '').trim()
+  return String(product?.unit || product?.product?.unit || '').trim()
 }
 
 export function formatReportProductName(product: any, fallbackName = 'Product') {
   const name = String(product?.name ?? product?.productName ?? product?.title ?? fallbackName).trim() || fallbackName
   const sizeLabel = getReportProductSizeLabel(product)
   return sizeLabel ? `${name} (${sizeLabel})` : name
+}
+
+// Exports must never leave readers guessing whether a product size was omitted.
+export function formatReportProductNameForExport(product: any, fallbackName = 'Product') {
+  const name = String(product?.name ?? product?.productName ?? product?.title ?? fallbackName).trim() || fallbackName
+  const sizeLabel = getReportProductSizeLabel(product)
+  const cleanName = name.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+  const cleanSize = sizeLabel.replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
+  if (cleanSize && !cleanName.toLowerCase().includes(cleanSize.toLowerCase())) return `${cleanName} ${cleanSize}`
+  if (cleanSize || /\b\d+(?:\.\d+)?\s*(?:ml|l|liter|litre|oz|cl|g|kg)\b/i.test(cleanName)) return cleanName
+  return `${cleanName} (Size not specified)`
+}
+
+// Purchase-order reports must contain issued POs only; never manufacture a PO
+// number from a purchase request or scheduled replacement order reference.
+export function isIssuedPurchaseOrder(order: any) {
+  const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
+  const isReplacement = Boolean(order?.isScheduledReplacement || order?.is_scheduled_replacement || order?.replacementNumber) || orderNumber.startsWith('RPL-')
+  const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
+  return !isReplacement && Boolean(purchaseOrderNumber)
 }
 
 export function getInventoryQuantity(item: any) {
@@ -413,7 +443,7 @@ function isWarehouseDashboardOrder(order: any) {
   const status = String(order?.status || '').trim().toUpperCase()
   return !Boolean(order?.isScheduledReplacement) &&
     !orderNumber.startsWith('RPL-') &&
-    status !== 'CANCELLED'
+    !isCancelledReportStatus(status)
 }
 
 export function summarizeWarehouseDashboardOrders(orders: any[]): WarehouseOrderStats {
@@ -492,9 +522,7 @@ export function normalizeOrderReportStatus(status: unknown): OrderReportStatus {
     return 'DELIVERED'
   }
 
-  if ([
-    'CANCELLED',
-    'CANCELED',
+  if (isCancelledReportStatus(rawStatus) || [
     'REJECTED',
     'FAILED',
     'FAILED_DELIVERY',
@@ -695,6 +723,35 @@ export function summarizeOrderItems(items: any[]) {
   return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`
 }
 
+// Export every ordered product, with mixed-case contents grouped beneath the case line.
+export function formatOrderItemsForExport(items: any[]) {
+  const normalizedItems = Array.isArray(items) ? items : []
+  const lines = normalizedItems.flatMap((item) => {
+    const quantity = Math.max(0, asNumber(item?.quantity ?? item?.qty))
+    if (item?.itemType === 'MIXED_CASE' || (Array.isArray(item?.components) && item.components.length > 0)) {
+      const capacity = Math.max(0, asNumber(item?.caseCapacity))
+      const components = (Array.isArray(item?.components) ? item.components : []).map((component: any) => {
+        const product = component?.product || {}
+        const nameWithSize = formatReportProductNameForExport(
+          { ...product, ...component, name: component?.productName || product?.name || 'Product' },
+        )
+        const componentQuantity = Math.max(0, asNumber(component?.quantityPerCase ?? component?.quantityBaseUnits ?? component?.quantity))
+        return `• ${nameWithSize} x${componentQuantity}`
+      })
+      return [
+        `Mixed Case — ${capacity} Glass Bottles x${quantity}`,
+        ...(components.length ? ['Components:', ...components] : []),
+      ]
+    }
+
+    const productSource = item?.product ? { ...item, ...item.product } : item
+    const nameWithSize = formatReportProductNameForExport(productSource)
+    return [`${nameWithSize} x${quantity}`]
+  })
+
+  return lines.length ? lines.join('\n') : 'No items recorded'
+}
+
 // Keep replacement orders out of the main order report because the system already has a dedicated replacements report.
 function isPrimaryOrderForReporting(order: any) {
   const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
@@ -732,6 +789,7 @@ export function buildOrderReportRows(
         orderNumber: String(order?.orderNumber || order?.order_number || 'N/A'),
         customer: String(order?.customer?.name || order?.shippingName || 'N/A'),
         itemSummary: summarizeOrderItems(order?.items),
+        exportItemSummary: formatOrderItemsForExport(order?.items),
         productNameWithSize: formatReportProductName(
           Array.isArray(order?.items) && order.items.length > 0
             ? (order.items[0]?.itemType === 'MIXED_CASE'

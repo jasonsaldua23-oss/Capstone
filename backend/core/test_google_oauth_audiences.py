@@ -64,24 +64,19 @@ class CustomerGoogleSessionTests(TestCase):
     claims = {"email": "google-session@example.com", "email_verified": True,
               "given_name": "Google", "family_name": "Customer", "name": "Google Customer"}
 
-    def sign_in(self):
+    def sign_in(self, *, sign_in_only: bool = False):
         with patch("core.views_api._verify_google_token", return_value=self.claims):
-            return self.client.post("/api/auth/customer/google", {"credential": "verified-by-mock", "rememberMe": True},
+            return self.client.post("/api/auth/customer/google", {
+                "credential": "verified-by-mock",
+                "rememberMe": True,
+                "signInOnly": sign_in_only,
+            },
                                     content_type="application/json", HTTP_ORIGIN="http://testserver")
-
-    def approve(self):
-        # New Google customers wait for an administrator before they get a session.
-        Customer.objects.filter(email=self.claims["email"]).update(approval_status="APPROVED")
 
     def test_new_customer_receives_working_cookie_and_bearer_sessions(self):
         response = self.sign_in()
         self.assertEqual(response.status_code, 201, response.content)
         self.assertTrue(response.json()["created"])
-        self.assertTrue(response.json()["pendingApproval"])
-        self.assertNotIn("token", response.json())
-        self.approve()
-        response = self.sign_in()
-        self.assertEqual(response.status_code, 200, response.content)
         token = response.json()["token"]
         session = self.client.get("/api/auth/me")
         self.assertEqual(session.status_code, 200, session.content)
@@ -92,11 +87,17 @@ class CustomerGoogleSessionTests(TestCase):
 
     def test_repeat_sign_in_reuses_customer(self):
         self.assertEqual(self.sign_in().status_code, 201)
-        self.approve()
         response = self.sign_in()
         self.assertEqual(response.status_code, 200, response.content)
         self.assertFalse(response.json()["created"])
         self.assertEqual(Customer.objects.filter(email=self.claims["email"]).count(), 1)
+
+    def test_sign_in_only_rejects_an_unregistered_google_account(self):
+        response = self.sign_in(sign_in_only=True)
+
+        self.assertEqual(response.status_code, 401, response.content)
+        self.assertEqual(response.json()["error"], "No registered account")
+        self.assertEqual(Customer.objects.filter(email=self.claims["email"]).count(), 0)
 
     def test_deactivated_customer_cannot_sign_in(self):
         Customer.objects.create(email=self.claims["email"], name="Disabled", password="unused", is_active=False)
@@ -226,6 +227,7 @@ class UnifiedLoginTests(TestCase):
         response = self.unified_google_sign_in(claims)
 
         self.assertEqual(response.status_code, 401, response.content)
+        self.assertEqual(response.json()["error"], "No registered account")
         self.assertEqual(Customer.objects.filter(email=email).count(), 0)
         self.assertEqual(User.objects.filter(email=email).count(), 0)
 
@@ -323,6 +325,7 @@ class StaffGoogleSessionTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 401, response.content)
+        self.assertEqual(response.json()["error"], "No registered account")
         self.assertEqual(User.objects.filter(email=self.claims["email"]).count(), 0)
 
     def test_deactivated_staff_cannot_sign_in_with_google(self):

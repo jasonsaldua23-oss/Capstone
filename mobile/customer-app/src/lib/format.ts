@@ -5,6 +5,9 @@ import type { CustomerProfileUpdateInput } from "../services/auth";
 import type { CustomerOrder } from "../types";
 
 export function formatStatusLabel(value?: string | null) {
+  const normalized = String(value || "Pending").trim().toUpperCase();
+  // PREPARING remains the wire value; the mobile portal displays Processing.
+  if (normalized === "PREPARING") return "Processing";
   return String(value || "Pending")
     .trim()
     .replace(/_/g, " ")

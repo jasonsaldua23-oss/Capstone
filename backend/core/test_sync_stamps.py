@@ -2,11 +2,12 @@
 
 from datetime import timedelta
 
+from django.db import connection
 from django.test import Client, TestCase
 from django.utils import timezone
 
 from .auth import create_token
-from .models import Inventory, Product, RoleType, SyncStamp, User, Warehouse
+from .models import Inventory, Order, Product, PurchaseRequest, RoleType, SyncStamp, User, Warehouse
 from .sync_stamps import (
     TRACKING_BUMP_INTERVAL_SECONDS,
     bump_scopes,
@@ -49,6 +50,44 @@ class SyncStampBumpTests(TestCase):
         # The portals read stock through both scopes, so they have to move together.
         self.assertGreater(after["inventory"], before["inventory"])
         self.assertGreater(after["stocks"], before["stocks"])
+
+    def test_direct_database_delete_bumps_the_report_scope(self) -> None:
+        """Database-dashboard deletes bypass Django, so the database trigger must publish them."""
+        warehouse = Warehouse.objects.create(
+            name="Direct Delete Warehouse",
+            code="SYNC-RAW-DELETE",
+            address="Test Street",
+            city="Bacolod",
+            province="Negros Occidental",
+            zip_code="6100",
+        )
+        before = read_stamps()
+
+        # Use raw SQL to reproduce a deletion performed outside the application.
+        with connection.cursor() as cursor:
+            cursor.execute('DELETE FROM "Warehouse" WHERE "id" = %s', [warehouse.id])
+
+        after = read_stamps()
+        self.assertGreater(after["warehouses"], before["warehouses"])
+        self.assertGreater(after["deletions"], before["deletions"])
+
+    def test_direct_purchase_request_delete_marks_parent_for_navigation_refresh(self) -> None:
+        order = Order.objects.create(
+            order_number="PR-DIRECT-NAV-DELETE",
+            purchase_request_number="PR-DIRECT-NAV-DELETE",
+            subtotal=100,
+            total_amount=100,
+        )
+        request = PurchaseRequest.objects.get(transaction=order)
+        previous_updated_at = order.updated_at
+
+        # Reproduce a database-dashboard deletion without invoking Django signals.
+        with connection.cursor() as cursor:
+            cursor.execute('DELETE FROM "PurchaseRequest" WHERE "id" = %s', [request.id])
+
+        order.refresh_from_db()
+        self.assertFalse(PurchaseRequest.objects.filter(transaction=order).exists())
+        self.assertGreater(order.updated_at, previous_updated_at)
 
     def test_bump_is_deferred_until_commit(self) -> None:
         """A revision published before its rows commit would strand every reader.

@@ -97,7 +97,7 @@ export function CustomerTrackView(props: any) {
 
   const timelineRows = [
     { key: 'pending', label: 'Order Confirmed', description: `We received your order ${order.orderNumber}.`, active: currentIndex >= 0 },
-    { key: 'preparing', label: 'Preparing Order', description: 'Warehouse is preparing your items.', active: currentIndex >= 1 },
+    { key: 'preparing', label: 'Processing Order', description: 'Warehouse is processing your items.', active: currentIndex >= 1 },
     { key: 'transit', label: 'Out for Delivery', description: 'Your order is on the way to your location.', active: currentIndex >= 2 },
     { key: 'delivered', label: 'Delivered', description: isDelivered ? 'Your package has been delivered.' : 'Waiting for final confirmation.', active: currentIndex >= 3 },
   ]

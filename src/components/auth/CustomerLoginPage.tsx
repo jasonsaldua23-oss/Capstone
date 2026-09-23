@@ -45,8 +45,6 @@ type CustomerLoginPageProps = {
   initialAuthMode?: 'login' | 'register'
   /** Lets alternate generic entry routes keep the return-to-login link in their own scope. */
   loginHref?: string
-  initialPendingApproval?: boolean
-  initialRegistrationRejected?: boolean
 }
 
 type CustomerLoginMethod = 'password' | 'google'
@@ -127,7 +125,8 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
     setLoginMethod('google')
     setIsLoading(true)
     try {
-      const requestBody = JSON.stringify({ credential, rememberMe: true })
+      // Fix: web and Capacitor login must never create an account for an unknown Google identity.
+      const requestBody = JSON.stringify({ credential, rememberMe: true, signInOnly: true })
       let response: Response | null = null
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
@@ -455,6 +454,8 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
           email,
           password,
           emailVerificationToken,
+          // Keep the newly issued registration session consistent with the form choice.
+          rememberMe,
         }),
       })
       const rawBody = await response.text()
@@ -471,12 +472,6 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
           ? 'Registration service is temporarily unavailable. Please try again shortly.'
           : 'Registration failed'
         toast.error(apiError || fallbackError)
-        return
-      }
-
-      if (data?.pendingApproval) {
-        // A newly registered customer has no session until an administrator approves it.
-        router.replace(`${loginHref}?status=pending`)
         return
       }
 

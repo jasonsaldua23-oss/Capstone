@@ -36,7 +36,7 @@ import { describeRanking, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { isRevenueRecognized, summarizeCustomerMix } from '@/lib/report-metrics'
+import { isCancelledReportStatus, isRevenueRecognized, summarizeCustomerMix } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 // Blue is the tab's existing series hue; amber pairs with it at CVD delta-E 37,
@@ -155,7 +155,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
     let list = orders.filter((o) => {
       const status = String(o.status || '').toUpperCase()
       // Exclude cancelled/rejected orders from revenue analytics
-      return status !== 'CANCELLED' && status !== 'REJECTED'
+      return !isCancelledReportStatus(status) && status !== 'REJECTED'
     })
 
     if (periodFilter !== 'all') {
@@ -341,7 +341,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
     { header: 'Client Name', key: 'name' },
     { header: 'Barangay', key: 'barangay' },
     { header: 'Orders Placed', key: 'orderCount' },
-    { header: 'Total Purchased (PHP)', accessor: (r) => Number(r.totalAmount || 0).toFixed(2) },
+    { header: 'Total Purchased (₱)', accessor: (r) => Number(r.totalAmount || 0).toFixed(2) },
   ]
 
   const handleExportCsv = () => {

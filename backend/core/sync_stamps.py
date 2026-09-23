@@ -62,6 +62,9 @@ SYNC_SCOPES: tuple[str, ...] = (
     "feedback",
     "notifications",
     "tracking",
+    # Paired with the affected data scope when a database row is deleted. Clients
+    # use it to replace collections instead of applying an update-only delta.
+    "deletions",
 )
 
 _VALID_SCOPES = frozenset(SYNC_SCOPES)

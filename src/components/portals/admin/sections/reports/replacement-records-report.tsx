@@ -38,6 +38,7 @@ import { formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
 import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { formatReportProductNameForExport } from '@/lib/report-metrics'
 
 interface ReplacementRecordsReportProps {
   replacements: any[]
@@ -195,6 +196,20 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
           const pName = String(
             line.originalProductName ?? line.productName ?? line.replacementProductName ?? 'Product'
           ).trim()
+          const productName = formatReportProductNameForExport({
+            ...(line.product || {}),
+            ...line,
+            name: pName,
+            sizeLabel:
+              line.originalProductSize ??
+              line.productSize ??
+              line.replacementProductSize ??
+              line.sizeLabel ??
+              matchedItem?.sizeLabel ??
+              matchedItem?.product?.sizeLabel ??
+              matchedItem?.product?.size ??
+              _originalProductSize,
+          })
           const rawQty = Math.max(Number(line.quantityToReplace ?? line.quantity ?? line.quantityReplaced ?? 0), 0)
           const lineUnit = String(
             line.productUnit ?? line.replacementProductUnit ?? line.originalProductUnit ?? line.unit ?? ''
@@ -218,13 +233,25 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
 
           const lineReason = String(line.reason || rep.reason || 'N/A').trim()
 
-          return { productName: pName, qty: lineQty, unitLabel: lineLabel, reason: lineReason }
+          return { productName, qty: lineQty, unitLabel: lineLabel, reason: lineReason }
         })
       }
 
       // Fallback single-line when no structured lines
       if (lines.length === 0) {
-        lines = [{ productName: originalProduct, qty: quantity, unitLabel, reason }]
+        lines = [{
+          productName: formatReportProductNameForExport({
+            name: _originalProductName,
+            sizeLabel:
+              _originalProductSize ||
+              matchedItem?.sizeLabel ||
+              matchedItem?.product?.sizeLabel ||
+              matchedItem?.product?.size,
+          }),
+          qty: quantity,
+          unitLabel,
+          reason,
+        }]
       }
 
       return {

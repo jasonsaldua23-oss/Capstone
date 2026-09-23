@@ -1,6 +1,6 @@
 import type { Order } from './customer-types'
 
-export const orderStages = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered']
+export const orderStages = ['Pending', 'Processing', 'Out for Delivery', 'Delivered']
 
 export const normalizeDeliveryStatus = (status: string, paymentStatus?: string | null) => {
   const raw = String(status || '').toUpperCase()
@@ -28,6 +28,8 @@ export const getOrderStageIndex = (status: string, paymentStatus?: string | null
 
 export const formatOrderStatus = (status: string, paymentStatus?: string | null) => {
   const normalized = normalizeDeliveryStatus(status, paymentStatus)
+  // Display the business-facing term without changing the persisted PREPARING value.
+  if (normalized === 'PREPARING') return 'PROCESSING'
   return normalized.replace(/_/g, ' ')
 }
 

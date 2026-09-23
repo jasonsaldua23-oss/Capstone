@@ -275,7 +275,8 @@ export const formatWarehouseOrderStatus = (status: string, paymentStatus?: strin
   }
 
   if (['PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP', 'UNAPPROVED'].includes(rawStatus)) {
-    return 'PREPARING'
+    // Keep PREPARING as the API value while every portal displays Processing.
+    return 'PROCESSING'
   }
   if (['PENDING', 'CONFIRMED'].includes(rawStatus)) return 'PENDING'
 
@@ -299,7 +300,7 @@ export function getWarehouseDisplayOrderStatusImpl(order: any, deps: GetWarehous
 export const getWarehouseOrderStatusTextClass = (status: string) => {
   const value = String(status || '').trim().toUpperCase()
   if (value === 'PENDING') return 'text-yellow-700'
-  if (value === 'PREPARING') return 'text-lime-700'
+  if (value === 'PROCESSING') return 'text-lime-700'
   if (value === 'CANCELLED') return 'text-red-700'
   if (value === 'DELIVERED') return 'text-emerald-700'
   return 'text-slate-700'

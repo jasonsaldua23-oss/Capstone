@@ -359,22 +359,22 @@ def _email_order_preparing_to_customer(order: Order) -> None:
         recipient_name=customer_name or "Customer",
         time_greeting=time_greeting(),
         paragraphs=[
-            f"Your Order No. {order_number} is now being prepared by our warehouse team."
+            f"Your Order No. {order_number} is now being processed by our warehouse team."
             if order_number else
-            "Your order is now being prepared by our warehouse team."
+            "Your order is now being processed by our warehouse team."
         ],
         details=_order_reference_details(order) + [("Delivery address", _order_delivery_address(order))],
         products=_order_product_lines(order),
-        products_heading="Products being prepared",
+        products_heading="Products being processed",
         next_step="We will email you again once your order is on the way.",
         closing="Thank you for ordering with us.",
     )
     _send_structured_email(
-        subject=f"Order {order_number} is being prepared" if order_number else "Your order is being prepared",
-        heading="Your order is being prepared",
+        subject=f"Order {order_number} is being processed" if order_number else "Your order is being processed",
+        heading="Your order is being processed",
         body=body,
         recipients=[customer_email],
-        preheader="Your order is being prepared for delivery.",
+        preheader="Your order is being processed for delivery.",
     )
 
 
@@ -790,52 +790,6 @@ def _email_new_staff_credentials(user: User, plain_password: str) -> None:
         body=body,
         recipients=[recipient],
         preheader="Your account has been created.",
-    )
-
-
-def _email_customer_registration_approved(customer: Customer) -> None:
-    recipient = _normalize_email(getattr(customer, "email", ""))
-    if not recipient:
-        return
-    body = EmailBody(
-        recipient_name=str(getattr(customer, "name", "") or "").strip() or "Customer",
-        time_greeting=time_greeting(),
-        paragraphs=["An administrator has approved your client registration."],
-        details=[("Account", recipient)],
-        details_heading="Account details",
-        next_step="You can now sign in with the email address you registered with.",
-        closing="Thank you.",
-    )
-    _send_structured_email(
-        subject="Your registration was approved",
-        heading="Your registration was approved",
-        body=body,
-        recipients=[recipient],
-        preheader="Your account is ready to use.",
-    )
-
-
-def _email_customer_registration_rejected(customer: Customer, rejection_reason: str) -> None:
-    recipient = _normalize_email(getattr(customer, "email", ""))
-    if not recipient:
-        return
-    body = EmailBody(
-        recipient_name=str(getattr(customer, "name", "") or "").strip() or "Customer",
-        time_greeting=time_greeting(),
-        paragraphs=["Your client registration was reviewed and was not approved."],
-        details=[("Account", recipient)],
-        details_heading="Account details",
-        reason_label="Reason",
-        reason_text=str(rejection_reason or "").strip() or "No reason was provided.",
-        next_step="If you believe this was a mistake, please contact us and we will review it again.",
-        closing="Thank you for your understanding.",
-    )
-    _send_structured_email(
-        subject="Your registration was not approved",
-        heading="Your registration was not approved",
-        body=body,
-        recipients=[recipient],
-        preheader="Your registration was reviewed.",
     )
 
 

@@ -1,0 +1,2617 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\CAPSTONE\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config=playwright.alpha.config.ts"
+    ],
+    "configFile": "C:\\CAPSTONE\\playwright.alpha.config.ts",
+    "rootDir": "C:/CAPSTONE/tests/alpha-blackbox",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/CAPSTONE/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "C:/CAPSTONE/tests/alpha-blackbox",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 15000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/alpha-blackbox-playwright.json"
+        }
+      ],
+      [
+        "html",
+        {
+          "open": "never",
+          "outputFolder": "playwright-report/alpha-blackbox"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "alpha-blackbox.spec.ts",
+      "file": "alpha-blackbox.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "TC-01 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 14,
+                  "errors": [],
+                  "stdout": [
+                    {
+                      "buffer": "QWxwaGEgYmxhY2stYm94IGF1dG9tYXRlZCBjaGVja3BvaW50czogNjMvNjMgcGFzc2VkDQo="
+                    }
+                  ],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:36:43.646Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-01-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wMSIsCiAgInRpdGxlIjogIkFkbWluIG9yIG93bmVyIHZhbGlkIGxvZ2luIiwKICAibW9kdWxlIjogIkF1dGhlbnRpY2F0aW9uIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCBwbHVzIGJyb3dzZXIgVUkiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfYXV0aF90cmlwX2ZlZWRiYWNrX2Zsb3dzLkF1dGhlbnRpY2F0aW9uRmxvd1Rlc3RzLnRlc3RfdmFsaWRfc3RhZmZfY3JlZGVudGlhbHNfY3JlYXRlX3Rva2VuX2FuZF91cGRhdGVfbGFzdF9sb2dpbiIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3ZhbGlkX3N0YWZmX2NyZWRlbnRpYWxzX2NyZWF0ZV90b2tlbl9hbmRfdXBkYXRlX2xhc3RfbG9naW4gKGNvcmUudGVzdF9hdXRoX3RyaXBfZmVlZGJhY2tfZmxvd3MuQXV0aGVudGljYXRpb25GbG93VGVzdHMudGVzdF92YWxpZF9zdGFmZl9jcmVkZW50aWFsc19jcmVhdGVfdG9rZW5fYW5kX3VwZGF0ZV9sYXN0X2xvZ2luKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e6aab141f932087ea1d3",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-02 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:06.954Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-02-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wMiIsCiAgInRpdGxlIjogIlJvbGUtYmFzZWQgcG9ydGFsIHJlZGlyZWN0aW9uIiwKICAibW9kdWxlIjogIkF1dGhlbnRpY2F0aW9uIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF9hdXRoX3RyaXBfZmVlZGJhY2tfZmxvd3MuQXV0aGVudGljYXRpb25GbG93VGVzdHMudGVzdF9nZW5lcmljX3N0YWZmX2xvZ2luX3JldHVybnNfdGhlX2FjY291bnRfcm9sZSIsCiAgICAiY29yZS50ZXN0X2dvb2dsZV9vYXV0aF9hdWRpZW5jZXMuVW5pZmllZExvZ2luVGVzdHMudGVzdF9wYXNzd29yZF9zaWduX2luX3JvdXRlc19hbl9leGlzdGluZ19jdXN0b21lciIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X2dlbmVyaWNfc3RhZmZfbG9naW5fcmV0dXJuc190aGVfYWNjb3VudF9yb2xlIChjb3JlLnRlc3RfYXV0aF90cmlwX2ZlZWRiYWNrX2Zsb3dzLkF1dGhlbnRpY2F0aW9uRmxvd1Rlc3RzLnRlc3RfZ2VuZXJpY19zdGFmZl9sb2dpbl9yZXR1cm5zX3RoZV9hY2NvdW50X3JvbGUpIC4uLiBvayIsCiAgICAidGVzdF9wYXNzd29yZF9zaWduX2luX3JvdXRlc19hbl9leGlzdGluZ19jdXN0b21lciAoY29yZS50ZXN0X2dvb2dsZV9vYXV0aF9hdWRpZW5jZXMuVW5pZmllZExvZ2luVGVzdHMudGVzdF9wYXNzd29yZF9zaWduX2luX3JvdXRlc19hbl9leGlzdGluZ19jdXN0b21lcikgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-29574bd115f19d6efeb1",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-03 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:06.999Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-03-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wMyIsCiAgInRpdGxlIjogIkludmFsaWQgbG9naW4gaXMgcmVqZWN0ZWQiLAogICJtb2R1bGUiOiAiQXV0aGVudGljYXRpb24iLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IHBsdXMgYnJvd3NlciBVSSIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF9hdXRoX3RyaXBfZmVlZGJhY2tfZmxvd3MuQXV0aGVudGljYXRpb25GbG93VGVzdHMudGVzdF9pbnZhbGlkX3N0YWZmX3Bhc3N3b3JkX2lzX3JlamVjdGVkX3dpdGhvdXRfdXBkYXRpbmdfbGFzdF9sb2dpbiIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X2ludmFsaWRfc3RhZmZfcGFzc3dvcmRfaXNfcmVqZWN0ZWRfd2l0aG91dF91cGRhdGluZ19sYXN0X2xvZ2luIChjb3JlLnRlc3RfYXV0aF90cmlwX2ZlZWRiYWNrX2Zsb3dzLkF1dGhlbnRpY2F0aW9uRmxvd1Rlc3RzLnRlc3RfaW52YWxpZF9zdGFmZl9wYXNzd29yZF9pc19yZWplY3RlZF93aXRob3V0X3VwZGF0aW5nX2xhc3RfbG9naW4pIC4uLiBBdXRoZW50aWNhdGlvbiBmYWlsdXJlIHBvcnRhbD1hZG1pbiBhY2NvdW50X2hhc2g9NjQ4MWJkNzRmYjFjIHNvdXJjZV9pcD0xMjcuMC4wLjEgY291bnQ9MSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-5b60ef44e40714c1001a",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-04 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.026Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-04-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wNCIsCiAgInRpdGxlIjogIkNsaWVudCByZWdpc3RyYXRpb24gc3VibWlzc2lvbiIsCiAgIm1vZHVsZSI6ICJBdXRoZW50aWNhdGlvbiIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QgcGx1cyBicm93c2VyIFVJIiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X2N1c3RvbWVyX3JlZ2lzdHJhdGlvbl9hcHByb3ZhbC5SZWdpc3RyYXRpb25Jc1BlbmRpbmdUZXN0cy50ZXN0X3JlZ2lzdHJhdGlvbl9pc19yZWNlaXZlZF93aXRob3V0X2Ffc2Vzc2lvbiIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3JlZ2lzdHJhdGlvbl9pc19yZWNlaXZlZF93aXRob3V0X2Ffc2Vzc2lvbiAoY29yZS50ZXN0X2N1c3RvbWVyX3JlZ2lzdHJhdGlvbl9hcHByb3ZhbC5SZWdpc3RyYXRpb25Jc1BlbmRpbmdUZXN0cy50ZXN0X3JlZ2lzdHJhdGlvbl9pc19yZWNlaXZlZF93aXRob3V0X2Ffc2Vzc2lvbikgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-7e79414c7ddb0534e806",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-05 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.043Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-05-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wNSIsCiAgInRpdGxlIjogIlZhbGlkIE9UUCBhY3RpdmF0ZXMgY2xpZW50IGFjY2VzcyIsCiAgIm1vZHVsZSI6ICJBdXRoZW50aWNhdGlvbiIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfYXV0aF90cmlwX2ZlZWRiYWNrX2Zsb3dzLkF1dGhlbnRpY2F0aW9uRmxvd1Rlc3RzLnRlc3RfY3VzdG9tZXJfZW1haWxfdmVyaWZpY2F0aW9uX3JlcXVlc3RfYW5kX2NvbmZpcm1faXNzdWVfdG9rZW4iCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9jdXN0b21lcl9lbWFpbF92ZXJpZmljYXRpb25fcmVxdWVzdF9hbmRfY29uZmlybV9pc3N1ZV90b2tlbiAoY29yZS50ZXN0X2F1dGhfdHJpcF9mZWVkYmFja19mbG93cy5BdXRoZW50aWNhdGlvbkZsb3dUZXN0cy50ZXN0X2N1c3RvbWVyX2VtYWlsX3ZlcmlmaWNhdGlvbl9yZXF1ZXN0X2FuZF9jb25maXJtX2lzc3VlX3Rva2VuKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-9473873c392e4f9342fc",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-06 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.069Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-06-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wNiIsCiAgInRpdGxlIjogIkludmFsaWQgT1RQIGlzIHJlamVjdGVkIiwKICAibW9kdWxlIjogIkF1dGhlbnRpY2F0aW9uIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF9hdXRoX3RyaXBfZmVlZGJhY2tfZmxvd3MuQXV0aGVudGljYXRpb25GbG93VGVzdHMudGVzdF9sb2dpbl90d29fZmFjdG9yX3JlamVjdHNfaW52YWxpZF9vdHAiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9sb2dpbl90d29fZmFjdG9yX3JlamVjdHNfaW52YWxpZF9vdHAgKGNvcmUudGVzdF9hdXRoX3RyaXBfZmVlZGJhY2tfZmxvd3MuQXV0aGVudGljYXRpb25GbG93VGVzdHMudGVzdF9sb2dpbl90d29fZmFjdG9yX3JlamVjdHNfaW52YWxpZF9vdHApIC4uLiBMb2dpbiBPVFAgZmFpbHVyZSBhY2NvdW50X2hhc2g9NjQ4MWJkNzRmYjFjIHNvdXJjZV9pcD0xMjcuMC4wLjEgY291bnQ9MSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-5cafa613d7eee97df950",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-07 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.089Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-07-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wNyIsCiAgInRpdGxlIjogIk93bmVyIGNyZWF0ZXMgc3RhZmYgb3IgZHJpdmVyIGNyZWRlbnRpYWxzIiwKICAibW9kdWxlIjogIkF1dGhlbnRpY2F0aW9uIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF91c2VyX25hbWVfZmllbGRzLlVzZXJDcmVhdGlvbk5hbWVGaWVsZFRlc3RzLnRlc3Rfc3RydWN0dXJlZF9uYW1lX3BhcnRzX2FyZV9wZXJzaXN0ZWQiLAogICAgImNvcmUudGVzdF91c2VyX25hbWVfZmllbGRzLlVzZXJDcmVhdGlvbk5hbWVGaWVsZFRlc3RzLnRlc3RfZHJpdmVyX3NlcnZpY2VfYXJlYV9pc19zYXZlZF9kdXJpbmdfY3JlYXRpb24iCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9zdHJ1Y3R1cmVkX25hbWVfcGFydHNfYXJlX3BlcnNpc3RlZCAoY29yZS50ZXN0X3VzZXJfbmFtZV9maWVsZHMuVXNlckNyZWF0aW9uTmFtZUZpZWxkVGVzdHMudGVzdF9zdHJ1Y3R1cmVkX25hbWVfcGFydHNfYXJlX3BlcnNpc3RlZCkgLi4uIG9rIiwKICAgICJ0ZXN0X2RyaXZlcl9zZXJ2aWNlX2FyZWFfaXNfc2F2ZWRfZHVyaW5nX2NyZWF0aW9uIChjb3JlLnRlc3RfdXNlcl9uYW1lX2ZpZWxkcy5Vc2VyQ3JlYXRpb25OYW1lRmllbGRUZXN0cy50ZXN0X2RyaXZlcl9zZXJ2aWNlX2FyZWFfaXNfc2F2ZWRfZHVyaW5nX2NyZWF0aW9uKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-722a64057f0899760dce",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-08 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.114Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-08-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wOCIsCiAgInRpdGxlIjogIkR1cGxpY2F0ZSBlbWFpbCBhbmQgd2VhayBwYXNzd29yZCB2YWxpZGF0aW9uIiwKICAibW9kdWxlIjogIkF1dGhlbnRpY2F0aW9uIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF9zaW5nbGVfd2FyZWhvdXNlLlNpbmdsZVdhcmVob3VzZUFwaUNvbnRyYWN0VGVzdHMudGVzdF9kdXBsaWNhdGVfZW1haWxfaXNfcmVqZWN0ZWRfYWNyb3NzX2FjY291bnRfdHlwZXMiLAogICAgImNvcmUudGVzdF9hdXRoX3Nlc3Npb25zLlBhc3N3b3JkUG9saWN5Q29udHJhY3RUZXN0cy50ZXN0X3VzZXJzX2NvbGxlY3Rpb25fcmVqZWN0c193ZWFrX3Bhc3N3b3JkIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfZHVwbGljYXRlX2VtYWlsX2lzX3JlamVjdGVkX2Fjcm9zc19hY2NvdW50X3R5cGVzIChjb3JlLnRlc3Rfc2luZ2xlX3dhcmVob3VzZS5TaW5nbGVXYXJlaG91c2VBcGlDb250cmFjdFRlc3RzLnRlc3RfZHVwbGljYXRlX2VtYWlsX2lzX3JlamVjdGVkX2Fjcm9zc19hY2NvdW50X3R5cGVzKSAuLi4gb2siLAogICAgInRlc3RfdXNlcnNfY29sbGVjdGlvbl9yZWplY3RzX3dlYWtfcGFzc3dvcmQgKGNvcmUudGVzdF9hdXRoX3Nlc3Npb25zLlBhc3N3b3JkUG9saWN5Q29udHJhY3RUZXN0cy50ZXN0X3VzZXJzX2NvbGxlY3Rpb25fcmVqZWN0c193ZWFrX3Bhc3N3b3JkKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-bca7f41c7ad68ce0710a",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-09 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.138Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-09-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0wOSIsCiAgInRpdGxlIjogIkNsaWVudCBwYXNzd29yZCByZXNldCB0aHJvdWdoIE9UUCIsCiAgIm1vZHVsZSI6ICJBdXRoZW50aWNhdGlvbiIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfYXV0aF90cmlwX2ZlZWRiYWNrX2Zsb3dzLkF1dGhlbnRpY2F0aW9uRmxvd1Rlc3RzLnRlc3RfcGFzc3dvcmRfcmVzZXRfb3RwX3VwZGF0ZXNfY3VzdG9tZXJfcGFzc3dvcmQiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9wYXNzd29yZF9yZXNldF9vdHBfdXBkYXRlc19jdXN0b21lcl9wYXNzd29yZCAoY29yZS50ZXN0X2F1dGhfdHJpcF9mZWVkYmFja19mbG93cy5BdXRoZW50aWNhdGlvbkZsb3dUZXN0cy50ZXN0X3Bhc3N3b3JkX3Jlc2V0X290cF91cGRhdGVzX2N1c3RvbWVyX3Bhc3N3b3JkKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-f7396f368969a5eb35eb",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-10 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.177Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-10-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xMCIsCiAgInRpdGxlIjogIk93bmVyIHJlc2V0cyBzdGFmZiBvciBkcml2ZXIgcGFzc3dvcmQiLAogICJtb2R1bGUiOiAiQXV0aGVudGljYXRpb24iLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3NpbmdsZV93YXJlaG91c2UuU2luZ2xlV2FyZWhvdXNlQXBpQ29udHJhY3RUZXN0cy50ZXN0X2FkbWluX2Nhbl9yZXNldF9zZWxlY3RlZF91c2VyX3Bhc3N3b3JkX3dpdGhvdXRfdXNlcl9vdHAiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9hZG1pbl9jYW5fcmVzZXRfc2VsZWN0ZWRfdXNlcl9wYXNzd29yZF93aXRob3V0X3VzZXJfb3RwIChjb3JlLnRlc3Rfc2luZ2xlX3dhcmVob3VzZS5TaW5nbGVXYXJlaG91c2VBcGlDb250cmFjdFRlc3RzLnRlc3RfYWRtaW5fY2FuX3Jlc2V0X3NlbGVjdGVkX3VzZXJfcGFzc3dvcmRfd2l0aG91dF91c2VyX290cCkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-f247743517088d7be32d",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-11 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.200Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-11-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xMSIsCiAgInRpdGxlIjogIkVtcGxveWVlIHByb2ZpbGUgdXBkYXRlcyBwZXJzaXN0IiwKICAibW9kdWxlIjogIlByb2ZpbGUiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X2F1dGhfc2Vzc2lvbnMuU3RhZmZQaG9uZVZhbGlkYXRpb25Db250cmFjdFRlc3RzLnRlc3Rfc3RhZmZfcGhvbmVfdXBkYXRlX3BlcnNpc3RzX3ZhbGlkX3BoaWxpcHBpbmVfbW9iaWxlIiwKICAgICJjb3JlLnRlc3RfZHJpdmVyX2FwaS5Ecml2ZXJQcm9maWxlQXBpQ29udHJhY3RUZXN0cy50ZXN0X2RyaXZlcl9wcm9maWxlX3B1dF91cGRhdGVzX2F2YXRhciIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3N0YWZmX3Bob25lX3VwZGF0ZV9wZXJzaXN0c192YWxpZF9waGlsaXBwaW5lX21vYmlsZSAoY29yZS50ZXN0X2F1dGhfc2Vzc2lvbnMuU3RhZmZQaG9uZVZhbGlkYXRpb25Db250cmFjdFRlc3RzLnRlc3Rfc3RhZmZfcGhvbmVfdXBkYXRlX3BlcnNpc3RzX3ZhbGlkX3BoaWxpcHBpbmVfbW9iaWxlKSAuLi4gb2siLAogICAgInRlc3RfZHJpdmVyX3Byb2ZpbGVfcHV0X3VwZGF0ZXNfYXZhdGFyIChjb3JlLnRlc3RfZHJpdmVyX2FwaS5Ecml2ZXJQcm9maWxlQXBpQ29udHJhY3RUZXN0cy50ZXN0X2RyaXZlcl9wcm9maWxlX3B1dF91cGRhdGVzX2F2YXRhcikgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-39d05d898e4f56441e17",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-12 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.216Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-12-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xMiIsCiAgInRpdGxlIjogIkludmFsaWQgZW1wbG95ZWUgcHJvZmlsZSBkYXRhIGlzIHJlamVjdGVkIiwKICAibW9kdWxlIjogIlByb2ZpbGUiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X2F1dGhfc2Vzc2lvbnMuU3RhZmZQaG9uZVZhbGlkYXRpb25Db250cmFjdFRlc3RzLnRlc3Rfc3RhZmZfcGhvbmVfdXBkYXRlX3JlamVjdHNfbm9uX251bWVyaWNfb3JfaW52YWxpZF9tb2JpbGUiLAogICAgImNvcmUudGVzdF9kcml2ZXJfYXBpLkRyaXZlclByb2ZpbGVBcGlDb250cmFjdFRlc3RzLnRlc3RfZHJpdmVyX3Byb2ZpbGVfcmVqZWN0c19pbnZhbGlkX3Bob25lX2FuZF9wYXN0X2xpY2Vuc2VfZXhwaXJ5IgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3Rfc3RhZmZfcGhvbmVfdXBkYXRlX3JlamVjdHNfbm9uX251bWVyaWNfb3JfaW52YWxpZF9tb2JpbGUgKGNvcmUudGVzdF9hdXRoX3Nlc3Npb25zLlN0YWZmUGhvbmVWYWxpZGF0aW9uQ29udHJhY3RUZXN0cy50ZXN0X3N0YWZmX3Bob25lX3VwZGF0ZV9yZWplY3RzX25vbl9udW1lcmljX29yX2ludmFsaWRfbW9iaWxlKSAuLi4gb2siLAogICAgInRlc3RfZHJpdmVyX3Byb2ZpbGVfcmVqZWN0c19pbnZhbGlkX3Bob25lX2FuZF9wYXN0X2xpY2Vuc2VfZXhwaXJ5IChjb3JlLnRlc3RfZHJpdmVyX2FwaS5Ecml2ZXJQcm9maWxlQXBpQ29udHJhY3RUZXN0cy50ZXN0X2RyaXZlcl9wcm9maWxlX3JlamVjdHNfaW52YWxpZF9waG9uZV9hbmRfcGFzdF9saWNlbnNlX2V4cGlyeSkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e1198e75b2e701e2779f",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-13 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.235Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-13-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xMyIsCiAgInRpdGxlIjogIkRyaXZlciBsaWNlbnNlIHByb2ZpbGUgZGV0YWlscyBhcmUgc2F2ZWQiLAogICJtb2R1bGUiOiAiUHJvZmlsZSIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfZHJpdmVyX2FwaS5Ecml2ZXJQcm9maWxlQXBpQ29udHJhY3RUZXN0cy50ZXN0X2RyaXZlcl9wcm9maWxlX3B1dF91cGRhdGVzX2RyaXZlcl9hbmRfdXNlcl9maWVsZHMiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9kcml2ZXJfcHJvZmlsZV9wdXRfdXBkYXRlc19kcml2ZXJfYW5kX3VzZXJfZmllbGRzIChjb3JlLnRlc3RfZHJpdmVyX2FwaS5Ecml2ZXJQcm9maWxlQXBpQ29udHJhY3RUZXN0cy50ZXN0X2RyaXZlcl9wcm9maWxlX3B1dF91cGRhdGVzX2RyaXZlcl9hbmRfdXNlcl9maWVsZHMpIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-ebb15947eb546640f7d5",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-14 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.256Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-14-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xNCIsCiAgInRpdGxlIjogIkNsaWVudCBwcm9maWxlIGFuZCBkZWxpdmVyeSBjb29yZGluYXRlcyBhcmUgcmV0YWluZWQiLAogICJtb2R1bGUiOiAiUHJvZmlsZSIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfY3VzdG9tZXJfb3JkZXJzLkN1c3RvbWVyVHJhY2tpbmdBcGlDb250cmFjdFRlc3RzLnRlc3RfY3VzdG9tZXJfcHJvZmlsZV9wdXRfcGVyc2lzdHNfZmlyc3RfYW5kX2xhc3RfbmFtZXMiLAogICAgImNvcmUudGVzdF9jdXN0b21lcl9vcmRlcnMuQ3VzdG9tZXJPcmRlcnNQb3N0QXBpQ29udHJhY3RUZXN0cy50ZXN0X2N1c3RvbWVyX29yZGVyc19wb3N0X2F1dG9fYXNzaWduc19uZWFyZXN0X2Z1bGZpbGxhYmxlX3dhcmVob3VzZV93aGVuX25vdF9wcm92aWRlZCIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X2N1c3RvbWVyX3Byb2ZpbGVfcHV0X3BlcnNpc3RzX2ZpcnN0X2FuZF9sYXN0X25hbWVzIChjb3JlLnRlc3RfY3VzdG9tZXJfb3JkZXJzLkN1c3RvbWVyVHJhY2tpbmdBcGlDb250cmFjdFRlc3RzLnRlc3RfY3VzdG9tZXJfcHJvZmlsZV9wdXRfcGVyc2lzdHNfZmlyc3RfYW5kX2xhc3RfbmFtZXMpIC4uLiBvayIsCiAgICAidGVzdF9jdXN0b21lcl9vcmRlcnNfcG9zdF9hdXRvX2Fzc2lnbnNfbmVhcmVzdF9mdWxmaWxsYWJsZV93YXJlaG91c2Vfd2hlbl9ub3RfcHJvdmlkZWQgKGNvcmUudGVzdF9jdXN0b21lcl9vcmRlcnMuQ3VzdG9tZXJPcmRlcnNQb3N0QXBpQ29udHJhY3RUZXN0cy50ZXN0X2N1c3RvbWVyX29yZGVyc19wb3N0X2F1dG9fYXNzaWduc19uZWFyZXN0X2Z1bGZpbGxhYmxlX3dhcmVob3VzZV93aGVuX25vdF9wcm92aWRlZCkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e647ac09e49be7deff95",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-15 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.277Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-15-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xNSIsCiAgInRpdGxlIjogIlVuc3VwcG9ydGVkIGRlbGl2ZXJ5IGxvY2F0aW9uIGlzIHJlamVjdGVkIiwKICAibW9kdWxlIjogIlByb2ZpbGUiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X2RyaXZlcl9zZXJ2aWNlX2FyZWFzLkRyaXZlclNlcnZpY2VBcmVhVGVzdHMudGVzdF90cmlwX2VuZHBvaW50X3JlamVjdHNfdW5hc3NpZ25lZF9kZXN0aW5hdGlvbl93aXRob3V0X2NyZWF0aW5nX3RyaXAiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF90cmlwX2VuZHBvaW50X3JlamVjdHNfdW5hc3NpZ25lZF9kZXN0aW5hdGlvbl93aXRob3V0X2NyZWF0aW5nX3RyaXAgKGNvcmUudGVzdF9kcml2ZXJfc2VydmljZV9hcmVhcy5Ecml2ZXJTZXJ2aWNlQXJlYVRlc3RzLnRlc3RfdHJpcF9lbmRwb2ludF9yZWplY3RzX3VuYXNzaWduZWRfZGVzdGluYXRpb25fd2l0aG91dF9jcmVhdGluZ190cmlwKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e28b8d9d9d10ea911f18",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-16 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.304Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-16-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xNiIsCiAgInRpdGxlIjogIlZlaGljbGUgcmVjb3JkcyBzdXBwb3J0IGRlbGl2ZXJ5IHBsYW5uaW5nIiwKICAibW9kdWxlIjogIk1hc3RlciBEYXRhIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF90cmlwX3BsYW5uaW5nLlJvdXRlUGxhblN0cnVjdHVyZUNvbnRyYWN0VGVzdHMudGVzdF9yb3V0ZV9wbGFuX2dldF9yZXR1cm5zX2RyaXZlcnNfdmVoaWNsZXNfb3JkZXJzX2FuZF9ncm91cGVkX3BsYW5zIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3Rfcm91dGVfcGxhbl9nZXRfcmV0dXJuc19kcml2ZXJzX3ZlaGljbGVzX29yZGVyc19hbmRfZ3JvdXBlZF9wbGFucyAoY29yZS50ZXN0X3RyaXBfcGxhbm5pbmcuUm91dGVQbGFuU3RydWN0dXJlQ29udHJhY3RUZXN0cy50ZXN0X3JvdXRlX3BsYW5fZ2V0X3JldHVybnNfZHJpdmVyc192ZWhpY2xlc19vcmRlcnNfYW5kX2dyb3VwZWRfcGxhbnMpIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-13184302f4ec876ceaf4",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-17 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.337Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-17-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xNyIsCiAgInRpdGxlIjogIkR1cGxpY2F0ZSBvciBjb25mbGljdGluZyB2ZWhpY2xlIHVzZSBpcyBwcmV2ZW50ZWQiLAogICJtb2R1bGUiOiAiTWFzdGVyIERhdGEiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3RyaXBfZXhlY3V0aW9uLlRyaXBFeGVjdXRpb25BcGlDb250cmFjdFRlc3RzLnRlc3RfdHJpcF9zdGFydF9yZWZ1c2VzX3NlY29uZF9hY3RpdmVfdHJpcF9hbmRfbGVhdmVzX2l0X3BsYW5uZWQiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF90cmlwX3N0YXJ0X3JlZnVzZXNfc2Vjb25kX2FjdGl2ZV90cmlwX2FuZF9sZWF2ZXNfaXRfcGxhbm5lZCAoY29yZS50ZXN0X3RyaXBfZXhlY3V0aW9uLlRyaXBFeGVjdXRpb25BcGlDb250cmFjdFRlc3RzLnRlc3RfdHJpcF9zdGFydF9yZWZ1c2VzX3NlY29uZF9hY3RpdmVfdHJpcF9hbmRfbGVhdmVzX2l0X3BsYW5uZWQpIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-98fdae1beb5596af9801",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-18 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.364Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-18-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xOCIsCiAgInRpdGxlIjogIkRyaXZlci10by12ZWhpY2xlIGFzc2lnbm1lbnQgaXMgYWNjZXB0ZWQiLAogICJtb2R1bGUiOiAiTWFzdGVyIERhdGEiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X2RyaXZlcl9saWNlbnNlX3F1YWxpZmljYXRpb24uRHJpdmVyVmVoaWNsZUFzc2lnbm1lbnRBcGlUZXN0cy50ZXN0X2Fzc2lnbmluZ19jb2RlX2NfZHJpdmVyX3RvX3RydWNrX3N1Y2NlZWRzIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfYXNzaWduaW5nX2NvZGVfY19kcml2ZXJfdG9fdHJ1Y2tfc3VjY2VlZHMgKGNvcmUudGVzdF9kcml2ZXJfbGljZW5zZV9xdWFsaWZpY2F0aW9uLkRyaXZlclZlaGljbGVBc3NpZ25tZW50QXBpVGVzdHMudGVzdF9hc3NpZ25pbmdfY29kZV9jX2RyaXZlcl90b190cnVja19zdWNjZWVkcykgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-97592edbae5827067f65",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-19 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.388Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-19-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0xOSIsCiAgInRpdGxlIjogIkFjdGl2ZS10cmlwIGFzc2lnbm1lbnQgY29uZmxpY3QgaXMgcHJldmVudGVkIiwKICAibW9kdWxlIjogIk1hc3RlciBEYXRhIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF9kcml2ZXJfYXBpLkRyaXZlclZlaGljbGVBY3RpdmVUcmlwVmFsaWRhdGlvblRlc3RzLnRlc3RfdmVoaWNsZV91cGRhdGVfcmVqZWN0c191bmFzc2lnbm1lbnRfZHVyaW5nX2FjdGl2ZV90cmlwIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfdmVoaWNsZV91cGRhdGVfcmVqZWN0c191bmFzc2lnbm1lbnRfZHVyaW5nX2FjdGl2ZV90cmlwIChjb3JlLnRlc3RfZHJpdmVyX2FwaS5Ecml2ZXJWZWhpY2xlQWN0aXZlVHJpcFZhbGlkYXRpb25UZXN0cy50ZXN0X3ZlaGljbGVfdXBkYXRlX3JlamVjdHNfdW5hc3NpZ25tZW50X2R1cmluZ19hY3RpdmVfdHJpcCkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-f607bdb411acac44e2f9",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-20 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.419Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-20-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yMCIsCiAgInRpdGxlIjogIlByb2R1Y3QgcmVnaXN0cmF0aW9uIGNhbGN1bGF0ZXMgcGFja2FnaW5nIGRhdGEiLAogICJtb2R1bGUiOiAiTWFzdGVyIERhdGEiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3Byb2R1Y3Rfd2VpZ2h0cy5Qcm9kdWN0V2VpZ2h0QXBpQ29udHJhY3RUZXN0cy50ZXN0X3JlZ2lzdHJhdGlvbl9jYWxjdWxhdGVzX3dlaWdodF93aXRob3V0X2NsaWVudF92YWx1ZSIsCiAgICAiY29yZS50ZXN0X3VwbG9hZF9zdG9yYWdlLlByb2R1Y3RJbWFnZVVwbG9hZFRlc3RzLnRlc3RfdGhlX2ZpbGVfYnl0ZXNfYXJlX3NlbnRfdG9fdGhlX2J1Y2tldCIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3JlZ2lzdHJhdGlvbl9jYWxjdWxhdGVzX3dlaWdodF93aXRob3V0X2NsaWVudF92YWx1ZSAoY29yZS50ZXN0X3Byb2R1Y3Rfd2VpZ2h0cy5Qcm9kdWN0V2VpZ2h0QXBpQ29udHJhY3RUZXN0cy50ZXN0X3JlZ2lzdHJhdGlvbl9jYWxjdWxhdGVzX3dlaWdodF93aXRob3V0X2NsaWVudF92YWx1ZSkgLi4uIG9rIiwKICAgICJ0ZXN0X3RoZV9maWxlX2J5dGVzX2FyZV9zZW50X3RvX3RoZV9idWNrZXQgKGNvcmUudGVzdF91cGxvYWRfc3RvcmFnZS5Qcm9kdWN0SW1hZ2VVcGxvYWRUZXN0cy50ZXN0X3RoZV9maWxlX2J5dGVzX2FyZV9zZW50X3RvX3RoZV9idWNrZXQpIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-f7a6ad937fa1ee96525b",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-21 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.438Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-21-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yMSIsCiAgInRpdGxlIjogIkludmFsaWQgcHJvZHVjdCBzcGVjaWZpY2F0aW9ucyBhcmUgcmVqZWN0ZWQiLAogICJtb2R1bGUiOiAiTWFzdGVyIERhdGEiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3Byb2R1Y3Rfd2VpZ2h0cy5Qcm9kdWN0V2VpZ2h0QXBpQ29udHJhY3RUZXN0cy50ZXN0X3JlZ2lzdHJhdGlvbl9yZWplY3RzX3Byb2R1Y3Rfd2hlbl93ZWlnaHRfY2Fubm90X2JlX2NhbGN1bGF0ZWQiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9yZWdpc3RyYXRpb25fcmVqZWN0c19wcm9kdWN0X3doZW5fd2VpZ2h0X2Nhbm5vdF9iZV9jYWxjdWxhdGVkIChjb3JlLnRlc3RfcHJvZHVjdF93ZWlnaHRzLlByb2R1Y3RXZWlnaHRBcGlDb250cmFjdFRlc3RzLnRlc3RfcmVnaXN0cmF0aW9uX3JlamVjdHNfcHJvZHVjdF93aGVuX3dlaWdodF9jYW5ub3RfYmVfY2FsY3VsYXRlZCkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-3b10fcde2c935ff73caa",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-22 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.478Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-22-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yMiIsCiAgInRpdGxlIjogIlN0b2NrIGJhdGNoIHJlY2VpdmluZyByZWNvcmRzIGludmVudG9yeSBtb3ZlbWVudCIsCiAgIm1vZHVsZSI6ICJJbnZlbnRvcnkiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3dhcmVob3VzZV9pbnZlbnRvcnkuQnVsa1N0b2NrSW5FeGlzdGluZ1Byb2R1Y3RDb250cmFjdFRlc3RzLnRlc3RfcmV0cnlfZG9lc19ub3RfZHVwbGljYXRlX3F1YW50aXR5X29yX3Byb2R1Y3QiLAogICAgImNvcmUudGVzdF9zdG9ja19iYXRjaF90cmFuc2FjdGlvbl9zeW5jLlN0b2NrQmF0Y2hUcmFuc2FjdGlvblN5bmNUZXN0cy50ZXN0X2VkaXRfcHJlc2VydmVzX3N0b2NrX2luX3RyYW5zYWN0aW9uX2FuZF9hcHBlbmRzX2FkanVzdG1lbnRzIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfcmV0cnlfZG9lc19ub3RfZHVwbGljYXRlX3F1YW50aXR5X29yX3Byb2R1Y3QgKGNvcmUudGVzdF93YXJlaG91c2VfaW52ZW50b3J5LkJ1bGtTdG9ja0luRXhpc3RpbmdQcm9kdWN0Q29udHJhY3RUZXN0cy50ZXN0X3JldHJ5X2RvZXNfbm90X2R1cGxpY2F0ZV9xdWFudGl0eV9vcl9wcm9kdWN0KSAuLi4gb2siLAogICAgInRlc3RfZWRpdF9wcmVzZXJ2ZXNfc3RvY2tfaW5fdHJhbnNhY3Rpb25fYW5kX2FwcGVuZHNfYWRqdXN0bWVudHMgKGNvcmUudGVzdF9zdG9ja19iYXRjaF90cmFuc2FjdGlvbl9zeW5jLlN0b2NrQmF0Y2hUcmFuc2FjdGlvblN5bmNUZXN0cy50ZXN0X2VkaXRfcHJlc2VydmVzX3N0b2NrX2luX3RyYW5zYWN0aW9uX2FuZF9hcHBlbmRzX2FkanVzdG1lbnRzKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-a54306602d37da3aa0ba",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-23 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.502Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-23-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yMyIsCiAgInRpdGxlIjogIkV4cGlyZWQgb3IgaW52YWxpZCBzdG9jayByZWNlaXB0IGlzIHJlamVjdGVkIiwKICAibW9kdWxlIjogIkludmVudG9yeSIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3Rfd2FyZWhvdXNlX2ludmVudG9yeS5CdWxrU3RvY2tJbkV4aXN0aW5nUHJvZHVjdENvbnRyYWN0VGVzdHMudGVzdF9idWxrX3N0b2NrX2luX3JlamVjdHNfcGFzdF9leHBpcnlfZGF0ZSIsCiAgICAiY29yZS50ZXN0X21peGVkX2Nhc2VfYmFja2VuZF9ndWFyZHMuTWl4ZWRDYXNlQmFja2VuZEd1YXJkVGVzdHMudGVzdF9wcm9kdWN0X29wZW5pbmdfc3RvY2tfaXNfYmF0Y2hfYmFja2VkX2FuZF9mcmFjdGlvbmFsX3N0b2NrX2lzX3JlamVjdGVkIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfYnVsa19zdG9ja19pbl9yZWplY3RzX3Bhc3RfZXhwaXJ5X2RhdGUgKGNvcmUudGVzdF93YXJlaG91c2VfaW52ZW50b3J5LkJ1bGtTdG9ja0luRXhpc3RpbmdQcm9kdWN0Q29udHJhY3RUZXN0cy50ZXN0X2J1bGtfc3RvY2tfaW5fcmVqZWN0c19wYXN0X2V4cGlyeV9kYXRlKSAuLi4gb2siLAogICAgInRlc3RfcHJvZHVjdF9vcGVuaW5nX3N0b2NrX2lzX2JhdGNoX2JhY2tlZF9hbmRfZnJhY3Rpb25hbF9zdG9ja19pc19yZWplY3RlZCAoY29yZS50ZXN0X21peGVkX2Nhc2VfYmFja2VuZF9ndWFyZHMuTWl4ZWRDYXNlQmFja2VuZEd1YXJkVGVzdHMudGVzdF9wcm9kdWN0X29wZW5pbmdfc3RvY2tfaXNfYmF0Y2hfYmFja2VkX2FuZF9mcmFjdGlvbmFsX3N0b2NrX2lzX3JlamVjdGVkKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-fdfa567e5694eeb231e7",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-24 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.520Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-24-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yNCIsCiAgInRpdGxlIjogIkludmVudG9yeSB0cmFuc2FjdGlvbiBoaXN0b3J5IGlzIHNjb3BlZCBhbmQgYXVkaXRhYmxlIiwKICAibW9kdWxlIjogIkludmVudG9yeSIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3Rfd2FyZWhvdXNlX2ludmVudG9yeS5XYXJlaG91c2VTdGFmZkludmVudG9yeVNjb3BlQ29udHJhY3RUZXN0cy50ZXN0X2ludmVudG9yeV90cmFuc2FjdGlvbnNfZW5kcG9pbnRfZm9yX3dhcmVob3VzZV9zdGFmZl9yZXR1cm5zX29ubHlfYXNzaWduZWRfd2FyZWhvdXNlX3RyYW5zYWN0aW9ucyIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X2ludmVudG9yeV90cmFuc2FjdGlvbnNfZW5kcG9pbnRfZm9yX3dhcmVob3VzZV9zdGFmZl9yZXR1cm5zX29ubHlfYXNzaWduZWRfd2FyZWhvdXNlX3RyYW5zYWN0aW9ucyAoY29yZS50ZXN0X3dhcmVob3VzZV9pbnZlbnRvcnkuV2FyZWhvdXNlU3RhZmZJbnZlbnRvcnlTY29wZUNvbnRyYWN0VGVzdHMudGVzdF9pbnZlbnRvcnlfdHJhbnNhY3Rpb25zX2VuZHBvaW50X2Zvcl93YXJlaG91c2Vfc3RhZmZfcmV0dXJuc19vbmx5X2Fzc2lnbmVkX3dhcmVob3VzZV90cmFuc2FjdGlvbnMpIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-b10519af206114887f83",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-25 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.539Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-25-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yNSIsCiAgInRpdGxlIjogIkludmVudG9yeSB0aHJlc2hvbGRzIGFuZCBzdG9jayBoZWFsdGggdXBkYXRlIiwKICAibW9kdWxlIjogIkludmVudG9yeSIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfaW52ZW50b3J5X2FsZXJ0cy5JbnZlbnRvcnlTdG9ja0FsZXJ0VGVzdHMudGVzdF9yZW9yZGVyX2FuZF9vdXRfb2Zfc3RvY2tfdHJhbnNpdGlvbnNfbm90aWZ5X2FkbWluX2FuZF93YXJlaG91c2Vfc3RhZmYiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9yZW9yZGVyX2FuZF9vdXRfb2Zfc3RvY2tfdHJhbnNpdGlvbnNfbm90aWZ5X2FkbWluX2FuZF93YXJlaG91c2Vfc3RhZmYgKGNvcmUudGVzdF9pbnZlbnRvcnlfYWxlcnRzLkludmVudG9yeVN0b2NrQWxlcnRUZXN0cy50ZXN0X3Jlb3JkZXJfYW5kX291dF9vZl9zdG9ja190cmFuc2l0aW9uc19ub3RpZnlfYWRtaW5fYW5kX3dhcmVob3VzZV9zdGFmZikgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-db5b622801c66dd33ba2",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-26 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.560Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-26-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yNiIsCiAgInRpdGxlIjogIk5lZ2F0aXZlIG9yIGludmFsaWQgc3RvY2sgcXVhbnRpdHkgaXMgcHJldmVudGVkIiwKICAibW9kdWxlIjogIkludmVudG9yeSIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3Rfc3RvY2tfYmF0Y2hfdHJhbnNhY3Rpb25fc3luYy5TdG9ja0JhdGNoVHJhbnNhY3Rpb25TeW5jVGVzdHMudGVzdF9iYXRjaF9pbmNyZWFzZV9jYW5ub3RfZXhjZWVkX3dhcmVob3VzZV9jYXBhY2l0eSIsCiAgICAiY29yZS50ZXN0X21peGVkX2Nhc2VfYmFja2VuZF9ndWFyZHMuTWl4ZWRDYXNlQmFja2VuZEd1YXJkVGVzdHMudGVzdF9pbnZlbnRvcnlfYWRqdXN0bWVudHNfYXJlX2xlZGdlcmVkX2FuZF9rZWVwX3Jlc2VydmVkX2NvdW50ZXJzX25vbm5lZ2F0aXZlIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfYmF0Y2hfaW5jcmVhc2VfY2Fubm90X2V4Y2VlZF93YXJlaG91c2VfY2FwYWNpdHkgKGNvcmUudGVzdF9zdG9ja19iYXRjaF90cmFuc2FjdGlvbl9zeW5jLlN0b2NrQmF0Y2hUcmFuc2FjdGlvblN5bmNUZXN0cy50ZXN0X2JhdGNoX2luY3JlYXNlX2Nhbm5vdF9leGNlZWRfd2FyZWhvdXNlX2NhcGFjaXR5KSAuLi4gb2siLAogICAgInRlc3RfaW52ZW50b3J5X2FkanVzdG1lbnRzX2FyZV9sZWRnZXJlZF9hbmRfa2VlcF9yZXNlcnZlZF9jb3VudGVyc19ub25uZWdhdGl2ZSAoY29yZS50ZXN0X21peGVkX2Nhc2VfYmFja2VuZF9ndWFyZHMuTWl4ZWRDYXNlQmFja2VuZEd1YXJkVGVzdHMudGVzdF9pbnZlbnRvcnlfYWRqdXN0bWVudHNfYXJlX2xlZGdlcmVkX2FuZF9rZWVwX3Jlc2VydmVkX2NvdW50ZXJzX25vbm5lZ2F0aXZlKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-885dda2d8a7cb9d4c661",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-27 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.578Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-27-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yNyIsCiAgInRpdGxlIjogIkNsaWVudCBvcmRlciBpcyBjcmVhdGVkIiwKICAibW9kdWxlIjogIk9yZGVycyIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfY3VzdG9tZXJfb3JkZXJzLkN1c3RvbWVyT3JkZXJzQXBpQ29udHJhY3RUZXN0cy50ZXN0X2N1c3RvbWVyX29yZGVyX2NyZWF0ZV9kZWZhdWx0c190b19wZW5kaW5nIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfY3VzdG9tZXJfb3JkZXJfY3JlYXRlX2RlZmF1bHRzX3RvX3BlbmRpbmcgKGNvcmUudGVzdF9jdXN0b21lcl9vcmRlcnMuQ3VzdG9tZXJPcmRlcnNBcGlDb250cmFjdFRlc3RzLnRlc3RfY3VzdG9tZXJfb3JkZXJfY3JlYXRlX2RlZmF1bHRzX3RvX3BlbmRpbmcpIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-f8a60ccc727897cf0421",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-28 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.604Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-28-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yOCIsCiAgInRpdGxlIjogIk1peGVkIGNhc2UgaXMgcHJpY2VkIGFuZCBwcm9jZXNzZWQiLAogICJtb2R1bGUiOiAiT3JkZXJzIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF9taXhlZF9jYXNlLk1peGVkQ2FzZUFwaVRlc3RzLnRlc3RfY2hlY2tvdXRfaXNfc2VydmVyX3ByaWNlZF9hbmRfaWRlbXBvdGVudCIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X2NoZWNrb3V0X2lzX3NlcnZlcl9wcmljZWRfYW5kX2lkZW1wb3RlbnQgKGNvcmUudGVzdF9taXhlZF9jYXNlLk1peGVkQ2FzZUFwaVRlc3RzLnRlc3RfY2hlY2tvdXRfaXNfc2VydmVyX3ByaWNlZF9hbmRfaWRlbXBvdGVudCkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-dc37d81f80adc2a0a72a",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-29 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.619Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-29-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0yOSIsCiAgInRpdGxlIjogIkNoZWNrb3V0IGNhbm5vdCBleGNlZWQgYXZhaWxhYmxlIHN0b2NrIiwKICAibW9kdWxlIjogIk9yZGVycyIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfY3VzdG9tZXJfb3JkZXJzLkN1c3RvbWVyT3JkZXJzUG9zdEFwaUNvbnRyYWN0VGVzdHMudGVzdF9sYXJnZV9pbnN1ZmZpY2llbnRfcmVxdWVzdF9yZW1haW5zX3Zpc2libGVfd2l0aG91dF9vdmVyX3Jlc2VydmluZyIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X2xhcmdlX2luc3VmZmljaWVudF9yZXF1ZXN0X3JlbWFpbnNfdmlzaWJsZV93aXRob3V0X292ZXJfcmVzZXJ2aW5nIChjb3JlLnRlc3RfY3VzdG9tZXJfb3JkZXJzLkN1c3RvbWVyT3JkZXJzUG9zdEFwaUNvbnRyYWN0VGVzdHMudGVzdF9sYXJnZV9pbnN1ZmZpY2llbnRfcmVxdWVzdF9yZW1haW5zX3Zpc2libGVfd2l0aG91dF9vdmVyX3Jlc2VydmluZykgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-a96945bf001719431ba9",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-30 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.634Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-30-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zMCIsCiAgInRpdGxlIjogIkxpbWl0ZWQgc3RvY2sgY2Fubm90IGJlIGZ1bGZpbGxlZCB0d2ljZSIsCiAgIm1vZHVsZSI6ICJPcmRlcnMiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X2N1c3RvbWVyX29yZGVycy5DdXN0b21lck9yZGVyc1Bvc3RBcGlDb250cmFjdFRlc3RzLnRlc3Rfc2Vjb25kX3B1cmNoYXNlX3JlcXVlc3Rfc3VibWlzc2lvbl9kb2VzX25vdF9vdmVyYm9va19yZXNlcnZlZF9zdG9jayIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3NlY29uZF9wdXJjaGFzZV9yZXF1ZXN0X3N1Ym1pc3Npb25fZG9lc19ub3Rfb3ZlcmJvb2tfcmVzZXJ2ZWRfc3RvY2sgKGNvcmUudGVzdF9jdXN0b21lcl9vcmRlcnMuQ3VzdG9tZXJPcmRlcnNQb3N0QXBpQ29udHJhY3RUZXN0cy50ZXN0X3NlY29uZF9wdXJjaGFzZV9yZXF1ZXN0X3N1Ym1pc3Npb25fZG9lc19ub3Rfb3ZlcmJvb2tfcmVzZXJ2ZWRfc3RvY2spIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-be5033bfe48df2571a63",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-31 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.651Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-31-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zMSIsCiAgInRpdGxlIjogIldhcmVob3VzZSBvcmRlciBxdWV1ZSByZXR1cm5zIHNjb3BlZCBkZXRhaWxzIiwKICAibW9kdWxlIjogIk9yZGVycyIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3Rfd2FyZWhvdXNlX2ludmVudG9yeS5XYXJlaG91c2VTdGFmZkludmVudG9yeVNjb3BlQ29udHJhY3RUZXN0cy50ZXN0X29yZGVyc19lbmRwb2ludF9mb3Jfd2FyZWhvdXNlX3N0YWZmX3JldHVybnNfb25seV9hc3NpZ25lZF93YXJlaG91c2Vfb3JkZXJzIiwKICAgICJjb3JlLnRlc3Rfb3JkZXJfd29ya2Zsb3cuUGFnaW5hdGlvbkd1YXJkc0NvbnRyYWN0VGVzdHMudGVzdF9vcmRlcnNfaW5jbHVkZV9yZXR1cm5zX2Fsd2F5c19leHBvc2VzX2N1c3RvbWVyX2Rpc3BsYXlfbmFtZSIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X29yZGVyc19lbmRwb2ludF9mb3Jfd2FyZWhvdXNlX3N0YWZmX3JldHVybnNfb25seV9hc3NpZ25lZF93YXJlaG91c2Vfb3JkZXJzIChjb3JlLnRlc3Rfd2FyZWhvdXNlX2ludmVudG9yeS5XYXJlaG91c2VTdGFmZkludmVudG9yeVNjb3BlQ29udHJhY3RUZXN0cy50ZXN0X29yZGVyc19lbmRwb2ludF9mb3Jfd2FyZWhvdXNlX3N0YWZmX3JldHVybnNfb25seV9hc3NpZ25lZF93YXJlaG91c2Vfb3JkZXJzKSAuLi4gb2siLAogICAgInRlc3Rfb3JkZXJzX2luY2x1ZGVfcmV0dXJuc19hbHdheXNfZXhwb3Nlc19jdXN0b21lcl9kaXNwbGF5X25hbWUgKGNvcmUudGVzdF9vcmRlcl93b3JrZmxvdy5QYWdpbmF0aW9uR3VhcmRzQ29udHJhY3RUZXN0cy50ZXN0X29yZGVyc19pbmNsdWRlX3JldHVybnNfYWx3YXlzX2V4cG9zZXNfY3VzdG9tZXJfZGlzcGxheV9uYW1lKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-4b9e96ba4e9541d3759f",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-32 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.671Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-32-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zMiIsCiAgInRpdGxlIjogIlB1cmNoYXNlIG9yZGVyIGFkdmFuY2VzIHRvIHByZXBhcmF0aW9uIiwKICAibW9kdWxlIjogIk9yZGVycyIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3Rfb3JkZXJfd29ya2Zsb3cuUHVyY2hhc2VSZXF1ZXN0V29ya2Zsb3dUZXN0cy50ZXN0X3dhcmVob3VzZV9hcHByb3ZhbF9jcmVhdGVzX3B1cmNoYXNlX29yZGVyX21ldGFkYXRhIiwKICAgICJjb3JlLnRlc3Rfb3JkZXJfd29ya2Zsb3cuT3JkZXJTdGF0dXNUcmFuc2l0aW9uQXBpQ29udHJhY3RUZXN0cy50ZXN0X3ByZXBhcmluZ19zdGF0dXNfdXBkYXRlc19vcmRlcl9hbmRfdGltZWxpbmUiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF93YXJlaG91c2VfYXBwcm92YWxfY3JlYXRlc19wdXJjaGFzZV9vcmRlcl9tZXRhZGF0YSAoY29yZS50ZXN0X29yZGVyX3dvcmtmbG93LlB1cmNoYXNlUmVxdWVzdFdvcmtmbG93VGVzdHMudGVzdF93YXJlaG91c2VfYXBwcm92YWxfY3JlYXRlc19wdXJjaGFzZV9vcmRlcl9tZXRhZGF0YSkgLi4uIG9rIiwKICAgICJ0ZXN0X3ByZXBhcmluZ19zdGF0dXNfdXBkYXRlc19vcmRlcl9hbmRfdGltZWxpbmUgKGNvcmUudGVzdF9vcmRlcl93b3JrZmxvdy5PcmRlclN0YXR1c1RyYW5zaXRpb25BcGlDb250cmFjdFRlc3RzLnRlc3RfcHJlcGFyaW5nX3N0YXR1c191cGRhdGVzX29yZGVyX2FuZF90aW1lbGluZSkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-98d75fc953e26e9783dc",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-33 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.687Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-33-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zMyIsCiAgInRpdGxlIjogIlRyaXAgbWFuYWdlbWVudCBkYXRhIGlzIGF2YWlsYWJsZSIsCiAgIm1vZHVsZSI6ICJUcmFuc3BvcnRhdGlvbiIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfdHJpcF9wbGFubmluZy5Sb3V0ZVBsYW5TdHJ1Y3R1cmVDb250cmFjdFRlc3RzLnRlc3Rfcm91dGVfcGxhbl9nZXRfcmV0dXJuc19kcml2ZXJzX3ZlaGljbGVzX29yZGVyc19hbmRfZ3JvdXBlZF9wbGFucyIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3JvdXRlX3BsYW5fZ2V0X3JldHVybnNfZHJpdmVyc192ZWhpY2xlc19vcmRlcnNfYW5kX2dyb3VwZWRfcGxhbnMgKGNvcmUudGVzdF90cmlwX3BsYW5uaW5nLlJvdXRlUGxhblN0cnVjdHVyZUNvbnRyYWN0VGVzdHMudGVzdF9yb3V0ZV9wbGFuX2dldF9yZXR1cm5zX2RyaXZlcnNfdmVoaWNsZXNfb3JkZXJzX2FuZF9ncm91cGVkX3BsYW5zKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-d464e5e76eb826790f7c",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-34 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.704Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-34-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zNCIsCiAgInRpdGxlIjogIkRlbGl2ZXJ5IHRyaXAgaXMgY3JlYXRlZCB3aXRoIHN0b3BzIiwKICAibW9kdWxlIjogIlRyYW5zcG9ydGF0aW9uIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF90cmlwX3BsYW5uaW5nLlRyaXBzUG9zdENyZWF0aW9uQ29udHJhY3RUZXN0cy50ZXN0X3RyaXBzX3Bvc3RfY3JlYXRlc190cmlwX3dpdGhfZHJvcF9wb2ludHNfYW5kX3RvdGFsX2NvdW50IgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfdHJpcHNfcG9zdF9jcmVhdGVzX3RyaXBfd2l0aF9kcm9wX3BvaW50c19hbmRfdG90YWxfY291bnQgKGNvcmUudGVzdF90cmlwX3BsYW5uaW5nLlRyaXBzUG9zdENyZWF0aW9uQ29udHJhY3RUZXN0cy50ZXN0X3RyaXBzX3Bvc3RfY3JlYXRlc190cmlwX3dpdGhfZHJvcF9wb2ludHNfYW5kX3RvdGFsX2NvdW50KSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-db7edcc54f29853435d9",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-35 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.721Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-35-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zNSIsCiAgInRpdGxlIjogIlZlaGljbGUgbG9hZCBjYXBhY2l0eSBpcyB2YWxpZGF0ZWQiLAogICJtb2R1bGUiOiAiVHJhbnNwb3J0YXRpb24iLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3RyaXBfcGxhbm5pbmcuVHJpcHNQb3N0Q3JlYXRpb25Db250cmFjdFRlc3RzLnRlc3RfdHJpcHNfcG9zdF9yZWplY3RzX3ZlaGljbGVfb3ZlcmxvYWRfYW5kX3JlcG9ydHNfZXhjZXNzX3dlaWdodCIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3RyaXBzX3Bvc3RfcmVqZWN0c192ZWhpY2xlX292ZXJsb2FkX2FuZF9yZXBvcnRzX2V4Y2Vzc193ZWlnaHQgKGNvcmUudGVzdF90cmlwX3BsYW5uaW5nLlRyaXBzUG9zdENyZWF0aW9uQ29udHJhY3RUZXN0cy50ZXN0X3RyaXBzX3Bvc3RfcmVqZWN0c192ZWhpY2xlX292ZXJsb2FkX2FuZF9yZXBvcnRzX2V4Y2Vzc193ZWlnaHQpIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-6d8312db3e1229832aaa",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-36 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.737Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-36-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zNiIsCiAgInRpdGxlIjogIkNhbWVyYSBhbmQgbG9jYXRpb24gY2FwdHVyZSBtZXRhZGF0YSBpcyB2YWxpZGF0ZWQiLAogICJtb2R1bGUiOiAiVHJhbnNwb3J0YXRpb24iLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3BvZF9vdmVybGF5LlBvZE92ZXJsYXlUZXN0cy50ZXN0X3BhcnNlc192YWxpZF9jYXB0dXJlX21ldGFkYXRhIiwKICAgICJjb3JlLnRlc3RfdXBsb2FkX2VuZHBvaW50cy5VcGxvYWRFbmRwb2ludHNBdXRoQ29udHJhY3RUZXN0cy50ZXN0X3VwbG9hZF9wb2RfaW1hZ2VfcmVxdWlyZXNfZHJpdmVyX3JvbGUiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9wYXJzZXNfdmFsaWRfY2FwdHVyZV9tZXRhZGF0YSAoY29yZS50ZXN0X3BvZF9vdmVybGF5LlBvZE92ZXJsYXlUZXN0cy50ZXN0X3BhcnNlc192YWxpZF9jYXB0dXJlX21ldGFkYXRhKSAuLi4gb2siLAogICAgInRlc3RfdXBsb2FkX3BvZF9pbWFnZV9yZXF1aXJlc19kcml2ZXJfcm9sZSAoY29yZS50ZXN0X3VwbG9hZF9lbmRwb2ludHMuVXBsb2FkRW5kcG9pbnRzQXV0aENvbnRyYWN0VGVzdHMudGVzdF91cGxvYWRfcG9kX2ltYWdlX3JlcXVpcmVzX2RyaXZlcl9yb2xlKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-d1c50d7659e2c609c956",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-37 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.754Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-37-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zNyIsCiAgInRpdGxlIjogIlRyaXAgc3RhcnRzIGFuZCBHUFMgdXBkYXRlcyBhcmUgYWNjZXB0ZWQiLAogICJtb2R1bGUiOiAiVHJhbnNwb3J0YXRpb24iLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3RyaXBfZXhlY3V0aW9uLlRyaXBFeGVjdXRpb25BcGlDb250cmFjdFRlc3RzLnRlc3RfdHJpcF9zdGFydF9zZXRzX2luX3Byb2dyZXNzX2FuZF9hY3R1YWxfc3RhcnRfYXQiLAogICAgImNvcmUudGVzdF9kcml2ZXJfYXBpLkRyaXZlckxvY2F0aW9uQWNjdXJhY3lDb250cmFjdFRlc3RzLnRlc3RfZGVncmFkZWRfYnV0X3VzYWJsZV9ncHNfc2FtcGxlX3VwZGF0ZXNfdGhlX2RyaXZlcl9sb2NhdGlvbiIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3RyaXBfc3RhcnRfc2V0c19pbl9wcm9ncmVzc19hbmRfYWN0dWFsX3N0YXJ0X2F0IChjb3JlLnRlc3RfdHJpcF9leGVjdXRpb24uVHJpcEV4ZWN1dGlvbkFwaUNvbnRyYWN0VGVzdHMudGVzdF90cmlwX3N0YXJ0X3NldHNfaW5fcHJvZ3Jlc3NfYW5kX2FjdHVhbF9zdGFydF9hdCkgLi4uIG9rIiwKICAgICJ0ZXN0X2RlZ3JhZGVkX2J1dF91c2FibGVfZ3BzX3NhbXBsZV91cGRhdGVzX3RoZV9kcml2ZXJfbG9jYXRpb24gKGNvcmUudGVzdF9kcml2ZXJfYXBpLkRyaXZlckxvY2F0aW9uQWNjdXJhY3lDb250cmFjdFRlc3RzLnRlc3RfZGVncmFkZWRfYnV0X3VzYWJsZV9ncHNfc2FtcGxlX3VwZGF0ZXNfdGhlX2RyaXZlcl9sb2NhdGlvbikgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e9a263182444c17bc754",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-38 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.770Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-38-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zOCIsCiAgInRpdGxlIjogIlByb29mIG9mIGRlbGl2ZXJ5IGltYWdlIGNvbnRhaW5zIGNhcHR1cmUgb3ZlcmxheSIsCiAgIm1vZHVsZSI6ICJUcmFuc3BvcnRhdGlvbiIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfcG9kX292ZXJsYXkuUG9kT3ZlcmxheVRlc3RzLnRlc3RfYnVybnNfb3ZlcmxheV9pbnRvX3JlYWRhYmxlX2pwZWciCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9idXJuc19vdmVybGF5X2ludG9fcmVhZGFibGVfanBlZyAoY29yZS50ZXN0X3BvZF9vdmVybGF5LlBvZE92ZXJsYXlUZXN0cy50ZXN0X2J1cm5zX292ZXJsYXlfaW50b19yZWFkYWJsZV9qcGVnKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e4f0448dfaaad5b92a13",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-39 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.786Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-39-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy0zOSIsCiAgInRpdGxlIjogIkxpdmUgZHJpdmVyIGxvY2F0aW9uIHVzZXMgdGhlIGxhdGVzdCB2YWxpZCBmaXgiLAogICJtb2R1bGUiOiAiVHJhbnNwb3J0YXRpb24iLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3RyaXBfcGxhbm5pbmcuVHJpcHNDb2xsZWN0aW9uVHJhY2tpbmdDb250cmFjdFRlc3RzLnRlc3RfdHJpcHNfY29sbGVjdGlvbl9pbmNsdWRlX3RyYWNraW5nX2FuZF9kYXRlX2ZpbHRlciIsCiAgICAiY29yZS50ZXN0X2RyaXZlcl9hcGkuRHJpdmVyTG9jYXRpb25BY2N1cmFjeUNvbnRyYWN0VGVzdHMudGVzdF9pbmFjY3VyYXRlX3NhbXBsZV9jYW5ub3Rfb3ZlcndyaXRlX3JlbGlhYmxlX2RyaXZlcl9sb2NhdGlvbiIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3RyaXBzX2NvbGxlY3Rpb25faW5jbHVkZV90cmFja2luZ19hbmRfZGF0ZV9maWx0ZXIgKGNvcmUudGVzdF90cmlwX3BsYW5uaW5nLlRyaXBzQ29sbGVjdGlvblRyYWNraW5nQ29udHJhY3RUZXN0cy50ZXN0X3RyaXBzX2NvbGxlY3Rpb25faW5jbHVkZV90cmFja2luZ19hbmRfZGF0ZV9maWx0ZXIpIC4uLiBvayIsCiAgICAidGVzdF9pbmFjY3VyYXRlX3NhbXBsZV9jYW5ub3Rfb3ZlcndyaXRlX3JlbGlhYmxlX2RyaXZlcl9sb2NhdGlvbiAoY29yZS50ZXN0X2RyaXZlcl9hcGkuRHJpdmVyTG9jYXRpb25BY2N1cmFjeUNvbnRyYWN0VGVzdHMudGVzdF9pbmFjY3VyYXRlX3NhbXBsZV9jYW5ub3Rfb3ZlcndyaXRlX3JlbGlhYmxlX2RyaXZlcl9sb2NhdGlvbikgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-0143169f2d8ec91c2dee",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-40 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.801Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-40-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00MCIsCiAgInRpdGxlIjogIkNsaWVudCBkZWxpdmVyeSB0cmFja2luZyBhbmQgUE9EIGFyZSBleHBvc2VkIiwKICAibW9kdWxlIjogIlRyYW5zcG9ydGF0aW9uIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF9jdXN0b21lcl9vcmRlcnMuQ3VzdG9tZXJUcmFja2luZ0FwaUNvbnRyYWN0VGVzdHMudGVzdF9jdXN0b21lcl90cmFja2luZ19yZXR1cm5zX3N0YXR1c19hbmRfb3JkZXJfc3RhdHVzX2Zvcl9jb21wYXRpYmlsaXR5IiwKICAgICJjb3JlLnRlc3RfY3VzdG9tZXJfb3JkZXJzLkN1c3RvbWVyT3JkZXJzQXBpQ29udHJhY3RUZXN0cy50ZXN0X2N1c3RvbWVyX29yZGVyc19mYWxsc19iYWNrX3RvX2NvbXBsZXRlZF9zdG9wX3BvZF9waG90byIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X2N1c3RvbWVyX3RyYWNraW5nX3JldHVybnNfc3RhdHVzX2FuZF9vcmRlcl9zdGF0dXNfZm9yX2NvbXBhdGliaWxpdHkgKGNvcmUudGVzdF9jdXN0b21lcl9vcmRlcnMuQ3VzdG9tZXJUcmFja2luZ0FwaUNvbnRyYWN0VGVzdHMudGVzdF9jdXN0b21lcl90cmFja2luZ19yZXR1cm5zX3N0YXR1c19hbmRfb3JkZXJfc3RhdHVzX2Zvcl9jb21wYXRpYmlsaXR5KSAuLi4gb2siLAogICAgInRlc3RfY3VzdG9tZXJfb3JkZXJzX2ZhbGxzX2JhY2tfdG9fY29tcGxldGVkX3N0b3BfcG9kX3Bob3RvIChjb3JlLnRlc3RfY3VzdG9tZXJfb3JkZXJzLkN1c3RvbWVyT3JkZXJzQXBpQ29udHJhY3RUZXN0cy50ZXN0X2N1c3RvbWVyX29yZGVyc19mYWxsc19iYWNrX3RvX2NvbXBsZXRlZF9zdG9wX3BvZF9waG90bykgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-93daacc76325644de1f3",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-41 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.820Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-41-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00MSIsCiAgInRpdGxlIjogIlBlbmRpbmcgdHJpcCBjYW4gYmUgY2FuY2VsbGVkIHNhZmVseSIsCiAgIm1vZHVsZSI6ICJUcmFuc3BvcnRhdGlvbiIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfdHJpcF9wbGFubmluZy5Sb3V0ZVBsYW5TdHJ1Y3R1cmVDb250cmFjdFRlc3RzLnRlc3RfdHJpcF9kZWxldGVfcmVqZWN0c19ub25fcGxhbm5lZF90cmlwIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfdHJpcF9kZWxldGVfcmVqZWN0c19ub25fcGxhbm5lZF90cmlwIChjb3JlLnRlc3RfdHJpcF9wbGFubmluZy5Sb3V0ZVBsYW5TdHJ1Y3R1cmVDb250cmFjdFRlc3RzLnRlc3RfdHJpcF9kZWxldGVfcmVqZWN0c19ub25fcGxhbm5lZF90cmlwKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-aa4e91a9f5bfd47721d6",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-42 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.844Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-42-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00MiIsCiAgInRpdGxlIjogIkNsaWVudCBzdWJtaXRzIGEgcmVwbGFjZW1lbnQgY2xhaW0gd2l0aCBldmlkZW5jZSIsCiAgIm1vZHVsZSI6ICJSZXBsYWNlbWVudHMiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3JlcGxhY2VtZW50cy5DdXN0b21lclJlcGxhY2VtZW50UmVxdWVzdENvbnRyYWN0VGVzdHMudGVzdF9jbGFpbV9zdG9yZXNfZXhhY3RseV90aGVfZXZpZGVuY2VfaXRfd2FzX3NlbnQiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9jbGFpbV9zdG9yZXNfZXhhY3RseV90aGVfZXZpZGVuY2VfaXRfd2FzX3NlbnQgKGNvcmUudGVzdF9yZXBsYWNlbWVudHMuQ3VzdG9tZXJSZXBsYWNlbWVudFJlcXVlc3RDb250cmFjdFRlc3RzLnRlc3RfY2xhaW1fc3RvcmVzX2V4YWN0bHlfdGhlX2V2aWRlbmNlX2l0X3dhc19zZW50KSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-c4279f8142bb156ff3bd",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-43 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.864Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-43-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00MyIsCiAgInRpdGxlIjogIlJlcGxhY2VtZW50IGNsYWltIHJlcXVpcmVzIHZhbGlkIGV2aWRlbmNlIiwKICAibW9kdWxlIjogIlJlcGxhY2VtZW50cyIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfcHJlbGF1bmNoX2FjY2Vzc19ndWFyZHMuUHJlbGF1bmNoUmVtYWluaW5nU2VjdXJpdHlUZXN0cy50ZXN0X2ludmFsaWRfaW1hZ2VzX3JlamVjdGVkX2FuZF91cGxvYWRfbmFtZXNfZG9fbm90X2NvbGxpZGUiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9pbnZhbGlkX2ltYWdlc19yZWplY3RlZF9hbmRfdXBsb2FkX25hbWVzX2RvX25vdF9jb2xsaWRlIChjb3JlLnRlc3RfcHJlbGF1bmNoX2FjY2Vzc19ndWFyZHMuUHJlbGF1bmNoUmVtYWluaW5nU2VjdXJpdHlUZXN0cy50ZXN0X2ludmFsaWRfaW1hZ2VzX3JlamVjdGVkX2FuZF91cGxvYWRfbmFtZXNfZG9fbm90X2NvbGxpZGUpIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-de23485beeb9fb341f69",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-44 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.878Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-44-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00NCIsCiAgInRpdGxlIjogIlJlcGxhY2VtZW50IHF1YW50aXR5IGlzIGNhcHBlZCIsCiAgIm1vZHVsZSI6ICJSZXBsYWNlbWVudHMiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X21peGVkX2Nhc2VfYmFja2VuZF9ndWFyZHMuTWl4ZWRDYXNlQmFja2VuZEd1YXJkVGVzdHMudGVzdF9zdGFuZGFyZF9yZXBsYWNlbWVudF9jYXBfdXNlc19zZXJ2ZXJfY2FwYWNpdHlfYW5kX3JlamVjdHNfZnJhY3Rpb25hbF9xdWFudGl0eSIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3N0YW5kYXJkX3JlcGxhY2VtZW50X2NhcF91c2VzX3NlcnZlcl9jYXBhY2l0eV9hbmRfcmVqZWN0c19mcmFjdGlvbmFsX3F1YW50aXR5IChjb3JlLnRlc3RfbWl4ZWRfY2FzZV9iYWNrZW5kX2d1YXJkcy5NaXhlZENhc2VCYWNrZW5kR3VhcmRUZXN0cy50ZXN0X3N0YW5kYXJkX3JlcGxhY2VtZW50X2NhcF91c2VzX3NlcnZlcl9jYXBhY2l0eV9hbmRfcmVqZWN0c19mcmFjdGlvbmFsX3F1YW50aXR5KSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-9b0ac5815d65ffed798a",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-45 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.902Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-45-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00NSIsCiAgInRpdGxlIjogIldhcmVob3VzZSByZXBsYWNlbWVudCBsaXN0IGlzIHNjb3BlZCIsCiAgIm1vZHVsZSI6ICJSZXBsYWNlbWVudHMiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3dhcmVob3VzZV9pbnZlbnRvcnkuV2FyZWhvdXNlU3RhZmZJbnZlbnRvcnlTY29wZUNvbnRyYWN0VGVzdHMudGVzdF9yZXBsYWNlbWVudHNfZW5kcG9pbnRfZm9yX3dhcmVob3VzZV9zdGFmZl9yZXR1cm5zX29ubHlfYXNzaWduZWRfd2FyZWhvdXNlX3JlcGxhY2VtZW50cyIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X3JlcGxhY2VtZW50c19lbmRwb2ludF9mb3Jfd2FyZWhvdXNlX3N0YWZmX3JldHVybnNfb25seV9hc3NpZ25lZF93YXJlaG91c2VfcmVwbGFjZW1lbnRzIChjb3JlLnRlc3Rfd2FyZWhvdXNlX2ludmVudG9yeS5XYXJlaG91c2VTdGFmZkludmVudG9yeVNjb3BlQ29udHJhY3RUZXN0cy50ZXN0X3JlcGxhY2VtZW50c19lbmRwb2ludF9mb3Jfd2FyZWhvdXNlX3N0YWZmX3JldHVybnNfb25seV9hc3NpZ25lZF93YXJlaG91c2VfcmVwbGFjZW1lbnRzKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-777e4a0b587a1728527f",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-46 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.919Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-46-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00NiIsCiAgInRpdGxlIjogIlJlcGxhY2VtZW50IGRldGFpbHMgaW5jbHVkZSBjbGFpbSBldmlkZW5jZSIsCiAgIm1vZHVsZSI6ICJSZXBsYWNlbWVudHMiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3JlcGxhY2VtZW50cy5DdXN0b21lclJlcGxhY2VtZW50UmVxdWVzdENvbnRyYWN0VGVzdHMudGVzdF9jb21wbGV0ZWRfcmVwbGFjZW1lbnRfc2VyaWFsaXplc19saW5rZWRfb3JkZXJfcG9kIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfY29tcGxldGVkX3JlcGxhY2VtZW50X3NlcmlhbGl6ZXNfbGlua2VkX29yZGVyX3BvZCAoY29yZS50ZXN0X3JlcGxhY2VtZW50cy5DdXN0b21lclJlcGxhY2VtZW50UmVxdWVzdENvbnRyYWN0VGVzdHMudGVzdF9jb21wbGV0ZWRfcmVwbGFjZW1lbnRfc2VyaWFsaXplc19saW5rZWRfb3JkZXJfcG9kKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-d7f2e1d18dd85884f292",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-47 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 7,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.939Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-47-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00NyIsCiAgInRpdGxlIjogIlZlcmlmaWVkIHJlcGxhY2VtZW50IGVudGVycyBwcm9jZXNzaW5nIiwKICAibW9kdWxlIjogIlJlcGxhY2VtZW50cyIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfcmVwbGFjZW1lbnRzLldhcmVob3VzZVJlcGxhY2VtZW50UHJvY2Vzc2luZ0NvbnRyYWN0VGVzdHMudGVzdF93YXJlaG91c2Vfc3RhcnRzX3Byb2Nlc3NpbmdfYmVmb3JlX3NjaGVkdWxpbmdfcmVwbGFjZW1lbnQiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF93YXJlaG91c2Vfc3RhcnRzX3Byb2Nlc3NpbmdfYmVmb3JlX3NjaGVkdWxpbmdfcmVwbGFjZW1lbnQgKGNvcmUudGVzdF9yZXBsYWNlbWVudHMuV2FyZWhvdXNlUmVwbGFjZW1lbnRQcm9jZXNzaW5nQ29udHJhY3RUZXN0cy50ZXN0X3dhcmVob3VzZV9zdGFydHNfcHJvY2Vzc2luZ19iZWZvcmVfc2NoZWR1bGluZ19yZXBsYWNlbWVudCkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e7b7bcd62f53172817eb",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-48 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:07.979Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-48-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00OCIsCiAgInRpdGxlIjogIlJlcGxhY2VtZW50IHJlamVjdGlvbiBzdGF0ZSBpcyBlbmZvcmNlZCIsCiAgIm1vZHVsZSI6ICJSZXBsYWNlbWVudHMiLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X3JlcGxhY2VtZW50cy5DdXN0b21lclJlcGxhY2VtZW50UmVxdWVzdENvbnRyYWN0VGVzdHMudGVzdF9jdXN0b21lcl9yZXBsYWNlbWVudF9yZXF1ZXN0X3JlamVjdHNfaWZfcHJldmlvdXNfcmVwbGFjZW1lbnRfd2FzX3JlamVjdGVkIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgInRlc3RfY3VzdG9tZXJfcmVwbGFjZW1lbnRfcmVxdWVzdF9yZWplY3RzX2lmX3ByZXZpb3VzX3JlcGxhY2VtZW50X3dhc19yZWplY3RlZCAoY29yZS50ZXN0X3JlcGxhY2VtZW50cy5DdXN0b21lclJlcGxhY2VtZW50UmVxdWVzdENvbnRyYWN0VGVzdHMudGVzdF9jdXN0b21lcl9yZXBsYWNlbWVudF9yZXF1ZXN0X3JlamVjdHNfaWZfcHJldmlvdXNfcmVwbGFjZW1lbnRfd2FzX3JlamVjdGVkKSAuLi4gb2siCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-a931092a3b6d7a374c99",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-49 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.047Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-49-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy00OSIsCiAgInRpdGxlIjogIlJlcGxhY2VtZW50IHJlZGVsaXZlcnkgaXMgc2NoZWR1bGVkIiwKICAibW9kdWxlIjogIlJlcGxhY2VtZW50cyIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3RfcmVwbGFjZW1lbnRzLldhcmVob3VzZVJlcGxhY2VtZW50UmVzY2hlZHVsZUNvbnRyYWN0VGVzdHMudGVzdF9wYXN0X2R1ZV9yZXBsYWNlbWVudF9kZWxpdmVyeV9tb3Zlc190b190aGVfbmV3X2RhdGUiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9wYXN0X2R1ZV9yZXBsYWNlbWVudF9kZWxpdmVyeV9tb3Zlc190b190aGVfbmV3X2RhdGUgKGNvcmUudGVzdF9yZXBsYWNlbWVudHMuV2FyZWhvdXNlUmVwbGFjZW1lbnRSZXNjaGVkdWxlQ29udHJhY3RUZXN0cy50ZXN0X3Bhc3RfZHVlX3JlcGxhY2VtZW50X2RlbGl2ZXJ5X21vdmVzX3RvX3RoZV9uZXdfZGF0ZSkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-a455aba1cf854218f462",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-50 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.069Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-50-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01MCIsCiAgInRpdGxlIjogIlJlcGxhY2VtZW50IHJlZGVsaXZlcnkgY29tcGxldGVzIHdpdGggUE9EIiwKICAibW9kdWxlIjogIlJlcGxhY2VtZW50cyIsCiAgImxheWVyIjogIkJhY2tlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJjb3JlLnRlc3Rfb3JkZXJfd29ya2Zsb3cuRGVsaXZlcnlMaWZlY3ljbGVGbG93Q29udHJhY3RUZXN0cy50ZXN0X2RlbGl2ZXJ5X2xpZmVjeWNsZV9lbmRfdG9fZW5kIiwKICAgICJjb3JlLnRlc3RfcmVwbGFjZW1lbnRzLkN1c3RvbWVyUmVwbGFjZW1lbnRSZXF1ZXN0Q29udHJhY3RUZXN0cy50ZXN0X2NvbXBsZXRlZF9yZXBsYWNlbWVudF9zZXJpYWxpemVzX2xpbmtlZF9vcmRlcl9wb2QiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9kZWxpdmVyeV9saWZlY3ljbGVfZW5kX3RvX2VuZCAoY29yZS50ZXN0X29yZGVyX3dvcmtmbG93LkRlbGl2ZXJ5TGlmZWN5Y2xlRmxvd0NvbnRyYWN0VGVzdHMudGVzdF9kZWxpdmVyeV9saWZlY3ljbGVfZW5kX3RvX2VuZCkgLi4uIG9rIiwKICAgICJ0ZXN0X2NvbXBsZXRlZF9yZXBsYWNlbWVudF9zZXJpYWxpemVzX2xpbmtlZF9vcmRlcl9wb2QgKGNvcmUudGVzdF9yZXBsYWNlbWVudHMuQ3VzdG9tZXJSZXBsYWNlbWVudFJlcXVlc3RDb250cmFjdFRlc3RzLnRlc3RfY29tcGxldGVkX3JlcGxhY2VtZW50X3NlcmlhbGl6ZXNfbGlua2VkX29yZGVyX3BvZCkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e43275bd5b0ea2be3046",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-51 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.091Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-51-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01MSIsCiAgInRpdGxlIjogIkNsaWVudCByYXRpbmcgYW5kIGNhdGVnb3J5IGZlZWRiYWNrIGlzIHNhdmVkIiwKICAibW9kdWxlIjogIkZlZWRiYWNrIiwKICAibGF5ZXIiOiAiQmFja2VuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImNvcmUudGVzdF9hdXRoX3RyaXBfZmVlZGJhY2tfZmxvd3MuRmVlZGJhY2tGbG93VGVzdHMudGVzdF9jb21wbGV0ZWRfb3JkZXJfZmVlZGJhY2tfaXNfcGVyc2lzdGVkIiwKICAgICJjb3JlLnRlc3Rfbm90aWZpY2F0aW9uc19mZWVkYmFjay5GZWVkYmFja0Rlc2NyaWJlZFJlYXNvblRlc3RzLnRlc3Rfb3RoZXJfcmVhc29uX2lzX3N0b3JlZF92ZXJiYXRpbSIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICJ0ZXN0X2NvbXBsZXRlZF9vcmRlcl9mZWVkYmFja19pc19wZXJzaXN0ZWQgKGNvcmUudGVzdF9hdXRoX3RyaXBfZmVlZGJhY2tfZmxvd3MuRmVlZGJhY2tGbG93VGVzdHMudGVzdF9jb21wbGV0ZWRfb3JkZXJfZmVlZGJhY2tfaXNfcGVyc2lzdGVkKSAuLi4gb2siLAogICAgInRlc3Rfb3RoZXJfcmVhc29uX2lzX3N0b3JlZF92ZXJiYXRpbSAoY29yZS50ZXN0X25vdGlmaWNhdGlvbnNfZmVlZGJhY2suRmVlZGJhY2tEZXNjcmliZWRSZWFzb25UZXN0cy50ZXN0X290aGVyX3JlYXNvbl9pc19zdG9yZWRfdmVyYmF0aW0pIC4uLiBvayIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-7cb5645a5b2e53195e66",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-52 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.116Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-52-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01MiIsCiAgInRpdGxlIjogIkR1cGxpY2F0ZSBvcmRlciBmZWVkYmFjayBpcyBwcmV2ZW50ZWQiLAogICJtb2R1bGUiOiAiRmVlZGJhY2siLAogICJsYXllciI6ICJCYWNrZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiY29yZS50ZXN0X2F1dGhfdHJpcF9mZWVkYmFja19mbG93cy5GZWVkYmFja0Zsb3dUZXN0cy50ZXN0X2R1cGxpY2F0ZV9mZWVkYmFja19mb3JfdGhlX3NhbWVfb3JkZXJfaXNfcmVqZWN0ZWQiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAidGVzdF9kdXBsaWNhdGVfZmVlZGJhY2tfZm9yX3RoZV9zYW1lX29yZGVyX2lzX3JlamVjdGVkIChjb3JlLnRlc3RfYXV0aF90cmlwX2ZlZWRiYWNrX2Zsb3dzLkZlZWRiYWNrRmxvd1Rlc3RzLnRlc3RfZHVwbGljYXRlX2ZlZWRiYWNrX2Zvcl90aGVfc2FtZV9vcmRlcl9pc19yZWplY3RlZCkgLi4uIG9rIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-1074b22b028b3b2d9be1",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-53 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.136Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-53-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01MyIsCiAgInRpdGxlIjogIkZlZWRiYWNrIEtQSXMgYW5kIHJhdGluZyBkaXN0cmlidXRpb24gYXJlIGNhbGN1bGF0ZWQiLAogICJtb2R1bGUiOiAiRmVlZGJhY2siLAogICJsYXllciI6ICJGcm9udGVuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImZlZWRiYWNrIEtQSSB0b3RhbHMgYW5kIHBlcmlvZCBkZWx0YXMgY29tZSBmcm9tIG9uZSByb3cgc2V0IiwKICAgICJkaW1lbnNpb24gYnJlYWtkb3duIHJldHVybnMgZXZlcnkgYnVja2V0IGFuZCBjb3VudHMgZWFjaCByZXZpZXcgb25jZSBwZXIgZGltZW5zaW9uIgogIF0sCiAgIm9ic2VydmVkIjogWwogICAgIuKclCBmZWVkYmFjayBLUEkgdG90YWxzIGFuZCBwZXJpb2QgZGVsdGFzIGNvbWUgZnJvbSBvbmUgcm93IHNldCAoMS40MzYxbXMpIiwKICAgICLinJQgZGltZW5zaW9uIGJyZWFrZG93biByZXR1cm5zIGV2ZXJ5IGJ1Y2tldCBhbmQgY291bnRzIGVhY2ggcmV2aWV3IG9uY2UgcGVyIGRpbWVuc2lvbiAoMS42ODcybXMpIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-fcfeb0131d5e3fffcc0a",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-54 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.162Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-54-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01NCIsCiAgInRpdGxlIjogIkZlZWRiYWNrIHJhdGluZ3MgbWFwIHRvIGZpbHRlcmFibGUgZGltZW5zaW9ucyIsCiAgIm1vZHVsZSI6ICJGZWVkYmFjayIsCiAgImxheWVyIjogIkZyb250ZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiZXZlcnkgcmF0aW5nIG9wdGlvbiBpbiB0aGUgc2hhcmVkIGNhdGFsb2dzIG1hcHMgdG8gYSBrbm93biBzZXJ2aWNlIGRpbWVuc2lvbiIsCiAgICAiZmVlZGJhY2sgbWVzc2FnZXMgcGFyc2UgaW50byByZWFzb25zIGFuZCBtYXAgb250byBzZXJ2aWNlIGRpbWVuc2lvbnMiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAi4pyUIGV2ZXJ5IHJhdGluZyBvcHRpb24gaW4gdGhlIHNoYXJlZCBjYXRhbG9ncyBtYXBzIHRvIGEga25vd24gc2VydmljZSBkaW1lbnNpb24gKDIuMTk4MW1zKSIsCiAgICAi4pyUIGZlZWRiYWNrIG1lc3NhZ2VzIHBhcnNlIGludG8gcmVhc29ucyBhbmQgbWFwIG9udG8gc2VydmljZSBkaW1lbnNpb25zICg1LjQwNzNtcykiCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-4662cc287f800731766d",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-55 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.184Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-55-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01NSIsCiAgInRpdGxlIjogIlJlcG9ydCBhY2Nlc3MgYW5kIG1vZHVsZSBsb2FkaW5nIiwKICAibW9kdWxlIjogIlJlcG9ydHMiLAogICJsYXllciI6ICJGcm9udGVuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgInJlcG9ydCBpZGVudGl0eSBzdXBwb3J0cyBiYWNrZW5kIHN0YWZmIHNlc3Npb25zIGFuZCBleGlzdGluZyBjbGllbnQgcHJvZmlsZXMiLAogICAgIm9wZW5pbmcgUmVwb3J0cyBhdm9pZHMgdW5yZWxhdGVkIHJlcXVlc3RzLCByZXVzZXMgb3JkZXJzLCBhbmQgcmVmcmVzaGVzIGludmFsaWRhdGVkIHRhYnMiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAi4pyUIHJlcG9ydCBpZGVudGl0eSBzdXBwb3J0cyBiYWNrZW5kIHN0YWZmIHNlc3Npb25zIGFuZCBleGlzdGluZyBjbGllbnQgcHJvZmlsZXMgKDEuODIzbXMpIiwKICAgICLinJQgb3BlbmluZyBSZXBvcnRzIGF2b2lkcyB1bnJlbGF0ZWQgcmVxdWVzdHMsIHJldXNlcyBvcmRlcnMsIGFuZCByZWZyZXNoZXMgaW52YWxpZGF0ZWQgdGFicyAoMjMuNzgxN21zKSIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-772873b070a155cf54b5",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-56 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.201Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-56-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01NiIsCiAgInRpdGxlIjogIlJldGFpbCBzYWxlcyBmaWx0ZXJzIGFuZCBLUElzIiwKICAibW9kdWxlIjogIlJlcG9ydHMiLAogICJsYXllciI6ICJGcm9udGVuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImRhdGUgcHJlc2V0cyBjb3ZlciBleGFjdGx5IHRoZSBudW1iZXIgb2YgZGF5cyB0aGV5IG5hbWUiLAogICAgImV2ZXJ5IHRhYiByZWNvZ25pc2VzIHJldmVudWUgb24gZGVsaXZlcnkgYW5kIG9ubHkgb24gZGVsaXZlcnkiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAi4pyUIGRhdGUgcHJlc2V0cyBjb3ZlciBleGFjdGx5IHRoZSBudW1iZXIgb2YgZGF5cyB0aGV5IG5hbWUgKDEuMDI5Mm1zKSIsCiAgICAi4pyUIGV2ZXJ5IHRhYiByZWNvZ25pc2VzIHJldmVudWUgb24gZGVsaXZlcnkgYW5kIG9ubHkgb24gZGVsaXZlcnkgKDAuNTgxMm1zKSIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-52620e578a4160cad511",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-57 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.219Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-57-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01NyIsCiAgInRpdGxlIjogIlRyYW5zcG9ydGF0aW9uIHBlcmZvcm1hbmNlIHJlcG9ydCBhbmQgUERGIiwKICAibW9kdWxlIjogIlJlcG9ydHMiLAogICJsYXllciI6ICJGcm9udGVuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImFjdGl2ZSB0cmlwIGNvdW50aW5nIHVzZXMgbm9ybWFsaXplZCB0cmlwIHN0YXR1c2VzIiwKICAgICJQREYgcmV0YWlucyByb3dzLCBjb2x1bW5zIGFuZCBsb25nIGNlbGwgdmFsdWVzIGFjcm9zcyBwYWdlcyIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICLinJQgYWN0aXZlIHRyaXAgY291bnRpbmcgdXNlcyBub3JtYWxpemVkIHRyaXAgc3RhdHVzZXMgKDAuNTYyNG1zKSIsCiAgICAi4pyUIFBERiByZXRhaW5zIHJvd3MsIGNvbHVtbnMgYW5kIGxvbmcgY2VsbCB2YWx1ZXMgYWNyb3NzIHBhZ2VzICgyNTUuMzg1OW1zKSIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-66d580131f0e8e73d458",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-58 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.235Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-58-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01OCIsCiAgInRpdGxlIjogIkludmVudG9yeSBtb3ZlbWVudCByZXBvcnQgYW5kIFBERiIsCiAgIm1vZHVsZSI6ICJSZXBvcnRzIiwKICAibGF5ZXIiOiAiRnJvbnRlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJpbnZlbnRvcnkgbW92ZW1lbnQgc2VsZWN0b3JzIGtlZXAgb25seSBpbiBhbmQgb3V0IGFuZCBjaGFydCB0b3RhbHMgbWF0Y2ggcm93IHRvdGFscyIsCiAgICAiUERGIHJldGFpbnMgcm93cywgY29sdW1ucyBhbmQgbG9uZyBjZWxsIHZhbHVlcyBhY3Jvc3MgcGFnZXMiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAi4pyUIGludmVudG9yeSBtb3ZlbWVudCBzZWxlY3RvcnMga2VlcCBvbmx5IGluIGFuZCBvdXQgYW5kIGNoYXJ0IHRvdGFscyBtYXRjaCByb3cgdG90YWxzICg1MC4zNjQ3bXMpIiwKICAgICLinJQgUERGIHJldGFpbnMgcm93cywgY29sdW1ucyBhbmQgbG9uZyBjZWxsIHZhbHVlcyBhY3Jvc3MgcGFnZXMgKDI1NS4zODU5bXMpIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-49b85d0b6f9f32846ccf",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-59 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.255Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-59-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy01OSIsCiAgInRpdGxlIjogIlJlcGxhY2VtZW50IHJlcG9ydCBzb3VyY2VzIGFuZCBmaWx0ZXJzIiwKICAibW9kdWxlIjogIlJlcG9ydHMiLAogICJsYXllciI6ICJGcm9udGVuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgInJlcG9ydCBkZXBlbmRlbmNpZXMgaW5jbHVkZSB0aGUgc291cmNlcyB1c2VkIGJ5IGNoYXJ0cyBhbmQgZXhwb3J0cyIsCiAgICAiZGF0ZSBwcmVzZXRzIGNvdmVyIGV4YWN0bHkgdGhlIG51bWJlciBvZiBkYXlzIHRoZXkgbmFtZSIKICBdLAogICJvYnNlcnZlZCI6IFsKICAgICLinJQgcmVwb3J0IGRlcGVuZGVuY2llcyBpbmNsdWRlIHRoZSBzb3VyY2VzIHVzZWQgYnkgY2hhcnRzIGFuZCBleHBvcnRzICgwLjYxNm1zKSIsCiAgICAi4pyUIGRhdGUgcHJlc2V0cyBjb3ZlciBleGFjdGx5IHRoZSBudW1iZXIgb2YgZGF5cyB0aGV5IG5hbWUgKDEuMDI5Mm1zKSIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-b8b2ac5d9e06ed3f2503",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-60 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.270Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-60-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy02MCIsCiAgInRpdGxlIjogIkZlZWRiYWNrIHNhdGlzZmFjdGlvbiByZXBvcnQgYW5kIFBERiIsCiAgIm1vZHVsZSI6ICJSZXBvcnRzIiwKICAibGF5ZXIiOiAiRnJvbnRlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJmZWVkYmFjayBLUEkgdG90YWxzIGFuZCBwZXJpb2QgZGVsdGFzIGNvbWUgZnJvbSBvbmUgcm93IHNldCIsCiAgICAiUERGIHJldGFpbnMgcm93cywgY29sdW1ucyBhbmQgbG9uZyBjZWxsIHZhbHVlcyBhY3Jvc3MgcGFnZXMiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAi4pyUIGZlZWRiYWNrIEtQSSB0b3RhbHMgYW5kIHBlcmlvZCBkZWx0YXMgY29tZSBmcm9tIG9uZSByb3cgc2V0ICgxLjQzNjFtcykiLAogICAgIuKclCBQREYgcmV0YWlucyByb3dzLCBjb2x1bW5zIGFuZCBsb25nIGNlbGwgdmFsdWVzIGFjcm9zcyBwYWdlcyAoMjU1LjM4NTltcykiCiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-029cd0828f856769d495",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-61 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.286Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-61-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy02MSIsCiAgInRpdGxlIjogIkNTViBleHBvcnQgcHJlc2VydmVzIHN0cnVjdHVyZWQgcmVjb3JkcyIsCiAgIm1vZHVsZSI6ICJSZXBvcnRzIiwKICAibGF5ZXIiOiAiRnJvbnRlbmQgY29udHJhY3QiLAogICJyZXN1bHQiOiAiUGFzcyIsCiAgImNoZWNrcyI6IFsKICAgICJDU1YgZXhwb3J0IGluY2x1ZGVzIGhlYWRlcnMsIGVzY2FwZWQgdmFsdWVzIGFuZCBldmVyeSByb3ciCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAi4pyUIENTViBleHBvcnQgaW5jbHVkZXMgaGVhZGVycywgZXNjYXBlZCB2YWx1ZXMgYW5kIGV2ZXJ5IHJvdyAoMS4zNTE3bXMpIgogIF0KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-e1ba089446a4da70c3ce",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-62 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.307Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-62-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy02MiIsCiAgInRpdGxlIjogIlBERiBleHBvcnQgcHJlc2VydmVzIHByaW50YWJsZSBsYXlvdXQiLAogICJtb2R1bGUiOiAiUmVwb3J0cyIsCiAgImxheWVyIjogIkZyb250ZW5kIGNvbnRyYWN0IiwKICAicmVzdWx0IjogIlBhc3MiLAogICJjaGVja3MiOiBbCiAgICAiUERGIHJldGFpbnMgcm93cywgY29sdW1ucyBhbmQgbG9uZyBjZWxsIHZhbHVlcyBhY3Jvc3MgcGFnZXMiLAogICAgIlBERiBjb2x1bW4gY2xlYW51cCByZW1vdmVzIHJlZHVuZGFudCBwdXJjaGFzZSBkb2N1bWVudCBmaWVsZHMiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAi4pyUIFBERiByZXRhaW5zIHJvd3MsIGNvbHVtbnMgYW5kIGxvbmcgY2VsbCB2YWx1ZXMgYWNyb3NzIHBhZ2VzICgyNTUuMzg1OW1zKSIsCiAgICAi4pyUIFBERiBjb2x1bW4gY2xlYW51cCByZW1vdmVzIHJlZHVuZGFudCBwdXJjaGFzZSBkb2N1bWVudCBmaWVsZHMgKDIuMjQxOW1zKSIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-c5027a7f05aa1481bad2",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        },
+        {
+          "title": "TC-63 documented black-box behavior has an executable automated checkpoint",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 15000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-23T13:37:08.324Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "TC-63-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJpZCI6ICJUQy02MyIsCiAgInRpdGxlIjogIkVtcHR5IGV4cG9ydCBkb2VzIG5vdCBjcmVhdGUgYSBmaWxlIiwKICAibW9kdWxlIjogIlJlcG9ydHMiLAogICJsYXllciI6ICJGcm9udGVuZCBjb250cmFjdCIsCiAgInJlc3VsdCI6ICJQYXNzIiwKICAiY2hlY2tzIjogWwogICAgImVtcHR5IENTViBleHBvcnQgZG9lcyBub3QgY3JlYXRlIGEgZG93bmxvYWQiCiAgXSwKICAib2JzZXJ2ZWQiOiBbCiAgICAi4pyUIGVtcHR5IENTViBleHBvcnQgZG9lcyBub3QgY3JlYXRlIGEgZG93bmxvYWQgKDAuMjc2Nm1zKSIKICBdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26b3d32df9ea0a045fff-a2b380b3c7d127ef7dff",
+          "file": "alpha-blackbox.spec.ts",
+          "line": 33,
+          "column": 7
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-09-23T13:36:42.996Z",
+    "duration": 25412.354,
+    "expected": 63,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

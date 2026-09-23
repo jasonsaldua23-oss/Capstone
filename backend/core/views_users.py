@@ -10,7 +10,6 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
-from . import email_notifications, notification_services
 from . import views_api as legacy
 from .api_constants import (
     DEFAULT_COUNTRY,
@@ -27,7 +26,6 @@ from .api_utils import error as _err, json_body as _json_body, ok as _ok, to_int
 from .auth import hash_password
 from .models import (
     Customer,
-    CustomerApprovalStatus,
     Order,
     OrderStatus,
     RoleType,
@@ -36,9 +34,6 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-
-_REGISTRATION_DECISIONS = {CustomerApprovalStatus.APPROVED, CustomerApprovalStatus.REJECTED}
-
 
 # Helpers owned by sibling modules. Routing them through views_api keeps
 # a single resolution point, so tests that patch there still apply.
@@ -435,12 +430,6 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
         s = str(request.GET.get("search", "")).strip()
         if s:
             qs = qs.filter(Q(name__icontains=s) | Q(email__icontains=s) | Q(phone__icontains=s))
-        # Added: the Clients page's "Pending approval" filter.
-        approval_filter = str(request.GET.get("approvalStatus", "")).strip().upper()
-        if approval_filter:
-            if approval_filter not in CustomerApprovalStatus.values:
-                return _err("Invalid approvalStatus filter", 400)
-            qs = qs.filter(approval_status=approval_filter)
         total = qs.count()
         rows = list(qs[off : off + size])
         customer_ids = [customer.id for customer in rows]
@@ -470,13 +459,7 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
             customer_data["lastOrderDate"] = _serialize_value(last_order.get("created_at"))
             serialized_customers.append(customer_data)
 
-        response_payload: dict[str, Any] = {"success": True, "customers": serialized_customers, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size}
-        if p.get("type") == "staff":
-            # Independent of paging and filters, so the review badge stays accurate.
-            response_payload["pendingApprovalCount"] = _real_customers(
-                Customer.objects.filter(approval_status=CustomerApprovalStatus.PENDING_APPROVAL)
-            ).count()
-        return _ok(response_payload)
+        return _ok({"success": True, "customers": serialized_customers, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     _, err = _require_staff(request)
     if err:
         return err
@@ -485,94 +468,12 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
     return _err("Forbidden", 403)
 
 
-def _review_customer_registration(request: HttpRequest, customer_id: str, body: dict[str, Any]) -> JsonResponse:
-    """Record an administrator's approve/reject decision on a client registration.
-
-    Idempotent: repeating the current decision changes nothing and notifies no one
-    again. A rejected registration may later be approved; an approved account is
-    never "rejected" (deactivate it instead), so a live session cannot be orphaned.
-    """
-    staff, err = _require_staff(request)
-    if err:
-        return err
-    if str(staff.get("role") or "").strip().upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
-        return _err("Only administrators can review client registrations", 403)
-    decision = str(body.get("approvalStatus") or "").strip().upper()
-    if decision not in _REGISTRATION_DECISIONS:
-        return _err("approvalStatus must be APPROVED or REJECTED", 400)
-    notes = str(body.get("approvalNotes") or "").strip()
-    if decision == CustomerApprovalStatus.REJECTED and not notes:
-        return _err("A reason is required to reject a registration", 400)
-
-    reviewer_id = str(staff.get("userId") or "").strip() or None
-    reviewer_name = str(staff.get("name") or "").strip()
-    if not reviewer_name and reviewer_id:
-        reviewer_name = User.objects.filter(id=reviewer_id).values_list("name", flat=True).first() or ""
-
-    with transaction.atomic():
-        # Locked so two administrators deciding at once cannot both send a decision.
-        c = Customer.objects.select_for_update().filter(id=customer_id).first()
-        if not c:
-            return _err("Customer not found", 404)
-        if c.approval_status == decision:
-            return _ok({"success": True, "unchanged": True, "customer": _serialize_model(c, exclude={"password"})})
-        if decision == CustomerApprovalStatus.REJECTED and c.approval_status == CustomerApprovalStatus.APPROVED:
-            return _err("An approved client cannot be rejected. Deactivate the account instead.", 409)
-        c.approval_status = decision
-        # Re-approving a rejected registration replaces the old rejection reason.
-        c.approval_notes = notes or None
-        c.approval_reviewed_at = timezone.now()
-        c.approval_reviewed_by_user_id = reviewer_id
-        c.approval_reviewed_by_name = reviewer_name or None
-        c.save(update_fields=[
-            "approval_status",
-            "approval_notes",
-            "approval_reviewed_at",
-            "approval_reviewed_by_user_id",
-            "approval_reviewed_by_name",
-            "updated_at",
-        ])
-
-    # The decision is committed; tell the client without letting delivery fail it.
-    approved = decision == CustomerApprovalStatus.APPROVED
-    try:
-        notification_services._create_customer_notification(
-            customer=c,
-            title="Registration approved" if approved else "Registration not approved",
-            message=(
-                "Your client registration was approved. You can now sign in."
-                if approved
-                else f"Your client registration was not approved. Reason: {notes}"
-            ),
-            notification_type="ACCOUNT",
-            reference_type="CUSTOMER",
-            reference_id=c.id,
-        )
-    except Exception:
-        logger.exception("Failed to record registration decision notification customer=%s", c.id)
-    try:
-        # Rendered here, delivered on the transport's background thread.
-        if approved:
-            email_notifications._email_customer_registration_approved(c)
-        else:
-            email_notifications._email_customer_registration_rejected(c, notes)
-    except Exception:
-        logger.exception("Failed to queue registration decision email customer=%s", c.id)
-    return _ok({"success": True, "customer": _serialize_model(c, exclude={"password"})})
-
-
 @csrf_exempt
 @require_http_methods(["GET", "PUT", "PATCH", "DELETE"])
 def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
     p = _require_auth(request)
     if not p:
         return _err("Unauthorized", 401)
-    if request.method in {"PUT", "PATCH"}:
-        review_body = _json_body(request)
-        # Added: registration review is its own admin-only action; it never rides
-        # along with a profile edit, so a customer cannot approve themselves.
-        if isinstance(review_body, dict) and "approvalStatus" in review_body:
-            return _review_customer_registration(request, customer_id, review_body)
     try:
         c = Customer.objects.get(id=customer_id)
     except Customer.DoesNotExist:

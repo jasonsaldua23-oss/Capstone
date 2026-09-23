@@ -17,7 +17,7 @@ export const formatPeso = (value: number) => pesoFormatter.format(Number(value |
 
 export const formatPdfMoney = (value: number) => {
   const amount = Number(value || 0)
-  return `PHP ${amount.toLocaleString('en-PH', {
+  return `₱ ${amount.toLocaleString('en-PH', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`

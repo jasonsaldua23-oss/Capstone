@@ -19,6 +19,7 @@ import {
   buildOrderReportRows,
   buildOrderReportStatusBreakdown,
   buildDailyChartSeries,
+  isCancelledReportStatus,
   isRevenueRecognized,
   sumRecognizedRevenue,
   summarizeCustomerMix,
@@ -31,9 +32,12 @@ import {
   buildWeeklyOrderTrendData,
   countActiveTrips,
   formatOrderReportStatus,
+  formatOrderItemsForExport,
+  formatReportProductNameForExport,
   getInventoryAvailableQty,
   getInventoryLooseRemainder,
   getInventoryThreshold,
+  isIssuedPurchaseOrder,
   normalizeOrderReportStatus,
   summarizeOrderReportRows,
   summarizeInventoryMovementRows,
@@ -54,6 +58,38 @@ import {
   resolveReportCutoff,
   resolveReportSpanDays,
 } from '../components/portals/admin/sections/report-date-utils.ts'
+
+test('order exports group mixed-case components on separate lines', () => {
+  assert.equal(
+    formatOrderItemsForExport([
+      { quantity: 3, product: { name: 'Gatorade', sizeLabel: '350ml' } },
+      {
+        itemType: 'MIXED_CASE',
+        quantity: 2,
+        caseCapacity: 12,
+        components: [
+          { productName: 'Mountain Dew', sizeLabel: '1 Liter', quantityPerCase: 6 },
+          { productName: 'Pepsi', sizeLabel: '1 Liter', quantityPerCase: 6 },
+        ],
+      },
+    ]),
+    'Gatorade 350ml x3\nMixed Case — 12 Glass Bottles x2\nComponents:\n• Mountain Dew 1 Liter x6\n• Pepsi 1 Liter x6',
+  )
+  assert.equal(
+    formatReportProductNameForExport({ name: 'Coke', product: { sizes: ['350ml'] } }),
+    'Coke 350ml',
+  )
+  assert.equal(formatReportProductNameForExport({ name: 'Unconfigured Drink' }), 'Unconfigured Drink (Size not specified)')
+})
+
+test('purchase-order reports include only genuinely issued non-replacement POs', () => {
+  assert.equal(isIssuedPurchaseOrder({ orderNumber: 'PR-2026-0118' }), false)
+  assert.equal(isIssuedPurchaseOrder({ orderNumber: 'RPL-2026-0014', purchaseOrderNumber: 'PO-RPL-2026-0014' }), false)
+  assert.equal(isIssuedPurchaseOrder({ orderNumber: 'ORD-1', requestStatus: 'APPROVED' }), false)
+  assert.equal(isIssuedPurchaseOrder({ orderNumber: 'ORD-2', purchaseOrderNumber: 'PO-2026-0100' }), true)
+  // A customer-cancelled order remains auditable after a real PO was issued.
+  assert.equal(isIssuedPurchaseOrder({ orderNumber: 'ORD-3', purchaseOrderNumber: 'PO-2026-0101', status: 'CANCELLED' }), true)
+})
 
 test('inventory shows complete loose sets as cases and preserves remaining bottles', () => {
   const item = { quantity: 33, reservedQuantity: 24, looseBottles: 12, product: { quantityPerCase: 12 } }
@@ -648,6 +684,10 @@ test('every tab recognises revenue on delivery and only on delivery', () => {
   assert.equal(isRevenueRecognized({ stage: 'COMPLETED' }), true)
   assert.equal(isRevenueRecognized({ retailStatus: 'COMPLETED' }), true)
   assert.equal(isRevenueRecognized({ retailStatus: 'VOIDED' }), false)
+  assert.equal(isRevenueRecognized({ status: 'CANCELED' }), false)
+  assert.equal(isCancelledReportStatus('CANCELLED'), true)
+  assert.equal(isCancelledReportStatus('CANCELED'), true)
+  assert.equal(isCancelledReportStatus('VOIDED'), true)
   assert.equal(isRevenueRecognized({ status: 'OUT_FOR_DELIVERY' }), false)
   assert.equal(isRevenueRecognized({ status: 'REJECTED' }), false)
   // A negative amount cannot pull the total down.

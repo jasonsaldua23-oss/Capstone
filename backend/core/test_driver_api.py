@@ -405,8 +405,8 @@ class DriverTripsApiContractTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         row = next(item for item in response.json()["trips"] if item["id"] == trip.id)
-        # Cash remains unfinalized until the whole trip is explicitly closed.
-        self.assertEqual(row["cashCollectedTotal"], 0.0)
+        # The running total updates per delivered order while the trip is active.
+        self.assertEqual(row["cashCollectedTotal"], 300.0)
 
         trip.drop_points.filter(order=orders[2]).update(status="COMPLETED")
         orders[2].status = OrderStatus.DELIVERED

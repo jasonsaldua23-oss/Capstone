@@ -1,11 +1,10 @@
 import { redirect } from 'next/navigation'
 import { CustomerLoginPage as CustomerRegistrationScreen } from '@/components/auth/CustomerLoginPage'
-import { CustomerRegistrationStatusPage } from '@/components/auth/CustomerRegistrationStatusPage'
 import { SystemLoginPage } from '@/components/auth/StaffLoginPage'
 import { getDefaultLoginPathForVariant, resolveAppVariant } from '@/lib/app-variant'
 
 type LoginIndexPageProps = {
-  searchParams: Promise<{ mode?: string; status?: string }>
+  searchParams: Promise<{ mode?: string }>
 }
 
 export default async function LoginIndexPage({ searchParams }: LoginIndexPageProps) {
@@ -14,10 +13,7 @@ export default async function LoginIndexPage({ searchParams }: LoginIndexPagePro
     redirect(getDefaultLoginPathForVariant(variant))
   }
 
-  const { mode, status } = await searchParams
-  if (status === 'pending' || status === 'rejected') {
-    return <CustomerRegistrationStatusPage status={status} loginHref="/login" />
-  }
+  const { mode } = await searchParams
   if (mode === 'register') {
     // Browser registration stays on the neutral /login URL; the native Shop route
     // continues to render this same form from its own /customer/login scope.

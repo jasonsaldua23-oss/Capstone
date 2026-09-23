@@ -20,45 +20,7 @@ from .auth import (
     extract_token,
     token_portal,
 )
-from .models import Customer, CustomerApprovalStatus, User
-
-
-CUSTOMER_REGISTRATION_PENDING_MESSAGE = (
-    "Your registration was received and is pending approval. "
-    "You'll be notified by email once an administrator reviews it."
-)
-CUSTOMER_PENDING_APPROVAL_ERROR = (
-    "Your account is pending approval. You'll be notified once an administrator reviews it."
-)
-CUSTOMER_REJECTED_ERROR = "Your registration was not approved."
-
-
-def _customer_sign_in_blocked(customer: Customer) -> JsonResponse | None:
-    """Return the 403 for a Customer an administrator has not approved, else None.
-
-    Added: every path that can hand a Customer a session (password, unified,
-    Google, the 2FA completion and the session restore) calls this one check, so
-    a new entry point cannot forget part of the rule. Call it only after the
-    primary factor succeeds, so the status never answers for a wrong password.
-    """
-    status = str(getattr(customer, "approval_status", CustomerApprovalStatus.APPROVED) or "").strip().upper()
-    if status == CustomerApprovalStatus.APPROVED:
-        return None
-    if status == CustomerApprovalStatus.REJECTED:
-        notes = str(getattr(customer, "approval_notes", "") or "").strip()
-        payload: dict[str, Any] = {
-            "success": False,
-            "error": f"{CUSTOMER_REJECTED_ERROR} Reason: {notes}" if notes else CUSTOMER_REJECTED_ERROR,
-            "code": "REGISTRATION_REJECTED",
-        }
-        if notes:
-            payload["approvalNotes"] = notes
-        return JsonResponse(payload, status=403)
-    # Fails closed: anything that is not an explicit approval waits for review.
-    return JsonResponse(
-        {"success": False, "error": CUSTOMER_PENDING_APPROVAL_ERROR, "code": "PENDING_APPROVAL"},
-        status=403,
-    )
+from .models import Customer, User
 
 
 def _payload(request: HttpRequest) -> dict[str, Any] | None:

@@ -16,6 +16,7 @@ import {
   filterFeedbackRowsByWindow,
   formatOrderReportStatus,
   formatReportProductName,
+  formatReportProductNameForExport,
   getInventoryAvailableQty,
   getInventoryQuantity,
   getInventoryThreshold,
@@ -961,8 +962,8 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     return orderRows.map((row) => ({
       orderNumber: row.orderNumber,
       customer: row.customer,
-      itemSummary: row.itemSummary,
-      productNameWithSize: (row as any).productNameWithSize || row.itemSummary,
+      // Export a single readable Products cell; mixed-case components remain grouped below it.
+      products: row.exportItemSummary,
       productCategory: (row as any).productCategory || 'Uncategorized',
       totalQuantity: row.totalQuantity,
       orderDate: row.orderDateLabel,
@@ -984,7 +985,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   const inventoryExportRows = useMemo(() => {
     // Export current inventory itself; movement history remains a separate on-screen table.
     return inventory.map((row: any) => ({
-      product: formatReportProductName(row?.product || row),
+      product: formatReportProductNameForExport(row?.product ? { ...row, ...row.product } : row),
       sku: row?.product?.sku || row?.sku || 'N/A',
       warehouse: row?.warehouse?.name || row?.warehouseName || 'N/A',
       quantityOnHand: getInventoryQuantity(row),
@@ -1024,7 +1025,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     `Pending: ${orderKpi.pendingOrders}`,
     `Cancelled: ${orderKpi.cancelledOrders}`,
     `Total Quantity: ${orderKpi.totalQuantity}`,
-    `Total Revenue: PHP ${orderKpi.totalRevenue.toLocaleString()} (delivered orders only)`,
+    `Total Revenue: ₱ ${orderKpi.totalRevenue.toLocaleString()} (delivered orders only)`,
   ]), [orderKpi])
 
   const transportSummaryLines = useMemo(() => ([

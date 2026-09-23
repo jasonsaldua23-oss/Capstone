@@ -390,7 +390,9 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
 
     const unsubscribe = subscribeDataSync((message) => {
       if (message.scopes.includes('orders') || message.scopes.includes('trips')) {
-        void fetchOrdersDeltaIfChanged(true)
+        // A delta can merge changed rows but cannot remove a row deleted in the database.
+        if (message.scopes.includes('deletions')) void fetchOrdersFull(true)
+        else void fetchOrdersDeltaIfChanged(true)
       }
     })
 
@@ -450,7 +452,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
       return 'PENDING'
     }
-    if (['CONFIRMED', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw)) return 'PREPARING'
+    if (['CONFIRMED', 'PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw)) return 'PROCESSING'
     if (raw === 'UNAPPROVED') return 'PENDING'
     if (['DISPATCHED', 'IN_TRANSIT'].includes(raw)) return 'OUT FOR DELIVERY'
     return raw.replace(/_/g, ' ')
@@ -469,7 +471,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     // Changed: match the blue delivery badge in the order details.
     if (value === 'OUT FOR DELIVERY') return 'text-blue-700'
     if (value === 'PENDING') return 'text-yellow-700'
-    if (value === 'PREPARING') return 'text-lime-700'
+    if (value === 'PROCESSING') return 'text-lime-700'
     if (value === 'CANCELLED') return 'text-red-700'
     if (value === 'DELIVERED') return 'text-emerald-700'
     return 'text-slate-700'
@@ -479,7 +481,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     // Changed: show out-for-delivery orders in blue instead of the gray fallback.
     if (value === 'OUT FOR DELIVERY') return 'bg-blue-100 text-blue-800 hover:bg-blue-100'
     if (value === 'PENDING') return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
-    if (value === 'PREPARING') return 'bg-lime-100 text-lime-800 hover:bg-lime-100'
+    if (value === 'PROCESSING') return 'bg-lime-100 text-lime-800 hover:bg-lime-100'
     if (value === 'CANCELLED') return 'bg-red-100 text-red-700 hover:bg-red-100'
     if (value === 'DELIVERED') return 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
     return 'bg-slate-100 text-slate-700 hover:bg-slate-100'
@@ -794,6 +796,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     return orders
       // Keep the full PR history here after approval; Purchase Orders remain available in their own view too.
       .filter((order) => {
+        // A transaction can remain after its PR document is deleted; do not show it as a live request.
+        if (!order?.purchaseRequest) return false
         if (isReplacementOrder(order)) return false
         const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
         return ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(requestStatus)

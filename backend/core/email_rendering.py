@@ -290,7 +290,7 @@ def _order_reference_details(order: Order, *, include_amount: bool = True) -> li
     if order_number and order_number not in {pr_number, po_number}:
         details.append(("Order No.", order_number))
     if include_amount:
-        details.append(("Total amount", f"PHP {float(getattr(order, 'total_amount', 0) or 0):,.2f}"))
+        details.append(("Total amount", f"₱ {float(getattr(order, 'total_amount', 0) or 0):,.2f}"))
     return details
 
 

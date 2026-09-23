@@ -614,7 +614,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
 
                 <div className="space-y-3">
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-700">Price (PHP)</label>
+                    <label className="text-sm font-medium text-gray-700">Price (₱)</label>
                     <Input type="number" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
                   </div>
                   <div className="space-y-1">
@@ -641,7 +641,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
                   {editingCategorySpec?.depositAllowed ? (
                     <div className="grid grid-cols-1 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (PHP)</label>
+                        <label className="text-sm font-medium text-emerald-900">Deposit per Bottle (₱)</label>
                         <Input
                           type="number"
                           step="1"
@@ -653,7 +653,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-sm font-medium text-emerald-900">Additional Physical Case Deposit (PHP)</label>
+                        <label className="text-sm font-medium text-emerald-900">Additional Physical Case Deposit (₱)</label>
                         <Input
                           type="number"
                           step="1"
@@ -812,7 +812,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
             {/* Right Column: Pricing & Packaging Specs */}
             <div className="space-y-3">
               <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Price (PHP)</label>
+                <label className="text-sm font-medium text-gray-700">Price (₱)</label>
                 <Input
                   type="number"
                   step="0.01"
@@ -863,7 +863,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
               {selectedCategorySpec?.depositAllowed ? (
                 <div className="grid grid-cols-1 gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-emerald-900">Deposit / Bottle (PHP)</label>
+                    <label className="text-sm font-medium text-emerald-900">Deposit / Bottle (₱)</label>
                     <Input
                       type="number"
                       step="1"
@@ -875,7 +875,7 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-emerald-900">Additional Physical Case Deposit (PHP)</label>
+                    <label className="text-sm font-medium text-emerald-900">Additional Physical Case Deposit (₱)</label>
                     <Input
                       type="number"
                       step="1"

@@ -8,7 +8,6 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -16,17 +15,7 @@ import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeleto
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, CheckCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import { resolveClientImageUrl } from '@/lib/client-image'
@@ -64,12 +53,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
   const [feedback, setFeedback] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [approvalFilter, setApprovalFilter] = useState('all')
   const [ratingFilter, setRatingFilter] = useState('all')
-  const [reviewingCustomerId, setReviewingCustomerId] = useState<string | null>(null)
-  const [approveTarget, setApproveTarget] = useState<any | null>(null)
-  const [rejectTarget, setRejectTarget] = useState<any | null>(null)
-  const [rejectionReason, setRejectionReason] = useState('')
   const [discountDialogOpen, setDiscountDialogOpen] = useState(false)
   const [isSavingDiscount, setIsSavingDiscount] = useState(false)
   const [discountTarget, setDiscountTarget] = useState<any | null>(null)
@@ -209,12 +193,9 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
           ? true
           : row.rating !== null && row.rating >= Number(ratingFilter)
 
-      const approvalStatus = String(row?.approvalStatus || 'APPROVED').toUpperCase()
-      const matchesApproval = approvalFilter === 'all' || approvalStatus === approvalFilter
-
-      return matchesSearch && matchesRating && matchesApproval
+      return matchesSearch && matchesRating
     })
-  }, [customerRows, search, ratingFilter, approvalFilter])
+  }, [customerRows, search, ratingFilter])
 
   const totalClients = customerRows.length
   const customersWithDiscounts = customerRows.filter((row) => {
@@ -232,64 +213,38 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
   const avgSatisfaction = ratedCustomerRows.length > 0
     ? Number((ratedCustomerRows.reduce((sum, row) => sum + Number(row.rating), 0) / ratedCustomerRows.length).toFixed(1))
     : null
-  const pendingApprovalCount = customerRows.filter(
-    (row) => String(row?.approvalStatus || '').toUpperCase() === 'PENDING_APPROVAL'
-  ).length
-
-  const reviewRegistration = async (row: any, decision: 'APPROVED' | 'REJECTED', notes = '') => {
-    if (!row?.id || reviewingCustomerId) return
-    if (decision === 'REJECTED' && !notes.trim()) {
-      toast.error('Enter a reason for rejecting this registration')
-      return
-    }
-    setReviewingCustomerId(String(row.id))
-    try {
-      const response = await fetch(`/api/customers/${row.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approvalStatus: decision, approvalNotes: notes.trim() }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || 'Failed to review registration')
-      }
-      // Keep the confirmation open and loading until the refreshed row reflects the decision.
-      await fetchCustomers(false)
-      setCustomers((current) => current.map((customer) => (
-        String(customer?.id) === String(row.id)
-          ? { ...customer, approvalStatus: decision, approval_status: decision, approvalNotes: notes.trim() || null }
-          : customer
-      )))
-      emitDataSync(['customers', 'auth', 'notifications'])
-      toast.success(decision === 'APPROVED' ? 'Customer registration approved' : 'Customer registration rejected')
-      setApproveTarget(null)
-      setRejectTarget(null)
-      setRejectionReason('')
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to review registration')
-    } finally {
-      setReviewingCustomerId(null)
-    }
-  }
-
   const exportCsv = () => {
-    const headers = ['Name', 'Email', 'Phone', 'Address', 'Status', 'Registration', 'Orders', 'TotalSpend', 'LastOrder', 'LastOrderDate', 'Rating']
+    // Keep the export aligned with the visible client table instead of exposing
+    // raw order references and timestamps that are not part of this view.
+    const headers = [
+      'Client',
+      'Email',
+      'Phone',
+      'Location',
+      'Successful Deliveries',
+      'Total Spend (₱)',
+      'Satisfaction',
+      'Discount',
+    ]
     const lines = filteredRows.map((row) => [
       row.name || '',
       row.email || '',
-      row.phone || '',
-      [row.address, row.city, row.province, row.zipCode].filter(Boolean).join(', '),
-      Boolean(row?.isOnline ?? row?.online ?? row?.is_online) ? 'Online' : 'Offline',
-      String(row?.approvalStatus || 'APPROVED').replace(/_/g, ' '),
+      // Excel otherwise converts long phone numbers to scientific notation.
+      row.phone ? `="${String(row.phone).replace(/"/g, '""')}"` : '',
+      [
+        Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude))
+          ? `${Number(row.latitude).toFixed(6)} ${Number(row.longitude).toFixed(6)}`
+          : '',
+        [row.city, row.province].filter(Boolean).join(', '),
+      ].filter(Boolean).join(' | '),
       row.orderCount,
-      row.totalSpend,
-      row.lastOrderNumber || '',
-      row.lastOrderDate ? new Date(row.lastOrderDate).toISOString() : '',
-      row.rating === null ? 'N/A' : row.rating,
+      formatPeso(Number(row.totalSpend || 0)),
+      row.rating === null ? 'N/A' : `${Number(row.rating).toFixed(1)} / 5`,
+      getDiscountDisplay(row),
     ])
-    const csv = [headers, ...lines]
+    const csv = '\uFEFF' + [headers, ...lines]
       .map((line) => line.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n')
+      .join('\r\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -387,7 +342,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
         <p className="text-gray-500">Customer insights, activity, and profile information</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Card className="border-gray-200">
           <CardContent className="p-3">
             <div className="flex items-start gap-3">
@@ -395,17 +350,6 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
               <div>
                 <p className="text-xs text-gray-500">Total Clients</p>
                 <p className="text-2xl leading-tight font-bold text-gray-900">{totalClients}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-gray-200">
-          <CardContent className="p-3">
-            <div className="flex items-start gap-3">
-              <div className="rounded-md bg-amber-50 p-1.5"><Clock className="h-3.5 w-3.5 text-amber-600" /></div>
-              <div>
-                <p className="text-xs text-gray-500">Pending Approval</p>
-                <p className="text-2xl leading-tight font-bold text-gray-900">{pendingApprovalCount}</p>
               </div>
             </div>
           </CardContent>
@@ -455,17 +399,6 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
               className="min-w-[12rem] flex-1"
             />
             <select
-              title="Registration approval filter"
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={approvalFilter}
-              onChange={(e) => setApprovalFilter(e.target.value)}
-            >
-              <option value="all">All Registrations</option>
-              <option value="PENDING_APPROVAL">Pending Approval</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-            </select>
-            <select
               title="Customer rating filter"
               className="rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={ratingFilter}
@@ -497,7 +430,6 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Client</th>
                     <th className="text-left p-4 font-medium text-gray-600">Contact</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Registration</th>
                     <th className="text-left p-4 font-medium text-gray-600">Location</th>
                     <th className="text-left p-4 font-medium text-gray-600">Successful Deliveries</th>
                     <th className="text-left p-4 font-medium text-gray-600">Satisfaction</th>
@@ -536,24 +468,6 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
                         <p className="text-sm text-gray-500">{row.phone || 'No phone'}</p>
                       </td>
                       <td className="p-4">
-                        {(() => {
-                          const approvalStatus = String(row?.approvalStatus || 'APPROVED').toUpperCase()
-                          const badgeClass = approvalStatus === 'APPROVED'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : approvalStatus === 'REJECTED'
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-100 text-amber-800'
-                          return (
-                            <div className="space-y-2">
-                              <Badge className={badgeClass}>{approvalStatus.replace(/_/g, ' ')}</Badge>
-                              {approvalStatus === 'REJECTED' && row?.approvalNotes ? (
-                                <p className="max-w-52 text-xs text-rose-700">Reason: {row.approvalNotes}</p>
-                              ) : null}
-                            </div>
-                          )
-                        })()}
-                      </td>
-                      <td className="p-4">
                         <p className="text-xs text-gray-500">
                           {typeof row.latitude === 'number' && typeof row.longitude === 'number'
                             ? `${Number(row.latitude).toFixed(6)} ${Number(row.longitude).toFixed(6)}`
@@ -578,39 +492,6 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
                       <td className="p-4">
                         {/* Keep every row action in one aligned group in the stacked mobile card. */}
                         <div className="customer-row-actions">
-                          {(() => {
-                            const approvalStatus = String(row?.approvalStatus || 'APPROVED').toUpperCase()
-                            const isReviewing = reviewingCustomerId === String(row.id)
-                            if (approvalStatus === 'APPROVED') return null
-                            return (
-                              <div className="flex w-full flex-col gap-1.5">
-                                <Button
-                                  size="sm"
-                                  className="h-8 w-full bg-emerald-600 px-2.5 text-xs text-white hover:bg-emerald-700"
-                                  disabled={Boolean(reviewingCustomerId)}
-                                  onClick={() => setApproveTarget(row)}
-                                >
-                                  {isReviewing ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="mr-1 h-3.5 w-3.5" />}
-                                  Approve
-                                </Button>
-                                {approvalStatus === 'PENDING_APPROVAL' ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 w-full px-2.5 text-xs text-rose-700 hover:text-rose-800"
-                                    disabled={Boolean(reviewingCustomerId)}
-                                    onClick={() => {
-                                      setRejectTarget(row)
-                                      setRejectionReason('')
-                                    }}
-                                  >
-                                    <XCircle className="mr-1 h-3.5 w-3.5" />
-                                    Reject
-                                  </Button>
-                                ) : null}
-                              </div>
-                            )
-                          })()}
                           <CompactDiscountLine value={getDiscountDisplay(row)} className="text-xs" />
                           <Button size="sm" variant="outline" className="w-full" onClick={() => openDiscountDialog(row)}>
                             {customerHasDiscount(row) ? 'Edit Discount' : 'Apply Discount'}
@@ -673,69 +554,6 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(approveTarget)} onOpenChange={(open) => {
-        if (!open && !reviewingCustomerId) setApproveTarget(null)
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Approve Customer Registration?</DialogTitle>
-            <DialogDescription>
-              {approveTarget
-                ? `${approveTarget.name || approveTarget.email} will be allowed to sign in after approval.`
-                : ''}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="outline" disabled={Boolean(reviewingCustomerId)} onClick={() => setApproveTarget(null)}>Cancel</Button>
-            <Button
-              className="bg-emerald-600 text-white hover:bg-emerald-700"
-              disabled={Boolean(reviewingCustomerId)}
-              onClick={() => approveTarget && void reviewRegistration(approveTarget, 'APPROVED')}
-            >
-              {reviewingCustomerId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-              Confirm Approval
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(rejectTarget)} onOpenChange={(open) => {
-        if (!open && !reviewingCustomerId) {
-          setRejectTarget(null)
-          setRejectionReason('')
-        }
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Customer Registration</DialogTitle>
-            <DialogDescription>
-              {rejectTarget ? `${rejectTarget.name || rejectTarget.email} will not be able to sign in.` : ''}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-1.5">
-            <label htmlFor="registration-rejection-reason" className="text-sm font-medium text-gray-700">Reason</label>
-            <textarea
-              id="registration-rejection-reason"
-              value={rejectionReason}
-              onChange={(event) => setRejectionReason(event.target.value)}
-              rows={4}
-              placeholder="Explain why this registration was not approved"
-              className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="outline" disabled={Boolean(reviewingCustomerId)} onClick={() => setRejectTarget(null)}>Cancel</Button>
-            <Button
-              className="bg-rose-600 text-white hover:bg-rose-700"
-              disabled={!rejectionReason.trim() || Boolean(reviewingCustomerId)}
-              onClick={() => rejectTarget && void reviewRegistration(rejectTarget, 'REJECTED', rejectionReason)}
-            >
-              {reviewingCustomerId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Reject Registration
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

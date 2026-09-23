@@ -143,15 +143,6 @@ export function SystemLoginPage({
   // A neutral browser URL cannot safely choose between separate Customer/staff cookies.
   const scopedRestorePortal = restorePortal === undefined ? entryPortal : restorePortal
 
-  const openCustomerRegistrationStatus = (data: any): boolean => {
-    const code = String(data?.code || '').toUpperCase()
-    if (code !== 'PENDING_APPROVAL' && code !== 'REGISTRATION_REJECTED') return false
-    // Approval status is returned only after valid customer credentials are checked.
-    const loginPath = registrationHref.split('?')[0] || '/customer/login'
-    router.replace(`${loginPath}?status=${code === 'PENDING_APPROVAL' ? 'pending' : 'rejected'}`)
-    return true
-  }
-
   const revokeRejectedSession = useCallback(async (token?: string) => {
     try {
       await fetch('/api/auth/logout', {
@@ -261,7 +252,6 @@ export function SystemLoginPage({
       }
 
       if (!response.ok || !data?.success || !data?.user) {
-        if (openCustomerRegistrationStatus(data)) return
         const apiError = String(data?.error || data?.message || '').trim()
         const credentialError = response.status === 401 || response.status === 403 || /invalid|credential|password/i.test(apiError)
         if (credentialError) setLoginError('Invalid email or password.')
@@ -307,7 +297,6 @@ export function SystemLoginPage({
       }
 
       if (!response.ok || !data?.success || !data?.user) {
-        if (openCustomerRegistrationStatus(data)) return true
         const apiError = String(data?.error || data?.message || '').trim()
         toast.error(apiError || (response.status >= 500
           ? 'Google sign-in is temporarily unavailable. Please use email and password for now.'

@@ -45,6 +45,7 @@ import { formatPeso, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
 import { resolveReportCutoff } from '@/components/portals/admin/sections/report-date-utils'
+import { formatReportProductNameForExport, isCancelledReportStatus } from '@/lib/report-metrics'
 
 interface WarehouseInventoryReportProps {
   inventory: any[]
@@ -325,7 +326,7 @@ export function WarehouseInventoryReport({
     // 1. Process Wholesale / Online Orders
     orders.forEach((order) => {
       const status = String(order.status || '').toUpperCase()
-      if (status === 'CANCELLED' || status === 'REJECTED') return
+      if (isCancelledReportStatus(status) || status === 'REJECTED') return
       const orderDate = order.createdAt || order.date || ''
       if (!isDateInPeriod(orderDate)) return
 
@@ -377,6 +378,8 @@ export function WarehouseInventoryReport({
 
     // 2. Process Retail POS Sales
     retailSales.forEach((sale) => {
+      // Cancelled counter sales remain in Transactions but are not product movement or revenue.
+      if (isCancelledReportStatus(sale.retailStatus || sale.retail_status || sale.status)) return
       const saleDate = sale.createdAt || sale.date || ''
       if (!isDateInPeriod(saleDate)) return
 
@@ -635,10 +638,17 @@ export function WarehouseInventoryReport({
     }
   }
 
+  // Export product labels always include a recorded size or an explicit data-gap marker.
+  const getExportProductName = (row: any) =>
+    formatReportProductNameForExport({ name: row?.rawName || row?.productName, sizeLabel: row?.size })
+
   // Export Columns for CSV & PDF
   const exportColumns: ExportColumn[] = [
     { header: 'Rank', accessor: (r) => `#${r.rank}` },
-    { header: 'Product & Size', key: 'productName' },
+    {
+      header: 'Product & Size',
+      accessor: (r) => getExportProductName(r),
+    },
     { header: 'SKU', key: 'sku' },
     { header: 'Category', key: 'category' },
     {
@@ -649,7 +659,7 @@ export function WarehouseInventoryReport({
           : `${Number(r.totalUnitsSold || 0).toLocaleString()} ${r.unitLabel || 'cases'}`,
     },
     { header: 'Daily Velocity (Equivalent Units/Day)', accessor: (r) => `${r.dailyVelocity}/day` },
-    { header: 'Revenue Generated (PHP)', accessor: (r) => Number(r.totalRevenue || 0).toFixed(2) },
+    { header: 'Revenue Generated (₱)', accessor: (r) => Number(r.totalRevenue || 0).toFixed(2) },
     { header: 'Current Stock', accessor: (r) => `${Number(r.currentStock || 0).toLocaleString()} ${r.stockUnitLabel || r.unitLabel || 'cases'}` },
     { header: 'Stock Status', key: 'stockStatus' },
   ]
@@ -679,7 +689,7 @@ export function WarehouseInventoryReport({
       exportColumns,
       rankedProducts,
       [
-        `#1 Best Seller: ${kpis.topFastestProduct?.productName || 'N/A'} (${kpis.topFastestProduct?.totalUnitsSold.toLocaleString() || 0} ${kpis.topFastestProduct?.unitLabel || 'cases'} moved)`,
+        `#1 Best Seller: ${kpis.topFastestProduct ? getExportProductName(kpis.topFastestProduct) : 'N/A'} (${kpis.topFastestProduct?.totalUnitsSold.toLocaleString() || 0} ${kpis.topFastestProduct?.unitLabel || 'cases'} moved)`,
         `Total Volume Dispatched: ${kpis.totalUnitsDispatched.toLocaleString()} units | Velocity: ${kpis.avgDailyTurnover} units/day`,
         `Total Movement Value: ${formatPeso(kpis.totalOutflowRevenue)} across ${kpis.totalMovingSkus} active SKUs`,
       ],
@@ -693,7 +703,7 @@ export function WarehouseInventoryReport({
       exportColumns,
       rankedProducts,
       [
-        `#1 Best Seller: ${kpis.topFastestProduct?.productName || 'N/A'} (${kpis.topFastestProduct?.totalUnitsSold.toLocaleString() || 0} ${kpis.topFastestProduct?.unitLabel || 'cases'} moved)`,
+        `#1 Best Seller: ${kpis.topFastestProduct ? getExportProductName(kpis.topFastestProduct) : 'N/A'} (${kpis.topFastestProduct?.totalUnitsSold.toLocaleString() || 0} ${kpis.topFastestProduct?.unitLabel || 'cases'} moved)`,
         `Total Volume Dispatched: ${kpis.totalUnitsDispatched.toLocaleString()} units | Velocity: ${kpis.avgDailyTurnover} units/day`,
         `Total Movement Value: ${formatPeso(kpis.totalOutflowRevenue)} across ${kpis.totalMovingSkus} active SKUs`,
       ],

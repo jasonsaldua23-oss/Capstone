@@ -664,7 +664,7 @@ def _charge_shortfall(
     )
     note_line = (
         f"Empties shortfall on delivery: {short_summary} declared but not handed over. "
-        f"PHP {shortfall_amount:,.2f} deposit is due."
+        f"₱ {shortfall_amount:,.2f} deposit is due."
     )
     existing_notes = str(getattr(order, "notes", "") or "").strip()
     order.notes = f"{existing_notes}\n{note_line}".strip() if existing_notes else note_line
@@ -697,7 +697,7 @@ def _charge_shortfall(
             reason=(
                 f"Bottle return {bottle_return.return_number}: {line['shortQuantity']} "
                 f"{line['containerTypeName']} of the {line['declaredQuantity']} declared at "
-                f"checkout were not handed over. PHP {line_amount:,.2f} added to the amount "
+                f"checkout were not handed over. ₱ {line_amount:,.2f} added to the amount "
                 f"due on order {order.order_number}."
             ),
             reference_type="bottle_return",

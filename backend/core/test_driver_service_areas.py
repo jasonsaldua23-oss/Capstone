@@ -9,7 +9,7 @@ from django.test import TestCase, RequestFactory, SimpleTestCase, TransactionTes
 from django.utils import timezone
 
 from .auth import create_token, extract_token
-from .models import User, Warehouse, Vehicle, Order, Trip, Product, Inventory, StockBatch, Customer, CustomerApprovalStatus
+from .models import User, Warehouse, Vehicle, Order, Trip, Product, Inventory, StockBatch, Customer
 from .views_api import drivers_collection, _driver_service_area_error, trips_collection, trip_detail, auth_register, auth_me, products_collection, _issue_email_verification_token, customer_orders, order_status_update, customer_order_cancel
 
 
@@ -166,7 +166,7 @@ class PortalCookieTests(SimpleTestCase):
 
 
 class NewCustomerAccessTests(TestCase):
-    def test_approved_registration_restores_customer_and_available_products(self):
+    def test_registration_immediately_restores_customer_and_available_products(self):
         warehouse = Warehouse.objects.create(name='Central Depot', code='CENTRAL', address='Depot', city='City', province='Province', zip_code='0000')
         product = Product.objects.create(name='Beverage', sku='BEVERAGE', category='Sport Drinks', quantity_per_unit=24, price=240)
         inventory = Inventory.objects.create(warehouse=warehouse, product=product, quantity=12, reserved_quantity=2)
@@ -181,13 +181,9 @@ class NewCustomerAccessTests(TestCase):
         }), content_type='application/json')
         response = auth_register(request)
         self.assertEqual(response.status_code, 201, response.content)
-        # Registration is only received: the client waits for an administrator's
-        # approval and gets no session. The first session belongs to the approved account.
-        self.assertTrue(json.loads(response.content)['pendingApproval'])
-        self.assertNotIn('token', json.loads(response.content))
+        # Customer registration now creates a usable session immediately after email verification.
+        self.assertIn('token', json.loads(response.content))
         customer = Customer.objects.get(email=email)
-        customer.approval_status = CustomerApprovalStatus.APPROVED
-        customer.save(update_fields=['approval_status'])
         token = create_token({'userId': customer.id, 'email': customer.email, 'name': customer.name, 'type': 'customer'})
         authenticated = RequestFactory().get('/api/auth/me', HTTP_AUTHORIZATION=f'Bearer {token}')
         me = auth_me(authenticated)

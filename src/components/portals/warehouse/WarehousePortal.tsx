@@ -786,8 +786,8 @@ export function WarehousePortal() {
         })
       }
       if (scopes.includes('orders')) {
-        // Fix: local order events use the same delta path as cross-device polling.
-        void fetchOrdersData({ showLoading: false, onlyIfNew: true, silent: true })
+        // Deleted rows are absent from deltas, so replace the collection on deletion events.
+        void fetchOrdersData({ showLoading: false, onlyIfNew: !scopes.includes('deletions'), silent: true })
       }
       if (scopes.includes('trips')) {
         removePortalCache(tripsCacheKey)
@@ -908,6 +908,8 @@ export function WarehousePortal() {
         ? ['inventory', 'stocks', 'stock-batches', 'products']
         : ['orders', 'trips']
     const unsubscribe = subscribeDataSync(({ scopes }) => {
+      // The portal-wide listener performs the required full collection refresh for deletions.
+      if (scopes.includes('deletions')) return
       if (scopes.some((scope) => watchedScopes.includes(scope))) void refreshChangedOrderStatuses()
     })
 
@@ -1439,7 +1441,8 @@ export function WarehousePortal() {
               loadingOrders={loadingOrders}
               purchaseRequests={scopedOrders.filter((o) => {
                 const isReplacement = Boolean((o as any)?.isScheduledReplacement) || String((o as any)?.orderNumber || '').toUpperCase().startsWith('RPL-')
-                return !isReplacement
+                // Deleted PR documents must not be reconstructed from their remaining transaction.
+                return Boolean((o as any)?.purchaseRequest) && !isReplacement
               })}
               formatPeso={formatPeso}
               openOrderDetail={openOrderDetail}

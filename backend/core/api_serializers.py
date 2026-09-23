@@ -39,7 +39,6 @@ from .models import (
     ReplacementStatus,
     Trip,
     TripDropPoint,
-    TripStatus,
     User,
     Vehicle,
     Warehouse,
@@ -984,10 +983,6 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                 for r in replacements:
                     order_returns_map.setdefault(str(r.order_id), []).append(r)
 
-        # Fix: cash is final only after the trip is closed. The delivered order
-        # status is the accounting authority even if an older stop status is stale.
-        trip_is_completed = str(getattr(trip, "status", "") or "").upper() == TripStatus.COMPLETED
-
         for dp in drop_point_rows:
             row = _serialize_model(dp)
             row["address"] = _strip_default_country_suffix(row.get("address"))
@@ -1017,9 +1012,10 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
                     2,
                 )
                 is_replacement_delivery = str(getattr(dp.order, "order_number", "") or "").strip().upper().startswith("RPL-")
-                # Fix: scheduled replacements are free fulfillment deliveries and
-                # must never be counted as cash collected by the driver.
-                if trip_is_completed and not is_replacement_delivery and _normalize_order_status(dp.order.status) == OrderStatus.DELIVERED:
+                # Fix: update the running cash total as each order is delivered;
+                # the driver must not wait for every stop and the trip to close.
+                # Scheduled replacements remain free fulfillment deliveries.
+                if not is_replacement_delivery and _normalize_order_status(dp.order.status) == OrderStatus.DELIVERED:
                     cash_collected_total += amount_due
                 row["orderStatus"] = _normalize_order_status(dp.order.status)
                 row["orderNumber"] = dp.order.order_number

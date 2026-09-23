@@ -35,7 +35,7 @@ import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpre
 import { formatPeso, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
-import { buildDailyChartSeries } from '@/lib/report-metrics'
+import { buildDailyChartSeries, formatOrderItemsForExport, isCancelledReportStatus, isIssuedPurchaseOrder } from '@/lib/report-metrics'
 import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 
 interface PurchaseOrdersReportProps {
@@ -61,26 +61,24 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
         const channel = String(o.salesChannel || '').toUpperCase()
         if (channel === 'RETAIL_POS') return false
         
-        const reqStatus = String(o.requestStatus || '').toUpperCase()
-        const poNumber = o.purchaseOrderNumber
-        const poStage = o.purchaseOrderStage
-        // Include if explicitly marked as approved PR / PO stage, or has PO number, or wholesale order
-        return Boolean(poNumber || poStage || reqStatus === 'APPROVED' || o.status === 'DELIVERED' || o.status === 'PREPARING' || o.status === 'OUT_FOR_DELIVERY')
+        // A PR or replacement is not a PO until the backend issues a real PO number.
+        return isIssuedPurchaseOrder(o)
       })
       .map((o) => {
-        const poNumber = o.purchaseOrderNumber || `PO-${o.orderNumber || o.id?.slice(-6)}`
-        const prNumber = o.purchaseRequestNumber || o.requestId || `PR-${o.orderNumber || o.id?.slice(-6)}`
+        const poNumber = String(o.purchaseOrderNumber || o.purchase_order_number).trim()
+        const prNumber = o.purchaseRequestNumber || o.purchase_request_number || o.requestId || '—'
         const client = o.customer?.name || o.shippingName || o.walkInName || 'Wholesale Client'
         const clientEmail = o.customer?.email || ''
         const clientPhone = o.customer?.phone || o.shippingPhone || ''
         
         let stage = String(o.purchaseOrderStage || '').toUpperCase()
+        if (isCancelledReportStatus(stage)) stage = 'CANCELLED'
         if (!stage) {
           const normStatus = String(o.status || '').toUpperCase()
           if (normStatus === 'DELIVERED') stage = 'DELIVERED'
           else if (normStatus === 'OUT_FOR_DELIVERY') stage = 'OUT_FOR_DELIVERY'
           else if (normStatus === 'PREPARING') stage = 'PROCESSING'
-          else if (normStatus === 'CANCELLED') stage = 'CANCELLED'
+          else if (isCancelledReportStatus(normStatus)) stage = 'CANCELLED'
           else stage = 'APPROVED'
         }
         // Ready/for-delivery records are represented by the simpler Processing stage in reports.
@@ -98,6 +96,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
           client,
           clientEmail,
           clientPhone,
+          products: formatOrderItemsForExport(o.items),
           stage,
           date,
           deliveredDate,
@@ -256,12 +255,14 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
   }
 
   const exportColumns: ExportColumn[] = [
-    { header: 'PO Number', key: 'poNumber' },
-    { header: 'PR Ref', key: 'prNumber' },
+    { header: 'PO Number', key: 'poNumber', widthWeight: 1.15 },
+    { header: 'PR Ref', key: 'prNumber', widthWeight: 1.1 },
     { header: 'Order Ref', key: 'orderNumber' },
-    { header: 'Client', key: 'client' },
-    { header: 'PO Stage', key: 'stage' },
-    { header: 'PO Total (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
+    { header: 'Client', key: 'client', widthWeight: 1.15 },
+    // Products need room for sizes and mixed-case component lines.
+    { header: 'Products', key: 'products', widthWeight: 2.75 },
+    { header: 'PO Stage', key: 'stage', widthWeight: 1 },
+    { header: 'PO Total (₱)', accessor: (r) => Number(r.amount || 0).toFixed(2), widthWeight: 1 },
     { header: 'Created Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
@@ -354,7 +355,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
             hint: kpis.total > 0 ? `${((kpis.delivered / kpis.total) * 100).toFixed(1)}% fulfilled` : undefined,
             tone: 'emerald',
           },
-          { label: 'Processing', value: kpis.processing, hint: 'Being prepared', tone: 'cyan' },
+          { label: 'Processing', value: kpis.processing, hint: 'Being processed', tone: 'cyan' },
           { label: 'Cancelled', value: kpis.cancelled, hint: 'Before delivery', tone: 'rose' },
         ]}
       />

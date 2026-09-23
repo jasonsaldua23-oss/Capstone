@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
@@ -88,6 +88,8 @@ export function ReportsView() {
       queryKey: ['report-data', reportUserId, name],
       enabled: Boolean(reportUserId) && requiredDatasets.includes(name),
       staleTime: 60_000,
+      // Fix: returning to an open report should immediately confirm the latest server state.
+      refetchOnWindowFocus: true,
       retry: false, // safeFetchJson already owns request retries.
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const dataset = REPORT_DATASETS[name]
@@ -551,7 +553,7 @@ export function ReportsView() {
             h1 { margin: 0 0 4px 0; font-size: 24px; font-family: 'Trebuchet MS', 'Segoe UI', Arial, sans-serif; }
             p { margin: 0 0 12px 0; color: #333; font-family: 'Trebuchet MS', 'Segoe UI', Arial, sans-serif; }
             table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-family: 'Trebuchet MS', 'Segoe UI', Arial, sans-serif; table-layout: fixed; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; word-break: break-word; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; word-break: break-word; white-space: pre-line; }
             th { background: #eef2ff; font-weight: 700; color: #0f172a; }
             tbody tr:nth-child(even) { background: #f8fafc; }
             .summary { margin: 16px 0 0 0; }
@@ -596,7 +598,7 @@ export function ReportsView() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600">Business intelligence</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-[30px]">Reports & Analytics</h1>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-[30px]">Reports</h1>
             <p className="mt-1 text-sm text-slate-600">Operational records, performance trends, and decision-ready summaries in one workspace.</p>
           </div>
         </div>

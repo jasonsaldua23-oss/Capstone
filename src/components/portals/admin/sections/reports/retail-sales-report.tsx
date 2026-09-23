@@ -39,7 +39,7 @@ import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { resolveReportCutoff, resolveReportSpanDays, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { isRevenueRecognized } from '@/lib/report-metrics'
+import { formatOrderItemsForExport, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 function getItemSize(item: any): string {
@@ -68,16 +68,7 @@ function formatProductNameWithSize(item: any): string {
 // Keep a mixed case and its contents grouped instead of merging every product name.
 function formatRetailProducts(items: any[], fallbackCount: number): string {
   if (!Array.isArray(items) || items.length === 0) return `${fallbackCount} item(s)`
-  return items.map((item: any) => {
-    const quantity = Number(item.quantity || item.qty || 1)
-    const components = Array.isArray(item.components) ? item.components : []
-    if (components.length === 0) return `${formatProductNameWithSize(item)} x${quantity}`
-    const contents = components.map((component: any) => {
-      const componentQty = Number(component.quantityPerCase || component.quantityBaseUnits || component.quantity || 0)
-      return `${formatProductNameWithSize(component)} x${componentQty}`
-    }).join('; ')
-    return `${formatProductNameWithSize(item)} x${quantity} | Components: ${contents}`
-  }).join(' | ')
+  return formatOrderItemsForExport(items)
 }
 
 interface RetailSalesReportProps {
@@ -112,6 +103,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
         const date = o.createdAt || new Date().toISOString()
         const items = Array.isArray(o.items) ? o.items : []
 
+        const rawStatus = String(o.retailStatus || o.retail_status || o.status || 'COMPLETED').toUpperCase()
         list.push({
           id: o.id,
           txNumber,
@@ -121,7 +113,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
           itemsCount: items.length,
           items,
           channel: String(o.salesChannel || 'RETAIL').toUpperCase(),
-          status: String(o.retailStatus || o.status || 'COMPLETED').toUpperCase(),
+          status: isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus,
         })
       })
 
@@ -130,6 +122,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       const txNum = rs.transactionNumber || rs.id
       const exists = list.some((item) => item.txNumber === txNum || item.id === rs.id)
       if (!exists) {
+        const rawStatus = String(rs.retailStatus || rs.retail_status || rs.status || 'COMPLETED').toUpperCase()
         list.push({
           id: rs.id,
           txNumber: txNum,
@@ -139,7 +132,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
           itemsCount: Array.isArray(rs.items) ? rs.items.length : 0,
           items: rs.items || [],
           channel: 'RETAIL_POS',
-          status: String(rs.status || 'COMPLETED').toUpperCase(),
+          status: isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus,
         })
       }
     })
@@ -304,15 +297,17 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
   }, [filteredCurrentItems, currentPage])
 
   const exportColumns: ExportColumn[] = [
-    { header: 'POS / Receipt ID', key: 'txNumber' },
-    { header: 'Customer', key: 'customer' },
+    { header: 'POS / Receipt ID', key: 'txNumber', widthWeight: 1.2 },
+    { header: 'Customer', key: 'customer', widthWeight: 1.15 },
     {
       header: 'Products',
       accessor: (r) => formatRetailProducts(r.items, r.itemsCount),
+      // Product sizes and mixed-case component lines need the widest column.
+      widthWeight: 2.75,
     },
-    { header: 'Status', key: 'status' },
-    { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
-    { header: 'Date & Time', accessor: (r) => formatReportTableDateTime(r.date) },
+    { header: 'Status', key: 'status', widthWeight: 0.9 },
+    { header: 'Amount (₱)', accessor: (r) => Number(r.amount || 0).toFixed(2), widthWeight: 1 },
+    { header: 'Date & Time', accessor: (r) => formatReportTableDateTime(r.date), widthWeight: 1.25 },
   ]
 
   const handleExportCsv = () => {
@@ -326,7 +321,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       exportColumns,
       filteredCurrentItems,
       [
-        `Total Retail Sales: ${formatPeso(metrics.currentSales)} (${metrics.salesGrowth >= 0 ? `+${metrics.salesGrowth.toFixed(1)}%` : `${metrics.salesGrowth.toFixed(1)}%`} vs prior period)`,
+        `Total Retail Sales: ${formatPeso(metrics.currentSales)}`,
         `Transactions Count: ${metrics.currentTxCount} | Average Basket: ${formatPeso(metrics.currentAvgValue)}`,
       ],
       periodLabel
@@ -339,7 +334,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       exportColumns,
       filteredCurrentItems,
       [
-        `Total Retail Sales: ${formatPeso(metrics.currentSales)} (${metrics.salesGrowth >= 0 ? `+${metrics.salesGrowth.toFixed(1)}%` : `${metrics.salesGrowth.toFixed(1)}%`} vs prior period)`,
+        `Total Retail Sales: ${formatPeso(metrics.currentSales)}`,
         `Transactions Count: ${metrics.currentTxCount} | Average Basket: ${formatPeso(metrics.currentAvgValue)}`,
       ],
       periodLabel

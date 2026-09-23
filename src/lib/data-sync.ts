@@ -20,6 +20,8 @@ export type DataSyncScope =
   // Live driver positions. The server advances this one on a throttle, so it is
   // safe to refresh on, unlike the per-ping writes behind it.
   | 'tracking'
+  // Database deletions require collection reconciliation because delta merges cannot remove absent rows.
+  | 'deletions'
   | 'auth'
   | 'user'
 

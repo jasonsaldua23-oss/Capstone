@@ -1,12 +1,23 @@
 'use client'
 
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type RGB } from 'pdf-lib'
 import { toast } from 'sonner'
 
 export interface ExportColumn<T = any> {
   header: string
   key?: keyof T | string
   accessor?: (row: T) => string | number
+  widthWeight?: number
+}
+
+// Convert optional column weights into exact widths without changing unweighted reports.
+export function calculateReportColumnWidths<T>(columns: ExportColumn<T>[], availableWidth: number) {
+  const weights = columns.map((column) => {
+    const value = Number(column.widthWeight || 1)
+    return Number.isFinite(value) && value > 0 ? value : 1
+  })
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1
+  return weights.map((weight) => (availableWidth * weight) / totalWeight)
 }
 
 // PDF exports show business-facing fields only. Internal creation timestamps and
@@ -29,8 +40,8 @@ function summaryToKpis(summaryLines: string[]) {
     .map((part) => {
       const separator = part.indexOf(':')
       return separator > 0
-        ? { label: part.slice(0, separator).trim(), value: part.slice(separator + 1).trim().replace(/\u20B1/g, 'PHP ') }
-        : { label: 'Summary', value: part.replace(/\u20B1/g, 'PHP ') }
+        ? { label: part.slice(0, separator).trim(), value: part.slice(separator + 1).trim() }
+        : { label: 'Summary', value: part }
     })
     .slice(0, 5)
 }
@@ -59,7 +70,8 @@ export function exportToCsv<T>(
           val = (row as any)[col.key]
         }
         if (val === null || val === undefined) val = ''
-        val = String(val).replace(/\r?\n/g, ' ').replace(/"/g, '""')
+        // Quoted CSV cells safely preserve the product/component line structure.
+        val = String(val).replace(/\r\n?/g, '\n').replace(/"/g, '""')
         return `"${val}"`
       })
       .join(',')
@@ -97,11 +109,21 @@ export function printReportTable<T>(
   const escapeHtml = (value: unknown) => String(value ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-  const tableHeaders = columns.map((c) => `<th>${escapeHtml(c.header)}</th>`).join('')
+  // Print and PDF use the same business-facing columns and proportions.
+  const activeColumns = cleanReportPdfColumns(title, columns)
+  const tableHeaders = ['#', ...activeColumns.map((column) => column.header)]
+    .map((header) => `<th>${escapeHtml(header)}</th>`)
+    .join('')
+  const printColumnWidths = calculateReportColumnWidths(activeColumns, 96)
+  const tableColumns = [
+    '<col style="width:4%">',
+    ...printColumnWidths.map((width) => `<col style="width:${width.toFixed(3)}%">`),
+  ].join('')
+  const kpis = summaryToKpis(summaryLines)
   // Fix: print every filtered record; pagination must not silently discard rows.
   const tableRows = rows
-    .map((row) => {
-      const cells = columns.map((col) => {
+    .map((row, rowIndex) => {
+      const cells = activeColumns.map((col) => {
         let val: any = ''
         if (col.accessor) {
           val = col.accessor(row)
@@ -110,7 +132,7 @@ export function printReportTable<T>(
         }
         return `<td>${escapeHtml(val)}</td>`
       })
-      return `<tr>${cells.join('')}</tr>`
+      return `<tr><td>${rowIndex + 1}</td>${cells.join('')}</tr>`
     })
     .join('')
 
@@ -120,21 +142,24 @@ export function printReportTable<T>(
       <head>
         <title>${escapeHtml(title)}</title>
         <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; margin: 30px; color: #1e293b; font-size: 12px; }
-          .header { border-bottom: 2px solid #3b82f6; padding-bottom: 12px; margin-bottom: 16px; }
-          h1 { margin: 0 0 4px 0; font-size: 20px; color: #0f172a; }
-          .subtitle { margin: 0; color: #64748b; font-size: 12px; }
+          body { font-family: 'Times New Roman', Times, serif; margin: 30px; color: #000; font-size: 12px; }
+          .header { margin-bottom: 20px; text-align: center; }
+          h1 { margin: 0 0 10px 0; font-size: 25px; color: #000; }
+          h2 { margin: 0 0 14px 0; font-size: 18px; color: #000; }
+          .subtitle { margin: 0; color: #000; font-size: 11px; }
           /* Fix: wrap long values within the printable width and repeat column headings. */
-          @page { size: A4 ${columns.length > 6 ? 'landscape' : 'portrait'}; margin: 12mm; }
-          table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 16px; font-size: 11px; }
-          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; overflow-wrap: anywhere; vertical-align: top; }
+          @page { size: A4 ${activeColumns.length > 6 ? 'landscape' : 'portrait'}; margin: 12mm; }
+          table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 14px; font-size: 11px; }
+          th, td { border: 1px solid #000; padding: 5px 7px; text-align: left; overflow-wrap: anywhere; vertical-align: top; white-space: pre-line; }
           thead { display: table-header-group; }
           tr { break-inside: avoid; page-break-inside: avoid; }
-          .header, .summary { break-inside: avoid; }
-          th { background: #f8fafc; font-weight: 600; color: #334155; }
-          tr:nth-child(even) { background: #f8fafc; }
-          .summary { margin-top: 20px; padding: 12px; background: #f1f5f9; border-radius: 6px; }
-          .summary p { margin: 3px 0; font-weight: 500; font-size: 11px; }
+          .header, .kpi-strip { break-inside: avoid; }
+          th { background: #f3f3f3; font-weight: 700; text-align: center; color: #000; }
+          .kpi-strip { display: grid; grid-template-columns: repeat(${Math.max(1, kpis.length)}, 1fr); margin-bottom: 8px; border: 1px solid #000; }
+          .kpi { min-height: 52px; padding: 10px 6px; text-align: center; border-right: 1px solid #000; }
+          .kpi:last-child { border-right: 0; }
+          .kpi-label { display: block; margin-bottom: 8px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+          .kpi-value { display: block; font-size: 17px; font-weight: 700; }
           @media print {
             body { margin: 0; }
             button { display: none; }
@@ -144,9 +169,19 @@ export function printReportTable<T>(
       <body>
         <div class="header">
           <h1>Ann Ann's Beverages Trading</h1>
-          <p class="subtitle"><strong>${escapeHtml(title)}</strong> &bull; Generated: ${new Date().toLocaleString()} ${dateLabel ? `&bull; Period: ${escapeHtml(dateLabel)}` : ''}</p>
+          <h2>${escapeHtml(title)}</h2>
+          <p class="subtitle">Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+          ${dateLabel ? `<p class="subtitle">Period: ${escapeHtml(dateLabel)}</p>` : ''}
         </div>
+        ${kpis.length > 0
+          ? `<div class="kpi-strip">${kpis.map((kpi) => `
+              <div class="kpi">
+                <span class="kpi-label">${escapeHtml(kpi.label)}</span>
+                <span class="kpi-value">${escapeHtml(kpi.value)}</span>
+              </div>`).join('')}</div>`
+          : ''}
         <table>
+          <colgroup>${tableColumns}</colgroup>
           <thead>
             <tr>${tableHeaders}</tr>
           </thead>
@@ -154,14 +189,6 @@ export function printReportTable<T>(
             ${tableRows}
           </tbody>
         </table>
-        ${
-          summaryLines.length > 0
-            ? `<div class="summary">
-                <p><strong>Report Summary:</strong></p>
-                ${summaryLines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
-               </div>`
-            : ''
-        }
       </body>
     </html>
   `
@@ -209,27 +236,63 @@ export async function exportReportPdf<T>(
     let y = pageHeight - 40
     let pageNumber = 1
 
-    // Measure real glyph widths so values wrap before crossing cell borders.
+    // Standard PDF fonts omit the peso glyph, so draw its visible P and two bars
+    // while keeping every exported amount labelled with the requested ₱ symbol.
+    const measurePdfText = (value: string, size: number, textFont: PDFFont = font) =>
+      Array.from(value).reduce(
+        (width, character) => width + textFont.widthOfTextAtSize(character === '₱' ? 'P' : character, size),
+        0,
+      )
+    const drawPdfText = (
+      value: string,
+      options: { x: number; y: number; size: number; textFont?: PDFFont; color?: RGB },
+    ) => {
+      const textFont = options.textFont || font
+      const color = options.color || rgb(0, 0, 0)
+      let cursorX = options.x
+      for (const segment of value.split(/(₱)/)) {
+        if (!segment) continue
+        const printable = segment === '₱' ? 'P' : segment
+        page.drawText(printable, { x: cursorX, y: options.y, size: options.size, font: textFont, color })
+        const segmentWidth = textFont.widthOfTextAtSize(printable, options.size)
+        if (segment === '₱') {
+          const thickness = Math.max(0.35, options.size * 0.045)
+          for (const offset of [0.42, 0.57]) {
+            page.drawLine({
+              start: { x: cursorX - 0.4, y: options.y + options.size * offset },
+              end: { x: cursorX + segmentWidth + 0.4, y: options.y + options.size * offset },
+              thickness,
+              color,
+            })
+          }
+        }
+        cursorX += segmentWidth
+      }
+    }
+
+    // Measure real glyph widths, honor explicit product lines, and wrap within cells.
     const wrap = (value: unknown, width: number, size: number, textFont = font) => {
-      const source = String(value ?? '').replace(/\u20B1/g, 'PHP ').replace(/\s+/g, ' ').trim()
+      const source = String(value ?? '').replace(/\r\n?/g, '\n').trim()
       if (!source) return ['']
       const lines: string[] = []
-      let line = ''
-      for (const char of source) {
-        if (line && textFont.widthOfTextAtSize(line + char, size) > width) {
-          lines.push(line)
-          line = ''
+      for (const sourceLine of source.split('\n')) {
+        let line = ''
+        for (const char of sourceLine) {
+          if (line && measurePdfText(line + char, size, textFont) > width) {
+            lines.push(line)
+            line = ''
+          }
+          line += char
         }
-        line += char
+        lines.push(line)
       }
-      lines.push(line)
       return lines
     }
     const centeredX = (value: string, size: number, textFont = fontBold) =>
-      (pageWidth - textFont.widthOfTextAtSize(value, size)) / 2
+      (pageWidth - measurePdfText(value, size, textFont)) / 2
     const fitTextSize = (value: string, preferred: number, availableWidth: number, textFont = fontBold) => {
       let size = preferred
-      while (size > 7 && textFont.widthOfTextAtSize(value, size) > availableWidth) size -= 0.5
+      while (size > 7 && measurePdfText(value, size, textFont) > availableWidth) size -= 0.5
       return size
     }
     const drawPageNumber = () => {
@@ -269,23 +332,26 @@ export async function exportReportPdf<T>(
         const label = kpi.label.toUpperCase()
         const labelSize = fitTextSize(label, 8.5, kpiWidth - 10)
         const valueSize = fitTextSize(kpi.value, 17, kpiWidth - 10)
-        page.drawText(label, { x: x + (kpiWidth - fontBold.widthOfTextAtSize(label, labelSize)) / 2, y: y - 21, size: labelSize, font: fontBold, color: rgb(0, 0, 0) })
-        page.drawText(kpi.value, { x: x + (kpiWidth - fontBold.widthOfTextAtSize(kpi.value, valueSize)) / 2, y: y - 47, size: valueSize, font: fontBold, color: rgb(0, 0, 0) })
+        drawPdfText(label, { x: x + (kpiWidth - measurePdfText(label, labelSize, fontBold)) / 2, y: y - 21, size: labelSize, textFont: fontBold })
+        drawPdfText(kpi.value, { x: x + (kpiWidth - measurePdfText(kpi.value, valueSize, fontBold)) / 2, y: y - 47, size: valueSize, textFont: fontBold })
       })
       y -= kpiHeight + 14
     }
 
     const numberedCols: ExportColumn<T>[] = [{ header: '#', accessor: () => '' }, ...activeCols]
     const numberWidth = 28
-    const colWidth = (contentWidth - numberWidth) / activeCols.length
-    const columnX = (index: number) => index === 0 ? margin : margin + numberWidth + (index - 1) * colWidth
-    const columnWidth = (index: number) => index === 0 ? numberWidth : colWidth
+    const dataColumnWidths = calculateReportColumnWidths(activeCols, contentWidth - numberWidth)
+    const columnWidth = (index: number) => index === 0 ? numberWidth : dataColumnWidths[index - 1]
+    const columnX = (index: number) => {
+      if (index === 0) return margin
+      return margin + numberWidth + dataColumnWidths.slice(0, index - 1).reduce((sum, width) => sum + width, 0)
+    }
     const headerLines = numberedCols.map((column, index) => wrap(column.header, columnWidth(index) - 8, 9, fontBold))
     const headerHeight = Math.max(1, ...headerLines.map((lines) => lines.length)) * 10 + 8
     const drawTableHeader = () => {
       numberedCols.forEach((_column, index) => page.drawRectangle({ x: columnX(index), y: y - headerHeight, width: columnWidth(index), height: headerHeight, color: rgb(0.95, 0.95, 0.95), borderColor: rgb(0, 0, 0), borderWidth: 0.6 }))
       headerLines.forEach((lines, index) => lines.forEach((line, lineIndex) => {
-        page.drawText(line, { x: columnX(index) + Math.max(4, (columnWidth(index) - fontBold.widthOfTextAtSize(line, 9)) / 2), y: y - 12 - lineIndex * 10, size: 9, font: fontBold, color: rgb(0, 0, 0) })
+        drawPdfText(line, { x: columnX(index) + Math.max(4, (columnWidth(index) - measurePdfText(line, 9, fontBold)) / 2), y: y - 12 - lineIndex * 10, size: 9, textFont: fontBold })
       }))
       y -= headerHeight
     }
@@ -316,7 +382,7 @@ export async function exportReportPdf<T>(
         cellLines.forEach((lines, index) => {
           for (let localIndex = 0; localIndex < linesOnPage; localIndex += 1) {
             const line = lines[lineOffset + localIndex]
-            if (line) page.drawText(line, { x: columnX(index) + 5, y: y - 11 - localIndex * 10, size: 8.5, font, color: rgb(0, 0, 0) })
+            if (line) drawPdfText(line, { x: columnX(index) + 5, y: y - 11 - localIndex * 10, size: 8.5 })
           }
         })
         y -= segmentHeight

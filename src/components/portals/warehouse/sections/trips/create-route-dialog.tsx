@@ -177,7 +177,7 @@ function UpcomingDeliveryOrdersPage({ date, warehouseId, warehouseName, onBack }
                       <td className="px-3 py-3 font-medium">{order.orderNumber}</td>
                       <td className="px-3 py-3">{order.customerName}</td>
                       <td className="px-3 py-3">{order.city}</td>
-                      <td className="px-3 py-3">{order.status?.replace(/_/g, ' ') || '—'}</td>
+                      <td className="px-3 py-3">{String(order.status || '').toUpperCase() === 'PREPARING' ? 'Processing' : order.status?.replace(/_/g, ' ') || '—'}</td>
                       <td className="px-3 py-3">{order.cases}</td>
                       <td className="px-3 py-3">{formatKilogramsShort(order.weight)}</td>
                     </tr>)}</tbody>

@@ -39,6 +39,13 @@ const describeStopStatus = (status?: string | null) => {
   return raw ? raw.replace(/_/g, ' ') : 'Pending'
 }
 
+// PREPARING is retained as the API value; drivers see the shared Processing label.
+const describeOrderStatus = (status?: string | null) => {
+  const raw = String(status || '').toUpperCase()
+  if (raw === 'PREPARING') return 'Processing'
+  return raw ? raw.replace(/_/g, ' ') : 'Not set'
+}
+
 const stopStatusTone = (status?: string | null) => {
   const raw = String(status || '').toUpperCase()
   const key = DELIVERED_STATUSES.has(raw) ? 'COMPLETED' : raw === 'SKIPPED' || raw === 'CANCELED' ? 'CANCELLED' : raw
@@ -197,7 +204,7 @@ export function TripDetailsView({
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-slate-500">Order status</dt>
                 <dd className="text-right font-medium text-slate-900">
-                  {String(order.status || 'Not set').replace(/_/g, ' ')}
+                  {describeOrderStatus(order.status)}
                 </dd>
               </div>
               <div className="flex items-baseline justify-between gap-3">

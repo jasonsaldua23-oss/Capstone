@@ -34,7 +34,7 @@ import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDayKey, withinRange } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { buildDailyChartSeries, isRevenueRecognized } from '@/lib/report-metrics'
+import { buildDailyChartSeries, formatOrderItemsForExport, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 interface TransactionsReportProps {
@@ -70,7 +70,8 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       const clientEmail = o.customer?.email || ''
       const amount = Number(o.totalAmount || o.subtotal || 0)
       const date = o.createdAt || new Date().toISOString()
-      const status = String(o.status || 'PENDING').toUpperCase()
+      const rawStatus = String(o.status || 'PENDING').toUpperCase()
+      const status = isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus
       const paymentStatus = String(o.paymentStatus || (status === 'DELIVERED' ? 'PAID' : 'PENDING')).toUpperCase()
       // Retail POS and counter sales belong to one Retail reporting channel.
       const normalizedChannel = ['RETAIL', 'RETAIL_POS', 'RETAIL_COUNTER'].includes(channel)
@@ -88,6 +89,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
         channel: normalizedChannel,
         status,
         paymentStatus,
+        products: formatOrderItemsForExport(o.items),
         itemSummary: Array.isArray(o.items) ? `${o.items.length} items` : '1 order',
       })
     })
@@ -97,6 +99,8 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       const txNum = rs.transactionNumber || rs.id
       const exists = list.some((item) => item.txNumber === txNum || item.id === rs.id)
       if (!exists) {
+        const rawStatus = String(rs.retailStatus || rs.retail_status || rs.status || 'COMPLETED').toUpperCase()
+        const status = isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus
         list.push({
           id: rs.id,
           txNumber: txNum,
@@ -106,8 +110,10 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
           amount: Number(rs.totalAmount || rs.subtotal || 0),
           date: rs.createdAt || new Date().toISOString(),
           channel: 'RETAIL',
-          status: 'COMPLETED',
-          paymentStatus: 'PAID',
+          // Fix: preserve cancelled standalone retail sales instead of treating them as revenue.
+          status,
+          paymentStatus: String(rs.paymentStatus || rs.payment_status || (status === 'COMPLETED' ? 'PAID' : 'PENDING')).toUpperCase(),
+          products: formatOrderItemsForExport(rs.items),
           itemSummary: Array.isArray(rs.items) ? `${rs.items.length} items` : 'Retail items',
         })
       }
@@ -182,7 +188,9 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
     // were reported as income under the same "Revenue" label as the Orders tab.
     const revenueTransactions = filteredTransactions.filter((item) => isRevenueRecognized(item))
     const totalVolume = revenueTransactions.reduce((sum, item) => sum + (item.amount || 0), 0)
-    const paidCount = filteredTransactions.filter((item) => item.paymentStatus === 'PAID').length
+    const paidCount = filteredTransactions.filter(
+      (item) => !isCancelledReportStatus(item.status) && item.paymentStatus === 'PAID'
+    ).length
     const avgValue = revenueTransactions.length > 0 ? totalVolume / revenueTransactions.length : 0
 
     return { totalCount, totalVolume, paidCount, avgValue }
@@ -280,8 +288,9 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
     { header: 'Transaction ID', key: 'txNumber' },
     { header: 'Channel / Type', accessor: (r) => (r.channel === 'RETAIL' ? 'Retail' : 'Wholesale (Online)') },
     { header: 'Client / Customer', key: 'client' },
+    { header: 'Products', key: 'products' },
     { header: 'Status', key: 'status' },
-    { header: 'Amount (PHP)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
+    { header: 'Amount (₱)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
     { header: 'Transaction Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
@@ -456,7 +465,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             >
               <option value="all">All Transaction Statuses</option>
               <option value="DELIVERED">Delivered / Completed</option>
-              <option value="PREPARING">Preparing</option>
+              <option value="PREPARING">Processing</option>
               <option value="OUT_FOR_DELIVERY">Out For Delivery</option>
               <option value="PENDING">Pending</option>
               <option value="CANCELLED">Cancelled</option>

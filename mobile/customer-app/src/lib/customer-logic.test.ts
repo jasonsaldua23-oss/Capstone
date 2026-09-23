@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getAvailableQuantity, getOrderStageIndex, isOrderCancellable, isOrderTrackable, isValidPhilippinePhone, normalizeOrderStatus, PERSON_NAME_NUMBER_ERROR, validatePasswordPolicy, validatePersonName, withinNegrosOccidental } from "./customer-logic.ts";
+import { formatOrderStatus, getAvailableQuantity, getOrderStageIndex, isOrderCancellable, isOrderTrackable, isValidPhilippinePhone, normalizeOrderStatus, PERSON_NAME_NUMBER_ERROR, validatePasswordPolicy, validatePersonName, withinNegrosOccidental } from "./customer-logic.ts";
 
 const order = (status: string, extra: Record<string, unknown> = {}) => ({
   id: "o",
@@ -23,6 +23,8 @@ test("status normalization matches the web portal for every backend OrderStatus"
   assert.equal(normalizeOrderStatus(order("OUT_FOR_DELIVERY")), "OUT_FOR_DELIVERY");
   assert.equal(normalizeOrderStatus(order("DELIVERED")), "DELIVERED");
   assert.equal(normalizeOrderStatus(order("CANCELLED")), "CANCELLED");
+  // PREPARING remains the backend value but must never appear as the customer-facing label.
+  assert.equal(formatOrderStatus("PREPARING"), "PROCESSING");
 });
 
 test("a purchase request awaiting approval reads as pending regardless of order status", () => {
@@ -43,7 +45,7 @@ test("an order assigned to a delivery trip can no longer be cancelled", () => {
   assert.equal(isOrderCancellable(order("DELIVERED")), false);
 });
 
-test("tracking opens once the warehouse starts preparing", () => {
+test("tracking opens once the warehouse starts processing", () => {
   assert.equal(isOrderTrackable(order("PENDING")), false);
   assert.equal(isOrderTrackable(order("CONFIRMED")), true);
   assert.equal(isOrderTrackable(order("OUT_FOR_DELIVERY")), true);
