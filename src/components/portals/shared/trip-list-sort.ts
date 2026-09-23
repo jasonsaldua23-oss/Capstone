@@ -22,14 +22,14 @@ const toMs = (value: unknown) => {
   return Number.isFinite(ms) ? ms : 0
 }
 
-// Delivery work is read chronologically. Trips without a valid schedule remain
-// at the end instead of being promoted by their creation timestamp.
+// Show the latest delivery work first. When dates match, the newest-created
+// trip wins; trips without a valid schedule remain at the end.
 const compareDeliveryDate = (a: SortableTrip, b: SortableTrip) => {
   const aSchedule = toMs(a.tripSchedule)
   const bSchedule = toMs(b.tripSchedule)
   if (!aSchedule && bSchedule) return 1
   if (aSchedule && !bSchedule) return -1
-  return aSchedule - bSchedule || toMs(a.createdAt) - toMs(b.createdAt)
+  return bSchedule - aSchedule || toMs(b.createdAt) - toMs(a.createdAt)
 }
 
 // TRP-<year>-<zero-padded sequence>; numeric collation keeps it right even if a

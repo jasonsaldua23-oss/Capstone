@@ -245,15 +245,15 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         if sort_key == "completed":
             qs = qs.order_by(F("actual_end_at").desc(nulls_last=True), "-updated_at", "-created_at")
         elif sort_key == "scheduled":
-            # Fix: trip lists follow their actual delivery schedule. The earliest
-            # order delivery date defines a multi-stop trip, matching tripSchedule.
+            # Trip lists follow their actual delivery schedule, newest first. The
+            # earliest stop still defines a multi-stop trip's displayed schedule.
             qs = qs.annotate(
                 scheduled_delivery_at=Coalesce(
                     Min("drop_points__order__timeline__delivery_date"),
                     F("planned_start_at"),
                     output_field=DateTimeField(),
                 )
-            ).order_by(F("scheduled_delivery_at").asc(nulls_last=True), "created_at")
+            ).order_by(F("scheduled_delivery_at").desc(nulls_last=True), "-created_at")
         elif sort_key == "trip_number":
             # Trip numbers are TRP-<year>-<4-digit zero-padded sequence>, so the
             # plain string order is the numeric order.

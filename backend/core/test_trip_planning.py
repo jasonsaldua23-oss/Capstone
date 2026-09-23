@@ -280,12 +280,14 @@ class TripsCollectionTrackingContractTests(TestCase):
         early_trip = self._make_trip("TRP-2026-0001", status=TripStatus.PLANNED, created_days_ago=0)
         late_trip = self._make_trip("TRP-2026-0002", status=TripStatus.PLANNED, created_days_ago=10)
         undated_trip = self._make_trip("TRP-2026-0003", status=TripStatus.PLANNED, created_days_ago=1)
+        newer_late_trip = self._make_trip("TRP-2026-0004", status=TripStatus.PLANNED, created_days_ago=2)
         customer = Customer.objects.create(
             email="trip-sort-customer@example.com", password="hashed", name="Trip Sort Customer"
         )
         for trip, suffix, delivery_at in (
             (early_trip, "EARLY", now + timedelta(days=1)),
             (late_trip, "LATE", now + timedelta(days=5)),
+            (newer_late_trip, "NEWER-LATE", now + timedelta(days=5)),
         ):
             order = Order.objects.create(
                 order_number=f"ORD-SORT-{suffix}", customer=customer,
@@ -297,11 +299,11 @@ class TripsCollectionTrackingContractTests(TestCase):
                 address="Address", city="Talisay", province="Negros Occidental", zip_code="6115",
             )
 
-        # Creation order is deliberately opposite; delivery date must win and
-        # the trip without a valid schedule must remain last.
+        # Latest delivery dates come first; equal dates use newest creation time,
+        # and the trip without a valid schedule remains last.
         self.assertEqual(
             self._trip_numbers(sort="scheduled"),
-            [early_trip.trip_number, late_trip.trip_number, undated_trip.trip_number],
+            [newer_late_trip.trip_number, late_trip.trip_number, early_trip.trip_number, undated_trip.trip_number],
         )
 
     def test_trips_collection_sort_keeps_tracking_date_filter(self) -> None:
