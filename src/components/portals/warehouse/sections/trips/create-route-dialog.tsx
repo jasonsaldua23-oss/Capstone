@@ -401,7 +401,7 @@ export function WarehouseCreateRouteDialog({
                               <div className="flex items-center gap-2">
                                 <span
                                   aria-hidden="true"
-                                  className={`inline-flex h-4 w-4 items-center justify-center rounded border ${
+                                  className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
                                     selectedRouteOrderIds.includes(order.id)
                                       ? 'border-blue-600 bg-blue-600 text-white'
                                       : 'border-gray-300 bg-white'
@@ -409,7 +409,8 @@ export function WarehouseCreateRouteDialog({
                                 >
                                   {selectedRouteOrderIds.includes(order.id) ? '\u2713' : ''}
                                 </span>
-                                <span className="truncate">{order.orderNumber || order.id}</span>
+                                {/* Keep reference numbers complete so staff can identify the replacement. */}
+                                <span className="shrink-0 whitespace-nowrap">{order.orderNumber || order.id}</span>
                                 {(order as any)?.currentTripOrder ? (
                                   <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">In Trip</span>
                                 ) : null}
