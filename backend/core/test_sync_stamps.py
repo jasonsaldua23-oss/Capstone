@@ -53,6 +53,8 @@ class SyncStampBumpTests(TestCase):
 
     def test_direct_database_delete_bumps_the_report_scope(self) -> None:
         """Database-dashboard deletes bypass Django, so the database trigger must publish them."""
+        if connection.vendor != "postgresql":
+            self.skipTest("Direct-delete sync triggers are PostgreSQL-specific")
         warehouse = Warehouse.objects.create(
             name="Direct Delete Warehouse",
             code="SYNC-RAW-DELETE",
@@ -72,6 +74,8 @@ class SyncStampBumpTests(TestCase):
         self.assertGreater(after["deletions"], before["deletions"])
 
     def test_direct_purchase_request_delete_marks_parent_for_navigation_refresh(self) -> None:
+        if connection.vendor != "postgresql":
+            self.skipTest("Direct-delete parent-touch triggers are PostgreSQL-specific")
         order = Order.objects.create(
             order_number="PR-DIRECT-NAV-DELETE",
             purchase_request_number="PR-DIRECT-NAV-DELETE",

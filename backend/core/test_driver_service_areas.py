@@ -90,6 +90,16 @@ class ServiceAreaMigrationTests(TransactionTestCase):
         def restore_current_redundant_fields_schema():
             with connection.schema_editor() as editor:
                 redundant_fields_migration.apply(redundant_fields_before.clone(), editor)
+            if connection.vendor == 'sqlite':
+                # SQLite rebuilds the entire historical Customer table while applying
+                # 0134, which also restores approval columns removed later by 0139.
+                # Reapply that later removal so following CI tests see today's schema.
+                approval_before = loader.project_state([('core', '0138_rename_preparing_order_label')])
+                approval_migration = import_module(
+                    'core.migrations.0139_remove_customer_registration_approval'
+                ).Migration('0139_remove_customer_registration_approval', 'core')
+                with connection.schema_editor() as editor:
+                    approval_migration.apply(approval_before, editor)
 
         self.addCleanup(restore_current_redundant_fields_schema)
         license_photo_before = loader.project_state([('core', '0131_remove_user_driver_profile_fields')])
