@@ -1310,10 +1310,10 @@ export function CustomerOrdersView(props: any) {
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                       <p className="text-[18px] font-bold tracking-[-0.02em] text-slate-900">Proof of Delivery (POD)</p>
                       <div className="mt-3 space-y-2 text-sm text-slate-700">
-                        {(selectedReplacementRecord?.linkedReplacementOrderNumber || selectedReplacementRecord?.replacementOrderNumber) ? (
+                        {selectedReplacementRecord?.replacementNumber ? (
                           <p>
-                            <span className="font-semibold text-slate-900">Replacement Order:</span>{' '}
-                            {selectedReplacementRecord?.linkedReplacementOrderNumber || selectedReplacementRecord?.replacementOrderNumber}
+                            <span className="font-semibold text-slate-900">Replacement #:</span>{' '}
+                            {selectedReplacementRecord.replacementNumber}
                           </p>
                         ) : null}
                         {String(replacementPod.recipientName || '').trim() ? (

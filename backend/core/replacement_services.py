@@ -410,16 +410,6 @@ def _replacement_has_outstanding_quantity(replacement: Replacement) -> bool:
     return qty_to_replace > qty_replaced
 
 
-def _generate_next_replacement_order_number() -> str:
-    year = timezone.now().year
-    sequence = Order.objects.filter(order_number__startswith=f"RPL-{year}-").count() + 1
-    order_number = f"RPL-{year}-{str(sequence).zfill(4)}"
-    while Order.objects.filter(order_number=order_number).exists():
-        sequence += 1
-        order_number = f"RPL-{year}-{str(sequence).zfill(4)}"
-    return order_number
-
-
 def _replacement_line_source_lines(replacement: Replacement) -> list[dict[str, Any]]:
     """Build scheduler line dicts from relational ReplacementLine rows.
 
@@ -543,7 +533,8 @@ def _create_scheduled_replacement_order_locked(
         raise ValueError("No replacement items available to schedule")
 
     replacement_order = Order.objects.create(
-        order_number=_generate_next_replacement_order_number(),
+        # The delivery belongs to this replacement case and uses its number.
+        order_number=replacement.replacement_number,
         customer=source_order.customer,
         status=OrderStatus.CONFIRMED,
         priority="high",

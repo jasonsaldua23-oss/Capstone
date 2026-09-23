@@ -609,7 +609,6 @@ export function WarehouseReplacementsView({
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Replacement Order #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Order #</th>
                     <th className="text-left p-4 font-medium text-gray-600">Customer</th>
                     <th className="text-left p-4 font-medium text-gray-600">Scheduled Date</th>
@@ -621,7 +620,6 @@ export function WarehouseReplacementsView({
                   {replacementsBySource.scheduledReplacements.map((ret) => {
                     const meta = parseIssueMeta(ret?.notes)
                     const scheduledDate = String(ret?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
-                    const replacementOrderNumber = String(ret?.replacementOrderNumber || meta?.replacementOrderNumber || '').trim()
                     const statusLabel = getWarehouseStatusLabel(ret, meta)
                     // Dates are stored as YYYY-MM-DD, so the day part alone decides overdue.
                     const isOverdue = isPastScheduleDate(scheduledDate.slice(0, 10))
@@ -632,7 +630,6 @@ export function WarehouseReplacementsView({
                             hard to read and to quote back. Keeping them whole can make the
                             table too wide for its card, and it then stacks instead. */}
                         <td className="p-4 font-medium whitespace-nowrap">{ret.replacementNumber}</td>
-                        <td className="p-4 whitespace-nowrap">{replacementOrderNumber || 'N/A'}</td>
                         <td className="p-4 whitespace-nowrap">{ret.orderNumber || ret.order?.orderNumber || 'N/A'}</td>
                         <td className="p-4">{ret.customerName || ret.order?.customer?.name || 'N/A'}</td>
                         <td className="p-4">
@@ -965,10 +962,10 @@ export function WarehouseReplacementsView({
                   <div className="rounded-md border bg-white px-3 py-2">
                     <p className="text-xs font-medium text-slate-500">Proof of Delivery (POD)</p>
                     <div className="mt-2 space-y-2">
-                      {(selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber) ? (
+                      {selectedReplacement?.replacementNumber ? (
                         <p className="text-sm text-slate-700">
-                          <span className="font-semibold text-slate-900">Replacement Order:</span>{' '}
-                          {selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber}
+                          <span className="font-semibold text-slate-900">Replacement #:</span>{' '}
+                          {selectedReplacement.replacementNumber}
                         </p>
                       ) : null}
                       {String(replacementPod?.recipientName || '').trim() ? (

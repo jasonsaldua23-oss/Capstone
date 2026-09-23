@@ -264,6 +264,7 @@ class WarehouseReplacementRescheduleContractTests(TestCase):
     def test_past_due_replacement_delivery_moves_to_the_new_date(self, _email_staff, _email_customer) -> None:
         yesterday = timezone.localdate() - timedelta(days=1)
         replacement, replacement_order = self._scheduled_replacement("MOVE-001", scheduled_date=yesterday)
+        self.assertEqual(replacement_order.order_number, replacement.replacement_number)
         new_date = (timezone.localdate() + timedelta(days=2)).isoformat()
         replacement_order_count = Order.objects.filter(notes__startswith="Replacement delivery for").count()
 

@@ -1325,10 +1325,10 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                   <div className="rounded-md border bg-white px-3 py-2">
                     <p className="text-xs font-medium text-slate-500">Proof of Delivery (POD)</p>
                     <div className="mt-2 space-y-2">
-                      {(selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber) ? (
+                      {selectedReplacement?.replacementNumber ? (
                         <p className="text-sm text-slate-700">
-                          <span className="font-semibold text-slate-900">Replacement Order:</span>{' '}
-                          {selectedReplacement?.linkedReplacementOrderNumber || selectedReplacement?.replacementOrderNumber}
+                          <span className="font-semibold text-slate-900">Replacement #:</span>{' '}
+                          {selectedReplacement.replacementNumber}
                         </p>
                       ) : null}
                       {String(replacementPod?.recipientName || '').trim() ? (

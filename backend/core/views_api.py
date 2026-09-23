@@ -135,7 +135,6 @@ _OWNERS = {
     "_find_staff_already_assigned_elsewhere": "warehouse_access",
     "_format_display_name": "api_validators",
     "_generate_next_purchase_workflow_number": "order_lifecycle",
-    "_generate_next_replacement_order_number": "replacement_services",
     "_generate_next_trip_number": "order_fulfillment",
     "_generated_product_sku": "views_products",
     "_get_allowed_warehouse_ids_for_staff": "warehouse_access",

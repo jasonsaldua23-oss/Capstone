@@ -265,9 +265,9 @@ export function ReplacementDetailScreen({ replacementId }: { replacementId: stri
         {pod.show ? (
           <View style={styles.replacementDetailCard}>
             <Text style={styles.replacementDetailHeading}>Proof of Delivery (POD)</Text>
-            {pod.replacementOrderNumber ? (
+            {record.replacementNumber ? (
               <Text style={styles.detailInfoText}>
-                <Text style={styles.listCardMetaStrong}>Replacement Order:</Text> {pod.replacementOrderNumber}
+                <Text style={styles.listCardMetaStrong}>Replacement #:</Text> {record.replacementNumber}
               </Text>
             ) : null}
             {pod.recipientName ? (
