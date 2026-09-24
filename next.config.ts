@@ -48,9 +48,7 @@ const nextConfig: NextConfig = {
       beforeFiles: [
         {
           source: "/api/:path*",
-          // Fix: use pooled fetch connections instead of the external rewrite's
-          // Connection: close, which repeats TLS setup on every remote API call.
-          destination: "/django-api/:path*",
+          destination: `${djangoApiOrigin}/api/:path*`,
         },
         {
           source: "/uploads/:path*",
