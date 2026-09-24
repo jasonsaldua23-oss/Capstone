@@ -427,10 +427,14 @@ export function buildSkuVelocityData(items: any[]) {
       const reserved = getInventoryReservedQty(item)
       const threshold = getInventoryThreshold(item)
       const pressure = Math.max(0, threshold - available)
+      const sku = String(item?.product?.sku || 'N/A')
       return {
         id: String(item?.id || `${item?.product?.sku || 'sku'}-${index}`),
         name: formatReportProductName(item?.product, String(item?.product?.sku || 'Item')),
-        sku: String(item?.product?.sku || 'N/A'),
+        // The chart sets the name and its size on separate lines.
+        productName: String(item?.product?.name || '').trim() || sku,
+        sizeLabel: getReportProductSizeLabel(item?.product),
+        sku,
         velocity: reserved + pressure,
       }
     })

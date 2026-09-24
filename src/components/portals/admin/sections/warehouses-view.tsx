@@ -30,8 +30,9 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
-import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
+import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, ResponsiveContainer, Legend } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
+import { SkuVelocityChart } from '@/components/shared/sku-velocity-chart'
 import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import {
   toArray,
@@ -572,8 +573,8 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
     }
   )
   const velocityInterpretation = describeRanking(
-    toPoints(skuVelocityData, (row: any) => row.sku, (row: any) => row.velocity),
-    { noun: 'velocity', entityNoun: 'charted SKU', emptyMessage: 'No SKU has moved recently, so there is no velocity ranking to read.' }
+    toPoints(skuVelocityData, (row: any) => row.name, (row: any) => row.velocity),
+    { noun: 'velocity', entityNoun: 'charted product', emptyMessage: 'No SKU has moved recently, so there is no velocity ranking to read.' }
   )
   const stockHealthInterpretation = describeComposition(
     toPoints(stockHealthDistribution, (row: any) => row.name, (row: any) => row.value),
@@ -935,24 +936,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
                         No SKU velocity data available.
                       </div>
                     ) : (
-                      <ChartContainer
-                        config={{ velocity: { label: 'Velocity', color: '#2563eb' } }}
-                        className="h-[300px] w-full"
-                      >
-                        <BarChart data={skuVelocityData} margin={{ left: 4, right: 12, top: 12, bottom: 0 }}>
-                          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#f1f5f9" />
-                          <XAxis dataKey="sku" axisLine={false} tickLine={false} interval={0} angle={-25} textAnchor="end" height={60} tick={{ fill: '#64748b', fontSize: 11 }} />
-                          <YAxis axisLine={false} tickLine={false} width={34} tick={{ fill: '#64748b', fontSize: 12 }} />
-                          <Tooltip
-                            formatter={(value) => [value, 'Velocity Score']}
-                            labelFormatter={(label) => {
-                              const item = skuVelocityData.find((row) => row.sku === label)
-                              return `${label} - ${item?.name || ''}`
-                            }}
-                          />
-                          <Bar dataKey="velocity" radius={[6, 6, 0, 0]} fill="#2563eb" />
-                        </BarChart>
-                      </ChartContainer>
+                      <SkuVelocityChart rows={skuVelocityData} />
                     )}
                     <ChartInterpretation text={velocityInterpretation} />
                   </CardContent>
