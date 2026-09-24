@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, type Ref } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -30,6 +30,18 @@ type TruckMarkerEntry = {
   marker: maplibregl.Marker;
   element: HTMLDivElement;
   popupHtml: string;
+};
+
+/** Where a truck is drawn this frame. */
+export type NavigationTruckPose = { id: string; lat: number; lng: number; heading?: number | null };
+
+export type NavigationMapHandle = {
+  /**
+   * Draw the trucks here now, from inside the caller's animation frame. Going
+   * through React state instead committed each frame in a later task, so some map
+   * frames were drawn before the vehicle had moved and the next ones twice as far.
+   */
+  moveTrucks: (poses: NavigationTruckPose[]) => void;
 };
 
 type DropPinMarkerEntry = {
@@ -139,6 +151,44 @@ function applyTruckScreenHeading(element: HTMLElement, screenHeading: number) {
   });
 }
 
+function setTruckHeading(element: HTMLElement, heading: number | null | undefined, map: maplibregl.Map, position: maplibregl.LngLat) {
+  if (typeof heading !== 'number' || !Number.isFinite(heading)) {
+    delete element.dataset.routeHeading;
+    return;
+  }
+  const normalized = normalizeMapAngle(heading);
+  element.dataset.routeHeading = String(normalized);
+  rotateTruckElement(element, normalized, map, position);
+}
+
+// The camera that follows the truck: centred on it between the navigation
+// overlays, turned with it, and lowered in 3D so more of the road ahead shows.
+function followCameraOptions(
+  map: maplibregl.Map,
+  center: [number, number],
+  heading: number,
+  is3DPerspective: boolean,
+  navigationViewportInsets: NavigationViewportInsets | undefined
+) {
+  // MapLibre places the target at the center of the rectangle remaining after
+  // padding, which is the measured space between the navigation overlays.
+  const padding = navigationViewportInsets ?? { top: 0, bottom: 0, left: 0, right: 0 };
+  const usableViewportHeight = Math.max(0, map.getContainer().clientHeight - padding.top - padding.bottom);
+  const offset: [number, number] = is3DPerspective
+    ? [0, usableViewportHeight * NAVIGATION_3D_FORWARD_VIEW_RATIO]
+    : [0, 0];
+  return {
+    center,
+    bearing: is3DPerspective ? heading : 0,
+    pitch: is3DPerspective ? NAVIGATION_3D_PITCH : 0,
+    padding,
+    offset,
+  };
+}
+
+const cameraHeadingOf = (heading: number | null | undefined) =>
+  typeof heading === 'number' && Number.isFinite(heading) ? normalizeMapAngle(heading) : 0;
+
 // Every drop point gets a dotted bridge from the nearest routed road coordinate
 // to the order's exact stored coordinate, plus a dot marking that coordinate.
 function buildPinBridgeFeatures(locations: DriverLocation[], routeLines: LiveRouteLine[]) {
@@ -234,6 +284,7 @@ export default function MapLibreNavigationMap({
   showDriverSelfBadge,
   onRouteLineSelect,
   className,
+  ref,
 }: {
   locations: DriverLocation[];
   center: [number, number];
@@ -247,6 +298,7 @@ export default function MapLibreNavigationMap({
   showDriverSelfBadge: boolean;
   onRouteLineSelect?: (routeLineId: string) => void;
   className: string;
+  ref?: Ref<NavigationMapHandle>;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -256,7 +308,17 @@ export default function MapLibreNavigationMap({
   const routeLayerIdsRef = useRef<string[]>([]);
   const routeSourceIdsRef = useRef<string[]>([]);
   const pinBridgeCacheRef = useRef<{ key: string; features: GeoJSON.Feature[] }>({ key: '', features: [] });
+  // What each GeoJSON source last received. Uploading sends the data to a worker to
+  // be re-tiled and repaints the map when it returns, and the effects below re-run
+  // on every animation frame that moves the vehicle while their data changes only
+  // with a fix or a route. Re-sending it every frame queued repaints that did not
+  // move the camera, which showed as the map hitching and then jumping ahead.
+  const uploadedSourceDataRef = useRef(new Map<string, unknown>());
   const isUserExploringRef = useRef(false);
+  // The newest pose drawn through the handle. A render carrying an older one must
+  // not pull the truck or the camera back to it.
+  const livePosesRef = useRef(new Map<string, NavigationTruckPose>());
+  const followRef = useRef({ truckId: null as string | null, is3DPerspective, navigationViewportInsets });
   const previousRecenterRef = useRef(recenterSignal);
   const previousZoomInRef = useRef(zoomInSignal);
   const previousZoomOutRef = useRef(zoomOutSignal);
@@ -265,6 +327,39 @@ export default function MapLibreNavigationMap({
   const truckHeading = typeof truck?.markerHeading === 'number' && Number.isFinite(truck.markerHeading)
     ? normalizeMapAngle(truck.markerHeading)
     : 0;
+  useLayoutEffect(() => {
+    followRef.current = { truckId: truck?.id ?? null, is3DPerspective, navigationViewportInsets };
+  }, [truck?.id, is3DPerspective, navigationViewportInsets]);
+
+  useImperativeHandle(ref, () => ({
+    moveTrucks(poses) {
+      poses.forEach((pose) => livePosesRef.current.set(pose.id, pose));
+      const map = mapRef.current;
+      if (!map) return;
+      // The camera first: moving it re-places every marker, and the truck is then
+      // set at its new position within the same task, so only that is painted.
+      const follow = followRef.current;
+      const followed = follow.truckId ? livePosesRef.current.get(follow.truckId) : undefined;
+      if (followed && !isUserExploringRef.current) {
+        map.easeTo({
+          ...followCameraOptions(
+            map, [followed.lng, followed.lat], cameraHeadingOf(followed.heading),
+            follow.is3DPerspective, follow.navigationViewportInsets
+          ),
+          zoom: map.getZoom(),
+          duration: 0,
+          essential: true,
+        });
+      }
+      poses.forEach((pose) => {
+        const entry = truckMarkersRef.current.get(pose.id);
+        if (!entry) return;
+        entry.marker.setLngLat([pose.lng, pose.lat]);
+        setTruckHeading(entry.element, pose.heading, map, entry.marker.getLngLat());
+      });
+    },
+  }), []);
+
   const routeSignature = useMemo(
     () => routeLines.map((line) => `${line.id}:${line.color}:${line.points.map((point) => point.join(',')).join('|')}`).join('||'),
     [routeLines]
@@ -336,11 +431,13 @@ export default function MapLibreNavigationMap({
     const activeTruckIds = new Set<string>();
     locations.filter((location) => location.markerType === 'truck').forEach((location) => {
       activeTruckIds.add(location.id);
+      const live = livePosesRef.current.get(location.id);
+      const position: [number, number] = live ? [live.lng, live.lat] : [location.lng, location.lat];
       let entry = truckMarkersRef.current.get(location.id);
       if (!entry) {
         const element = createTruckElement(showDriverSelfBadge, is3DPerspective);
         const marker = new maplibregl.Marker({ element, anchor: 'center', pitchAlignment: 'viewport', rotationAlignment: 'viewport' })
-          .setLngLat([location.lng, location.lat])
+          .setLngLat(position)
           .setPopup(new maplibregl.Popup({ closeButton: false, offset: [0, -42] }).setHTML(popupHtml(location)))
           .addTo(map);
         entry = { marker, element, popupHtml: popupHtml(location) };
@@ -350,7 +447,7 @@ export default function MapLibreNavigationMap({
       // monotonic route progress, in ground space. Re-deriving it here from
       // projected screen pixels cost a pass over the whole route every frame and
       // was wrong under pitch, where pixel distance is not ground distance.
-      entry.marker.setLngLat([location.lng, location.lat]);
+      entry.marker.setLngLat(position);
       const nextPopupHtml = popupHtml(location);
       // Position changes arrive every animation frame; keep static popup DOM out
       // of that hot path to avoid needless layout work and marker flicker.
@@ -358,19 +455,16 @@ export default function MapLibreNavigationMap({
         entry.marker.getPopup()?.setHTML(nextPopupHtml);
         entry.popupHtml = nextPopupHtml;
       }
-      const hasRouteHeading = typeof location.markerHeading === 'number' && Number.isFinite(location.markerHeading);
-      const heading = hasRouteHeading ? normalizeMapAngle(location.markerHeading as number) : 0;
-      if (hasRouteHeading) entry.element.dataset.routeHeading = String(heading);
-      else delete entry.element.dataset.routeHeading;
       entry.element.querySelectorAll<HTMLElement>('[data-truck-image]').forEach((image) => {
         image.style.display = image.dataset.mode === (is3DPerspective ? '3d' : '2d') ? 'block' : 'none';
       });
-      if (hasRouteHeading) rotateTruckElement(entry.element, heading, map, entry.marker.getLngLat());
+      setTruckHeading(entry.element, live ? live.heading : location.markerHeading, map, entry.marker.getLngLat());
     });
     truckMarkersRef.current.forEach((entry, id) => {
       if (!activeTruckIds.has(id)) {
         entry.marker.remove();
         truckMarkersRef.current.delete(id);
+        livePosesRef.current.delete(id);
       }
     });
   }, [is3DPerspective, locations, showDriverSelfBadge]);
@@ -454,8 +548,9 @@ export default function MapLibreNavigationMap({
     const updateBridges = () => {
       if (mapRef.current !== map || !map.getStyle()) return;
       const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
-      if (source) source.setData(data);
-      else map.addSource(sourceId, { type: 'geojson', data });
+      if (!source) map.addSource(sourceId, { type: 'geojson', data });
+      else if (uploadedSourceDataRef.current.get(sourceId) !== pinBridgeKey) source.setData(data);
+      uploadedSourceDataRef.current.set(sourceId, pinBridgeKey);
 
       if (!map.getLayer(bridgeLayerId)) {
         map.addLayer({
@@ -506,6 +601,7 @@ export default function MapLibreNavigationMap({
     const fillLayerId = 'driver-accuracy-halo-fill';
     const outlineLayerId = 'driver-accuracy-halo-outline';
     const features: GeoJSON.Feature[] = [];
+    const haloKeys: string[] = [];
 
     locations.filter((location) => location.markerType === 'truck').forEach((location) => {
       const accuracyMeters = Number(location.accuracyMeters);
@@ -514,6 +610,7 @@ export default function MapLibreNavigationMap({
       // measurement that is uncertain, not the position it was matched to.
       const haloLat = Number.isFinite(Number(location.actualLat)) ? Number(location.actualLat) : location.lat;
       const haloLng = Number.isFinite(Number(location.actualLng)) ? Number(location.actualLng) : location.lng;
+      haloKeys.push(`${location.id}:${haloLat},${haloLng}:${accuracyMeters}`);
       features.push({
         type: 'Feature',
         properties: { id: String(location.id) },
@@ -521,12 +618,14 @@ export default function MapLibreNavigationMap({
       });
     });
     const data: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+    const haloKey = haloKeys.join('|');
 
     const updateHalo = () => {
       if (mapRef.current !== map || !map.getStyle()) return;
       const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
-      if (source) source.setData(data);
-      else map.addSource(sourceId, { type: 'geojson', data });
+      if (!source) map.addSource(sourceId, { type: 'geojson', data });
+      else if (uploadedSourceDataRef.current.get(sourceId) !== haloKey) source.setData(data);
+      uploadedSourceDataRef.current.set(sourceId, haloKey);
 
       if (!map.getLayer(fillLayerId)) {
         map.addLayer({
@@ -600,10 +699,13 @@ export default function MapLibreNavigationMap({
         if (existingSource) {
           // Updating source data preserves the already-painted layers, eliminating
           // the blank frame caused by removeSource/addSource on live GPS refreshes.
-          existingSource.setData(routeData);
+          // Only the lines split at the vehicle change as it moves; the rest keep
+          // their points array and are not re-sent.
+          if (uploadedSourceDataRef.current.get(sourceId) !== line.points) existingSource.setData(routeData);
         } else {
           map.addSource(sourceId, { type: 'geojson', lineMetrics: true, data: routeData });
         }
+        uploadedSourceDataRef.current.set(sourceId, line.points);
 
         if (!map.getLayer(shadowLayerId)) {
           map.addLayer({
@@ -677,6 +779,7 @@ export default function MapLibreNavigationMap({
       const activeSourceSet = new Set(activeSourceIds);
       routeSourceIdsRef.current.slice().reverse().forEach((id) => {
         if (!activeSourceSet.has(id) && map.getSource(id)) map.removeSource(id);
+        if (!activeSourceSet.has(id)) uploadedSourceDataRef.current.delete(id);
       });
       routeLayerIdsRef.current = activeLayerIds;
       routeSourceIdsRef.current = activeSourceIds;
@@ -742,37 +845,24 @@ export default function MapLibreNavigationMap({
     // it with the same smoothed heading. Deriving the bearing from route
     // vertices instead made the view snap round a curve in discrete steps, one
     // jump per vertex, rather than easing through it.
-    const targetCenter = truck
-      ? [truck.lng, truck.lat] as [number, number]
-      : [center[1], center[0]] as [number, number];
-    const cameraHeading = truckHeading;
-    // MapLibre places the target at the center of the rectangle remaining after
-    // padding, which is the measured space between the navigation overlays.
-    const cameraPadding = navigationViewportInsets ?? { top: 0, bottom: 0, left: 0, right: 0 };
-    const usableViewportHeight = Math.max(
-      0,
-      map.getContainer().clientHeight - cameraPadding.top - cameraPadding.bottom
-    );
-    // Added: lower the truck in 3D mode so the driver sees more of the route ahead.
-    const cameraOffset: [number, number] = is3DPerspective
-      ? [0, usableViewportHeight * NAVIGATION_3D_FORWARD_VIEW_RATIO]
-      : [0, 0];
-    const cameraOptions = {
-      center: targetCenter,
-      bearing: is3DPerspective ? cameraHeading : 0,
-      pitch: is3DPerspective ? NAVIGATION_3D_PITCH : 0,
+    const live = truck ? livePosesRef.current.get(truck.id) : undefined;
+    const targetCenter = live
+      ? [live.lng, live.lat] as [number, number]
+      : truck
+        ? [truck.lng, truck.lat] as [number, number]
+        : [center[1], center[0]] as [number, number];
+    const cameraHeading = live ? cameraHeadingOf(live.heading) : truckHeading;
+    map.easeTo({
+      ...followCameraOptions(map, targetCenter, cameraHeading, is3DPerspective, navigationViewportInsets),
       zoom: recenterChanged || perspectiveChanged
         ? (is3DPerspective ? NAVIGATION_3D_ZOOM : NAVIGATION_2D_ZOOM)
         : map.getZoom(),
-      padding: cameraPadding,
-      offset: cameraOffset,
       // GPS positions and bearings are already interpolated at animation-frame
       // cadence. Applying another 350ms transition on every frame creates lag.
       duration: perspectiveChanged || recenterChanged ? 700 : 0,
-      easing: (value) => 1 - Math.pow(1 - value, 3),
+      easing: (value: number) => 1 - Math.pow(1 - value, 3),
       essential: true,
-    };
-    map.easeTo(cameraOptions);
+    });
   }, [center, is3DPerspective, navigationViewportInsets, recenterSignal, truck?.lat, truck?.lng, truckHeading]);
 
   return (

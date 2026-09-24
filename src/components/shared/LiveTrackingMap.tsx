@@ -4,11 +4,9 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import MapLibreNavigationMap from './MapLibreNavigationMap';
+import MapLibreNavigationMap, { type NavigationMapHandle, type NavigationTruckPose } from './MapLibreNavigationMap';
 import {
-  pointAtRouteDistance,
   projectPointOntoRoute,
-  resolveDriverRouteProgress,
   quantizeRouteSplitMeters,
   splitRouteAtDistance,
   type NavigationViewportInsets,
@@ -41,7 +39,6 @@ import { DefaultIcon, getStatusPinIcon, getTruckIcon } from './live-tracking/ico
 import {
   TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS,
   TRUCK_MAX_ROUTE_SNAP_METERS,
-  TRUCK_PARKED_SPEED_MPS,
   TRUCK_ROUTE_LOOKAHEAD_METERS,
   TRUCK_SNAP_AFTER_SILENCE_MS,
 } from './live-tracking/tuning'
@@ -158,7 +155,7 @@ export default function LiveTrackingMap({
   // Motion model per truck. It outlives fixes and effects so the icon's velocity
   // and heading stay continuous from one fix to the next.
   const truckMotionRef = useRef<Map<string, TruckMotion>>(new Map());
-  const acceptedRouteProgressRef = useRef<{ routeKey: string; distanceMeters: number } | null>(null);
+  const navigationMapRef = useRef<NavigationMapHandle | null>(null);
 
   useEffect(() => {
     if (!restrictToNegrosOccidental) {
@@ -520,33 +517,20 @@ export default function LiveTrackingMap({
       );
       if (!projected) return location;
 
-      // Off-route: the monotonic progress clamp below would pin the icon to the
-      // furthest point it reached on the old route, which is exactly the freeze
-      // that happened when the driver took another road. Drop the clamp and let
-      // the icon track the live position; the replacement route re-anchors
-      // progress from scratch once it loads.
-      if (projected.distanceFromRouteMeters > TRUCK_MAX_ROUTE_SNAP_METERS) {
-        acceptedRouteProgressRef.current = null;
-        return location;
-      }
+      // Off-route: the icon tracks the live position until the replacement route loads.
+      if (projected.distanceFromRouteMeters > TRUCK_MAX_ROUTE_SNAP_METERS) return location;
 
-      const previousProgress = acceptedRouteProgressRef.current;
-      const reportedSpeedMps = Number(location.speedMps);
-      const isReportedStationary =
-        Number.isFinite(reportedSpeedMps) && reportedSpeedMps <= TRUCK_PARKED_SPEED_MPS;
-      let acceptedDistance = projected.distanceAlongMeters;
-      if (previousProgress?.routeKey === navigationRouteKey) {
-        // Fix: hold small GPS jitter, but release the clamp for real backtracking.
-        acceptedDistance = resolveDriverRouteProgress(
-          projected.distanceAlongMeters, previousProgress.distanceMeters, isReportedStationary
-        );
-      }
-      // Fix: a replacement route always starts progress from GPS, not the old route's prediction.
-      acceptedRouteProgressRef.current = { routeKey: navigationRouteKey, distanceMeters: acceptedDistance };
-      const roadPoint = pointAtRouteDistance(navigationRouteGeometry, acceptedDistance);
-      return roadPoint
-        ? { ...location, lat: roadPoint[0], lng: roadPoint[1], routeProgressMeters: acceptedDistance }
-        : { ...location, routeProgressMeters: acceptedDistance };
+      // Each fix goes to the motion model where it actually lies on the road. The
+      // model holds a parked icon and never backs a moving one up for GPS noise.
+      // A progress clamp here used to keep the furthest point reached instead: it
+      // latched onto any fix that landed ahead, held that while the vehicle stood,
+      // and the icon drove to where the van had never been, then reversed.
+      return {
+        ...location,
+        lat: projected.point[0],
+        lng: projected.point[1],
+        routeProgressMeters: projected.distanceAlongMeters,
+      };
     });
 
     // One effect owns one animation loop; React state updaters must not schedule side effects.
@@ -582,14 +566,21 @@ export default function LiveTrackingMap({
     // Re-render only when a truck has actually moved or turned; the loop also
     // runs frames in which nothing changes by a visible amount.
     let lastPublishedKey = '';
+    let lastRenderedKey = '';
     const publish = () => {
       const poses: string[] = [];
+      const renderKeys: string[] = [];
+      const truckPoses: NavigationTruckPose[] = [];
       const nextLocations = stabilizedTargets.map((target) => {
         if (target.markerType !== 'truck') return target;
         const motion = motionById.get(target.id);
         if (!motion) return target;
         const pose = truckMotionPose(motion, navigationRouteGeometry);
         poses.push(`${target.id}:${pose.point[0].toFixed(7)},${pose.point[1].toFixed(7)},${pose.heading?.toFixed(2) ?? ''}`);
+        renderKeys.push(`${target.id}:${typeof pose.routeProgressMeters === 'number'
+          ? quantizeRouteSplitMeters(pose.routeProgressMeters)
+          : `${pose.point[0].toFixed(5)},${pose.point[1].toFixed(5)}`}`);
+        truckPoses.push({ id: target.id, lat: pose.point[0], lng: pose.point[1], heading: pose.heading ?? target.markerHeading });
         return {
           ...target,
           lat: pose.point[0],
@@ -601,6 +592,17 @@ export default function LiveTrackingMap({
       const key = poses.join('|');
       if (key === lastPublishedKey) return;
       lastPublishedKey = key;
+      if (navigationPerspective) {
+        // The navigation map draws the truck and moves its camera right here, in
+        // this animation frame. A React render every frame committed later, in a
+        // task of its own, so the map drew some frames before the truck had moved
+        // and the next ones twice as far: the stutter. React now redraws only
+        // what follows the truck coarsely, the grey/blue split every 2 m.
+        navigationMapRef.current?.moveTrucks(truckPoses);
+        const renderKey = renderKeys.join('|');
+        if (renderKey === lastRenderedKey) return;
+        lastRenderedKey = renderKey;
+      }
       // Keep reroute continuity synchronized with the exact interpolated
       // frame that also drives the grey/active route split.
       smoothedLocationsRef.current = nextLocations;
@@ -739,6 +741,7 @@ export default function LiveTrackingMap({
   if (navigationPerspective) {
     return (
       <MapLibreNavigationMap
+        ref={navigationMapRef}
         locations={smoothedLocations}
         center={resolvedCenter}
         zoom={zoom}

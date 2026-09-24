@@ -1,7 +1,7 @@
 import { toast } from 'sonner'
 import type { InventoryMovementSummary } from '@/lib/report-metrics'
 import { formatPeso } from '../shared'
-import { exportReportPdf, type ExportColumn } from './export-utils'
+import { exportReportPdf, reportColumns } from './export-utils'
 
 export const formatPesoCompact = (value: number) => formatPeso(value).replace(/\.00\b/, '')
 
@@ -34,21 +34,6 @@ export type ReportPdfContext = {
   stockExpiryRows: any[]
   transportDriverRows: any[]
   warehouses: any[]
-}
-
-const omittedKeys = /^(id|createdAt|updatedAt|created_at|updated_at)$/i
-
-function reportColumns(rows: Array<Record<string, unknown>>): ExportColumn<Record<string, unknown>>[] {
-  return Object.keys(rows[0])
-    .filter((key) => !omittedKeys.test(key))
-    .map((key) => ({
-      key,
-      header: key
-        .replace(/([A-Z])/g, ' $1')
-        .replace(/_/g, ' ')
-        .replace(/^./, (character) => character.toUpperCase())
-        .trim(),
-    }))
 }
 
 /**

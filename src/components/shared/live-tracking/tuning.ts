@@ -17,8 +17,3 @@ export const TRUCK_MAX_ROUTE_SNAP_METERS = 45;
 export const TRUCK_ROUTE_LOOKAHEAD_METERS = 20;
 
 export const TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS = 8;
-
-// Stationary clamp: with speed at or below this, route progress is frozen so
-// jitter cannot ratchet a parked vehicle forward through the monotonic clamp.
-// The motion model this feeds lives in `./vehicle-motion`.
-export const TRUCK_PARKED_SPEED_MPS = 0.6;

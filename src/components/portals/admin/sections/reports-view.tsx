@@ -36,7 +36,7 @@ import {
   TopClientsReport,
 } from './reports'
 import { getCollection, fetchAllPaginatedCollection, safeFetchJson } from './shared'
-import { exportToCsv } from './reports/export-utils'
+import { exportToCsv, reportColumns } from './reports/export-utils'
 import { downloadReportPdf, type ReportPdfOptions } from './reports/report-pdf'
 import { type ReportToolbarConfig } from './reports/chart-styles'
 import { buildReportStamp, type ReportDatePreset } from './report-date-utils'
@@ -296,12 +296,8 @@ export function ReportsView() {
       return
     }
 
-    const columns = Object.keys(report.rows[0]).map((key) => ({
-      header: key
-        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-        .replace(/^./, (character) => character.toUpperCase()),
-      key,
-    }))
+    // Fix: use the PDF column definitions so analytics exports cannot omit or rename fields.
+    const columns = reportColumns(report.rows)
     exportToCsv(`${report.filename}-${buildReportStamp()}.csv`, columns, report.rows)
   }
 

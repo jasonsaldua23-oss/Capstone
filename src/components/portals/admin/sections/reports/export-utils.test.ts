@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PDFDocument, PDFPage } from 'pdf-lib'
 // @ts-ignore Node's test runner loads this TypeScript source directly.
-import { calculateReportColumnWidths, cleanReportPdfColumns, exportReportPdf, exportToCsv, printReportTable } from './export-utils.ts'
+import { calculateReportColumnWidths, cleanReportPdfColumns, exportReportPdf, exportToCsv, printReportTable, reportColumns } from './export-utils.ts'
 
 test('weighted report columns reserve extra width for dense content', () => {
   assert.deepEqual(
@@ -11,11 +11,11 @@ test('weighted report columns reserve extra width for dense content', () => {
   )
 })
 
-test('PDF column cleanup removes redundant purchase document fields', () => {
+test('PDF retains the same purchase document fields as CSV', () => {
   const columns = ['PO Number', 'PR Ref', 'Order Ref', 'Client', 'PO Stage', 'Created Date'].map((header) => ({ header }))
   assert.deepEqual(
     cleanReportPdfColumns('Purchase Orders Report', columns).map((column) => column.header),
-    ['PO Number', 'PR Ref', 'Client', 'PO Stage'],
+    columns.map((column) => column.header),
   )
 })
 
@@ -87,7 +87,7 @@ test('print includes records after 500 and escapes literal HTML', () => {
   }
 })
 
-test('purchase-order print uses the same cleaned weighted columns as PDF', () => {
+test('purchase-order print retains the same weighted columns as PDF and CSV', () => {
   const originalWindow = globalThis.window
   const originalTimeout = globalThis.setTimeout
   let html = ''
@@ -103,7 +103,7 @@ test('purchase-order print uses the same cleaned weighted columns as PDF', () =>
       { header: 'Products', key: 'products', widthWeight: 3 },
     ], [{ poNumber: 'PO-1', orderNumber: 'ORD-1', products: 'Cola 350ml x2' }], ['Total POs: 1'])
     assert.ok(html.includes('<th>Products</th>'))
-    assert.ok(!html.includes('<th>Order Ref</th>'))
+    assert.ok(html.includes('<th>Order Ref</th>'))
     assert.ok(html.includes('<th>#</th>'))
     assert.ok(html.includes('class="kpi-strip"'))
   } finally {
@@ -138,7 +138,7 @@ test('CSV export includes headers, escaped values and every row', async () => {
     // Fix: Blob.text() removes the BOM, so validate its UTF-8 bytes before decoding the CSV.
     assert.deepEqual([...csvBytes.slice(0, 3)], [0xef, 0xbb, 0xbf])
     const csv = new TextDecoder().decode(csvBytes)
-    assert.ok(csv.startsWith('"Name"'))
+    assert.ok(csv.startsWith('"#","Name"'))
     assert.ok(csv.includes('"First ""quoted""\nvalue"'))
     assert.ok(csv.includes('"Second value"'))
   } finally {
@@ -158,5 +158,45 @@ test('empty CSV export does not create a download', () => {
     assert.equal(created, false)
   } finally {
     URL.createObjectURL = originalCreateUrl
+  }
+})
+
+// Regression: compare real CSV cells with the PDF renderer's unwrapped table text.
+test('CSV and PDF export identical headers, numbering and cell values', async () => {
+  const originalDocument = globalThis.document
+  const originalCreateUrl = URL.createObjectURL
+  const originalRevokeUrl = URL.revokeObjectURL
+  const originalDrawText = PDFPage.prototype.drawText
+  let download: Blob | undefined
+  const drawn: string[] = []
+  try {
+    globalThis.document = {
+      createElement: () => ({ click() {}, setAttribute() {} }),
+      body: { appendChild() {}, removeChild() {} },
+    } as unknown as Document
+    URL.createObjectURL = (blob) => { download = blob as Blob; return 'blob:parity' }
+    URL.revokeObjectURL = () => {}
+    PDFPage.prototype.drawText = function (text, options) {
+      drawn.push(text)
+      return originalDrawText.call(this, text, options)
+    }
+    const rows = [{ id: 'ID-1', orderRef: 'ORD-1', created_at: '2026-09-24', total: 0, note: ' A\r\nB ' }]
+    const columns = reportColumns(rows)
+    assert.deepEqual(columns.map((column) => column.header), ['Id', 'Order Ref', 'Created at', 'Total', 'Note'])
+    exportToCsv('parity', columns, rows)
+    assert.equal(await download!.text(), '"#","Id","Order Ref","Created at","Total","Note"\r\n"1","ID-1","ORD-1","2026-09-24","0"," A\nB "')
+    download = undefined
+    await exportReportPdf('parity', 'Purchase Orders Report', columns, rows)
+    assert.ok(download, 'PDF must download successfully')
+    const tableStart = drawn.indexOf('#')
+    assert.deepEqual(drawn.slice(tableStart, -1), [
+      '#', 'Id', 'Order Ref', 'Created at', 'Total', 'Note',
+      '1', 'ID-1', 'ORD-1', '2026-09-24', '0', ' A', 'B ',
+    ])
+  } finally {
+    globalThis.document = originalDocument
+    URL.createObjectURL = originalCreateUrl
+    URL.revokeObjectURL = originalRevokeUrl
+    PDFPage.prototype.drawText = originalDrawText
   }
 })

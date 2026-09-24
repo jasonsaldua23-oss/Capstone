@@ -16,6 +16,7 @@ import {
   acceptFix,
   createMotionState,
   isMotionSettled,
+  movingBearing,
   rebaseMotion,
   resetMotion,
   shortestHeadingDelta,
@@ -76,11 +77,6 @@ function fromLocalMeters(origin: [number, number], east: number, north: number):
   return [origin[0] + north / 110540, origin[1] + east / (111320 * cosLat)]
 }
 
-function finiteHeading(value: unknown): number | null {
-  const heading = Number(value)
-  return Number.isFinite(heading) && heading >= 0 ? heading : null
-}
-
 /** Where the icon is drawn right now. */
 export function truckMotionPose(motion: TruckMotion, route: [number, number][]): {
   point: [number, number]
@@ -116,7 +112,7 @@ function routeDesiredHeading(route: [number, number][], progressMeters: number, 
 /** Snap straight to the fix: first sighting, or the tab was hidden and the journey since is stale. */
 export function snapTruckMotion(previous: TruckMotion | undefined, target: DriverLocation, ctx: TruckMotionContext): TruckMotion {
   const fixPoint: [number, number] = [target.lat, target.lng]
-  const fixHeading = finiteHeading(target.markerHeading)
+  const fixHeading = movingBearing(target.markerHeading, target.speedMps)
   const onRoute = ctx.route.length >= 2 && typeof target.routeProgressMeters === 'number'
   const speed = { reportedSpeedMps: target.speedMps ?? null, atMs: ctx.nowMs }
   const heading = fixHeading ?? previous?.heading ?? null
@@ -148,7 +144,7 @@ export function acceptTruckFix(previous: TruckMotion | undefined, target: Driver
   if (signature === previous.fixSignature && !routeReplaced) return previous
 
   const fixPoint: [number, number] = [target.lat, target.lng]
-  const fixHeading = finiteHeading(target.markerHeading)
+  const fixHeading = movingBearing(target.markerHeading, target.speedMps)
   const options: MotionOptions = { predict: ctx.predict }
   const reportedSpeedMps = target.speedMps ?? null
   const pose = truckMotionPose(previous, ctx.route)

@@ -20,16 +20,24 @@ export function calculateReportColumnWidths<T>(columns: ExportColumn<T>[], avail
   return weights.map((weight) => (availableWidth * weight) / totalWeight)
 }
 
-// PDF exports show business-facing fields only. Internal creation timestamps and
-// a second identifier that repeats the primary document number add visual noise.
-export function cleanReportPdfColumns<T>(title: string, columns: ExportColumn<T>[]) {
-  return columns.filter((column) => {
-    const header = String(column.header || '').trim()
-    if (/^Created (Date|At)$/i.test(header)) return false
-    if (/Purchase Orders/i.test(title) && /^(Order|PO) Ref$/i.test(header)) return false
-    if (/Purchase Requests/i.test(title) && /^Order Ref$/i.test(header)) return false
-    return true
-  })
+// Fix: retain every CSV field in PDF/print, including references and creation dates.
+export function cleanReportPdfColumns<T>(_title: string, columns: ExportColumn<T>[]) {
+  return columns
+}
+
+// Fix: analytics CSV and PDF must derive identical headers and field order.
+export function reportColumns(rows: Array<Record<string, unknown>>): ExportColumn<Record<string, unknown>>[] {
+  return Object.keys(rows[0] || {}).map((key) => ({
+    key,
+    header: key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ')
+      .replace(/^./, (character) => character.toUpperCase()).trim(),
+  }))
+}
+
+// Fix: resolve and normalize cells once for every export format.
+function reportCellValue<T>(column: ExportColumn<T>, row: T): string {
+  const value = column.accessor ? column.accessor(row) : column.key ? (row as any)[column.key] : ''
+  return String(value ?? '').replace(/\r\n?/g, '\n')
 }
 
 function summaryToKpis(summaryLines: string[]) {
@@ -59,21 +67,15 @@ export function exportToCsv<T>(
     return
   }
 
-  const headerLine = columns.map((col) => `"${col.header.replace(/"/g, '""')}"`).join(',')
-  const dataLines = rows.map((row) => {
-    return columns
+  // Fix: include the same row numbers shown in PDF and print tables.
+  const headerLine = ['#', ...columns.map((col) => col.header)].map((header) => `"${header.replace(/"/g, '""')}"`).join(',')
+  const dataLines = rows.map((row, rowIndex) => {
+    return [`"${rowIndex + 1}"`, ...columns
       .map((col) => {
-        let val: any = ''
-        if (col.accessor) {
-          val = col.accessor(row)
-        } else if (col.key) {
-          val = (row as any)[col.key]
-        }
-        if (val === null || val === undefined) val = ''
         // Quoted CSV cells safely preserve the product/component line structure.
-        val = String(val).replace(/\r\n?/g, '\n').replace(/"/g, '""')
+        const val = reportCellValue(col, row).replace(/"/g, '""')
         return `"${val}"`
-      })
+      })]
       .join(',')
   })
 
@@ -124,13 +126,7 @@ export function printReportTable<T>(
   const tableRows = rows
     .map((row, rowIndex) => {
       const cells = activeColumns.map((col) => {
-        let val: any = ''
-        if (col.accessor) {
-          val = col.accessor(row)
-        } else if (col.key) {
-          val = (row as any)[col.key]
-        }
-        return `<td>${escapeHtml(val)}</td>`
+        return `<td>${escapeHtml(reportCellValue(col, row))}</td>`
       })
       return `<tr><td>${rowIndex + 1}</td>${cells.join('')}</tr>`
     })
@@ -272,7 +268,7 @@ export async function exportReportPdf<T>(
 
     // Measure real glyph widths, honor explicit product lines, and wrap within cells.
     const wrap = (value: unknown, width: number, size: number, textFont = font) => {
-      const source = String(value ?? '').replace(/\r\n?/g, '\n').trim()
+      const source = String(value ?? '').replace(/\r\n?/g, '\n')
       if (!source) return ['']
       const lines: string[] = []
       for (const sourceLine of source.split('\n')) {
@@ -362,10 +358,7 @@ export async function exportReportPdf<T>(
       const row = rows[rowIndex]
       const cellLines = numberedCols.map((column, index) => {
         if (index === 0) return [String(rowIndex + 1)]
-        let value: any = ''
-        if (column.accessor) value = column.accessor(row)
-        else if (column.key) value = (row as any)[column.key]
-        return wrap(value, columnWidth(index) - 10, 8.5)
+        return wrap(reportCellValue(column, row), columnWidth(index) - 10, 8.5)
       })
       const lineCount = Math.max(1, ...cellLines.map((lines) => lines.length))
       let lineOffset = 0

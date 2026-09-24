@@ -59,6 +59,12 @@ export const MOTION_SPEED_FILTER_TIME_S = 0.4
 export const MOTION_MEASURED_SPEED_FILTER_TIME_S = 1.2
 /** Below this the vehicle is treated as parked: no prediction, heading held. */
 export const MOTION_STATIONARY_SPEED_MPS = 0.3
+/** A standing phone's Doppler speed wanders up to about half a metre per second, so a
+ * reading below this is a standstill rather than a crawl... */
+export const MOTION_STOPPED_READING_MPS = 0.6
+/** ...and once it has said so, it must read at least this before the vehicle is moving
+ * again. Without the gap, every stray reading at the kerb set the icon off down the road. */
+export const MOTION_PULL_AWAY_READING_MPS = 1
 /** A correction smaller than this never drives the icon backwards; larger ones may. */
 export const MOTION_REVERSE_ERROR_METERS = 25
 /** Share of the speed estimate taken from the phone's reported (Doppler) speed. */
@@ -102,6 +108,8 @@ export type VehicleMotionState = {
    * no reading at all (a network fix, a weak sky) leaves this standing rather than
    * refuting it, so alternating readings cannot keep a parked vehicle unrecognised. */
   reportedStill: boolean
+  /** The last fix fell outside the hold radius of a standstill the phone was reporting. */
+  lastFixStrayed: boolean
   /** Smoothed gap between fixes. Without prediction it is how long the icon has to cover one. */
   fixIntervalMs: number
   /** Drawn position minus predicted position; worked off toward zero. */
@@ -129,7 +137,8 @@ export function createMotionState(fix: VehicleFix): VehicleMotionState {
     speedMps: reported ?? 0,
     accelMps2: 0,
     reportedSpeedMps: reported,
-    reportedStill: reported !== null && reported < MOTION_STATIONARY_SPEED_MPS,
+    reportedStill: reported !== null && reported < MOTION_STOPPED_READING_MPS,
+    lastFixStrayed: false,
     fixIntervalMs: MOTION_MIN_FIX_INTERVAL_MS * 2,
     offsetMeters: 0,
     offsetVelocityMps: 0,
@@ -252,28 +261,36 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
   // stays inside the radius, while a vehicle that has really pulled away walks out
   // of it within a fix or two. A single bad reading therefore cannot freeze a
   // moving vehicle, and a phone that keeps insisting on a standstill it is not at
-  // is released as soon as its own positions say otherwise.
+  // is released as soon as its own positions say otherwise - twice running, since
+  // a street canyon's wander reaches past the radius now and then, and reversing
+  // a parked icon down the road to meet one such fix is exactly what the hold is for.
   //
   // Where the phone has never said anything about its speed, staying inside the
   // deadband is all there is to go on. Such a fix contributes no speed, and the
   // icon is held where it is drawn rather than fidgeting after the noise.
   const wasParked = state.speedMps < MOTION_STATIONARY_SPEED_MPS
   const insideDeadband = Math.abs(jumpMeters) < MOTION_PARKED_DEADBAND_METERS
-  const readingStill = reported !== null && reported < MOTION_STATIONARY_SPEED_MPS
+  const readingStill = reported !== null &&
+    reported < (state.reportedStill ? MOTION_PULL_AWAY_READING_MPS : MOTION_STOPPED_READING_MPS)
   // A fix carrying no speed at all is no news about speed - a network fix, a weak
   // sky - so the phone's last word on it stands rather than being read as movement.
   const phoneSaysStill = reported === null ? state.reportedStill : readingStill
+  const believedStill = phoneSaysStill && (state.reportedStill || wasParked)
+  const outsideHold = Math.abs(movedMeters) >= MOTION_PARKED_HOLD_METERS
+  const stray = believedStill && outsideHold && !state.lastFixStrayed
   const stationary = phoneSaysStill
-    ? (state.reportedStill || wasParked) && Math.abs(movedMeters) < MOTION_PARKED_HOLD_METERS
+    ? believedStill && (!outsideHold || stray)
     : reported === null && wasParked && insideDeadband
   // A standstill the positions agree with contributes no speed at all: the distance
   // beside it is the wandering, and letting even a fifteenth of it through keeps the
   // estimate off zero fix after fix.
   const measured = stationary ? 0 : measuredRaw
-  // A standstill they flatly contradict is not a speed reading at all. Left in the
-  // blend it would carry most of the weight and pace the icon at a fraction of a
-  // vehicle that is plainly covering ground, dropping it further behind at every fix.
-  const trusted = phoneSaysStill && Math.abs(movedMeters) >= MOTION_PARKED_HOLD_METERS ? null : reported
+  // Nor does the reading beside it: a standstill read as half a metre per second
+  // would still pace the prediction forward from under a held icon. And a
+  // standstill the positions flatly contradict is not a speed reading at all. Left
+  // in the blend it would carry most of the weight and pace the icon at a fraction
+  // of a vehicle that is plainly covering ground, dropping it further behind at every fix.
+  const trusted = stationary ? 0 : phoneSaysStill && outsideHold ? null : reported
   const raw = trusted !== null && measured !== null
     ? trusted * MOTION_REPORTED_SPEED_WEIGHT + measured * (1 - MOTION_REPORTED_SPEED_WEIGHT)
     : trusted ?? measured ?? state.speedMps
@@ -293,7 +310,7 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
   // is the drifting-while-parked that the deadband exists to prevent.
   const stoppingMeters = (state.offsetVelocityMps * state.offsetVelocityMps) / (2 * state.correctionAccelMps2)
   const held = stationary && stoppingMeters < 0.5 &&
-    Math.abs(jumpMeters) < (phoneSaysStill ? MOTION_PARKED_HOLD_METERS : MOTION_PARKED_DEADBAND_METERS)
+    (stray || Math.abs(jumpMeters) < (phoneSaysStill ? MOTION_PARKED_HOLD_METERS : MOTION_PARKED_DEADBAND_METERS))
   const progressMeters = held ? state.displayedMeters : fix.progressMeters
 
   // How long the icon has to cover one fix's worth of ground, learned rather than
@@ -308,6 +325,7 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
     accelMps2,
     reportedSpeedMps: reported,
     reportedStill: phoneSaysStill,
+    lastFixStrayed: phoneSaysStill && outsideHold,
     fixIntervalMs: state.fixIntervalMs + (gapMs - state.fixIntervalMs) * 0.5,
   }
   // Re-anchor without a visible jump. The drawn position is as of the last frame,
@@ -410,12 +428,17 @@ export function stepMotion(state: VehicleMotionState, nowMs: number, options: Mo
   // prediction's own speed keeps the icon rolling forward, just slower. The bound
   // is approached within the acceleration budget like everything else, so a
   // vehicle pulling away under a backing-up icon turns it around smoothly. Real
-  // backtracking shows up as a large error and is allowed through, and a parked
-  // icon may glide either way.
+  // backtracking shows up as a large error and is allowed through. A vehicle that
+  // has stopped does not back up either: a fix landing short of where the icon
+  // came to rest is the same GPS noise, and sliding back to it read as the van
+  // reversing at every red light. The icon brakes to rest instead. Prediction only
+  // ever runs along a road, so only there is a decrease the vehicle backing up;
+  // on the plane's east and north axes it is just the direction of travel.
   const moving = targetSpeed >= MOTION_STATIONARY_SPEED_MPS
   const reversing = state.reversing && offsetMeters > 0
-  if (moving && !reversing) {
-    const slowestVelocity = -(1 - MOTION_MIN_SPEED_FRACTION) * targetSpeed
+  const forwardOnly = options.predict && !reversing
+  if (forwardOnly) {
+    const slowestVelocity = moving ? -(1 - MOTION_MIN_SPEED_FRACTION) * targetSpeed : -targetSpeed
     const floor = Math.min(slowestVelocity, state.offsetVelocityMps + state.correctionAccelMps2 * dtS)
     if (offsetVelocityMps < floor) {
       offsetVelocityMps = floor
@@ -423,10 +446,16 @@ export function stepMotion(state: VehicleMotionState, nowMs: number, options: Mo
     }
   }
   // Once the correction is down to centimetres it is finished: fold what is left
-  // into the anchor so the drawn position does not move, and stop the loop.
+  // into the anchor so the drawn position does not move, and stop the loop. So
+  // too once a stopped icon has braked to rest short of a correction backwards:
+  // the vehicle is taken to be where it is drawn. Not before the prediction itself
+  // has stopped, though, or the icon would pick its last few centimetres a second
+  // back up in one frame.
   let correctionAccelMps2 = state.correctionAccelMps2
   let fixProgressMeters = state.fixProgressMeters
-  if (Math.abs(offsetMeters) < SETTLE_EPSILON && Math.abs(offsetVelocityMps) < SETTLE_EPSILON) {
+  const restingAhead = forwardOnly && targetSpeed < SETTLE_EPSILON && offsetMeters > 0 &&
+    offsetVelocityMps + targetSpeed < SETTLE_EPSILON
+  if (restingAhead || (Math.abs(offsetMeters) < SETTLE_EPSILON && Math.abs(offsetVelocityMps) < SETTLE_EPSILON)) {
     fixProgressMeters += offsetMeters
     offsetMeters = 0
     offsetVelocityMps = 0
@@ -502,6 +531,19 @@ export function normalizeHeading(value: number): number {
 
 export function shortestHeadingDelta(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180
+}
+
+/**
+ * The phone's bearing, when it is moving fast enough by its own account for one to
+ * mean anything. At rest many phones repeat their last bearing or report any at
+ * all, and deciding from that which way the van faced along the road turned a
+ * parked van round to face back down it.
+ */
+export function movingBearing(heading: number | null | undefined, speedMps: number | null | undefined): number | null {
+  const speed = finiteSpeed(speedMps)
+  if (speed === null || speed < MOTION_PULL_AWAY_READING_MPS) return null
+  if (heading === null || heading === undefined || !Number.isFinite(heading) || heading < 0) return null
+  return normalizeHeading(heading)
 }
 
 /**

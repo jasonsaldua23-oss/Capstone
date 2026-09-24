@@ -37,12 +37,6 @@ export function selectFollowedRoute(point: [number, number], routes: [number, nu
     ? best.index : activeIndex;
 }
 
-// Fix: suppress small GPS jitter without locking a moving vehicle to its furthest historical position.
-export function resolveDriverRouteProgress(projected: number, previous: number | undefined, stationary: boolean) {
-  if (previous === undefined || Math.abs(projected - previous) > 25) return projected;
-  return stationary ? previous : Math.max(previous, projected);
-}
-
 export function bearingBetweenMapPoints(from: [number, number], to: [number, number]) {
   const refLat = (from[0] + to[0]) / 2;
   const dx = (to[1] - from[1]) * Math.cos((refLat * Math.PI) / 180);

@@ -8,6 +8,7 @@ import { isNativeApp, openAppSettings } from '@/lib/native/platform'
 import { ensureCameraPermission, ensureLocationPermission } from '@/lib/native/permissions'
 import { hasNativeDriverTracking, startNativeDriverTracking } from '@/lib/native/driver-tracking'
 import { createLatestLocationUploader, LocationUploadRejected } from '@/lib/driver-location-upload'
+import { isCoarseFixAmidGps } from '@/lib/driver-gps-quality'
 import { toast } from 'sonner'
 
 // Driver trip payload shape returned by `/api/driver/trips`.
@@ -602,6 +603,9 @@ export function useDriverPortalState() {
       ? DRIVER_GPS_DEGRADED_ACCURACY_METERS
       : DRIVER_GPS_MAX_USABLE_ACCURACY_METERS
     if (!previous) return nextAccuracy <= accuracyCeiling
+    // A Wi-Fi or cell position between GPS fixes lands tens of metres off and
+    // walked the vehicle icon up and down the road while it stood still.
+    if (isCoarseFixAmidGps(next, previous)) return false
 
     const previousAccuracy = Number(previous.accuracy ?? Number.POSITIVE_INFINITY)
     if (nextAccuracy > accuracyCeiling) return false

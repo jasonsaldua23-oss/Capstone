@@ -8,7 +8,6 @@ import {
   projectPointOntoRoute,
   shouldRefreshDriverRoute,
   selectFollowedRoute,
-  resolveDriverRouteProgress,
   quantizeRouteSplitMeters,
   resolveNavigationHeading,
   routePoseAtDistance,
@@ -48,14 +47,6 @@ test('a moving U-turn reroutes even while GPS remains on the same road', () => {
   const sample = { point: [10.005, 123] as [number, number], route: [[10, 123], [10.01, 123]] as [number, number][], inFlight: false, elapsedMs: 6000, heading: 180 };
   assert.equal(shouldRefreshDriverRoute({ ...sample, speed: 10 }), true);
   assert.equal(shouldRefreshDriverRoute({ ...sample, speed: 0 }), false);
-});
-
-test('backtracking and real movement release the truck while small GPS jitter stays suppressed', () => {
-  assert.equal(resolveDriverRouteProgress(960, 1000, false), 960);
-  assert.equal(resolveDriverRouteProgress(995, 1000, false), 1000);
-  assert.equal(resolveDriverRouteProgress(1040, 1000, true), 1040);
-  assert.equal(resolveDriverRouteProgress(1005, 1000, true), 1000);
-  assert.equal(resolveDriverRouteProgress(5, undefined, false), 5);
 });
 
 test('route bearings follow the four cardinal directions', () => {

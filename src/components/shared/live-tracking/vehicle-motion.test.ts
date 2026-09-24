@@ -9,6 +9,7 @@ import {
   extrapolatedMeters,
   extrapolatedSpeedMps,
   isMotionSettled,
+  movingBearing,
   stepHeading,
   stepMotion,
   type VehicleFix,
@@ -178,6 +179,58 @@ test('parked with GPS jitter: holds still, no creep', () => {
   for (const f of frames) assert.ok(Math.abs(f.velocity) < 0.5)
 })
 
+test('parked with a phone whose Doppler wanders: the icon does not move at all', () => {
+  // What a standing phone really reports: readings that wander up to three
+  // quarters of a metre per second, and fixes 5 m either side of the vehicle.
+  // Any movement of the icon here is the "moving though I am not" complaint.
+  const rand = noise(19)
+  const fixAt = (t: number): VehicleFix => ({ progressMeters: 100 + rand() * 10, atMs: t, reportedSpeedMps: 0.375 + rand() * 0.75 })
+  let state = createMotionState(fixAt(0))
+  const frames: Frame[] = []
+  let nextFix = 1000
+  for (let t = FRAME_MS; t <= 60_000; t += FRAME_MS) {
+    if (t >= nextFix) {
+      state = acceptFix(state, fixAt(nextFix), PREDICT)
+      nextFix += 1000
+    }
+    state = stepMotion(state, t, PREDICT)
+    frames.push({ t, truth: 100, shown: state.displayedMeters, velocity: state.displayedVelocityMps })
+  }
+  const parked = frames.filter((f) => f.t > 3000)
+  const backward = parked.reduce((total, f, i) => (i === 0 ? 0 : total + Math.max(0, parked[i - 1].shown - f.shown)), 0)
+  console.log(`    parked, wandering Doppler: drew ${fmt(distanceDrawn(parked))} m of movement, ${fmt(backward)} m of it backwards`)
+  assert.ok(distanceDrawn(parked) < 0.05, `the parked icon moved ${distanceDrawn(parked)} m`)
+  assert.ok(backward < 0.01, `the parked icon went ${backward} m backwards`)
+})
+
+test('coming to rest: a fix that lands behind the stopped icon does not pull it backwards', () => {
+  // A queue: rolling at 4 m/s, stopped at 20 m. The first fixes after the stop land
+  // 5.5 m short of it - GPS noise - while the phone reports a standstill it has
+  // not yet repeated. The icon may overrun a little; it must not slide back.
+  let state = createMotionState({ progressMeters: 0, atMs: 0, reportedSpeedMps: 4 })
+  const fixes: VehicleFix[] = [
+    { progressMeters: 4, atMs: 1000, reportedSpeedMps: 4 },
+    { progressMeters: 8, atMs: 2000, reportedSpeedMps: 4 },
+    { progressMeters: 12, atMs: 3000, reportedSpeedMps: 4 },
+    { progressMeters: 16, atMs: 4000, reportedSpeedMps: 3.4 },
+    { progressMeters: 18.5, atMs: 5000, reportedSpeedMps: 1.9 },
+    ...[6000, 7000, 8000, 9000, 10_000, 11_000, 12_000].map((atMs) => ({ progressMeters: 14.5, atMs, reportedSpeedMps: 0.14 })),
+  ]
+  let next = 0
+  let backward = 0
+  let previous = state.displayedMeters
+  for (let t = FRAME_MS; t <= 14_000; t += FRAME_MS) {
+    if (next < fixes.length && t >= fixes[next].atMs) state = acceptFix(state, fixes[next++], PREDICT)
+    state = stepMotion(state, t, PREDICT)
+    backward += Math.max(0, previous - state.displayedMeters)
+    previous = state.displayedMeters
+  }
+  console.log(`    coming to rest: stopped ${fmt(state.displayedMeters - 20)} m from the stopping point, ${fmt(backward)} m of it backwards`)
+  assert.ok(backward < 0.01, `slid ${backward} m backwards`)
+  assert.ok(Math.abs(state.displayedMeters - 20) < 6, `came to rest ${state.displayedMeters - 20} m from the vehicle`)
+  assert.ok(isMotionSettled(state, 14_000, PREDICT), 'the loop stops once it has come to rest')
+})
+
 test('signal loss: coasts, then eases to a stop instead of freezing or running away', () => {
   // Fixes for 5 s, then nothing for 8 s.
   const rand = noise(3)
@@ -259,6 +312,16 @@ test('prediction is off for maps that only show reported positions', () => {
   // It glides to the reported point and stops there, rather than running ahead.
   assert.ok(Math.abs(state.displayedMeters - 10) < 0.1)
   assert.ok(isMotionSettled(state, 8000, noPredict))
+})
+
+test('without prediction a falling axis is travel, not reversing: the icon follows it', () => {
+  // The plane's east and north axes: a vehicle heading west or south reports
+  // ever smaller values, and the icon must go with it.
+  const noPredict = { predict: false }
+  let state = createMotionState({ progressMeters: 0, atMs: 0, reportedSpeedMps: 10 })
+  state = acceptFix(state, { progressMeters: -10, atMs: 1000, reportedSpeedMps: 10 }, noPredict)
+  for (let t = 1000 + FRAME_MS; t <= 8000; t += FRAME_MS) state = stepMotion(state, t, noPredict)
+  assert.ok(Math.abs(state.displayedMeters + 10) < 0.1, `stopped at ${state.displayedMeters}`)
 })
 
 test('braking to a stop: the icon eases down with the vehicle and does not overrun it', () => {
@@ -381,6 +444,26 @@ test('a fix carrying no speed at all does not refute the standstill reported bef
   assert.ok(distanceDrawn(parked) < 2, `drifted ${distanceDrawn(parked)} m while parked`)
 })
 
+test('one stray fix does not overturn a standstill the phone keeps reporting', () => {
+  // Parked in a street canyon: the fixes wander, and one lands 27 m short of where
+  // the icon is held before the next comes back. That is noise, not a tow.
+  let state = createMotionState({ progressMeters: 100, atMs: 0, reportedSpeedMps: 0 })
+  const positions = [101, 99, 102, 100, 73, 97, 101, 99]
+  let lowest = Infinity
+  let highest = -Infinity
+  for (let i = 0; i < positions.length; i++) {
+    const at = (i + 1) * 1000
+    state = acceptFix(state, { progressMeters: positions[i], atMs: at, reportedSpeedMps: 0.1 }, PREDICT)
+    for (let t = at + FRAME_MS; t < at + 1000; t += FRAME_MS) {
+      state = stepMotion(state, t, PREDICT)
+      lowest = Math.min(lowest, state.displayedMeters)
+      highest = Math.max(highest, state.displayedMeters)
+    }
+  }
+  console.log(`    a stray fix 27 m off while parked: the icon moved ${fmt(highest - lowest)} m`)
+  assert.ok(highest - lowest < 0.01, `the parked icon moved ${highest - lowest} m`)
+})
+
 test('a phone reporting a standstill it is not at is released by its own positions', () => {
   // A zero is believed, but only while the fixes stay put: a vehicle that keeps
   // covering ground must keep being drawn covering it, whatever its phone says.
@@ -427,4 +510,15 @@ test('heading turns at a rate a vehicle can turn, and holds when parked', () => 
   assert.equal(step(0, 90, 0, 2000), 0)
   // Always takes the short way round.
   assert.ok(step(350, 10, 7, 2000) < 11 || step(350, 10, 7, 2000) > 349)
+})
+
+test('a bearing counts only while the phone says it is moving', () => {
+  // At rest many phones repeat their last bearing or report any at all; taken at
+  // its word, one turned a parked van round to face back down the road.
+  assert.equal(movingBearing(270, 0.2), null)
+  assert.equal(movingBearing(270, null), null)
+  assert.equal(movingBearing(270, 8), 270)
+  assert.equal(movingBearing(-1, 8), null)
+  assert.equal(movingBearing(null, 8), null)
+  assert.equal(movingBearing(370, 8), 10)
 })
