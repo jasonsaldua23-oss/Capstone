@@ -2,7 +2,7 @@
 "use client";
 
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { Suspense, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner';
@@ -1338,7 +1338,11 @@ export function AdminPortal() {
               transition={{ duration: 0.16, ease: 'easeOut' }}
               className="w-full"
             >
-              {renderActiveView()}
+              {/* Fix: sections load on first open; without a boundary here that wait
+                  fell through to the app's full-screen spinner and hid the whole portal. */}
+              <Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center text-sm text-gray-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading...</div>}>
+                {renderActiveView()}
+              </Suspense>
             </motion.div>
           </AnimatePresence>
         </main>
