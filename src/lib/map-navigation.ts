@@ -53,7 +53,7 @@ export type ProjectedRoutePosition = {
   distanceFromRouteMeters: number;
 };
 
-function approximateMapDistanceMeters(from: [number, number], to: [number, number]) {
+export function approximateMapDistanceMeters(from: [number, number], to: [number, number]) {
   const refLat = (from[0] + to[0]) / 2;
   const dx = (to[1] - from[1]) * Math.cos((refLat * Math.PI) / 180) * 111320;
   const dy = (to[0] - from[0]) * 110540;
@@ -203,6 +203,38 @@ export function splitRouteAtDistance(route: [number, number][], distanceMeters: 
     // Fix: reaching the endpoint must not redraw the entire traveled route blue.
     remaining: remaining.length >= 2 ? remaining : [],
   };
+}
+
+// A redrawn route that starts further than this from the road the vehicle was on
+// is a different road (a detour), not the same one carried on.
+const ROAD_TRACK_JOIN_TOLERANCE_METERS = 25;
+
+/**
+ * The road a vehicle is on, for a map that learns its position a report at a time:
+ * `next`, the route drawn from its latest reported position onward, led into by
+ * the stretch of `previous` it has been travelling along. A route redrawn at every
+ * report starts where the vehicle was just reported, and an icon still on its way
+ * there from the last report would otherwise be behind the start of its own road -
+ * clamped forward onto it in a jump, or cut across to it in a straight line.
+ */
+export function joinRoadTrack(
+  previous: [number, number][] | null | undefined,
+  next: [number, number][],
+  keepMeters = 400
+): [number, number][] {
+  if (!previous || previous.length < 2 || next.length < 2) return next;
+  const start = projectPointOntoRoute(next[0], previous);
+  if (!start || start.distanceFromRouteMeters > ROAD_TRACK_JOIN_TOLERANCE_METERS) return next;
+  const behind = splitRouteAtDistance(previous, start.distanceAlongMeters).completed;
+  if (behind.length < 2) return next;
+  const kept = start.distanceAlongMeters > keepMeters
+    ? splitRouteAtDistance(behind, start.distanceAlongMeters - keepMeters).remaining
+    : behind;
+  return [...kept, ...next].filter((point, index, list) => {
+    if (index === 0) return true;
+    const prev = list[index - 1];
+    return !(Math.abs(point[0] - prev[0]) < 1e-7 && Math.abs(point[1] - prev[1]) < 1e-7);
+  });
 }
 
 export function resolveNavigationHeading(routeHeading: number | null | undefined, gpsHeading: number | null | undefined) {

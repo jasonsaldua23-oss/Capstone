@@ -28,8 +28,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, PackageCheck, Package, Archive, Building2, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, Recycle, Store } from 'lucide-react';
-import { WarehouseEmptyBottlesView } from '../warehouse/sections/inventory/empty-bottles-view';
-import { RetailTransactionsView } from './sections/retail-transactions-view';
+// Fix: download section code only when opened, reducing the admin startup bundle.
+const WarehouseEmptyBottlesView = dynamic(() => import('../warehouse/sections/inventory/empty-bottles-view').then((mod) => mod.WarehouseEmptyBottlesView))
+const RetailTransactionsView = dynamic(() => import('./sections/retail-transactions-view').then((mod) => mod.RetailTransactionsView))
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts';
 import type { DashboardStats } from '@/types';
@@ -37,25 +38,25 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync';
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
 import { portalFont } from '../portal-font'
-import { SettingsView } from './sections/settings-view'
-import { InventoryView } from './sections/inventory-view'
-import { StocksView } from './sections/stocks-view'
-import { UsersView } from './sections/users-view'
-import { OrdersView } from './sections/orders-view'
-import { TripsView } from './sections/trips-view'
-import { VehiclesView } from './sections/vehicles-view'
-import { DriversView } from './sections/drivers-view'
+const SettingsView = dynamic(() => import('./sections/settings-view').then((mod) => mod.SettingsView))
+const InventoryView = dynamic(() => import('./sections/inventory-view').then((mod) => mod.InventoryView))
+const StocksView = dynamic(() => import('./sections/stocks-view').then((mod) => mod.StocksView))
+const UsersView = dynamic(() => import('./sections/users-view').then((mod) => mod.UsersView))
+const OrdersView = dynamic(() => import('./sections/orders-view').then((mod) => mod.OrdersView))
+const TripsView = dynamic(() => import('./sections/trips-view').then((mod) => mod.TripsView))
+const VehiclesView = dynamic(() => import('./sections/vehicles-view').then((mod) => mod.VehiclesView))
+const DriversView = dynamic(() => import('./sections/drivers-view').then((mod) => mod.DriversView))
 import { DashboardView } from './sections/dashboard-view'
-import { TransportationView } from './sections/transportation-view'
-import { WarehousesView } from './sections/warehouses-view'
+const TransportationView = dynamic(() => import('./sections/transportation-view').then((mod) => mod.TransportationView))
+const WarehousesView = dynamic(() => import('./sections/warehouses-view').then((mod) => mod.WarehousesView))
 import { parseWarehouseSetup } from '@/lib/warehouse-setup'
 import { safeFetchJson as fetchWarehouseJson } from './sections/shared'
-import { ReplacementsView } from './sections/replacements-view'
-import { TrackingView } from './sections/tracking-view'
-import { FeedbackView } from './sections/feedback-view'
-import { ReportsView } from './sections/reports-view'
-import { CustomersView } from './sections/customers-view'
-import { InventoryTransactionsView } from './sections/inventory-transactions-view'
+const ReplacementsView = dynamic(() => import('./sections/replacements-view').then((mod) => mod.ReplacementsView))
+const TrackingView = dynamic(() => import('./sections/tracking-view').then((mod) => mod.TrackingView))
+const FeedbackView = dynamic(() => import('./sections/feedback-view').then((mod) => mod.FeedbackView))
+const ReportsView = dynamic(() => import('./sections/reports-view').then((mod) => mod.ReportsView))
+const CustomersView = dynamic(() => import('./sections/customers-view').then((mod) => mod.CustomersView))
+const InventoryTransactionsView = dynamic(() => import('./sections/inventory-transactions-view').then((mod) => mod.InventoryTransactionsView))
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,

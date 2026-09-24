@@ -35,11 +35,8 @@ export const MOTION_MAX_ACCEL_MPS2 = 4
 export const MOTION_MAX_DECEL_MPS2 = 6
 /** Time constant of the final exponential approach once an error is nearly worked off. */
 export const MOTION_CORRECTION_TIME_S = 0.8
-/** Time constant for settling onto a steady trailing distance where there is no prediction. */
-export const MOTION_TRAIL_TIME_S = 3
-/** Bounds on the learned gap between fixes, used to pace motion where there is no prediction. */
-export const MOTION_MIN_FIX_INTERVAL_MS = 500
-export const MOTION_MAX_FIX_INTERVAL_MS = 15000
+/** Where there is no prediction the icon gets onto each newly reported position within about this long. */
+export const MOTION_REPORT_ARRIVAL_TIME_S = 1.2
 /** Gentlest acceleration used to work off an error; noise-sized errors use exactly this. */
 export const MOTION_MIN_CORRECTION_ACCEL_MPS2 = 3
 /** Larger errors accelerate harder so that any correction completes in about this long. */
@@ -110,8 +107,6 @@ export type VehicleMotionState = {
   reportedStill: boolean
   /** The last fix fell outside the hold radius of a standstill the phone was reporting. */
   lastFixStrayed: boolean
-  /** Smoothed gap between fixes. Without prediction it is how long the icon has to cover one. */
-  fixIntervalMs: number
   /** Drawn position minus predicted position; worked off toward zero. */
   offsetMeters: number
   offsetVelocityMps: number
@@ -139,7 +134,6 @@ export function createMotionState(fix: VehicleFix): VehicleMotionState {
     reportedSpeedMps: reported,
     reportedStill: reported !== null && reported < MOTION_STOPPED_READING_MPS,
     lastFixStrayed: false,
-    fixIntervalMs: MOTION_MIN_FIX_INTERVAL_MS * 2,
     offsetMeters: 0,
     offsetVelocityMps: 0,
     correctionAccelMps2: MOTION_MIN_CORRECTION_ACCEL_MPS2,
@@ -222,10 +216,18 @@ function predictedMetersAt(state: VehicleMotionState, atMs: number, options: Mot
   return state.fixProgressMeters - (speed * (state.fixAtMs - atMs)) / 1000
 }
 
-/** Acceleration that works off `errorMeters` from rest in about MOTION_MAX_CORRECTION_TIME_S. */
-function correctionAccelFor(errorMeters: number): number {
-  const t = MOTION_MAX_CORRECTION_TIME_S
-  return Math.max(MOTION_MIN_CORRECTION_ACCEL_MPS2, (4 * Math.abs(errorMeters)) / (t * t))
+/**
+ * Acceleration that works off `errorMeters` from rest in the time allowed: about
+ * MOTION_MAX_CORRECTION_TIME_S for a prediction's error, and
+ * MOTION_REPORT_ARRIVAL_TIME_S for the way to a newly reported position.
+ */
+function correctionAccelFor(errorMeters: number, options: MotionOptions): number {
+  const t = options.predict ? MOTION_MAX_CORRECTION_TIME_S : MOTION_REPORT_ARRIVAL_TIME_S
+  // Braking at the full budget covers d from rest in t when the budget is 4d/t².
+  // The way to a report is braked at half of it (see closingSpeedMps), which
+  // takes 6d/t² to land in the same time.
+  const factor = options.predict ? 4 : 6
+  return Math.max(MOTION_MIN_CORRECTION_ACCEL_MPS2, (factor * Math.abs(errorMeters)) / (t * t))
 }
 
 /**
@@ -313,10 +315,6 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
     (stray || Math.abs(jumpMeters) < (phoneSaysStill ? MOTION_PARKED_HOLD_METERS : MOTION_PARKED_DEADBAND_METERS))
   const progressMeters = held ? state.displayedMeters : fix.progressMeters
 
-  // How long the icon has to cover one fix's worth of ground, learned rather than
-  // assumed: a phone's own watch, a portal's polling interval and a throttled
-  // server stamp all deliver at different rates.
-  const gapMs = Math.min(MOTION_MAX_FIX_INTERVAL_MS, Math.max(MOTION_MIN_FIX_INTERVAL_MS, (fix.atMs - state.fixAtMs) || state.fixIntervalMs))
   const next: VehicleMotionState = {
     ...state,
     fixProgressMeters: progressMeters,
@@ -326,7 +324,6 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
     reportedSpeedMps: reported,
     reportedStill: phoneSaysStill,
     lastFixStrayed: phoneSaysStill && outsideHold,
-    fixIntervalMs: state.fixIntervalMs + (gapMs - state.fixIntervalMs) * 0.5,
   }
   // Re-anchor without a visible jump. The drawn position is as of the last frame,
   // so compare it with where the new prediction says the vehicle was *then*; the
@@ -350,10 +347,7 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
   // or it sails on past a braking van.
   const underWay = Math.abs(state.offsetVelocityMps) > MOTION_STATIONARY_SPEED_MPS
   next.correctionAccelMps2 = Math.max(
-    // Without prediction the offset is the trailing distance, not an error, so
-    // sizing the budget from it would let the icon change speed like nothing on
-    // wheels. There, only a change in the vehicle's own pace justifies urgency.
-    options.predict ? correctionAccelFor(next.offsetMeters) : MOTION_MIN_CORRECTION_ACCEL_MPS2,
+    correctionAccelFor(next.offsetMeters, options),
     underWay ? state.correctionAccelMps2 : 0,
     Math.abs(next.offsetVelocityMps) / MOTION_CARRIED_SPEED_TIME_S
   )
@@ -367,24 +361,23 @@ export function acceptFix(state: VehicleMotionState, fix: VehicleFix, options: M
  * The speed at which the icon should be closing the offset right now.
  *
  * With prediction the offset is an error to erase, so the icon eases onto the
- * prediction. Without prediction the offset *is* the vehicle's travel since the
- * last report: erasing it would make the icon sprint and then sit still, so
- * instead it runs at the vehicle's own speed and trails about one report behind,
- * easing that trailing distance toward its target rather than chasing it away.
- * Either way it never exceeds the speed from which it can still stop on target.
+ * prediction. Without prediction the offset is the way to the last reported
+ * position, which is where the icon belongs - the maps that show reports alone
+ * also mark that position - so it covers it within its budget and stops on it.
+ * Pacing itself to trail a report behind instead kept it moving, but 50 m down
+ * the road from the mark at a report every five seconds. Either way it never
+ * exceeds the speed from which it can still stop on target, and the last stretch
+ * is an easing approach rather than braking on the stopping curve to the end.
  */
-function closingSpeedMps(state: VehicleMotionState, nowMs: number, options: MotionOptions): number {
+function closingSpeedMps(state: VehicleMotionState, options: MotionOptions): number {
   const distance = Math.abs(state.offsetMeters)
-  const stoppingSpeed = Math.sqrt(2 * state.correctionAccelMps2 * distance)
-  if (options.predict) return Math.min(stoppingSpeed, distance / MOTION_CORRECTION_TIME_S)
-  // An icon trailing correctly is one report's travel behind just after a fix and
-  // level with it just before the next, so the gap it should have right now shrinks
-  // as the seconds pass. Pacing against that, rather than against the raw gap,
-  // keeps the speed steady instead of swinging between a sprint and a stop.
-  const elapsedS = Math.max(0, (nowMs - state.fixAtMs) / 1000)
-  const idealDistance = Math.max(0, (state.speedMps * state.fixIntervalMs) / 1000 - state.speedMps * elapsedS)
-  const pace = state.speedMps + (distance - idealDistance) / MOTION_TRAIL_TIME_S
-  return Math.min(stoppingSpeed, Math.max(0, pace))
+  const accel = state.correctionAccelMps2
+  if (options.predict) return Math.min(Math.sqrt(2 * accel * distance), distance / MOTION_CORRECTION_TIME_S)
+  // At the speeds this reaches, braking on the full-budget curve lags it by a
+  // frame and carries the icon past the report. Braking on half the budget leaves
+  // the other half to hold the curve, and the easing approach below it needs no
+  // more than the whole budget where the two meet.
+  return Math.min(Math.sqrt(accel * distance), distance / (MOTION_REPORT_ARRIVAL_TIME_S / 8))
 }
 
 /**
@@ -415,13 +408,15 @@ export function stepMotion(state: VehicleMotionState, nowMs: number, options: Mo
   if (dtS === 0) return state
   const target = predictedMeters(state, nowMs, options)
   const targetSpeed = predictedSpeed(state, nowMs, options)
-  // Whatever the error, the icon may only be drawn moving a little faster than the
-  // vehicle is. Where there is no prediction the correction *is* the motion, so the
-  // allowance has to cover the vehicle's own speed as well.
-  const catchUpCeiling = Math.max(1, state.speedMps + MOTION_MAX_CATCHUP_SPEED_MPS - targetSpeed)
+  // With prediction the icon may only be drawn moving a little faster than the
+  // vehicle is, whatever the error. Without it the correction is the way to the
+  // report, which the budget above already paces to arrive in time.
+  const catchUpCeiling = options.predict
+    ? Math.max(1, state.speedMps + MOTION_MAX_CATCHUP_SPEED_MPS - targetSpeed)
+    : Number.POSITIVE_INFINITY
   let [offsetMeters, offsetVelocityMps] = stepCorrection(
     state.offsetMeters, state.offsetVelocityMps, state.correctionAccelMps2, dtS, catchUpCeiling,
-    closingSpeedMps(state, nowMs, options)
+    closingSpeedMps(state, options)
   )
   // A vehicle following a road does not reverse to fix a few metres of error; it
   // slows and lets the prediction catch up. Bounding the pull to a share of the
@@ -514,8 +509,13 @@ export function rebaseMotion(
   next.offsetMeters = displayedMeters - predictedMetersAt(next, anchorMs, options)
   next.offsetVelocityMps = displayedVelocityMps - predictedSpeed(next, Math.max(fix.atMs, anchorMs), options)
   if (Math.abs(next.offsetMeters) > MOTION_SNAP_ERROR_METERS) return resetMotion(previous, fix)
+  // As in acceptFix, a correction under way keeps its budget: a road redrawn while
+  // the icon is on its way to a report is the same journey, not a new one to pace
+  // from the start.
+  const underWay = Math.abs(previous.offsetVelocityMps) > MOTION_STATIONARY_SPEED_MPS
   next.correctionAccelMps2 = Math.max(
-    correctionAccelFor(next.offsetMeters),
+    correctionAccelFor(next.offsetMeters, options),
+    underWay ? previous.correctionAccelMps2 : 0,
     Math.abs(next.offsetVelocityMps) / MOTION_CARRIED_SPEED_TIME_S
   )
   next.reversing = next.offsetMeters >= MOTION_REVERSE_ERROR_METERS

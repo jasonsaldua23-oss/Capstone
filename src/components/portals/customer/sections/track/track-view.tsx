@@ -1,7 +1,6 @@
 'use client'
 
 import { ArrowLeft, CalendarDays, CheckCircle2, Loader2, MapPin, Phone, ShieldCheck, Truck } from 'lucide-react'
-import dynamic from 'next/dynamic'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,10 +9,7 @@ import { PortalTimelineSkeleton } from '@/components/portals/shared/loading-skel
 import { isRescheduledOrder } from '../orders/order-status'
 import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
-const DriverRouteMap = dynamic(
-  () => import('@/components/maps/DriverRouteMap').then((mod) => mod.DriverRouteMap),
-  { ssr: false }
-)
+import { CustomerTrackingMap } from './customer-tracking-map'
 
 export function CustomerTrackView(props: any) {
   const {
@@ -148,16 +144,20 @@ export function CustomerTrackView(props: any) {
         <Card className="rounded-xl border-slate-200 shadow-none">
           <CardContent className="p-0">
             {isInTransit && hasDriverCoordinates && mapLat !== null && mapLng !== null ? (
-              <DriverRouteMap
-                latitude={mapLat}
-                longitude={mapLng}
-                routePoints={routePoints}
+              <CustomerTrackingMap
+                orderId={String(order.id)}
+                driverLatitude={mapLat}
+                driverLongitude={mapLng}
                 destinationLatitude={destinationLatitude}
                 destinationLongitude={destinationLongitude}
                 warehouseLatitude={warehouseLatitude}
                 warehouseLongitude={warehouseLongitude}
-                destinationCompleted={isDelivered}
-                className="h-[280px] rounded-xl md:h-[360px]"
+                delivered={isDelivered}
+                driverName={tracking?.driverName}
+                vehiclePlate={tracking?.trip?.vehicle?.licensePlate}
+                tripNumber={tracking?.tripNumber}
+                deliveryAddress={order.shippingAddress}
+                className="h-[280px] w-full rounded-xl md:h-[360px]"
               />
             ) : (
               <div className="grid h-[280px] place-items-center text-sm text-slate-500 md:h-[360px]">

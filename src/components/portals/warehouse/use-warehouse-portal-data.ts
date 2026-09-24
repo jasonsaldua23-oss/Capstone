@@ -389,7 +389,8 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
           const query = new URLSearchParams({
             page: String(page),
             pageSize: String(pageSize),
-            includeTracking: '1',
+            // Fix: driver positions are page-independent; fetch them only once per refresh.
+            includeTracking: page === 1 ? '1' : '0',
             sort: 'scheduled',
           })
           const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' })

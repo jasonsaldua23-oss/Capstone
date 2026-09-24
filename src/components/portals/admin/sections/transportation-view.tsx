@@ -90,12 +90,14 @@ const formatDriverStatus = (value: unknown, isActive = true) => {
   return status === 'ON_LEAVE' ? 'On Leave' : status === 'INACTIVE' ? 'Inactive' : 'Active'
 }
 
-export function TransportationView({ notificationReferenceType = '', notificationReferenceId = '', notificationFocusKey, readOnly = true, canManageDrivers = false, initialTab = 'vehicles', tripsContent }: { notificationReferenceType?: string; notificationReferenceId?: string; notificationFocusKey?: number; readOnly?: boolean; canManageDrivers?: boolean; initialTab?: 'vehicles' | 'trips' | 'drivers'; tripsContent?: React.ReactNode } = {}) {
+export function TransportationView({ notificationReferenceType = '', notificationReferenceId = '', notificationFocusKey, readOnly = true, canManageDrivers = false, initialTab = 'vehicles', tripsContent, providedTrips }: { notificationReferenceType?: string; notificationReferenceId?: string; notificationFocusKey?: number; readOnly?: boolean; canManageDrivers?: boolean; initialTab?: 'vehicles' | 'trips' | 'drivers'; tripsContent?: React.ReactNode; providedTrips?: any[] } = {}) {
   // Warehouse navigation can open Trips directly; Admin keeps Fleet Management as its default.
   const [activeTab, setActiveTab] = useState<'vehicles' | 'trips' | 'drivers'>(initialTab)
   const [vehicles, setVehicles] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
-  const [trips, setTrips] = useState<any[]>([])
+  // Fix: warehouse owns trip loading and refreshes; reuse its live collection.
+  const [localTrips, setTrips] = useState<any[]>([])
+  const trips = providedTrips ?? localTrips
   const [tripsPage, setTripsPage] = useState(1)
   const tripsPageSize = 10
   const [isLoading, setIsLoading] = useState(true)
@@ -148,14 +150,16 @@ export function TransportationView({ notificationReferenceType = '', notificatio
       const [vehiclesRes, driversRes, tripsRes] = await Promise.all([
         safeFetchJson('/api/vehicles?page=1&pageSize=100', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
         fetchAllPaginatedCollection('/api/drivers?includeSample=true', 'drivers', { cache: 'no-store' }, { retries: 2, timeoutMs: 25000 }),
-        safeFetchJson('/api/trips?page=1&pageSize=100&sort=scheduled', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 }),
+        providedTrips === undefined
+          ? safeFetchJson('/api/trips?page=1&pageSize=100&sort=scheduled', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 })
+          : Promise.resolve(null),
       ])
 
       // Failed refreshes preserve the last records and report the failed request.
       if (vehiclesRes.ok) setVehicles(getCollection<any>(vehiclesRes.data, ['vehicles']))
       if (driversRes.ok) setDrivers(getCollection<any>(driversRes.data, ['drivers']))
-      if (tripsRes.ok) setTrips(getCollection<any>(tripsRes.data, ['trips']))
-      const failed = [vehiclesRes, driversRes, tripsRes].find((result) => !result.ok)
+      if (tripsRes?.ok) setTrips(getCollection<any>(tripsRes.data, ['trips']))
+      const failed = [vehiclesRes, driversRes, tripsRes].find((result) => result && !result.ok)
       if (failed) toast.error(failed.data?.error || 'Some transportation records could not be refreshed. Please retry.')
     } catch (error) {
       console.error('Failed to fetch transportation data:', error)
@@ -165,6 +169,8 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   }
 
   const refreshTrips = async () => {
+    // Fix: the embedded warehouse Trips section already has its own refresh lifecycle.
+    if (providedTrips !== undefined) return
     setIsRefreshingTrips(true)
     try {
       const tripsRes = await safeFetchJson(

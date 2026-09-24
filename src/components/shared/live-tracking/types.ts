@@ -21,10 +21,13 @@ export type DriverLocation = {
   markerEta?: string;
   markerEtaPhase?: 'completed' | 'next' | 'upcoming';
   accuracyMeters?: number;
-  // Ground speed in m/s from the GPS fix. The motion model predicts with it
-  // between fixes so the icon moves with the driver instead of trailing a fix behind.
+  // Ground speed in m/s from the GPS fix. The navigation view predicts with it
+  // between fixes, and every map uses it to tell a parked vehicle from a moving one.
   speedMps?: number;
   routeProgressMeters?: number;
+  // The id of the route line this truck is on, drawn from its position onward. On
+  // the maps that learn positions a report at a time it is drawn along that road.
+  roadLineId?: string;
   popupCustomerName?: string;
   popupAddress?: string;
   popupOrderItems?: DriverLocationPopupItem[];

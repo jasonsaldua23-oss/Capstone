@@ -6,8 +6,10 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import MapLibreNavigationMap, { type NavigationMapHandle, type NavigationTruckPose } from './MapLibreNavigationMap';
 import {
+  joinRoadTrack,
   projectPointOntoRoute,
   quantizeRouteSplitMeters,
+  routePoseAtDistance,
   splitRouteAtDistance,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
@@ -73,6 +75,8 @@ const CircleMarkerUnsafe = CircleMarker as any;
 const TooltipUnsafe = Tooltip as any;
 
 const PolygonUnsafe = Polygon as any;
+
+const NO_ROUTE: [number, number][] = [];
 
 interface LiveTrackingMapProps {
   locations: DriverLocation[];
@@ -155,6 +159,10 @@ export default function LiveTrackingMap({
   // Motion model per truck. It outlives fixes and effects so the icon's velocity
   // and heading stay continuous from one fix to the next.
   const truckMotionRef = useRef<Map<string, TruckMotion>>(new Map());
+  // The road each truck is drawn along on a map that learns its position a report
+  // at a time, and a version so a redrawn road is told apart from the old one.
+  const truckRoadsRef = useRef(new Map<string, { line: [number, number][]; route: [number, number][]; key: string }>());
+  const truckRoadVersionRef = useRef(0);
   const navigationMapRef = useRef<NavigationMapHandle | null>(null);
 
   useEffect(() => {
@@ -343,6 +351,25 @@ export default function LiveTrackingMap({
     [renderedRouteLines]
   );
 
+  // The admin and warehouse maps learn where a truck is every few seconds and name
+  // the road it is on - its remaining route, redrawn from each report. Between
+  // reports it is drawn along that road: gliding straight to the next report
+  // instead cut every corner it turned, across whatever stood inside it.
+  const truckRoadLines = useMemo(() => {
+    const lines = new Map<string, [number, number][]>();
+    if (navigationPerspective) return lines;
+    safeLocations.forEach((location) => {
+      if (location.markerType !== 'truck' || !location.roadLineId) return;
+      const line = renderedRouteLines.find((candidate) => candidate.id === location.roadLineId);
+      if (line && line.points.length > 1) lines.set(location.id, line.points);
+    });
+    return lines;
+  }, [navigationPerspective, renderedRouteLines, safeLocations]);
+  const truckRoadLinesKey = useMemo(
+    () => Array.from(truckRoadLines, ([id, points]) => `${id}:${points.length}:${points[0].join(',')}:${points[points.length - 1].join(',')}`).join('|'),
+    [truckRoadLines]
+  );
+
   const routeOriginPoint = useMemo<[number, number] | null>(() => {
     const warehouseOrigin = renderedRouteLines.find((line) => line.id.endsWith('-route-origin'))?.points[0];
     if (warehouseOrigin) return warehouseOrigin;
@@ -507,13 +534,32 @@ export default function LiveTrackingMap({
     const receivedAt = performance.now();
     const observedUpdateInterval = lastTruckTargetAtRef.current === null ? 0 : receivedAt - lastTruckTargetAtRef.current;
     lastTruckTargetAtRef.current = receivedAt;
+
+    // Each truck's road: the navigation route, or on the report maps the road it
+    // was named, redrawn from each report and joined onto the one it was already
+    // travelling along - an icon still on its way to that report is on the old
+    // stretch, behind where the redrawn road starts.
+    const roads = truckRoadsRef.current;
+    for (const id of Array.from(roads.keys())) {
+      if (!truckRoadLines.has(id)) roads.delete(id);
+    }
+    truckRoadLines.forEach((line, id) => {
+      const known = roads.get(id);
+      if (known?.line === line) return;
+      truckRoadVersionRef.current += 1;
+      roads.set(id, { line, route: joinRoadTrack(known?.route, line), key: `${id}#${truckRoadVersionRef.current}` });
+    });
+    const roadFor = (id: string) => navigationPerspective
+      ? { route: navigationRouteGeometry, key: navigationRouteKey }
+      : roads.get(id) ?? { route: NO_ROUTE, key: '' };
+
     const stabilizedTargets = snappedLocations.map((location) => {
-      if (location.markerType !== 'truck' || navigationRouteGeometry.length < 2) {
-        return location;
-      }
+      if (location.markerType !== 'truck') return location;
+      const road = roadFor(location.id);
+      if (road.route.length < 2) return location;
 
       const projected = projectPointOntoRoute(
-        [location.actualLat ?? location.lat, location.actualLng ?? location.lng], navigationRouteGeometry
+        [location.actualLat ?? location.lat, location.actualLng ?? location.lng], road.route
       );
       if (!projected) return location;
 
@@ -530,17 +576,21 @@ export default function LiveTrackingMap({
         lat: projected.point[0],
         lng: projected.point[1],
         routeProgressMeters: projected.distanceAlongMeters,
+        // A road a report map names runs from the truck toward where it is going,
+        // so the truck faces along it. The bearing those maps send is only toward
+        // the next stop, and the road there can lead the other way first.
+        ...(navigationPerspective
+          ? {}
+          : { markerHeading: routePoseAtDistance(road.route, projected.distanceAlongMeters)?.heading ?? location.markerHeading }),
       };
     });
 
     // One effect owns one animation loop; React state updaters must not schedule side effects.
     const motionById = truckMotionRef.current;
-    const contextAt = (nowMs: number): TruckMotionContext => ({
-      route: navigationRouteGeometry,
-      routeKey: navigationRouteKey,
-      predict: navigationPerspective,
-      nowMs,
-    });
+    const contextAt = (id: string, nowMs: number): TruckMotionContext => {
+      const road = roadFor(id);
+      return { route: road.route, routeKey: road.key, predict: navigationPerspective, nowMs };
+    };
     const liveTruckIds = new Set(
       stabilizedTargets.filter((location) => location.markerType === 'truck').map((location) => location.id)
     );
@@ -553,10 +603,10 @@ export default function LiveTrackingMap({
     // otherwise fold it into the motion model, which moves the icon over the
     // following frames without ever jumping it.
     const snapToFix = document.hidden || observedUpdateInterval > TRUCK_SNAP_AFTER_SILENCE_MS;
-    const arrival = contextAt(receivedAt);
     for (const target of stabilizedTargets) {
       if (target.markerType !== 'truck') continue;
       const previous = motionById.get(target.id);
+      const arrival = contextAt(target.id, receivedAt);
       motionById.set(
         target.id,
         snapToFix ? snapTruckMotion(previous, target, arrival) : acceptTruckFix(previous, target, arrival)
@@ -575,7 +625,7 @@ export default function LiveTrackingMap({
         if (target.markerType !== 'truck') return target;
         const motion = motionById.get(target.id);
         if (!motion) return target;
-        const pose = truckMotionPose(motion, navigationRouteGeometry);
+        const pose = truckMotionPose(motion);
         poses.push(`${target.id}:${pose.point[0].toFixed(7)},${pose.point[1].toFixed(7)},${pose.heading?.toFixed(2) ?? ''}`);
         renderKeys.push(`${target.id}:${typeof pose.routeProgressMeters === 'number'
           ? quantizeRouteSplitMeters(pose.routeProgressMeters)
@@ -613,9 +663,9 @@ export default function LiveTrackingMap({
     if (snapToFix) return;
 
     const animate = (now: number) => {
-      const frame = contextAt(now);
       let settled = true;
       for (const [id, motion] of motionById) {
+        const frame = contextAt(id, now);
         const next = stepTruckMotion(motion, frame);
         motionById.set(id, next);
         if (!isTruckMotionSettled(next, frame)) settled = false;
@@ -633,7 +683,7 @@ export default function LiveTrackingMap({
         animationFrameRef.current = null;
       }
     };
-  }, [navigationPerspective, navigationRouteKey, truckTargetSignature, mapVisibilityEpoch]);
+  }, [navigationPerspective, navigationRouteKey, truckRoadLinesKey, truckTargetSignature, mapVisibilityEpoch]);
 
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
   const navTruck = singleTruck.length === 1 ? singleTruck[0] : null;

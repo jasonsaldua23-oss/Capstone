@@ -7,9 +7,14 @@
  * on a local east/north plane with one model per axis and no prediction, so the
  * icon glides between reported positions instead of stepping.
  */
-import { bearingBetweenMapPoints, projectPointOntoRoute, routePoseAtDistance } from '@/lib/map-navigation'
-import { approximateDistanceMeters } from './geometry'
-import { TRUCK_MAX_ROUTE_SNAP_METERS, TRUCK_STATIONARY_THRESHOLD_METERS } from './tuning'
+// Relative .ts imports with no DOM behind them, so node's test runner can load this.
+import {
+  approximateMapDistanceMeters,
+  bearingBetweenMapPoints,
+  projectPointOntoRoute,
+  routePoseAtDistance,
+} from '../../../lib/map-navigation.ts'
+import { TRUCK_MAX_ROUTE_SNAP_METERS, TRUCK_STATIONARY_THRESHOLD_METERS } from './tuning.ts'
 import type { DriverLocation } from './types'
 import {
   MOTION_STATIONARY_SPEED_MPS,
@@ -24,7 +29,7 @@ import {
   stepMotion,
   type MotionOptions,
   type VehicleMotionState,
-} from './vehicle-motion'
+} from './vehicle-motion.ts'
 
 export type TruckMotionContext = {
   route: [number, number][]
@@ -37,6 +42,9 @@ export type TruckMotionContext = {
 type RouteMotion = {
   mode: 'route'
   routeKey: string
+  /** The geometry `along` is measured on. Its metres only mean anything on this,
+   * so where the icon is drawn is always read back from it, never from a newer route. */
+  route: [number, number][]
   along: VehicleMotionState
 }
 
@@ -78,14 +86,14 @@ function fromLocalMeters(origin: [number, number], east: number, north: number):
 }
 
 /** Where the icon is drawn right now. */
-export function truckMotionPose(motion: TruckMotion, route: [number, number][]): {
+export function truckMotionPose(motion: TruckMotion): {
   point: [number, number]
   heading: number | null
   routeProgressMeters: number | undefined
   speedMps: number
 } {
   if (motion.mode === 'route') {
-    const pose = routePoseAtDistance(route, motion.along.displayedMeters)
+    const pose = routePoseAtDistance(motion.route, motion.along.displayedMeters)
     return {
       point: pose?.point ?? motion.fixPoint,
       heading: motion.heading,
@@ -119,7 +127,7 @@ export function snapTruckMotion(previous: TruckMotion | undefined, target: Drive
   if (onRoute) {
     const along = resetMotion(previous?.mode === 'route' ? previous.along : undefined, { progressMeters: target.routeProgressMeters as number, ...speed })
     const desired = routeDesiredHeading(ctx.route, along.displayedMeters, fixHeading, previous?.headingFlipped ?? false)
-    return { mode: 'route', routeKey: ctx.routeKey, along, fixSignature: truckFixSignature(target), fixPoint, heading: desired.heading ?? heading, desiredHeading: desired.heading, headingFlipped: desired.flipped }
+    return { mode: 'route', routeKey: ctx.routeKey, route: ctx.route, along, fixSignature: truckFixSignature(target), fixPoint, heading: desired.heading ?? heading, desiredHeading: desired.heading, headingFlipped: desired.flipped }
   }
   return {
     mode: 'planar',
@@ -147,7 +155,10 @@ export function acceptTruckFix(previous: TruckMotion | undefined, target: Driver
   const fixHeading = movingBearing(target.markerHeading, target.speedMps)
   const options: MotionOptions = { predict: ctx.predict }
   const reportedSpeedMps = target.speedMps ?? null
-  const pose = truckMotionPose(previous, ctx.route)
+  // Read on the route the icon was measured along: reading its metres on a newer
+  // route put it wherever that many metres fell there, and it was rebased from a
+  // point it had never been drawn at - 400 m away for a route redrawn from 400 m on.
+  const pose = truckMotionPose(previous)
   const sameRoute = previous.mode === 'route' && previous.routeKey === ctx.routeKey
   // Route metres can only carry the icon while it is actually on the road. After a
   // reroute the new geometry starts at the driver, so an icon still catching up from
@@ -174,12 +185,12 @@ export function acceptTruckFix(previous: TruckMotion | undefined, target: Driver
     }
     const desired = routeDesiredHeading(ctx.route, along.displayedMeters, fixHeading, previous.headingFlipped)
     return {
-      mode: 'route', routeKey: ctx.routeKey, along, fixSignature: signature, fixPoint,
+      mode: 'route', routeKey: ctx.routeKey, route: ctx.route, along, fixSignature: signature, fixPoint,
       heading: previous.heading ?? desired.heading, desiredHeading: desired.heading, headingFlipped: desired.flipped,
     }
   }
 
-  const movedMeters = approximateDistanceMeters(previous.fixPoint, fixPoint)
+  const movedMeters = approximateMapDistanceMeters(previous.fixPoint, fixPoint)
   const movementHeading = movedMeters >= TRUCK_STATIONARY_THRESHOLD_METERS ? bearingBetweenMapPoints(previous.fixPoint, fixPoint) : null
   const desiredHeading = fixHeading ?? movementHeading ?? previous.desiredHeading
   if (previous.mode === 'planar') {
@@ -226,7 +237,7 @@ export function stepTruckMotion(motion: TruckMotion, ctx: TruckMotionContext): T
     const along = stepMotion(motion.along, ctx.nowMs, { predict: ctx.predict })
     // The tangent moves with the icon, so it is refreshed every frame; the flip
     // decided at the last fix carries, otherwise a bend would spin the icon.
-    const tangent = routePoseAtDistance(ctx.route, along.displayedMeters)?.heading ?? null
+    const tangent = routePoseAtDistance(motion.route, along.displayedMeters)?.heading ?? null
     const desiredHeading = tangent === null ? motion.desiredHeading : motion.headingFlipped ? (tangent + 180) % 360 : tangent
     next = { ...motion, along, desiredHeading }
   } else {
@@ -237,7 +248,7 @@ export function stepTruckMotion(motion: TruckMotion, ctx: TruckMotionContext): T
     }
   }
   const dtS = Math.max(0, Math.min(0.1, (ctx.nowMs - lastStepAt(motion)) / 1000))
-  const speed = truckMotionPose(next, ctx.route).speedMps
+  const speed = truckMotionPose(next).speedMps
   next.heading = stepHeading(motion.heading, next.desiredHeading, speed, dtS)
   return next
 }
@@ -250,7 +261,7 @@ export function isTruckMotionSettled(motion: TruckMotion, ctx: TruckMotionContex
   // A parked icon holds its heading, so a pending turn does not keep the loop alive.
   const headingSettled =
     motion.desiredHeading === null || motion.heading === null ||
-    truckMotionPose(motion, ctx.route).speedMps < MOTION_STATIONARY_SPEED_MPS ||
+    truckMotionPose(motion).speedMps < MOTION_STATIONARY_SPEED_MPS ||
     Math.abs(shortestHeadingDelta(motion.heading, motion.desiredHeading)) < HEADING_SETTLED_DEGREES
   if (!headingSettled) return false
   if (motion.mode === 'route') return isMotionSettled(motion.along, ctx.nowMs, { predict: ctx.predict })

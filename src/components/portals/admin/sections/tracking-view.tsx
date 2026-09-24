@@ -411,6 +411,8 @@ export function TrackingView() {
           markerType: 'truck' as const,
           markerHeading: markerHeading ?? undefined,
           speedMps: reportedSpeedMps(freshestPoint),
+          // Drawn along its remaining route between reports, not in straight lines.
+          roadLineId: `remaining-${trip.id}`,
           // Added: provide the assignment details rendered by the shared truck popup.
           assignedTripNumber: String(trip?.tripNumber || ''),
           destinationCustomer: String(nextDropPoint?.locationName || 'N/A'),

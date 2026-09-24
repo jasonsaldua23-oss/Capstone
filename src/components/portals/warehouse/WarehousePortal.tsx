@@ -1468,6 +1468,7 @@ export function WarehousePortal() {
               readOnly={false}
               canManageDrivers={false}
               initialTab="trips"
+              providedTrips={scopedTrips}
               tripsContent={
                 <WarehouseTripsSection
                   loadingTrips={loadingTrips}

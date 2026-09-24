@@ -4,6 +4,7 @@ import {
   bearingBetweenMapPoints,
   calculateNavigationViewportInsets,
   calculateTruckScreenRotation,
+  joinRoadTrack,
   pointAtRouteDistance,
   projectPointOntoRoute,
   shouldRefreshDriverRoute,
@@ -161,4 +162,36 @@ test('a route pose gives the same point as the distance lookup plus the road bea
   assert.equal(Math.round(routePoseAtDistance(route, 5000)!.heading!), 0);
   assert.equal(routePoseAtDistance([], 10), null);
   assert.equal(routePoseAtDistance([[1, 2]], 10)!.heading, null);
+});
+
+// A straight road north from [10, 123]: about 1.1 m per 0.00001 degrees of latitude.
+const northRoad = (fromMeters: number, toMeters: number): [number, number][] =>
+  Array.from({ length: Math.round((toMeters - fromMeters) / 10) + 1 }, (_, i) => [10 + (fromMeters + i * 10) / 110540, 123] as [number, number]);
+
+test('a road redrawn from the latest position keeps the stretch that leads onto it', () => {
+  // The icon is still on its way from the previous report (0 m) to the new one (50 m).
+  const previous = northRoad(0, 500);
+  const next = northRoad(50, 500);
+  const track = joinRoadTrack(previous, next);
+  const icon: [number, number] = [10 + 20 / 110540, 123];
+  const onTrack = projectPointOntoRoute(icon, track)!;
+  assert.ok(onTrack.distanceFromRouteMeters < 0.5, 'the icon is on its road, not behind the start of it');
+  assert.ok(Math.abs(onTrack.distanceAlongMeters - 20) < 1);
+  assert.ok(Math.abs(projectPointOntoRoute(next[0], track)!.distanceAlongMeters - 50) < 1, 'the new route carries on from where it starts');
+});
+
+test('only the last few hundred metres behind are kept', () => {
+  const previous = northRoad(0, 2000);
+  const next = northRoad(1500, 2200);
+  const track = joinRoadTrack(previous, next, 400);
+  const behindStart = projectPointOntoRoute(next[0], track)!.distanceAlongMeters;
+  assert.ok(Math.abs(behindStart - 400) < 1, `kept ${behindStart} m behind`);
+});
+
+test('a new road that does not continue the old one replaces it', () => {
+  // A detour: the new route starts 200 m east of anything on the previous one.
+  const previous = northRoad(0, 500);
+  const next: [number, number][] = [[10 + 100 / 110540, 123.002], [10 + 300 / 110540, 123.002]];
+  assert.deepEqual(joinRoadTrack(previous, next), next);
+  assert.deepEqual(joinRoadTrack(undefined, next), next);
 });

@@ -386,28 +386,35 @@ test('a fix arriving after the loop had stopped does not replay the idle time as
   assert.ok(state.displayedMeters > 102 && state.displayedMeters < 112)
 })
 
-test('without prediction the icon keeps moving between sparse fixes instead of darting', () => {
-  // What the admin and warehouse maps get: a position every 5 seconds, no prediction.
+test('without prediction the icon reaches each report within about a second and waits there', () => {
+  // What the admin and warehouse maps get: a position every 5 seconds, no
+  // prediction. The dot on those maps is the last reported position, and the icon
+  // is meant to be on it: trailing a report behind left it 55 m down the road at 40 km/h.
   const noPredict = { predict: false }
   let state = createMotionState({ progressMeters: 0, atMs: 0, reportedSpeedMps: 11 })
-  const frames: Frame[] = []
+  const frames: (Frame & { reported: number; sinceReportMs: number })[] = []
   let nextFix = 5000
+  let reported = 0
+  let reportedAt = 0
   for (let t = FRAME_MS; t <= 30_000; t += FRAME_MS) {
     if (t >= nextFix) {
-      state = acceptFix(state, { progressMeters: (11 * nextFix) / 1000, atMs: nextFix, reportedSpeedMps: 11 }, noPredict)
+      reported = (11 * nextFix) / 1000
+      reportedAt = nextFix
+      state = acceptFix(state, { progressMeters: reported, atMs: nextFix, reportedSpeedMps: 11 }, noPredict)
       nextFix += 5000
     }
     state = stepMotion(state, t, noPredict)
-    frames.push({ t, truth: (11 * t) / 1000, shown: state.displayedMeters, velocity: state.displayedVelocityMps })
+    frames.push({ t, truth: (11 * t) / 1000, shown: state.displayedMeters, velocity: state.displayedVelocityMps, reported, sinceReportMs: t - reportedAt })
   }
   const settledFrames = frames.filter((f) => f.t > 12_000)
-  const movingShare = settledFrames.filter((f) => f.velocity > 0.5).length / settledFrames.length
-  console.log(`    5 s fixes, no prediction: moving in ${Math.round(100 * movingShare)}% of frames, max ${fmt(Math.max(...settledFrames.map((f) => f.velocity)))} m/s for a vehicle doing 11 m/s`)
-  // It fills the gap rather than sprinting and waiting...
-  assert.ok(movingShare > 0.9, `only moved in ${Math.round(100 * movingShare)}% of frames`)
-  assert.ok(maxVelocityJump(settledFrames) < 0.2)
-  // ...and never runs away: without prediction it must stay behind the last report.
-  for (const f of settledFrames) assert.ok(f.shown <= f.truth + 0.5, `ran ahead of the reported position at t=${f.t}`)
+  const shortOfReport = settledFrames.filter((f) => Math.abs(f.reported - f.shown) > 0.5)
+  const arrivedAfterMs = Math.max(0, ...shortOfReport.map((f) => f.sinceReportMs))
+  console.log(`    5 s fixes, no prediction: on the reported position ${fmt(arrivedAfterMs / 1000)} s after each report, at up to ${fmt(Math.max(...settledFrames.map((f) => f.velocity)))} m/s`)
+  assert.ok(arrivedAfterMs <= 1500, `still short of the report ${arrivedAfterMs} ms after it arrived`)
+  // It glides there rather than jumping...
+  assert.ok(maxVelocityJump(settledFrames) < 5, `velocity jumped by ${maxVelocityJump(settledFrames)} m/s in a frame`)
+  // ...and without prediction never runs past the last report.
+  for (const f of settledFrames) assert.ok(f.shown <= f.reported + 0.05, `ran past the reported position at t=${f.t}`)
 })
 
 test('a parked vehicle whose phone says so holds still instead of touring the jitter', () => {
@@ -475,9 +482,13 @@ test('a phone reporting a standstill it is not at is released by its own positio
   const end = frames.at(-1)!
   const lag = end.truth - end.shown
   console.log(`    phone stuck at 0 m/s: icon ${fmt(lag)} m behind a vehicle ${fmt(end.truth)} m down the road`)
-  // The icon is meant to trail about one report, which at this speed is 55 m.
+  // At most one report behind, which at this speed is 55 m...
   assert.ok(lag < 90, `fell ${fmt(lag)} m behind`)
-  assert.ok(frames.filter((f) => f.t > 20_000).every((f) => f.velocity > 0), 'kept moving')
+  // ...and on each report, give or take its 3 m of noise, once it has had time to get there.
+  for (const f of frames.filter((x) => x.t > 20_000 && x.t % 5000 >= 1500)) {
+    const report = (11 * Math.floor(f.t / 5000) * 5000) / 1000
+    assert.ok(Math.abs(f.shown - report) < 4, `${fmt(report - f.shown)} m short of the report at t=${fmt(f.t)}`)
+  }
 })
 
 test('extrapolation caps at the window and its speed ramps to zero smoothly', () => {
