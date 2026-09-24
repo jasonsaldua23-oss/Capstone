@@ -7,6 +7,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import {
   calculateTruckScreenRotation,
   normalizeMapAngle,
+  shortestMapAngleDelta,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
 import type { DriverLocation, LiveRouteLine } from './live-tracking/types';
@@ -22,6 +23,8 @@ const NAVIGATION_3D_ZOOM = 19;
 const NAVIGATION_3D_PITCH = 58;
 // Updated: keeps the recentered truck at the second reference image's framing.
 const NAVIGATION_3D_FORWARD_VIEW_RATIO = 0.12;
+// Switching between 2D and 3D, and recentering, glide there over this long.
+const CAMERA_TRANSITION_MS = 900;
 // Below this the fix is good enough that a halo would only add clutter; above
 // it the driver needs to see that the position they are following is uncertain.
 const NAVIGATION_ACCURACY_HALO_MIN_METERS = 30;
@@ -118,9 +121,29 @@ function createTruckElement(showSelfBadge: boolean, is3DPerspective: boolean) {
   element.innerHTML = `
     ${showSelfBadge ? '<div style="position:absolute;left:.5px;top:-47.5px;transform:translateX(-50%);z-index:3;border-radius:9999px;background:#fff;border:1px solid rgba(15,23,42,.18);padding:1px 6px;color:#0f3d72;font:900 10px/14px system-ui,sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(15,23,42,.15)">YOU</div>' : ''}
     <div style="position:absolute;left:.5px;top:.5px;transform:translate(-50%,17px);width:26px;height:10px;border-radius:9999px;background:rgba(29,78,216,.3);filter:blur(2px)"></div>
-    <img data-truck-image data-mode="3d" data-asset-forward-heading="${TRUCK_BACK_ASSET_FORWARD_HEADING}" src="${TRUCK_BACK_ICON_URL}" alt="truck" style="position:absolute;left:.5px;top:2.5px;z-index:2;width:96px;max-width:none;height:96px;display:${is3DPerspective ? 'block' : 'none'};object-fit:contain;transform:translate(-50%,-50%);transform-origin:center center;will-change:transform;filter:drop-shadow(0 4px 10px rgba(15,23,42,.38)) contrast(1.08) saturate(1.08)" />
-    <img data-truck-image data-mode="2d" data-asset-forward-heading="${TRUCK_ISO_ASSET_FORWARD_HEADING}" src="${TRUCK_ISO_ICON_URL}" alt="truck" style="position:absolute;left:-1.5px;top:2.5px;z-index:2;width:72px;max-width:none;height:72px;display:${is3DPerspective ? 'none' : 'block'};object-fit:contain;transform:translate(-50%,-50%);transform-origin:center center;will-change:transform;filter:drop-shadow(0 4px 10px rgba(15,23,42,.38)) contrast(1.08) saturate(1.08)" />`;
+    <img data-truck-image data-mode="3d" data-asset-forward-heading="${TRUCK_BACK_ASSET_FORWARD_HEADING}" src="${TRUCK_BACK_ICON_URL}" alt="truck" style="position:absolute;left:.5px;top:2.5px;z-index:2;width:96px;max-width:none;height:96px;display:${is3DPerspective ? 'block' : 'none'};opacity:${is3DPerspective ? 1 : 0};transition:opacity ${CAMERA_TRANSITION_MS / 2}ms ease-in-out;object-fit:contain;transform:translate(-50%,-50%);transform-origin:center center;will-change:transform;filter:drop-shadow(0 4px 10px rgba(15,23,42,.38)) contrast(1.08) saturate(1.08)" />
+    <img data-truck-image data-mode="2d" data-asset-forward-heading="${TRUCK_ISO_ASSET_FORWARD_HEADING}" src="${TRUCK_ISO_ICON_URL}" alt="truck" style="position:absolute;left:-1.5px;top:2.5px;z-index:2;width:72px;max-width:none;height:72px;display:${is3DPerspective ? 'none' : 'block'};opacity:${is3DPerspective ? 0 : 1};transition:opacity ${CAMERA_TRANSITION_MS / 2}ms ease-in-out;object-fit:contain;transform:translate(-50%,-50%);transform-origin:center center;will-change:transform;filter:drop-shadow(0 4px 10px rgba(15,23,42,.38)) contrast(1.08) saturate(1.08)" />`;
   return element;
+}
+
+// Crossfade one picture of the van in or out on a 2D/3D switch. Once faded out it
+// leaves rendering altogether: kept at zero opacity it was still repainted with its
+// shadow filter as it turned, every frame, and that alone dropped frames while driving.
+function fadeTruckImage(image: HTMLElement, shown: boolean) {
+  if (shown) {
+    if (image.style.display === 'none') {
+      image.style.display = 'block';
+      // Commit the hidden state first, or the fade in would not run.
+      void image.offsetWidth;
+    }
+    image.style.opacity = '1';
+    return;
+  }
+  if (image.style.opacity === '0') return;
+  image.style.opacity = '0';
+  window.setTimeout(() => {
+    if (image.style.opacity === '0') image.style.display = 'none';
+  }, CAMERA_TRANSITION_MS / 2 + 50);
 }
 
 function rotateTruckElement(element: HTMLElement, heading: number, map: maplibregl.Map, position: maplibregl.LngLat) {
@@ -188,6 +211,67 @@ function followCameraOptions(
 
 const cameraHeadingOf = (heading: number | null | undefined) =>
   typeof heading === 'number' && Number.isFinite(heading) ? normalizeMapAngle(heading) : 0;
+
+// Starts and lands gently. The ease-out it replaces began at full speed, so its
+// first frame alone turned the camera by up to 26 degrees.
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const lerp = (from: number, to: number, t: number) => from + (to - from) * t;
+
+type CameraTransition = {
+  startedAt: number;
+  toZoom: number;
+  from: { center: [number, number]; zoom: number; pitch: number; bearing: number };
+};
+
+type FollowState = {
+  truckId: string | null;
+  // Where the camera goes before the truck has been drawn through the handle.
+  fallbackCenter: [number, number];
+  fallbackHeading: number;
+  is3DPerspective: boolean;
+  navigationViewportInsets?: NavigationViewportInsets;
+  transition: CameraTransition | null;
+  steppedAt: number;
+};
+
+/**
+ * One frame of the follow camera. A 2D/3D switch or a recenter is not handed to
+ * MapLibre as an animation of its own: the camera is re-aimed on every frame the
+ * truck moves, and each of those cancelled it, so while driving the view snapped
+ * into 3D and came back out of it still zoomed in. Instead every frame blends from
+ * where the camera was when the switch began toward where it should be now, which
+ * keeps it on the moving truck all the way through.
+ */
+function stepFollowCamera(map: maplibregl.Map, follow: FollowState, live: NavigationTruckPose | undefined, now: number) {
+  follow.steppedAt = now;
+  const target = followCameraOptions(
+    map,
+    live ? [live.lng, live.lat] : follow.fallbackCenter,
+    live ? cameraHeadingOf(live.heading) : follow.fallbackHeading,
+    follow.is3DPerspective,
+    follow.navigationViewportInsets
+  );
+  const transition = follow.transition;
+  if (!transition) {
+    map.easeTo({ ...target, zoom: map.getZoom(), duration: 0, essential: true });
+    return;
+  }
+  const progress = Math.min(1, Math.max(0, (now - transition.startedAt) / CAMERA_TRANSITION_MS));
+  if (progress >= 1) follow.transition = null;
+  const t = easeInOutCubic(progress);
+  const { from } = transition;
+  map.easeTo({
+    center: [lerp(from.center[0], target.center[0], t), lerp(from.center[1], target.center[1], t)],
+    zoom: lerp(from.zoom, transition.toZoom, t),
+    pitch: lerp(from.pitch, target.pitch, t),
+    bearing: from.bearing + shortestMapAngleDelta(from.bearing, target.bearing) * t,
+    padding: target.padding,
+    // The starting centre is the one on screen, which carries no 3D offset.
+    offset: [target.offset[0] * t, target.offset[1] * t],
+    duration: 0,
+    essential: true,
+  });
+}
 
 // Every drop point gets a dotted bridge from the nearest routed road coordinate
 // to the order's exact stored coordinate, plus a dot marking that coordinate.
@@ -318,7 +402,17 @@ export default function MapLibreNavigationMap({
   // The newest pose drawn through the handle. A render carrying an older one must
   // not pull the truck or the camera back to it.
   const livePosesRef = useRef(new Map<string, NavigationTruckPose>());
-  const followRef = useRef({ truckId: null as string | null, is3DPerspective, navigationViewportInsets });
+  const followRef = useRef<FollowState>({
+    truckId: null,
+    fallbackCenter: [center[1], center[0]],
+    fallbackHeading: 0,
+    is3DPerspective,
+    navigationViewportInsets,
+    transition: null,
+    steppedAt: 0,
+  });
+  // Runs a 2D/3D switch while the truck is parked and draws no frames of its own.
+  const cameraLoopRef = useRef<number | null>(null);
   const previousRecenterRef = useRef(recenterSignal);
   const previousZoomInRef = useRef(zoomInSignal);
   const previousZoomOutRef = useRef(zoomOutSignal);
@@ -327,9 +421,19 @@ export default function MapLibreNavigationMap({
   const truckHeading = typeof truck?.markerHeading === 'number' && Number.isFinite(truck.markerHeading)
     ? normalizeMapAngle(truck.markerHeading)
     : 0;
+  const truckId = truck?.id ?? null;
+  const truckLat = truck?.lat;
+  const truckLng = truck?.lng;
+  const [centerLat, centerLng] = center;
   useLayoutEffect(() => {
-    followRef.current = { truckId: truck?.id ?? null, is3DPerspective, navigationViewportInsets };
-  }, [truck?.id, is3DPerspective, navigationViewportInsets]);
+    // Updated in place: a switch in progress lives on this object too.
+    const follow = followRef.current;
+    follow.truckId = truckId;
+    follow.fallbackCenter = truckLat !== undefined && truckLng !== undefined ? [truckLng, truckLat] : [centerLng, centerLat];
+    follow.fallbackHeading = truckHeading;
+    follow.is3DPerspective = is3DPerspective;
+    follow.navigationViewportInsets = navigationViewportInsets;
+  }, [truckId, truckLat, truckLng, truckHeading, centerLat, centerLng, is3DPerspective, navigationViewportInsets]);
 
   useImperativeHandle(ref, () => ({
     moveTrucks(poses) {
@@ -340,17 +444,7 @@ export default function MapLibreNavigationMap({
       // set at its new position within the same task, so only that is painted.
       const follow = followRef.current;
       const followed = follow.truckId ? livePosesRef.current.get(follow.truckId) : undefined;
-      if (followed && !isUserExploringRef.current) {
-        map.easeTo({
-          ...followCameraOptions(
-            map, [followed.lng, followed.lat], cameraHeadingOf(followed.heading),
-            follow.is3DPerspective, follow.navigationViewportInsets
-          ),
-          zoom: map.getZoom(),
-          duration: 0,
-          essential: true,
-        });
-      }
+      if (followed && !isUserExploringRef.current) stepFollowCamera(map, follow, followed, performance.now());
       poses.forEach((pose) => {
         const entry = truckMarkersRef.current.get(pose.id);
         if (!entry) return;
@@ -414,6 +508,10 @@ export default function MapLibreNavigationMap({
 
     return () => {
       observer.disconnect();
+      if (cameraLoopRef.current !== null) {
+        window.cancelAnimationFrame(cameraLoopRef.current);
+        cameraLoopRef.current = null;
+      }
       truckMarkersRef.current.clear();
       dropPinMarkersRef.current.clear();
       // Mark the instance unavailable before MapLibre tears down its style so
@@ -456,7 +554,7 @@ export default function MapLibreNavigationMap({
         entry.popupHtml = nextPopupHtml;
       }
       entry.element.querySelectorAll<HTMLElement>('[data-truck-image]').forEach((image) => {
-        image.style.display = image.dataset.mode === (is3DPerspective ? '3d' : '2d') ? 'block' : 'none';
+        fadeTruckImage(image, image.dataset.mode === (is3DPerspective ? '3d' : '2d'));
       });
       setTruckHeading(entry.element, live ? live.heading : location.markerHeading, map, entry.marker.getLngLat());
     });
@@ -836,8 +934,39 @@ export default function MapLibreNavigationMap({
     const perspectiveChanged = previous3DModeRef.current !== is3DPerspective;
     previousRecenterRef.current = recenterSignal;
     previous3DModeRef.current = is3DPerspective;
+    const follow = followRef.current;
     if (recenterChanged || perspectiveChanged) {
       isUserExploringRef.current = false;
+      map.stop();
+      follow.transition = {
+        startedAt: performance.now(),
+        toZoom: is3DPerspective ? NAVIGATION_3D_ZOOM : NAVIGATION_2D_ZOOM,
+        from: {
+          center: map.getCenter().toArray() as [number, number],
+          zoom: map.getZoom(),
+          pitch: map.getPitch(),
+          bearing: map.getBearing(),
+        },
+      };
+      if (cameraLoopRef.current === null) {
+        const tick = () => {
+          const current = mapRef.current;
+          const state = followRef.current;
+          // Touching the map hands the camera to the driver, mid-switch or not.
+          if (isUserExploringRef.current) state.transition = null;
+          if (!current || !state.transition) {
+            cameraLoopRef.current = null;
+            return;
+          }
+          const now = performance.now();
+          // A moving truck has already stepped the camera in this frame.
+          if (now - state.steppedAt > 8) {
+            stepFollowCamera(current, state, state.truckId ? livePosesRef.current.get(state.truckId) : undefined, now);
+          }
+          cameraLoopRef.current = window.requestAnimationFrame(tick);
+        };
+        cameraLoopRef.current = window.requestAnimationFrame(tick);
+      }
     }
     if (isUserExploringRef.current) return;
 
@@ -845,25 +974,8 @@ export default function MapLibreNavigationMap({
     // it with the same smoothed heading. Deriving the bearing from route
     // vertices instead made the view snap round a curve in discrete steps, one
     // jump per vertex, rather than easing through it.
-    const live = truck ? livePosesRef.current.get(truck.id) : undefined;
-    const targetCenter = live
-      ? [live.lng, live.lat] as [number, number]
-      : truck
-        ? [truck.lng, truck.lat] as [number, number]
-        : [center[1], center[0]] as [number, number];
-    const cameraHeading = live ? cameraHeadingOf(live.heading) : truckHeading;
-    map.easeTo({
-      ...followCameraOptions(map, targetCenter, cameraHeading, is3DPerspective, navigationViewportInsets),
-      zoom: recenterChanged || perspectiveChanged
-        ? (is3DPerspective ? NAVIGATION_3D_ZOOM : NAVIGATION_2D_ZOOM)
-        : map.getZoom(),
-      // GPS positions and bearings are already interpolated at animation-frame
-      // cadence. Applying another 350ms transition on every frame creates lag.
-      duration: perspectiveChanged || recenterChanged ? 700 : 0,
-      easing: (value: number) => 1 - Math.pow(1 - value, 3),
-      essential: true,
-    });
-  }, [center, is3DPerspective, navigationViewportInsets, recenterSignal, truck?.lat, truck?.lng, truckHeading]);
+    stepFollowCamera(map, follow, truckId ? livePosesRef.current.get(truckId) : undefined, performance.now());
+  }, [centerLat, centerLng, is3DPerspective, navigationViewportInsets, recenterSignal, truckId, truckLat, truckLng, truckHeading]);
 
   return (
     <div
