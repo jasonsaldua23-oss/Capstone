@@ -245,7 +245,7 @@ mapping is shared while the Tailwind strings stay on the web. Class output is un
 **Deliberate app behavior change.** Mobile previously had its own status rules.
 `normalizeOrderStatus`, `getOrderStageIndex`, `isOrderCancellable` and `isOrderTrackable`
 now delegate to the web's. Checked against `backend/core/models.py`, the real
-`OrderStatus` enum is `PENDING, CONFIRMED, PREPARING, RESCHEDULED, OUT_FOR_DELIVERY,
+`OrderStatus` enum is `PENDING, APPROVED, PREPARING, RESCHEDULED, OUT_FOR_DELIVERY,
 DELIVERED, REJECTED, CANCELLED`; the app's `SHIPPED` and `APPROVED` mappings were dead
 code, and its cancellability rule was far looser than the web's (which also refuses once
 an order is assigned to a trip). The unit test that asserted `SHIPPED → stage 2` was

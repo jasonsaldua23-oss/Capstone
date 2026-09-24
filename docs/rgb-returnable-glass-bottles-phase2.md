@@ -259,7 +259,7 @@ DepositTransaction (N) ────── (1) ContainerType (nullable)
 - **Over-returns**: If customer returns more empties than outstanding, the excess creates a negative balance (credit). The system allows this but flags for review.
 - **Order edits/cancellations**:
   - If order is PENDING and not yet confirmed: cancellation releases deposit charges/refunds, reverses balance changes.
-  - If order is CONFIRMED or later: cancellation requires admin approval, deposit transactions are reversed with ADJUSTMENT type.
+  - If order is APPROVED or later: cancellation requires admin approval, deposit transactions are reversed with ADJUSTMENT type.
   - Partial edits: Not supported in v1. Customer must cancel and re-order.
 
 ### 2.2 Returns Processing / Grading

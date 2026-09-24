@@ -313,7 +313,7 @@ The system is designed to use:
 ## 📈 Order Status Flow
 
 ```
-PENDING → CONFIRMED → PROCESSING → READY_FOR_PICKUP → IN_TRANSIT → OUT_FOR_DELIVERY → DELIVERED
+PENDING → APPROVED → PROCESSING → READY_FOR_PICKUP → IN_TRANSIT → OUT_FOR_DELIVERY → DELIVERED
                                                                       ↘ FAILED_DELIVERY
                                                                       ↘ RETURNED
 ```
