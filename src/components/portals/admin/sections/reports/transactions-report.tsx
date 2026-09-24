@@ -269,6 +269,8 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       case 'DELIVERED':
       case 'COMPLETED':
         return <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Completed</Badge>
+      case 'APPROVED':
+        return <Badge className="bg-cyan-50 text-cyan-700 border-cyan-200">Approved</Badge>
       case 'OUT_FOR_DELIVERY':
       case 'PREPARING':
       case 'IN_TRANSIT':
@@ -465,6 +467,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             >
               <option value="all">All Transaction Statuses</option>
               <option value="DELIVERED">Delivered / Completed</option>
+              <option value="APPROVED">Approved</option>
               <option value="PREPARING">Processing</option>
               <option value="OUT_FOR_DELIVERY">Out For Delivery</option>
               <option value="PENDING">Pending</option>

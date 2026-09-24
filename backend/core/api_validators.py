@@ -152,7 +152,7 @@ def _normalize_order_status(value: Any) -> str:
         return raw
     if raw in {
         OrderStatus.PENDING,
-        OrderStatus.CONFIRMED,
+        OrderStatus.APPROVED,
         OrderStatus.PREPARING,
         OrderStatus.RESCHEDULED,
         OrderStatus.OUT_FOR_DELIVERY,

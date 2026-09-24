@@ -452,7 +452,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
       return 'PENDING'
     }
-    if (['CONFIRMED', 'PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw)) return 'PROCESSING'
+    if (['APPROVED', 'PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw)) return 'PROCESSING'
     if (raw === 'UNAPPROVED') return 'PENDING'
     if (['DISPATCHED', 'IN_TRANSIT'].includes(raw)) return 'OUT FOR DELIVERY'
     return raw.replace(/_/g, ' ')
@@ -842,7 +842,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
       toast.error(action === 'reject' ? 'A rejection reason is required' : 'A cancellation reason is required')
       return
     }
-    const nextStatus = action === 'approve' ? 'CONFIRMED' : action === 'reject' ? 'REJECTED' : 'CANCELLED'
+    const nextStatus = action === 'approve' ? 'APPROVED' : action === 'reject' ? 'REJECTED' : 'CANCELLED'
     const nextReason = action === 'approve' ? undefined : actionReason
     await updateOrderStatus(order.id, nextStatus as any, nextReason)
     setActionState(null)

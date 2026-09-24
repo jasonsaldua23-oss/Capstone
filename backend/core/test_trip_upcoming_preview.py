@@ -192,7 +192,7 @@ class UpcomingDeliveriesPreviewTests(TestCase):
         d = [self.today + timedelta(days=offset) for offset in range(6)]
         seeded = {
             # Day 0: one eligible order and one still awaiting approval.
-            "d0_confirmed": self._seed_order("ORD-UP-D0-CONF", status=OrderStatus.CONFIRMED, delivery_day=d[0]),
+            "d0_approved": self._seed_order("ORD-UP-D0-APPR", status=OrderStatus.APPROVED, delivery_day=d[0]),
             "d0_pending": self._seed_order("ORD-UP-D0-PEND", status=OrderStatus.PENDING, delivery_day=d[0]),
             # Day 1: preparing counts; delivered does not. A second city tests the breakdown.
             "d1_preparing": self._seed_order("ORD-UP-D1-PREP", status=OrderStatus.PREPARING, delivery_day=d[1], quantity=3),
@@ -204,14 +204,14 @@ class UpcomingDeliveriesPreviewTests(TestCase):
             # timeline row falls back to its creation day.
             "d2_on_trip": self._seed_order("ORD-UP-D2-TRIP", status=OrderStatus.PREPARING, delivery_day=d[2]),
             "d2_no_timeline": self._seed_order(
-                "ORD-UP-D2-NOTL", status=OrderStatus.CONFIRMED, created_day=d[2], timeline=False
+                "ORD-UP-D2-NOTL", status=OrderStatus.APPROVED, created_day=d[2], timeline=False
             ),
             # Day 3: timeline row exists but has no delivery date -> creation day.
             "d3_blank_delivery": self._seed_order(
-                "ORD-UP-D3-BLANK", status=OrderStatus.CONFIRMED, created_day=d[3], delivery_day=None
+                "ORD-UP-D3-BLANK", status=OrderStatus.APPROVED, created_day=d[3], delivery_day=None
             ),
             # Day 4: nothing. Day 5: eligible but outside a 5-day window.
-            "d5_confirmed": self._seed_order("ORD-UP-D5-CONF", status=OrderStatus.CONFIRMED, delivery_day=d[5]),
+            "d5_approved": self._seed_order("ORD-UP-D5-APPR", status=OrderStatus.APPROVED, delivery_day=d[5]),
         }
         self._put_on_active_trip(seeded["d2_on_trip"], d[2])
         return seeded
@@ -289,12 +289,12 @@ class UpcomingDeliveriesPreviewTests(TestCase):
         self.assertEqual(len(payload["days"]), 6)
 
         expected_ids_by_offset = {
-            0: {seeded["d0_confirmed"].id},
+            0: {seeded["d0_approved"].id},
             1: {seeded["d1_preparing"].id, seeded["d1_preparing_talisay"].id},
             2: {seeded["d2_no_timeline"].id},
             3: {seeded["d3_blank_delivery"].id},
             4: set(),
-            5: {seeded["d5_confirmed"].id},
+            5: {seeded["d5_approved"].id},
         }
         for offset, day in enumerate(payload["days"]):
             target_day = self.today + timedelta(days=offset)
@@ -338,7 +338,7 @@ class UpcomingDeliveriesPreviewTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         listed_ids = {row["id"] for day in response.json()["days"] for row in day["orders"]}
-        self.assertNotIn(seeded["d5_confirmed"].id, listed_ids)
+        self.assertNotIn(seeded["d5_approved"].id, listed_ids)
         self.assertNotIn(seeded["d0_pending"].id, listed_ids)
         self.assertNotIn(seeded["d1_delivered"].id, listed_ids)
         self.assertNotIn(seeded["d2_on_trip"].id, listed_ids)
@@ -390,4 +390,4 @@ class UpcomingDeliveriesPreviewTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         preview_ids = {row["id"] for row in response.json()["days"][0]["orders"]}
-        self.assertEqual(preview_ids, {seeded["d0_confirmed"].id})
+        self.assertEqual(preview_ids, {seeded["d0_approved"].id})

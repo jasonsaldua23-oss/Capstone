@@ -222,7 +222,7 @@ def _serialize_order(
     # For approved orders, the current delivery status is authoritative for the displayed PO stage.
     if request_status_value == PurchaseRequestStatus.APPROVED or order.purchase_order_number:
         stage_by_status = {
-            OrderStatus.CONFIRMED: PurchaseOrderStage.APPROVED,
+            OrderStatus.APPROVED: PurchaseOrderStage.APPROVED,
             OrderStatus.PREPARING: PurchaseOrderStage.PROCESSING,
             OrderStatus.OUT_FOR_DELIVERY: PurchaseOrderStage.OUT_FOR_DELIVERY,
             # A new schedule puts the PO back in the approved queue; processing is a separate staff action.

@@ -116,7 +116,7 @@ export function WarehousePurchaseRequestsView({
     const reason = buildOrderActionReason(selectedReasons, otherReason)
     // Required: both cancellation and rejection use a selected staff reason.
     if (action !== 'approve' && !reason) return
-    const nextStatus = action === 'approve' ? 'CONFIRMED' : action === 'reject' ? 'REJECTED' : 'CANCELLED'
+    const nextStatus = action === 'approve' ? 'APPROVED' : action === 'reject' ? 'REJECTED' : 'CANCELLED'
     const nextReason = action === 'approve' ? undefined : reason.trim() || undefined
     try {
       setBusyId(order.id)

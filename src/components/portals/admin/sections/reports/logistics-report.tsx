@@ -33,7 +33,7 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatDayKey, withinRange, normalizeTripStatus, toArray } from '../shared'
+import { formatDayKey, formatPeso, withinRange, normalizeTripStatus, toArray } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 import { buildDailyChartSeries } from '@/lib/report-metrics'
@@ -99,7 +99,8 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       const destinationSummary = destinationsList.length > 0 ? destinationsList.slice(0, 2).join(', ') + (destinationsList.length > 2 ? ` +${destinationsList.length - 2} more` : '') : 'Multiple Drop Points'
 
       const date = trip.createdAt || trip.plannedStartAt || new Date().toISOString()
-      const departureTime = trip.actualStartAt || trip.plannedStartAt
+      // Server-computed from delivered stops; replacement (RPL-) deliveries are free and excluded.
+      const cashCollected = Number(trip.cashCollectedTotal || 0)
       const completionTime = trip.actualEndAt
 
       return {
@@ -115,7 +116,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
         completionRate,
         destinationSummary,
         date,
-        departureTime,
+        cashCollected,
         completionTime,
       }
     })
@@ -265,7 +266,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       accessor: (r) => `${r.completedDrops}/${r.totalDrops} drops (${r.completionRate}%)`,
     },
     { header: 'Status', key: 'status' },
-    { header: 'Departure', accessor: (r) => (r.departureTime ? formatReportTableDateTime(r.departureTime) : 'N/A') },
+    { header: 'Cash Collected', accessor: (r) => formatPeso(r.cashCollected) },
     { header: 'Completion', accessor: (r) => (r.completionTime ? formatReportTableDateTime(r.completionTime) : 'In Progress') },
     { header: 'Trip Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
@@ -533,7 +534,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
                 <th className="p-3.5">Vehicle</th>
                 <th className="p-3.5">Barangays / Stops</th>
                 <th className="p-3.5">Status</th>
-                <th className="p-3.5">Departure Time</th>
+                <th className="p-3.5">Cash Collected</th>
                 <th className="p-3.5">Completion Time</th>
                 <th className="p-3.5 pr-4">Trip Date</th>
               </tr>
@@ -557,7 +558,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
                       </div>
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
-                    <td className="p-3.5 text-slate-600 whitespace-nowrap">{row.departureTime ? formatReportTableDateTime(row.departureTime) : 'Not departed'}</td>
+                    <td className="p-3.5 font-medium text-slate-800 whitespace-nowrap">{formatPeso(row.cashCollected)}</td>
                     <td className="p-3.5 text-slate-600 whitespace-nowrap">{row.completionTime ? formatReportTableDateTime(row.completionTime) : 'In progress'}</td>
                     <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>

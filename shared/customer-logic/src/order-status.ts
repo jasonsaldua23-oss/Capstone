@@ -7,7 +7,8 @@ export const normalizeDeliveryStatus = (status: string, paymentStatus?: string |
   if (raw === 'CANCELLED' || raw === 'CANCELED' || raw === 'FAILED_DELIVERY') return 'CANCELLED'
   if (String(paymentStatus || '').toLowerCase() === 'pending_approval') return 'PENDING'
   if (raw === 'PENDING') return 'PENDING'
-  if (raw === 'CONFIRMED') return 'PREPARING'
+  // Preserve tracking for cached orders saved before the approval status rename.
+  if (raw === 'APPROVED' || raw === 'CONFIRMED') return 'PREPARING'
   if (raw === 'RESCHEDULED') return 'PENDING'
   if (raw === 'PROCESSING' || raw === 'PACKED' || raw === 'READY_FOR_PICKUP') return 'PREPARING'
   if (raw === 'IN_TRANSIT' || raw === 'DISPATCHED') return 'OUT_FOR_DELIVERY'
@@ -48,7 +49,7 @@ export const isOrderCancellable = (status: string, paymentStatus?: string | null
     order?.assignedDriver ||
     order?.driverId ||
     order?.driverName ||
-    ['CONFIRMED', 'PREPARING', 'READY_FOR_DELIVERY', 'FOR_DELIVERY', 'IN_TRANSIT', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'].includes(raw)
+    ['APPROVED', 'CONFIRMED', 'PREPARING', 'READY_FOR_DELIVERY', 'FOR_DELIVERY', 'IN_TRANSIT', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED'].includes(raw)
   )
   if (isAssignedToDelivery) return false
   if (raw === 'PROCESSING') {

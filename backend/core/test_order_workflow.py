@@ -93,7 +93,7 @@ class PurchaseRequestWorkflowTests(TestCase):
     def test_warehouse_approval_creates_purchase_order_metadata(self) -> None:
         response = self.client.patch(
             f"/api/orders/{self.order.id}/status",
-            data='{"status":"CONFIRMED"}',
+            data='{"status":"APPROVED"}',
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.token}",
         )
@@ -101,7 +101,7 @@ class PurchaseRequestWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.order.refresh_from_db()
         self.assertEqual(self.order.request_status, "APPROVED")
-        self.assertEqual(self.order.status, OrderStatus.CONFIRMED)
+        self.assertEqual(self.order.status, OrderStatus.APPROVED)
         self.assertEqual(self.order.purchase_order_stage, "APPROVED")
         self.assertTrue(str(self.order.purchase_order_number or "").startswith("PO-"))
         self.assertEqual(self.order.approved_by_name, self.staff.name)
@@ -118,6 +118,21 @@ class PurchaseRequestWorkflowTests(TestCase):
             f"Your order {self.order.purchase_order_number} was approved.",
         )
 
+    def test_legacy_confirmed_status_is_stored_as_approved(self) -> None:
+        # Installed app builds still send the old CONFIRMED value when approving.
+        response = self.client.patch(
+            f"/api/orders/{self.order.id}/status",
+            data='{"status":"CONFIRMED"}',
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["order"]["status"], OrderStatus.APPROVED)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.APPROVED)
+        self.assertEqual(self.order.purchase_order_stage, "APPROVED")
+
     def test_warehouse_approval_expires_request_with_past_delivery_date(self) -> None:
         timeline = self.order.timeline
         timeline.delivery_date = timezone.now() - timedelta(days=1)
@@ -125,7 +140,7 @@ class PurchaseRequestWorkflowTests(TestCase):
 
         response = self.client.patch(
             f"/api/orders/{self.order.id}/status",
-            data='{"status":"CONFIRMED"}',
+            data='{"status":"APPROVED"}',
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {self.token}",
         )
@@ -327,7 +342,7 @@ class OrderStatusTransitionApiContractTests(TestCase):
 
     def test_overdue_approved_order_requires_reschedule_before_processing(self) -> None:
         order = self._create_order(
-            status=OrderStatus.CONFIRMED,
+            status=OrderStatus.APPROVED,
             purchase_order_number="PO-STATUS-OVERDUE-001",
             purchase_order_stage=PurchaseOrderStage.APPROVED,
         )
@@ -338,11 +353,11 @@ class OrderStatusTransitionApiContractTests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["error"], "Delivery date has passed. Reschedule the order before processing it.")
         order.refresh_from_db()
-        self.assertEqual(order.status, OrderStatus.CONFIRMED)
+        self.assertEqual(order.status, OrderStatus.APPROVED)
 
     def test_overdue_approved_order_can_be_rescheduled_to_valid_date(self) -> None:
         order = self._create_order(
-            status=OrderStatus.CONFIRMED,
+            status=OrderStatus.APPROVED,
             purchase_order_number="PO-STATUS-RESCHEDULE-001",
             purchase_order_stage=PurchaseOrderStage.APPROVED,
         )

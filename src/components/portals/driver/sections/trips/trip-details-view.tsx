@@ -43,6 +43,7 @@ const describeStopStatus = (status?: string | null) => {
 const describeOrderStatus = (status?: string | null) => {
   const raw = String(status || '').toUpperCase()
   if (raw === 'PREPARING') return 'Processing'
+  if (raw === 'APPROVED') return 'Approved'
   return raw ? raw.replace(/_/g, ' ') : 'Not set'
 }
 

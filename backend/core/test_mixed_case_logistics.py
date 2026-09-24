@@ -84,7 +84,7 @@ class MixedCaseLogisticsTests(MixedCaseFixtureMixin, TestCase):
         self._trip_with_drop_point(order, "QUERY-TWO")
         self.assertEqual(query_count(2), first_count)
 
-    def _reserved_order(self, number: str, *, status: str = OrderStatus.CONFIRMED):
+    def _reserved_order(self, number: str, *, status: str = OrderStatus.APPROVED):
         order, item = self.create_mixed_item(number=number)
         order.status = status
         order.shipping_name = self.customer.name

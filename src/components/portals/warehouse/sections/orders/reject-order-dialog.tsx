@@ -17,7 +17,7 @@ export type WarehouseRejectOrderDialogProps = {
   setOtherRejectReason: Dispatch<SetStateAction<string>>
   setRejectOrder: Dispatch<SetStateAction<WarehouseOrderItem | null>>
   setSelectedRejectReasons: Dispatch<SetStateAction<string[]>>
-  updateWarehouseOrderStatus: (orderId: string, status: 'CONFIRMED' | 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED', reason?: string, deliveryDate?: string) => Promise<boolean>
+  updateWarehouseOrderStatus: (orderId: string, status: 'APPROVED' | 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED', reason?: string, deliveryDate?: string) => Promise<boolean>
   updatingOrderId: string | null
 }
 

@@ -23,7 +23,7 @@ class InventoryTransactionStockChangeTests(TestCase):
         inventory, order = self.make_delivery()
         customer = Customer.objects.create(email='cancellation@example.test', name='Cancellation Customer')
         order.customer = customer
-        order.status = 'CONFIRMED'
+        order.status = 'APPROVED'
         order.request_status = 'APPROVED'
         order.purchase_request_number = 'PR-CANCEL-TEST'
         order.purchase_order_number = 'PO-CANCEL-TEST'

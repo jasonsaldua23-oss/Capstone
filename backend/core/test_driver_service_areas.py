@@ -220,7 +220,7 @@ class NewCustomerAccessTests(TestCase):
         self.assertEqual(order.request_status, 'PENDING_APPROVAL')
         original_pr = order.purchase_request_number
         operator = User.objects.create(name='Operator', email='operator@capstone.local', role='WAREHOUSE_STAFF')
-        approval = RequestFactory().patch('/api/orders/status', data=json.dumps({'status': 'CONFIRMED'}), content_type='application/json')
+        approval = RequestFactory().patch('/api/orders/status', data=json.dumps({'status': 'APPROVED'}), content_type='application/json')
         with patch('core.views_api._require_staff', return_value=({'role': operator.role, 'userId': operator.id, 'name': operator.name}, None)), patch('core.views_api._email_purchase_request_approved_to_customer'), patch('core.views_api._create_staff_notifications'):
             approved = order_status_update(approval, order.id)
         self.assertEqual(approved.status_code, 200, approved.content)

@@ -17,7 +17,7 @@ test("available inventory excludes reserved stock", () => {
 
 test("status normalization matches the web portal for every backend OrderStatus", () => {
   assert.equal(normalizeOrderStatus(order("PENDING")), "PENDING");
-  assert.equal(normalizeOrderStatus(order("CONFIRMED")), "PREPARING");
+  assert.equal(normalizeOrderStatus(order("APPROVED")), "PREPARING");
   assert.equal(normalizeOrderStatus(order("PREPARING")), "PREPARING");
   assert.equal(normalizeOrderStatus(order("RESCHEDULED")), "PENDING");
   assert.equal(normalizeOrderStatus(order("OUT_FOR_DELIVERY")), "OUT_FOR_DELIVERY");
@@ -31,9 +31,18 @@ test("a purchase request awaiting approval reads as pending regardless of order 
   assert.equal(normalizeOrderStatus(order("PREPARING", { paymentStatus: "pending_approval" })), "PENDING");
 });
 
+// Cached orders must retain their stage and tracking after the backend rename.
+test("legacy confirmed orders behave like approved orders", () => {
+  assert.equal(normalizeOrderStatus(order("CONFIRMED")), "PREPARING");
+  assert.equal(getOrderStageIndex(order("CONFIRMED")), 1);
+  assert.equal(isOrderTrackable(order("CONFIRMED")), true);
+  assert.equal(isOrderCancellable(order("CONFIRMED")), false);
+  assert.equal(normalizeOrderStatus(order("CONFIRMED", { paymentStatus: "pending_approval" })), "PENDING");
+});
+
 test("delivery stage index matches the web portal", () => {
   assert.equal(getOrderStageIndex(order("PENDING")), 0);
-  assert.equal(getOrderStageIndex(order("CONFIRMED")), 1);
+  assert.equal(getOrderStageIndex(order("APPROVED")), 1);
   assert.equal(getOrderStageIndex(order("OUT_FOR_DELIVERY")), 2);
   assert.equal(getOrderStageIndex(order("DELIVERED")), 3);
 });
@@ -47,7 +56,7 @@ test("an order assigned to a delivery trip can no longer be cancelled", () => {
 
 test("tracking opens once the warehouse starts processing", () => {
   assert.equal(isOrderTrackable(order("PENDING")), false);
-  assert.equal(isOrderTrackable(order("CONFIRMED")), true);
+  assert.equal(isOrderTrackable(order("APPROVED")), true);
   assert.equal(isOrderTrackable(order("OUT_FOR_DELIVERY")), true);
   assert.equal(isOrderTrackable(order("DELIVERED")), true);
 });

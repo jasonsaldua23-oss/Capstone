@@ -278,7 +278,7 @@ export const formatWarehouseOrderStatus = (status: string, paymentStatus?: strin
     // Keep PREPARING as the API value while every portal displays Processing.
     return 'PROCESSING'
   }
-  if (['PENDING', 'CONFIRMED'].includes(rawStatus)) return 'PENDING'
+  if (['PENDING', 'APPROVED'].includes(rawStatus)) return 'PENDING'
 
   return rawStatus.replace(/_/g, ' ')
 }

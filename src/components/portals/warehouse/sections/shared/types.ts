@@ -44,7 +44,7 @@ export type WarehousePurchaseRequestsViewProps = {
   openOrderDetail: (order: any) => Promise<void>
   updateWarehouseOrderStatus: (
     orderId: string,
-    status: 'CONFIRMED' | 'REJECTED' | 'CANCELLED',
+    status: 'APPROVED' | 'REJECTED' | 'CANCELLED',
     reason?: string
   ) => Promise<boolean | void>
 }

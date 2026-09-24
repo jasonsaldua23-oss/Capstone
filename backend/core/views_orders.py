@@ -897,7 +897,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     next_status = _normalize_order_status(status)
     allowed_statuses = {
         OrderStatus.PENDING,
-        OrderStatus.CONFIRMED,
+        OrderStatus.APPROVED,
         OrderStatus.PREPARING,
         OrderStatus.RESCHEDULED,
         OrderStatus.OUT_FOR_DELIVERY,
@@ -941,7 +941,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         if active_trip_assignment:
             return _err("Remove the order from its active delivery trip before rescheduling it.", 409)
     repairs_missing_approval = (
-        next_status == OrderStatus.CONFIRMED
+        next_status == OrderStatus.APPROVED
         and (is_pending_request or not str(o.purchase_order_number or "").strip())
     )
 
@@ -953,8 +953,8 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         return _err("Delivered orders cannot be moved to another status", 400)
 
     allowed_transitions = {
-        OrderStatus.PENDING: {OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.REJECTED, OrderStatus.CANCELLED},
-        OrderStatus.CONFIRMED: {OrderStatus.PREPARING, OrderStatus.RESCHEDULED, OrderStatus.REJECTED, OrderStatus.CANCELLED},
+        OrderStatus.PENDING: {OrderStatus.APPROVED, OrderStatus.PREPARING, OrderStatus.REJECTED, OrderStatus.CANCELLED},
+        OrderStatus.APPROVED: {OrderStatus.PREPARING, OrderStatus.RESCHEDULED, OrderStatus.REJECTED, OrderStatus.CANCELLED},
         OrderStatus.PREPARING: {OrderStatus.RESCHEDULED, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.REJECTED, OrderStatus.CANCELLED},
         OrderStatus.RESCHEDULED: {OrderStatus.PREPARING, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.REJECTED, OrderStatus.CANCELLED},
         OrderStatus.OUT_FOR_DELIVERY: {OrderStatus.DELIVERED, OrderStatus.REJECTED, OrderStatus.CANCELLED},
@@ -966,13 +966,13 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         return _err(f"Invalid transition from {current_status} to {next_status}", 400)
 
     staff_role = str(staff.get("role") or "").strip().upper()
-    if (is_pending_request or current_status == OrderStatus.PENDING) and next_status == OrderStatus.CONFIRMED:
+    if (is_pending_request or current_status == OrderStatus.PENDING) and next_status == OrderStatus.APPROVED:
         if staff_role != RoleType.WAREHOUSE_STAFF:
             return _err("Only warehouse staff can approve purchase requests", 403)
 
     # Pending requests must go through approval before any PO fulfillment stage.
     if is_pending_request and next_status not in {
-        OrderStatus.CONFIRMED,
+        OrderStatus.APPROVED,
         OrderStatus.REJECTED,
         OrderStatus.CANCELLED,
     }:
@@ -1005,7 +1005,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             )
             if locked_delivery_date_past and next_status == OrderStatus.PREPARING:
                 return _err("Delivery date has passed. Reschedule the order before processing it.", 409)
-            if current_status == next_status and not (next_status == OrderStatus.CONFIRMED and (is_pending_request or not o.purchase_order_number)) and next_status != OrderStatus.RESCHEDULED:
+            if current_status == next_status and not (next_status == OrderStatus.APPROVED and (is_pending_request or not o.purchase_order_number)) and next_status != OrderStatus.RESCHEDULED:
                 return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
             if current_status != next_status and next_status not in allowed_transitions.get(current_status, set()):
                 return _err(f"Invalid transition from {current_status} to {next_status}", 409)
@@ -1022,7 +1022,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             o.status = next_status
             update_fields = ["status", "updated_at"]
 
-            if next_status == OrderStatus.CONFIRMED:
+            if next_status == OrderStatus.APPROVED:
                 # Keep approval idempotent for older requests that may not yet have
                 # submission-time reservations.
                 try:
@@ -1112,7 +1112,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             if next_status == OrderStatus.RESCHEDULED and rescheduled_delivery_at is not None:
                 timeline.delivery_date = rescheduled_delivery_at
             status_map = {
-                "CONFIRMED": "confirmed_at",
+                "APPROVED": "confirmed_at",
                 "PREPARING": "processed_at",
                 "OUT_FOR_DELIVERY": "shipped_at",
                 "DELIVERED": "delivered_at",
@@ -1130,17 +1130,15 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
 
     updated = Order.objects.select_related("customer", "timeline").get(id=o.id)
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
-    # Display the business-facing approval label without changing the internal status enum.
-    notification_status = "APPROVED" if next_status == OrderStatus.CONFIRMED else next_status
     _create_staff_notifications(
         title="Order status updated",
-        message=f"{actor_name} changed order {updated.order_number} status to {notification_status}.",
+        message=f"{actor_name} changed order {updated.order_number} status to {next_status}.",
         notification_type="ORDER",
         reference_type="order",
         reference_id=updated.id,
     )
 
-    if next_status == OrderStatus.CONFIRMED:
+    if next_status == OrderStatus.APPROVED:
         po_number = str(updated.purchase_order_number or updated.order_number or "").strip()
         # Fix: customer notifications use direct customer-facing order language;
         # staff actor/audit wording remains limited to staff notifications above.
@@ -1180,7 +1178,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             .prefetch_related("items__product")
             .get(id=updated.id)
         )
-        if next_status == OrderStatus.CONFIRMED:
+        if next_status == OrderStatus.APPROVED:
             _email_purchase_request_approved_to_customer(order_for_mail)
         elif next_status == OrderStatus.PREPARING:
             _email_order_preparing_to_customer(order_for_mail)

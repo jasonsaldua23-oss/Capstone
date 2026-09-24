@@ -536,7 +536,7 @@ def _create_scheduled_replacement_order_locked(
         # The delivery belongs to this replacement case and uses its number.
         order_number=replacement.replacement_number,
         customer=source_order.customer,
-        status=OrderStatus.CONFIRMED,
+        status=OrderStatus.APPROVED,
         priority="high",
         subtotal=0,
         discount=0,

@@ -805,7 +805,7 @@ class Command(BaseCommand):
             customer = customers_map[o_data['outlet']]
             order_num = f"ORD-PEP-2026-{idx+1:04d}"
 
-            # Distribute statuses: past orders DELIVERED, recent ones IN_TRANSIT / CONFIRMED
+            # Distribute statuses: past orders DELIVERED, recent ones IN_TRANSIT / APPROVED
             if idx < int(orders_limit * 0.6):
                 status = 'DELIVERED'
                 order_date = now - timedelta(days=(orders_limit - idx) // 5 + 1)
@@ -813,7 +813,7 @@ class Command(BaseCommand):
                 status = 'IN_TRANSIT'
                 order_date = now - timedelta(hours=3)
             else:
-                status = 'CONFIRMED'
+                status = 'APPROVED'
                 order_date = now - timedelta(minutes=45)
 
             # Calculate total
@@ -961,8 +961,8 @@ class Command(BaseCommand):
             trips.append(t2)
 
         # Trip 3: Scheduled (Tomorrow)
-        confirmed_orders = [o for o in orders if o.status == 'CONFIRMED'][:6]
-        if confirmed_orders:
+        approved_orders = [o for o in orders if o.status == 'APPROVED'][:6]
+        if approved_orders:
             t3, _ = Trip.objects.get_or_create(
                 trip_number='TRIP-PEP-2026-003',
                 defaults={
@@ -973,7 +973,7 @@ class Command(BaseCommand):
                     'planned_start_at': now + timedelta(days=1, hours=8)
                 }
             )
-            for seq, ord_obj in enumerate(confirmed_orders, 1):
+            for seq, ord_obj in enumerate(approved_orders, 1):
                 TripDropPoint.objects.get_or_create(
                     trip=t3,
                     order=ord_obj,

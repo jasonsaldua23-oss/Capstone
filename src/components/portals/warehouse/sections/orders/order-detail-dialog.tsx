@@ -43,7 +43,7 @@ export type WarehouseOrderDetailDialogProps = {
   orders: WarehouseOrderItem[]
   selectedOrder: WarehouseOrderItem | null
   setSelectedOrder: Dispatch<SetStateAction<WarehouseOrderItem | null>>
-  updateWarehouseOrderStatus: (orderId: string, status: 'CONFIRMED' | 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED', reason?: string, deliveryDate?: string) => Promise<boolean>
+  updateWarehouseOrderStatus: (orderId: string, status: 'APPROVED' | 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED', reason?: string, deliveryDate?: string) => Promise<boolean>
   updatingOrderId: string | null
 }
 
@@ -418,7 +418,7 @@ export function WarehouseOrderDetailDialog({
               {(() => {
                 const selectedOrderStatus = String(selectedOrder.status || '').toUpperCase()
                 const isPendingApproval = String(selectedOrder.paymentStatus || '').toLowerCase() === 'pending_approval'
-                const isAlreadyApproved = ['CONFIRMED', 'APPROVED'].includes(selectedOrderStatus)
+                const isAlreadyApproved = selectedOrderStatus === 'APPROVED'
                 const isUpdatingSelectedOrder = updatingOrderId === selectedOrder.id
                 return (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -430,7 +430,7 @@ export function WarehouseOrderDetailDialog({
                       <Button
                         className="bg-emerald-600 text-white hover:bg-emerald-700"
                         // PR approval must generate its PO before preparation starts.
-                        onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'CONFIRMED')}
+                        onClick={() => void updateWarehouseOrderStatus(selectedOrder.id, 'APPROVED')}
                         disabled={isUpdatingSelectedOrder}
                         aria-busy={isUpdatingSelectedOrder}
                       >

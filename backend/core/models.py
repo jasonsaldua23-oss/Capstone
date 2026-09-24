@@ -20,7 +20,7 @@ class RoleType(models.TextChoices):
 
 class OrderStatus(models.TextChoices):
     PENDING = "PENDING", "Pending"
-    CONFIRMED = "CONFIRMED", "Confirmed"
+    APPROVED = "APPROVED", "Approved"
     PREPARING = "PREPARING", "Processing"
     RESCHEDULED = "RESCHEDULED", "Rescheduled"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY", "Out For Delivery"

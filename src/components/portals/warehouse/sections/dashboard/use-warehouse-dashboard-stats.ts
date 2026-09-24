@@ -270,7 +270,7 @@ export function useWarehouseDashboardStats(inputs: WarehouseDashboardStatsInputs
     const capacitySummary = buildWarehouseCapacitySummary(assignedWarehouse, scopedInventory)
     const lowStockItems = stockHealthSummary.belowThreshold
     const pendingOrders = scopedOrders.filter((order) =>
-      ['PENDING', 'CONFIRMED', 'PREPARING', 'RESCHEDULED'].includes(String(order.status || '').toUpperCase())
+      ['PENDING', 'APPROVED', 'PREPARING', 'RESCHEDULED'].includes(String(order.status || '').toUpperCase())
     ).length
     const inTransitTrips = activeTripCount
     const openReplacements = scopedReplacements.filter((entry) => {

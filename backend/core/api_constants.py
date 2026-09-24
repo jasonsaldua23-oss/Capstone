@@ -91,6 +91,8 @@ _ORDER_STATUS_ALIASES: dict[str, str] = {
     "UNAPPROVED": OrderStatus.PENDING,
     "FAILED_DELIVERY": OrderStatus.CANCELLED,
     "REJECTED": OrderStatus.REJECTED,
+    # The approved status used to be stored as CONFIRMED; older clients may still send it.
+    "CONFIRMED": OrderStatus.APPROVED,
 }
 
 PERSON_NAME_NUMBER_ERROR = "Names cannot contain numbers."

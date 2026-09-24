@@ -1135,7 +1135,7 @@ export function WarehousePortal() {
 
   const updateWarehouseOrderStatus = async (
     orderId: string,
-    status: 'CONFIRMED' | 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
+    status: 'APPROVED' | 'PREPARING' | 'RESCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED' | 'REJECTED',
     reason?: string,
     deliveryDate?: string
   ) => {

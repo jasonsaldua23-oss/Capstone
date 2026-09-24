@@ -243,7 +243,7 @@ class CustomerOrdersApiContractTests(TestCase):
         Order.objects.create(
             order_number="ORD-CUST-OTHER-001",
             customer=self.other_customer,
-            status=OrderStatus.CONFIRMED,
+            status=OrderStatus.APPROVED,
             subtotal=300,
             total_amount=330,
         )
@@ -768,13 +768,13 @@ class CustomerOrdersPostApiContractTests(TestCase):
 
         first_approval = self.client.patch(
             f"/api/orders/{first_order_id}/status",
-            data={"status": "CONFIRMED"},
+            data={"status": "APPROVED"},
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {staff_token}",
         )
         second_approval = self.client.patch(
             f"/api/orders/{second_order_id}/status",
-            data={"status": "CONFIRMED"},
+            data={"status": "APPROVED"},
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {staff_token}",
         )
@@ -1119,7 +1119,7 @@ class PurchaseOrderApprovalStockTests(TestCase):
         # Fix: cases reserved for a purchase request are no longer sellable to other customers.
         self.assertEqual(self._catalog_available(), 106)
 
-        approval = self._set_status(order_id, "CONFIRMED")
+        approval = self._set_status(order_id, "APPROVED")
         self.assertEqual(approval.status_code, 200, approval.content.decode())
         self.inventory.refresh_from_db()
         # Approval must not reserve the same cases a second time.
@@ -1162,7 +1162,7 @@ class PurchaseOrderApprovalStockTests(TestCase):
     def test_staff_cancellation_after_approval_releases_reserved_cases(self, *_mocks) -> None:
         self._seed_batch()
         order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
-        self.assertEqual(self._set_status(order_id, "CONFIRMED").status_code, 200)
+        self.assertEqual(self._set_status(order_id, "APPROVED").status_code, 200)
         self.assertEqual(self._catalog_available(), 106)
 
         cancelled = self._set_status(order_id, "CANCELLED", reason="Customer requested cancellation")
@@ -1215,7 +1215,7 @@ class PurchaseOrderApprovalStockTests(TestCase):
         # The oversized request stays reviewable but reserves nothing at submission.
         self.assertEqual(self.inventory.reserved_quantity, 0)
 
-        approval = self._set_status(order_id, "CONFIRMED")
+        approval = self._set_status(order_id, "APPROVED")
         self.assertEqual(approval.status_code, 409, approval.content.decode())
         self.assertEqual(
             approval.json()["error"],
@@ -1262,7 +1262,7 @@ class PurchaseOrderApprovalStockTests(TestCase):
         soda_inventory.refresh_from_db()
         self.assertEqual((self.inventory.reserved_quantity, soda_inventory.reserved_quantity), (0, 0))
 
-        approval = self._set_status(order_id, "CONFIRMED")
+        approval = self._set_status(order_id, "APPROVED")
         self.assertEqual(approval.status_code, 409, approval.content.decode())
         self.assertEqual(
             approval.json()["error"],
@@ -1284,7 +1284,7 @@ class PurchaseOrderApprovalStockTests(TestCase):
         self.assertEqual(self._catalog_available(), 4)
         second_id = self._checkout([{"productId": self.product.id, "quantity": 6}])
 
-        approval = self._set_status(second_id, "CONFIRMED")
+        approval = self._set_status(second_id, "APPROVED")
         self.assertEqual(approval.status_code, 409, approval.content.decode())
         self.assertEqual(
             approval.json()["error"],
@@ -1301,7 +1301,7 @@ class PurchaseOrderApprovalStockTests(TestCase):
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.reserved_quantity, 0)
 
-        approval = self._set_status(order_id, "CONFIRMED")
+        approval = self._set_status(order_id, "APPROVED")
         self.assertEqual(approval.status_code, 409, approval.content.decode())
         # Fix: the message used to claim 116 cases were available while refusing the approval.
         self.assertEqual(

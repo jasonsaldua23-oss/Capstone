@@ -145,6 +145,14 @@ export function UpcomingDeliveriesPanel({
 /**
  * Route planner: groups the day's orders by city, lets staff pick orders and a driver, and creates or edits the trip.
  */
+// PREPARING stays the API value; staff see the shared Processing label.
+function formatPlanningOrderStatus(status?: string | null) {
+  const raw = String(status || '').toUpperCase()
+  if (raw === 'PREPARING') return 'Processing'
+  if (raw === 'APPROVED') return 'Approved'
+  return raw ? raw.replace(/_/g, ' ') : '—'
+}
+
 // This modal subview keeps browsing a day independent of trip creation and selection.
 function UpcomingDeliveryOrdersPage({ date, warehouseId, warehouseName, onBack }: {
   date: string
@@ -177,7 +185,7 @@ function UpcomingDeliveryOrdersPage({ date, warehouseId, warehouseName, onBack }
                       <td className="px-3 py-3 font-medium">{order.orderNumber}</td>
                       <td className="px-3 py-3">{order.customerName}</td>
                       <td className="px-3 py-3">{order.city}</td>
-                      <td className="px-3 py-3">{String(order.status || '').toUpperCase() === 'PREPARING' ? 'Processing' : order.status?.replace(/_/g, ' ') || '—'}</td>
+                      <td className="px-3 py-3">{formatPlanningOrderStatus(order.status)}</td>
                       <td className="px-3 py-3">{order.cases}</td>
                       <td className="px-3 py-3">{formatKilogramsShort(order.weight)}</td>
                     </tr>)}</tbody>
