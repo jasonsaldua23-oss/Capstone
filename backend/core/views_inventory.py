@@ -416,13 +416,12 @@ def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTra
             for component in MixedCaseComponent.objects.filter(id__in=mixed_component_ids).select_related("product", "order_item__order")
         }
         sibling_components_by_item_id: dict[str, list[dict[str, Any]]] = {}
-        for component in components_by_id.values():
-            sibling_components_by_item_id.setdefault(
-                str(component.order_item_id),
-                [
-                    serialize_mixed_component(sibling)
-                    for sibling in MixedCaseComponent.objects.filter(order_item_id=component.order_item_id).select_related("product")
-                ],
+        # Fix: fetch all siblings once. setdefault evaluated a fresh database query
+        # for every component, even when that order item was already in the map.
+        order_item_ids = {component.order_item_id for component in components_by_id.values()}
+        for sibling in MixedCaseComponent.objects.filter(order_item_id__in=order_item_ids).select_related("product"):
+            sibling_components_by_item_id.setdefault(str(sibling.order_item_id), []).append(
+                serialize_mixed_component(sibling)
             )
         for payload, row in zip(data, rows):
             component = components_by_id.get(str(row.mixed_case_component_id or ""))

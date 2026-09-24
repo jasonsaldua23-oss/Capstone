@@ -3,9 +3,10 @@ import threading
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.test import RequestFactory, TestCase, TransactionTestCase, skipUnlessDBFeature
 from django.utils import timezone
+from django.test.utils import CaptureQueriesContext
 
 from .mixed_case import available_base_units, consume_order_reservations, reserve_order_item
 from .models import (
@@ -480,6 +481,25 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         )
         self.assertEqual(product_payload["availableBaseUnits"], 24)
         self.assertEqual(product_payload["availableQuantity"], 1)
+
+    def test_transaction_composition_queries_do_not_grow_with_order_items(self):
+        # Fix regression: sibling lookup cost stays constant as history grows.
+        def read_query_count():
+            request = self.factory.get("/api/inventory-transactions", {"pageSize": 100})
+            with patch("core.views_api._require_staff", return_value=(self.admin_auth, None)):
+                with CaptureQueriesContext(connection) as queries:
+                    response = inventory_transactions_list(request)
+            self.assertEqual(response.status_code, 200, response.content)
+            return len(queries)
+
+        order, item = self.create_mixed_item(number="ORD-QUERY-ONE")
+        reserve_order_item(item, "FEFO", "guard")
+        consume_order_reservations(order, "guard")
+        first_count = read_query_count()
+        order, item = self.create_mixed_item(number="ORD-QUERY-TWO")
+        reserve_order_item(item, "FEFO", "guard")
+        consume_order_reservations(order, "guard")
+        self.assertEqual(read_query_count(), first_count)
 
     def test_inventory_transaction_mixed_case_payload_includes_all_sibling_components(self):
         order, item = self.create_mixed_item(number="ORD-TRANSACTION-COMPOSITION")

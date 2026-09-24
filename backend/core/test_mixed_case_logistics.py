@@ -3,6 +3,8 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import RequestFactory, TestCase
+from django.test.utils import CaptureQueriesContext
+from django.db import connection
 from django.utils import timezone
 
 from .mixed_case import reserve_order_item
@@ -29,6 +31,7 @@ from .views_api import (
     _calculate_order_weight,
     trip_drop_point_update,
     trips_route_plan,
+    trips_collection,
 )
 
 
@@ -59,6 +62,27 @@ class MixedCaseLogisticsTests(MixedCaseFixtureMixin, TestCase):
             driver=self.driver,
         )
         self.factory = RequestFactory()
+
+    def test_trip_list_queries_do_not_grow_per_mixed_case_stop(self):
+        # Transportation must reuse its prefetched components as trips accumulate.
+        def query_count(expected_trips):
+            request = self.factory.get("/api/trips", {"pageSize": 100})
+            auth = {"type": "staff", "role": RoleType.ADMIN, "userId": "admin"}
+            with patch("core.views_api._require_staff", return_value=(auth, None)):
+                with CaptureQueriesContext(connection) as queries:
+                    response = trips_collection(request)
+            self.assertEqual(response.status_code, 200, response.content)
+            rows = json.loads(response.content)["trips"]
+            self.assertEqual(len(rows), expected_trips)
+            self.assertTrue(all(len(row["dropPoints"][0]["order"]["items"][0]["components"]) == 2 for row in rows))
+            return len(queries)
+
+        order, _ = self._reserved_order("ORD-TRIP-QUERY-ONE")
+        self._trip_with_drop_point(order, "QUERY-ONE")
+        first_count = query_count(1)
+        order, _ = self._reserved_order("ORD-TRIP-QUERY-TWO")
+        self._trip_with_drop_point(order, "QUERY-TWO")
+        self.assertEqual(query_count(2), first_count)
 
     def _reserved_order(self, number: str, *, status: str = OrderStatus.CONFIRMED):
         order, item = self.create_mixed_item(number=number)

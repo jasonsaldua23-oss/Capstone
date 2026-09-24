@@ -1204,6 +1204,12 @@ def _serialize_order_item_with_spare_products(
     # Mixed-case contents must remain available to every portal after the order is reloaded.
     if str(getattr(item, "item_type", "") or "").strip().upper() == "MIXED_CASE":
         prefetched_components = getattr(item, "_serialized_mixed_case_components", None)
+        if prefetched_components is None:
+            # Fix: trip lists already prefetch these components. Reordering their
+            # manager issued another SQL query for every mixed-case item/stop.
+            cached_components = getattr(item, "_prefetched_objects_cache", {}).get("mixed_case_components")
+            if cached_components is not None:
+                prefetched_components = sorted(cached_components, key=lambda component: (component.created_at, component.id))
         components = (
             prefetched_components
             if prefetched_components is not None
