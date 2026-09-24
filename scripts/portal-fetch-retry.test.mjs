@@ -17,7 +17,7 @@ function loadPortal(portal, native, fetch) {
     removeItem: (key) => values.delete(key),
   })
   const window = {
-    fetch,
+    fetch, setTimeout, clearTimeout,
     location: { origin: 'https://annannsbeveragestrading.com', pathname: `/${portal}` },
     ...(native ? { Capacitor: { isNativePlatform: () => true } } : {}),
   }
@@ -40,7 +40,18 @@ function loadPortal(portal, native, fetch) {
   }
   const client = load('client-auth')
   const uninstall = client.installTabAuthFetchInterceptor()
-  return { window, client, uninstall }
+  // Exercise portal wrappers with the same retry class instance as the interceptor.
+  const loadHelper = (file) => {
+    const source = readFileSync(new URL(`../src/components/portals/${file}.ts`, import.meta.url), 'utf8')
+    const compiled = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText
+    const exports = {}
+    vm.runInNewContext(compiled, { ...context, fetch: (...args) => window.fetch(...args), exports,
+      require: (path) => load(path.replace('@/lib/', '')) })
+    return exports.safeFetchJson
+  }
+  return { window, client, uninstall, loadHelper }
 }
 
 async function flush() {
@@ -439,3 +450,65 @@ test('successful Admin login replaces inherited Warehouse routing and navigates 
   assert.equal(client.getTabAuthToken(), portalToken('admin'), 'bare-domain restore must remember the newly logged-in portal')
   uninstall()
 })
+
+
+test('concurrent no-store reads share a request but a later read fetches fresh data', async () => {
+  let calls = 0
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const { window, uninstall } = loadPortal('warehouse', false, async () => {
+    calls++
+    await gate
+    return Response.json({ version: calls })
+  })
+  const first = window.fetch('/api/trips', { cache: 'no-store' })
+  const second = window.fetch('/api/trips', { cache: 'no-store' })
+  assert.equal(calls, 1)
+  release()
+  const responses = await Promise.all([first, second])
+  assert.deepEqual(await Promise.all(responses.map(response => response.json())), [{ version: 1 }, { version: 1 }])
+  assert.deepEqual(await (await window.fetch('/api/trips', { cache: 'no-store' })).json(), { version: 2 })
+  uninstall()
+})
+
+test('cancelling one caller does not abort another caller for the same URL', async () => {
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const { window, uninstall } = loadPortal('admin', false, async (_, init) => {
+    await new Promise((resolve, reject) => {
+      gate.then(resolve)
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true })
+    })
+    return Response.json({ success: true })
+  })
+  const controller = new AbortController()
+  const cancelled = window.fetch('/api/orders', { cache: 'no-store', signal: controller.signal })
+  const other = window.fetch('/api/orders', { cache: 'no-store' })
+  const rejected = assert.rejects(cancelled, { name: 'AbortError' })
+  controller.abort()
+  await rejected
+  release()
+  assert.equal((await other).status, 200)
+  uninstall()
+})
+
+for (const [portal, helper] of [['admin', 'admin/sections/shared'], ['warehouse', 'warehouse/warehouse-portal-api']]) {
+  test(`${portal} wrapper does not restart an exhausted shared read budget`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    let calls = 0
+    const { uninstall, loadHelper } = loadPortal(portal, false, async () => {
+      calls++
+      return new Response('Bad gateway', { status: 502 })
+    })
+    const pending = loadHelper(helper)('/api/orders', { cache: 'no-store' })
+    for (let i = 0; i < 2; i++) {
+      await flush()
+      t.mock.timers.tick(3000)
+    }
+    const result = await pending
+    assert.equal(result.ok, false)
+    assert.equal(calls, 3)
+    assert.match(result.error || result.data.error, /HTTP 502/)
+    uninstall()
+  })
+}

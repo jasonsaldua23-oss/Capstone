@@ -1,6 +1,7 @@
 'use client'
 
 import { getTabAuthToken } from '@/lib/client-auth'
+import { ApiReadError } from '@/lib/retrying-api-read'
 
 export function toArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
@@ -378,6 +379,10 @@ export async function safeFetchJson(
       await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt))
       continue
     } catch (error) {
+      // Fix: the shared reader already exhausted its retries; do not multiply them.
+      if (error instanceof ApiReadError) {
+        return { ok: false, status: 0, data: { error: error.message } }
+      }
       // AbortError means the request was intentionally cancelled (timeout, unmount, navigation).
       // Return immediately without retrying or triggering console.error overlays.
       if (error instanceof DOMException && error.name === 'AbortError') {

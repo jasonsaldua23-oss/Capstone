@@ -86,3 +86,17 @@ test('successful downloads and programming errors keep their original behavior',
     throw new ReferenceError('Broken handler')
   }, new AbortController().signal), ReferenceError)
 })
+
+
+test('a response within the proxy deadline is not prematurely aborted', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let calls = 0
+  const pending = retryingApiRead((signal) => new Promise<Response>((resolve, reject) => {
+    calls++
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    setTimeout(() => resolve(Response.json({ success: true })), 28_000)
+  }), new AbortController().signal)
+  t.mock.timers.tick(28_000)
+  assert.equal((await pending).status, 200)
+  assert.equal(calls, 1)
+})

@@ -1,3 +1,5 @@
+import { ApiReadError } from '@/lib/retrying-api-read'
+
 export async function fetchJsonWithRetry(input: RequestInfo | URL, init?: RequestInit, retries = 5) {
   let lastResponse: Response | null = null
   let lastData: any = {}
@@ -27,6 +29,10 @@ export async function fetchJsonWithRetry(input: RequestInfo | URL, init?: Reques
     } catch (error) {
       lastResponse = null
       lastData = { error: error instanceof Error ? error.message : 'Request failed' }
+      // Fix: shared exhaustion and caller cancellation must end this wrapper too.
+      if (error instanceof ApiReadError || (error instanceof DOMException && error.name === 'AbortError')) {
+        return { response: null, data: lastData }
+      }
     }
 
     if (attempt < retries) {

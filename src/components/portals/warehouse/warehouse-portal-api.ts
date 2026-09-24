@@ -1,4 +1,5 @@
 import { getTabAuthToken } from '@/lib/client-auth'
+import { ApiReadError } from '@/lib/retrying-api-read'
 
 /**
  * Resilient JSON fetch for the warehouse portal: retries transient failures and read timeouts while section loaders remain pending.
@@ -32,7 +33,8 @@ export const safeFetchJson = async (
         signal: isRead ? (init?.signal ?? (input instanceof Request ? input.signal : undefined)) : controller.signal,
       })
       lastStatus = response.status
-      const data = await response.json().catch(() => ({}))
+      // Invalid JSON is a failed read, never an empty successful collection.
+      const data = await response.json()
       const dbUnavailable = Boolean(data?.dbUnavailable)
       if (response.ok && data?.success !== false && !dbUnavailable) {
         return { ok: true as const, data, status: response.status }
@@ -51,6 +53,10 @@ export const safeFetchJson = async (
         return { ok: false as const, data, status: response.status, error: lastError }
       }
     } catch (error: any) {
+      // Fix: stop after the shared retry budget or caller cancellation.
+      if (error instanceof ApiReadError || (isRead && error?.name === 'AbortError')) {
+        return { ok: false as const, data: null, status: lastStatus, error: error.message }
+      }
       lastError = error?.name === 'AbortError' ? 'Request timed out' : error?.message || 'Request failed'
     } finally {
       window.clearTimeout(timeout)

@@ -37,6 +37,7 @@ import type { DashboardStats } from '@/types';
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync';
 import { clearTabAuthToken, getTabAuthToken } from '@/lib/client-auth'
 import { PASSWORD_POLICY_MESSAGE, validatePasswordPolicy } from '@/lib/password-policy'
+import { ApiReadError } from '@/lib/retrying-api-read'
 import { portalFont } from '../portal-font'
 const SettingsView = dynamic(() => import('./sections/settings-view').then((mod) => mod.SettingsView))
 const InventoryView = dynamic(() => import('./sections/inventory-view').then((mod) => mod.InventoryView))
@@ -373,7 +374,7 @@ async function safeFetchJson(
         headers,
       })
       lastStatus = response.status
-      const data = await response.json().catch(() => ({}))
+      const data = await response.json()
       if (response.ok && data?.success !== false) {
         return { ok: true as const, data, status: response.status }
       }
@@ -391,6 +392,10 @@ async function safeFetchJson(
         return { ok: false as const, data, status: response.status, error: lastError }
       }
     } catch (error: any) {
+      // Fix: never restart the shared read budget or an explicitly cancelled read.
+      if (error instanceof ApiReadError || (isRead && error?.name === 'AbortError')) {
+        return { ok: false as const, data: null, status: lastStatus, error: error.message }
+      }
       lastError = error?.name === 'AbortError' ? 'Request timed out' : error?.message || 'Request failed'
     } finally {
       window.clearTimeout(timeout)

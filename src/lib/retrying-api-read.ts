@@ -1,3 +1,11 @@
+// Identifies an exhausted shared retry budget so portal wrappers do not start it again.
+export class ApiReadError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ApiReadError'
+  }
+}
+
 // Retry transient read failures briefly, then let the caller show its existing error state.
 export async function retryingApiRead(
   fetchRead: (attemptSignal: AbortSignal) => Promise<Response>,
@@ -15,13 +23,15 @@ export async function retryingApiRead(
     if (signal.aborted) throw signal.reason || new DOMException('Request cancelled', 'AbortError')
   }
   let attempt = 0
+  let failure = 'The server could not return the requested data.'
   try {
     while (true) {
       checkCancelled()
       const controller = new AbortController()
       const abortAttempt = () => controller.abort(signal.reason)
       signal.addEventListener('abort', abortAttempt, { once: true })
-      const timeout = setTimeout(() => controller.abort(), 20_000)
+      // Fix: allow the proxy's 30-second timeout to report its result before retrying.
+      const timeout = setTimeout(() => controller.abort(), 35_000)
       try {
         // A hung connection must also retry, without ending the caller's loading state.
         const response = await fetchRead(controller.signal)
@@ -30,18 +40,25 @@ export async function retryingApiRead(
         if (!response.ok && response.status !== 408 && response.status !== 429 && response.status < 500) {
           return response
         }
+        failure = `The server returned HTTP ${response.status}.`
         if (response.ok) {
           const contentType = response.headers.get('content-type') || ''
           if (response.status === 204 || (!contentType.includes('json') && !contentType.includes('text/html'))) {
             return response
           }
           // Validate a clone so truncated JSON/proxy HTML cannot end a section's loading state.
+          failure = 'The server returned an incomplete or invalid response.'
           const data = await response.clone().json()
           checkCancelled()
           if (data?.success !== false && !data?.dbUnavailable) return response
+          failure = data?.dbUnavailable
+            ? 'The server could not reach its database.'
+            : String(data?.error || 'The server could not complete the request.')
         }
       } catch (error) {
         checkCancelled()
+        if (controller.signal.aborted) failure = 'The server took too long to respond.'
+        else if (error instanceof TypeError) failure = 'The connection to the server was interrupted.'
         // Only failed network/body reads are retried; programming errors remain visible.
         if (!(error instanceof TypeError) && !(error instanceof SyntaxError) &&
           !(error instanceof DOMException && ['TimeoutError', 'AbortError'].includes(error.name))) throw error
@@ -51,7 +68,7 @@ export async function retryingApiRead(
       }
 
       // Fix: persistent outages must release loaders into the existing error/retry UI.
-      if (attempt >= 2) throw new Error('Could not load the latest data. Check your connection and try again.')
+      if (attempt >= 2) throw new ApiReadError(`Could not load the latest data. ${failure} Please retry.`)
       // Release backoff timers when the request is cancelled.
       const delay = Math.min(1000 * 2 ** Math.min(attempt++, 5), 30_000)
       await new Promise<void>((resolve, reject) => {

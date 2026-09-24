@@ -28,7 +28,7 @@ jobs:
       - run: python backend/manage.py test core --settings=config.settings_ci --noinput
       - run: npx tsc --noEmit --incremental false
       - run: npx eslint src mobile/driver-app/src mobile/customer-app/src
-      - run: node --experimental-strip-types --test scripts/api-write-retry.test.mjs scripts/portal-fetch-retry.test.mjs src/lib/retrying-api-read.test.ts src/lib/report-metrics.test.ts src/lib/chart-interpretation.test.ts src/lib/native/driver-tracking-policy.test.ts
+      - run: node --experimental-strip-types --test scripts/api-write-retry.test.mjs scripts/portal-fetch-retry.test.mjs src/lib/retrying-api-read.test.ts src/lib/report-metrics.test.ts src/lib/chart-interpretation.test.ts src/lib/native/driver-tracking-policy.test.ts scripts/portal-data-regression.test.mjs
   deploy:
     needs: validate
     runs-on: ubuntu-latest

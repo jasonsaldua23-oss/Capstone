@@ -271,14 +271,18 @@ export function installTabAuthFetchInterceptor() {
     const cacheTtl = apiUrl ? getApiCacheTtl(apiUrl.pathname) : 0
     const requestCache = init?.cache ?? (input instanceof Request ? input.cache : undefined)
     // Explicit revalidation must bypass the in-memory cache as well as HTTP caching.
-    if (!apiUrl || cacheTtl <= 0 || init?.signal || ['no-store', 'reload', 'no-cache'].includes(requestCache || '')) {
+    if (!apiUrl || callerSignal) {
       return read()
     }
 
+    // Fix: no-store bypasses stored responses, but simultaneous reads can share one
+    // live request. Caller-owned abort signals remain independent above.
+    const canCache = cacheTtl > 0 && !['no-store', 'reload', 'no-cache'].includes(requestCache || '')
+
     // Fix: switching back to another portal must not reuse the previous account's cached data.
-    const cacheKey = `${headers.get('Authorization') || ''}:${headers.get('X-Portal') || ''}:${apiUrl.pathname}${apiUrl.search}`
+    const cacheKey = `${headers.get('Authorization') || ''}:${headers.get('X-Portal') || ''}:${requestCache || 'default'}:${apiUrl.pathname}${apiUrl.search}`
     const cached = apiResponseCache.get(cacheKey)
-    if (cached && cached.expiresAt > Date.now()) {
+    if (canCache && cached && cached.expiresAt > Date.now()) {
       return cached.response.clone()
     }
     if (cached) apiResponseCache.delete(cacheKey)
@@ -292,7 +296,7 @@ export function installTabAuthFetchInterceptor() {
       .then((response) => {
         const cacheControl = String(response.headers.get('Cache-Control') || '').toLowerCase()
         const responseAllowsCache = !cacheControl.includes('no-store') && !cacheControl.includes('private')
-        if (response.ok && responseAllowsCache && requestGeneration === apiCacheGeneration) {
+        if (canCache && response.ok && responseAllowsCache && requestGeneration === apiCacheGeneration) {
           apiResponseCache.set(cacheKey, {
             response: response.clone(),
             expiresAt: Date.now() + cacheTtl,

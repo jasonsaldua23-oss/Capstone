@@ -5,6 +5,26 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import ts from 'typescript'
 
+const srcRoot = new URL('../src/', import.meta.url)
+const timerGlobals = { setTimeout, clearTimeout, AbortController, AbortSignal, DOMException, console }
+
+// Load a source module and its local imports into one sandbox, as the bundler would.
+function loadModule(context, fileUrl, cache = new Map()) {
+  if (cache.has(fileUrl.href)) return cache.get(fileUrl.href).exports
+  const loaded = { exports: {} }
+  cache.set(fileUrl.href, loaded)
+  const require = (specifier) => {
+    const base = specifier.startsWith('@/') ? new URL(specifier.slice(2), srcRoot)
+      : specifier.startsWith('.') ? new URL(specifier, fileUrl) : null
+    if (!base) throw new Error(`Unexpected import in sandbox: ${specifier}`)
+    return loadModule(context, new URL(`${base.href}.ts`), cache)
+  }
+  const source = fs.readFileSync(fileUrl, 'utf8')
+  const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText
+  vm.runInContext(`(function (exports, require, module) {${output}\n})`, context)(loaded.exports, require, loaded)
+  return loaded.exports
+}
+
 function browserHarness(fetchImpl = async () => Response.json({ success: true })) {
   const storage = () => {
     const data = new Map()
@@ -12,10 +32,9 @@ function browserHarness(fetchImpl = async () => Response.json({ success: true })
   }
   const sessionStorage = storage(), localStorage = storage()
   const window = { fetch: fetchImpl, location: { origin: 'https://portal.test', pathname: '/admin' } }
-  const context = vm.createContext({ exports: {}, window, sessionStorage, localStorage, Headers, Request, Response, URL, atob })
-  const source = fs.readFileSync(new URL('../src/lib/client-auth.ts', import.meta.url), 'utf8')
-  vm.runInContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, context)
-  return { api: context.exports, window, sessionStorage, localStorage }
+  const context = vm.createContext({ window, sessionStorage, localStorage, Headers, Request, Response, URL, atob, ...timerGlobals })
+  const api = loadModule(context, new URL('lib/client-auth.ts', srcRoot))
+  return { api, window, sessionStorage, localStorage }
 }
 const token = payload => `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`
 
@@ -71,10 +90,9 @@ test('a fresh catalog includes later pages without depending on an existing acco
 })
 
 test('malformed successful HTTP responses are failed reads, not empty catalog successes', async () => {
-  const source = fs.readFileSync(new URL('../src/components/portals/customer/sections/shared/api-shared.ts', import.meta.url), 'utf8')
-  const context = vm.createContext({ exports: {}, fetch: async () => new Response('<html>proxy failure</html>', { status: 200 }) })
-  vm.runInContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, context)
-  const result = await context.exports.fetchJsonWithRetry('/api/products', {}, 0)
+  const context = vm.createContext({ fetch: async () => new Response('<html>proxy failure</html>', { status: 200 }), ...timerGlobals })
+  const api = loadModule(context, new URL('components/portals/customer/sections/shared/api-shared.ts', srcRoot))
+  const result = await api.fetchJsonWithRetry('/api/products', {}, 0)
   assert.equal(result.response, null)
   assert.ok(result.data.error)
 })

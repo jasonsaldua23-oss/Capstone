@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { useNativeOffline } from '@/hooks/use-native-offline'
+import { ApiReadError } from '@/lib/retrying-api-read'
 import { getTabAuthToken } from '@/lib/client-auth'
 import { isNativeApp, openAppSettings } from '@/lib/native/platform'
 import { ensureCameraPermission, ensureLocationPermission } from '@/lib/native/permissions'
@@ -276,6 +277,10 @@ async function fetchJsonWithRetry(
     } catch (error) {
       lastData = { error: error instanceof Error ? error.message : 'Request failed' }
       lastRaw = ''
+      // Fix: a completed retry budget or cancelled read must not run five more times.
+      if (error instanceof ApiReadError || (isRead && error instanceof DOMException && error.name === 'AbortError')) {
+        return { response: null, data: lastData, raw: lastRaw }
+      }
     } finally {
       window.clearTimeout(timeoutId)
     }
