@@ -1,37 +1,40 @@
 """LTO driver's license restriction codes matched against the vehicle being driven.
 
-A driver's registered restriction code says which vehicles they are legally allowed
-to operate. The rules live here (and are mirrored in
+A driver's recorded codes are checked against the basic fleet assignment policy.
+The rules live here (and are mirrored in
 src/lib/driver-license-restrictions.ts) so every "assign a driver" surface — vehicle
 assignment, trip creation, changing a trip's driver, and starting a trip — rejects an
 unqualified driver with the same message, instead of each endpoint inventing its own.
 
-Only TRUCK and TRICYCLE can be registered today, and those are the two types the
-requirement covers: a truck needs Code C, a tricycle needs Code A1, and a code good
-for the heavier vehicle is good for the lighter one.
+Basic fleet policy: trucks require C and tricycles require A1. Staff verify the
+truck's registered GVW separately; payload capacity does not establish GVW.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
+from .api_constants import DRIVER_RESTRICTIONS
 
-# Required code per vehicle type, plus the codes that also cover it.
-#
-# TRUCK is Code C: C is goods vehicles above 3,500 kg GVW, and every truck class this
-# system can register carries 2,500 kg or more of payload, so all of them clear that
-# threshold once the vehicle's own weight is counted. CE (heavy articulated) covers
-# the truck it tows, so it is accepted too.
-#
-# TRICYCLE is Code A1, the LTO code for motorized tricycles, and the codes are treated
-# as a seniority ladder: a driver cleared for the heavier vehicle is also cleared for
-# the lighter one, so every code that qualifies for a truck qualifies for a tricycle
-# too. A1 stays the code the rejection message names, since it is the entry-level
-# qualification for the vehicle.
-#
-# Only the two types the system can actually register are ruled on. Legacy VAN, CAR
-# and MOTORCYCLE rows are deliberately left unruled: no new one can be created, and
-# inventing a code requirement for them would invalidate existing assignments.
-TRUCK_CODES = {"C", "CE"}
-TRICYCLE_CODES = {"A1"} | TRUCK_CODES
+# Fix: codes are explicit entitlements, not a heavier-to-lighter hierarchy.
+# LTO categories: https://lto.gov.ph/wp-content/uploads/2023/09/14-CC2024-DL-CODES.pdf
+TRUCK_CODES = {"C"}
+TRICYCLE_CODES = {"A1"}
+
+
+def parse_license_codes(value: Any) -> list[str]:
+    """Keep the existing string field compatible with single or multiple codes."""
+    normalized = str(value or "").strip().upper()
+    return list(dict.fromkeys(re.split(r"[,\s]+", normalized))) if normalized else []
+
+
+def is_valid_license_codes(value: Any) -> bool:
+    codes = parse_license_codes(value)
+    return bool(codes) and all(code in DRIVER_RESTRICTIONS for code in codes)
+
+
+def normalize_license_codes(value: Any) -> str:
+    return ",".join(parse_license_codes(value))
+
 
 VEHICLE_LICENSE_RULES: dict[str, dict[str, Any]] = {
     "TRUCK": {"required": "C", "accepted": TRUCK_CODES},
@@ -57,7 +60,7 @@ def is_license_code_allowed_for_vehicle(license_code: Any, vehicle_type: Any) ->
         # An unmapped legacy type is not something this rule can judge, so it is
         # left to the other profile checks rather than blocking every driver.
         return True
-    return normalize_license_code(license_code) in rule["accepted"]
+    return is_valid_license_codes(license_code) and bool(set(parse_license_codes(license_code)) & rule["accepted"])
 
 
 def license_code_vehicle_error(license_code: Any, vehicle_type: Any) -> str | None:

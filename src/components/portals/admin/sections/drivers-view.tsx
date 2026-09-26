@@ -1,9 +1,9 @@
 'use client'
 
+import { DriverLicenseSelect } from '@/components/portals/shared/driver-license-select'
 import React, { useEffect, useMemo, useState } from 'react'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import {
-  DRIVER_LICENSE_RESTRICTIONS,
   isValidDriverLicenseRestriction,
   isValidPhilippineDriverLicense,
   formatPhilippineDriverLicenseInput,
@@ -510,16 +510,11 @@ export function DriversView() {
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">Restrictions</label>
-                <select
+                <DriverLicenseSelect
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  title="Driver Restrictions"
                   value={driverForm.licenseType}
-                  onChange={(e) => setDriverForm((f) => ({ ...f, licenseType: e.target.value }))}
-                >
-                  {DRIVER_LICENSE_RESTRICTIONS.map((res) => (
-                    <option key={res.code} value={res.code}>{res.label}</option>
-                  ))}
-                </select>
+                  onChange={(licenseType) => setDriverForm((f) => ({ ...f, licenseType }))}
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">License Expiry</label>

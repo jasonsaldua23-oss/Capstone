@@ -63,7 +63,7 @@ export function getDriverAssignmentIssue(driver: any): string {
 /**
  * Reason the driver's registered license restriction does not cover this vehicle,
  * or '' when it does. A driver holding only Code A, for example, cannot be put on a
- * tricycle or a truck — both require Code C.
+ * tricycle or a truck: these require A1 and C respectively.
  */
 export function getDriverVehicleLicenseIssue(driver: any, vehicle: any): string {
   if (!driver || !vehicle) return ''

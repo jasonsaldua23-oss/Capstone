@@ -1,4 +1,5 @@
 'use client'
+import { DriverLicenseSelect } from '@/components/portals/shared/driver-license-select'
 import { replacementOrderQuantity } from '@/lib/replacement-order-quantity'
 
 import React, { useEffect, useMemo, useState } from 'react'
@@ -40,7 +41,6 @@ import {
   formatVehicleStatus,
 } from '@/lib/vehicle-config'
 import {
-  DRIVER_LICENSE_RESTRICTIONS,
   isValidDriverLicenseRestriction,
   isValidPhilippineDriverLicense,
   formatPhilippineDriverLicenseInput,
@@ -263,7 +263,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   const isDriverAssignable = (driver: any) => !getDriverAssignmentBlocker(driver)
 
   // Added: the driver's LTO restriction code has to cover the vehicle. A Code A
-  // holder cannot be put on a tricycle or a truck — both require Code C.
+  // holder needs explicit A1 for a tricycle or C for a truck.
   const getVehicleLicenseBlocker = (driver: any, vehicleType: any) =>
     getDriverVehicleLicenseIssue(driver, { type: vehicleType })
 
@@ -1335,17 +1335,11 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Restrictions</label>
-                      <select
+                      <DriverLicenseSelect
                         value={driverForm.licenseType}
-                        onChange={(e) => setDriverForm({ ...driverForm, licenseType: e.target.value })}
-                        title="Driver license restrictions"
+                        onChange={(licenseType) => setDriverForm({ ...driverForm, licenseType })}
                         className="w-full rounded-md border px-3 py-2"
-                      >
-                        <option value="">Select restriction</option>
-                        {DRIVER_LICENSE_RESTRICTIONS.map((restriction) => (
-                          <option key={restriction.code} value={restriction.code}>{restriction.label}</option>
-                        ))}
-                      </select>
+                      />
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">Driver's License Expiration Date</label>

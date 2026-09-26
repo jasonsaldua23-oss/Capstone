@@ -10,9 +10,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from . import views_api as legacy
-from .api_constants import DRIVER_RESTRICTIONS, DRIVER_STATUSES, PHILIPPINE_PHONE_ERROR
+from .api_constants import DRIVER_STATUSES, PHILIPPINE_PHONE_ERROR
 from .api_utils import error as _err, json_body as _json_body, ok as _ok
-from .driver_license import license_code_vehicle_error
+from .driver_license import license_code_vehicle_error, is_valid_license_codes, normalize_license_codes
 from .models import DriverStatus, RoleType, User, Vehicle, VehicleStatus
 
 
@@ -114,6 +114,13 @@ def vehicles_collection(request: HttpRequest) -> JsonResponse:
     if str(staff.get("role") or "").strip().upper() != RoleType.WAREHOUSE_STAFF:
         return _err("Only warehouse staff can manage vehicles and assignments", 403)
     body = _json_body(request)
+    # Fix: enforce the form's required model on creation and explicit model edits.
+    # Partial updates such as driver assignments keep the existing model untouched.
+    if request.method == "POST" or "model" in body:
+        model = body.get("model")
+        if not isinstance(model, str) or not model.strip():
+            return _err("Model is required", 400)
+        body["model"] = model.strip()
     if request.method == "POST":
         if not body.get("licensePlate") or not body.get("type"):
             return _err("licensePlate and type are required")
@@ -297,9 +304,9 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
             return _err(lic_err, 400)
         user.role = "DRIVER"
         user.license_number = lic_number
-        license_type_value = str(body.get("licenseType") or "B").strip().upper()
-        if license_type_value not in DRIVER_RESTRICTIONS:
-            return _err("Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE", 400)
+        license_type_value = normalize_license_codes(body.get("licenseType") or "B")
+        if not is_valid_license_codes(license_type_value):
+            return _err("Select one or more restriction codes from: A, A1, B, B1, B2, C, D, BE, CE", 400)
         user.license_type = license_type_value
         # license images removed; do not accept licensePhotoUrl from client
         if body.get("licenseExpiry"):
@@ -347,10 +354,10 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
     for key, attr in mapping:
         if key in body:
             next_value = body.get(key)
-            if attr == "license_type" and next_value is not None:
-                normalized_type = str(next_value).strip().upper()
-                if normalized_type not in DRIVER_RESTRICTIONS:
-                    return _err("Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE", 400)
+            if attr == "license_type":
+                normalized_type = normalize_license_codes(next_value)
+                if not is_valid_license_codes(normalized_type):
+                    return _err("Select one or more restriction codes from: A, A1, B, B1, B2, C, D, BE, CE", 400)
                 setattr(d, attr, normalized_type or None)
             else:
                 setattr(d, attr, next_value)

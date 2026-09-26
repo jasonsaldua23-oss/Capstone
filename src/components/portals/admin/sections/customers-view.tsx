@@ -269,7 +269,8 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="border-gray-200">
+        {/* py-0: Card's own py-6 doubled the p-3 below and left the KPI cards mostly empty. */}
+        <Card className="border-gray-200 py-0">
           <CardContent className="p-3">
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-blue-50 p-1.5"><Users className="h-3.5 w-3.5 text-blue-600" /></div>
@@ -280,7 +281,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
             </div>
           </CardContent>
         </Card>
-        <Card className="border-gray-200">
+        <Card className="border-gray-200 py-0">
           <CardContent className="p-3">
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-emerald-50 p-1.5"><CheckCircle className="h-3.5 w-3.5 text-emerald-600" /></div>
@@ -291,7 +292,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
             </div>
           </CardContent>
         </Card>
-        <Card className="border-gray-200">
+        <Card className="border-gray-200 py-0">
           <CardContent className="p-3">
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-violet-50 p-1.5"><TrendingUp className="h-3.5 w-3.5 text-violet-600" /></div>
@@ -302,7 +303,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
             </div>
           </CardContent>
         </Card>
-        <Card className="border-gray-200">
+        <Card className="border-gray-200 py-0">
           <CardContent className="p-3">
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-amber-50 p-1.5"><Star className="h-3.5 w-3.5 text-amber-600" /></div>

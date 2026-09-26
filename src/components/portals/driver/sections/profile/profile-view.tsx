@@ -1,5 +1,6 @@
 'use client'
 
+import { DriverLicenseSelect } from '@/components/portals/shared/driver-license-select'
 import { useNativeBack } from '@/hooks/use-native-back'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -19,7 +20,6 @@ import { AvatarCropDialog } from '@/components/shared/avatar-crop-dialog'
 import { useAvatarCrop } from '@/hooks/use-avatar-crop'
 import { setTabAuthToken } from '@/lib/client-auth'
 import {
-  DRIVER_LICENSE_RESTRICTIONS,
   isValidDriverLicenseRestriction,
   isValidPhilippineDriverLicense,
   formatPhilippineDriverLicenseInput,
@@ -1069,18 +1069,13 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
 
           <div className="space-y-2">
             <Label htmlFor="driver-license-type" className="text-sm font-semibold text-slate-700">Restrictions</Label>
-            <select
+            <DriverLicenseSelect
               id="driver-license-type"
               value={draft.licenseType}
-              onChange={(e) => onChange('licenseType', e.target.value)}
+              onChange={(value) => onChange('licenseType', value)}
               disabled={!isEditingLicense}
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-slate-800 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-            >
-              <option value="">Select restriction</option>
-              {DRIVER_LICENSE_RESTRICTIONS.map((restriction) => (
-                <option key={restriction.code} value={restriction.code}>{restriction.label}</option>
-              ))}
-            </select>
+            />
           </div>
 
           <div className="space-y-2">

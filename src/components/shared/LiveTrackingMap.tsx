@@ -614,9 +614,13 @@ export default function LiveTrackingMap({
     }
 
     // Re-render only when a truck has actually moved or turned; the loop also
-    // runs frames in which nothing changes by a visible amount.
-    let lastPublishedKey = '';
-    let lastRenderedKey = '';
+    // runs frames in which nothing changes by a visible amount. The keys start
+    // unset so each run's first publish always commits: with no truck on the
+    // map the pose key is '', and starting from '' silently dropped every pin
+    // that arrived after the map mounted (the admin Live Tracking map, which
+    // fetches after mount, showed no delivered pins at all).
+    let lastPublishedKey: string | null = null;
+    let lastRenderedKey: string | null = null;
     const publish = () => {
       const poses: string[] = [];
       const renderKeys: string[] = [];

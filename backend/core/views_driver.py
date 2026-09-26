@@ -13,7 +13,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from . import views_api as legacy
-from .api_constants import DRIVER_RESTRICTIONS, PERSON_NAME_NUMBER_ERROR, PHILIPPINE_PHONE_ERROR
+from .driver_license import is_valid_license_codes, normalize_license_codes
+from .api_constants import PERSON_NAME_NUMBER_ERROR, PHILIPPINE_PHONE_ERROR
 from .api_utils import (
     error as _err,
     json_body as _json_body,
@@ -467,9 +468,9 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
                     next_license_number = None
                 setattr(d, attr, next_license_number)
             elif attr == "license_type":
-                normalized_type = str(next_value or "").strip().upper()
-                if normalized_type not in DRIVER_RESTRICTIONS:
-                    return _err("Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE", 400)
+                normalized_type = normalize_license_codes(next_value)
+                if not is_valid_license_codes(normalized_type):
+                    return _err("Select one or more restriction codes from: A, A1, B, B1, B2, C, D, BE, CE", 400)
                 setattr(d, attr, normalized_type or None)
             else:
                 setattr(d, attr, next_value)

@@ -9,7 +9,7 @@ import { useAuth } from '@/app/page'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1340,6 +1340,9 @@ export function WarehousePortal() {
 
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="left" className="w-64 border-white/30 bg-white/44 p-0 shadow-[0_24px_60px_rgba(15,23,42,0.2)] backdrop-blur-2xl">
+          {/* Names the menu for screen readers; Radix warns when a dialog has neither. */}
+          <SheetTitle className="sr-only">Warehouse menu</SheetTitle>
+          <SheetDescription className="sr-only">Go to a section of the warehouse portal</SheetDescription>
           <WarehouseSidebar
             navItems={sidebarNavItems}
             activeView={activeView}

@@ -1,6 +1,5 @@
-// The web driver portal picks the licence restriction from a <select>. React Native
-// has no native select, so this is the equivalent control: a field showing the
-// current value that opens a sheet of options.
+// A field showing the current selection opens a sheet of options. License fields
+// allow multiple explicit codes, matching the web portal's checkbox dropdown.
 //
 // This matters beyond styling: the field used to be a free-text input, and the API
 // rejects any restriction outside A, A1, B, B1, B2, C, D, BE and CE, so a typo was
@@ -15,15 +14,19 @@ export function OptionSelect({
   onChange,
   placeholder = "Select an option",
   accessibilityLabel,
+  multiple = false,
 }: {
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (next: string) => void;
   placeholder?: string;
   accessibilityLabel?: string;
+  multiple?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const selected = options.find((option) => option.value === value);
+  // Fix: license codes are independent selections; keep single-select callers unchanged.
+  const codes = multiple ? value.split(/[,\s]+/).filter(Boolean) : [value];
+  const selected = options.filter((option) => codes.includes(option.value));
 
   return (
     <>
@@ -33,8 +36,8 @@ export function OptionSelect({
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel || placeholder}
       >
-        <Text style={selected ? selectStyles.value : selectStyles.placeholder}>
-          {selected ? selected.label : placeholder}
+        <Text style={selected.length ? selectStyles.value : selectStyles.placeholder}>
+          {selected.length ? selected.map((option) => option.label).join(', ') : placeholder}
         </Text>
         <Ionicons name="chevron-down" size={16} color="#64748b" />
       </Pressable>
@@ -45,16 +48,17 @@ export function OptionSelect({
             <Text style={selectStyles.sheetTitle}>{placeholder}</Text>
             <ScrollView>
               {options.map((option) => {
-                const active = option.value === value;
+                const active = codes.includes(option.value);
                 return (
                   <Pressable
                     key={option.value}
                     style={[selectStyles.option, active ? selectStyles.optionActive : null]}
                     onPress={() => {
-                      onChange(option.value);
-                      setOpen(false);
+                      onChange(multiple ? (active ? codes.filter((code) => code !== option.value) : [...codes, option.value]).join(',') : option.value);
+                      if (!multiple) setOpen(false);
                     }}
-                    accessibilityRole="button"
+                    accessibilityRole={multiple ? "checkbox" : "button"}
+                    accessibilityState={multiple ? { checked: active } : undefined}
                     accessibilityLabel={option.label}
                   >
                     <Text style={[selectStyles.optionText, active ? selectStyles.optionTextActive : null]}>
@@ -65,6 +69,11 @@ export function OptionSelect({
                 );
               })}
             </ScrollView>
+            {multiple ? (
+              <Pressable style={selectStyles.option} onPress={() => setOpen(false)} accessibilityRole="button">
+                <Text style={selectStyles.optionTextActive}>Done</Text>
+              </Pressable>
+            ) : null}
           </View>
         </Pressable>
       </Modal>

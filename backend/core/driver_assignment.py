@@ -6,9 +6,9 @@ from django.db.models import Count
 from django.utils import timezone
 
 from . import views_api as legacy
+from .driver_license import is_valid_license_codes
 from .api_constants import (
     COMPLETED_DELIVERY_FILTER,
-    DRIVER_RESTRICTIONS,
     PHILIPPINE_DRIVER_LICENSE_REGEX,
 )
 from .models import (
@@ -107,8 +107,8 @@ def _driver_assignment_blocker(driver: User) -> str | None:
         return "Driver profile is incomplete (phone, license number, restriction and expiry are required)"
     if not PHILIPPINE_DRIVER_LICENSE_REGEX.match(license_number):
         return "Driver's license number must follow the format X00-00-000000 (e.g. D09-22-000984)."
-    if license_type not in DRIVER_RESTRICTIONS:
-        return "Driver's license restriction must be one of: A, A1, B, B1, B2, C, D, BE, CE"
+    if not is_valid_license_codes(license_type):
+        return "Driver's license restrictions must contain one or more of: A, A1, B, B1, B2, C, D, BE, CE"
     if timezone.localtime(license_expiry).date() < timezone.localdate():
         return "Driver's license has expired"
     return None

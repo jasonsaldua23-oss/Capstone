@@ -2073,8 +2073,9 @@ export default function App() {
                 <OptionSelect
                   value={String(profileForm.licenseType || "").toUpperCase()}
                   options={DRIVER_LICENSE_RESTRICTIONS}
+                  multiple
                   onChange={(value) => setProfileForm((current) => ({ ...current, licenseType: value }))}
-                  placeholder="Select restriction"
+                  placeholder="Select restrictions"
                   accessibilityLabel="Driver license restrictions"
                 />
               </View>

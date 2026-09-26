@@ -725,6 +725,22 @@ class DriverProfileApiContractTests(TestCase):
             }
         )
 
+    def test_driver_profile_saves_multiple_codes_and_rejects_unknown_codes(self) -> None:
+        response = self.client.put(
+            "/api/driver/profile", data={"licenseType": " a1, c, A1 "},
+            content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.driver_user.refresh_from_db()
+        self.assertEqual(self.driver_user.license_type, "A1,C")
+        response = self.client.put(
+            "/api/driver/profile", data={"licenseType": "C,INVALID"},
+            content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.driver_user.refresh_from_db()
+        self.assertEqual(self.driver_user.license_type, "A1,C")
+
     def test_driver_profile_get_returns_driver_and_user_shape(self) -> None:
         response = self.client.get(
             "/api/driver/profile",
@@ -836,7 +852,7 @@ class DriverProfileApiContractTests(TestCase):
         self.assertEqual(invalid_restriction.status_code, 400)
         self.assertEqual(
             invalid_restriction.json()["error"],
-            "Restrictions must be one of: A, A1, B, B1, B2, C, D, BE, CE",
+            "Select one or more restriction codes from: A, A1, B, B1, B2, C, D, BE, CE",
         )
 
     def test_driver_profile_forbidden_for_non_driver_staff(self) -> None:

@@ -11,8 +11,15 @@ export const DRIVER_LICENSE_RESTRICTIONS = [
   { code: 'CE', label: 'CE' },
 ] as const
 
+// Fix: preserve existing single-code values while accepting explicit combinations.
+export function parseDriverLicenseCodes(value: unknown): string[] {
+  const normalized = String(value ?? '').trim().toUpperCase()
+  return normalized ? [...new Set(normalized.split(/[,\s]+/))] : []
+}
+
 export function isValidDriverLicenseRestriction(value: string): boolean {
-  return DRIVER_LICENSE_RESTRICTIONS.some((restriction) => restriction.code === value)
+  const codes = parseDriverLicenseCodes(value)
+  return codes.length > 0 && codes.every((code) => DRIVER_LICENSE_RESTRICTIONS.some((restriction) => restriction.code === code))
 }
 
 // Standard Philippine LTO driver's license format: 1 letter, 2 digits, hyphen, 2 digits, hyphen, 6 digits
@@ -43,26 +50,11 @@ export function formatPhilippineDriverLicenseInput(value: string): string {
   return formatted
 }
 
-// Added: which vehicles each LTO restriction code covers. Mirrors
-// backend/core/driver_license.py so the portal blocks an unqualified driver at the
-// same point the API would, with the same message.
-//
-// TRUCK is Code C: C is goods vehicles above 3,500 kg GVW, and every truck class this
-// system can register carries 2,500 kg or more of payload, so all of them clear that
-// threshold once the vehicle's own weight is counted. CE (heavy articulated) covers
-// the truck it tows, so it is accepted too.
-//
-// TRICYCLE is Code A1, the LTO code for motorized tricycles, and the codes are treated
-// as a seniority ladder: a driver cleared for the heavier vehicle is also cleared for the
-// lighter one, so every code that qualifies for a truck qualifies for a tricycle too. A1
-// stays the code the rejection message names, since it is the entry-level qualification
-// for the vehicle.
-//
-// Only the two types the system can actually register are ruled on. Legacy VAN, CAR and
-// MOTORCYCLE rows are deliberately left unruled: no new one can be created, and
-// inventing a code requirement for them would invalidate existing assignments.
-const TRUCK_CODES = ['C', 'CE']
-const TRICYCLE_CODES = ['A1', ...TRUCK_CODES]
+// Basic fleet policy, mirrored in backend/core/driver_license.py.
+// Staff verify truck GVW separately; higher codes never imply another entitlement.
+// LTO: https://lto.gov.ph/wp-content/uploads/2023/09/14-CC2024-DL-CODES.pdf
+const TRUCK_CODES = ['C']
+const TRICYCLE_CODES = ['A1']
 
 export const VEHICLE_LICENSE_RULES: Record<string, { required: string; accepted: string[] }> = {
   TRUCK: { required: 'C', accepted: TRUCK_CODES },
@@ -84,5 +76,5 @@ export function isLicenseCodeAllowedForVehicle(licenseCode: unknown, vehicleType
   // An unmapped legacy type is not something this rule can judge, so it is left to
   // the other profile checks rather than blocking every driver.
   if (!rule) return true
-  return rule.accepted.includes(normalizeCode(licenseCode))
+  return isValidDriverLicenseRestriction(String(licenseCode ?? '')) && parseDriverLicenseCodes(licenseCode).some((code) => rule.accepted.includes(code))
 }
