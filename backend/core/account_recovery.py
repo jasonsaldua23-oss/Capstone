@@ -117,7 +117,7 @@ def _alert_admin_login_failure(
     failure_stage: str,
 ) -> None:
     alert_threshold = max(1, int(getattr(settings, "AUTH_LOGIN_ALERT_THRESHOLD", 3)))
-    if str(user.role).upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+    if str(user.role).upper() != RoleType.ADMIN:
         return
     if failure_count >= alert_threshold and claim_account_alert(action, user.email):
         # Alert delivery failure is logged by the shared mail sender and never

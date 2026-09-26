@@ -285,7 +285,6 @@ export function deriveOrderFulfillmentSummary(order: any) {
 
 export function formatRoleLabel(role: string | null | undefined) {
   const value = String(role || '').trim().toUpperCase()
-  if (value === 'SUPER_ADMIN') return 'ADMIN'
   return value || 'N/A'
 }
 
@@ -435,7 +434,11 @@ export async function fetchAllPaginatedCollection<T>(
 
   const combined = getCollection<T>(first.data, [collectionKey])
   const reportedTotalPages = Math.max(1, Number(first.data?.totalPages || 1))
-  const totalPages = Math.min(reportedTotalPages, maxPages)
+  // Fix: never label a truncated collection as a successful, complete report.
+  if (!Number.isFinite(reportedTotalPages) || reportedTotalPages > maxPages) {
+    return { ok: false, status: 0, data: { error: 'Collection exceeds the supported page limit; narrow the request.' } }
+  }
+  const totalPages = reportedTotalPages
 
   for (let page = 2; page <= totalPages; page += 1) {
     const next = await fetchPage(page)
@@ -447,7 +450,8 @@ export async function fetchAllPaginatedCollection<T>(
     ...first,
     data: {
       ...first.data,
-      [collectionKey]: combined,
+      // Stable IDs can overlap across pages while new rows are being inserted.
+      [collectionKey]: Array.from(new Map(combined.map((row: any, index) => [row?.id ?? `row-${index}`, row])).values()),
       totalPages,
     },
   }

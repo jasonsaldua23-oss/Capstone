@@ -70,7 +70,7 @@ function isRoleAllowedForVariant(payload: AuthPayload, variant: AppVariant): boo
   if (variant === 'driver') return payload.type === 'staff' && payload.role === 'DRIVER'
   if (variant === 'customer') return payload.type === 'customer'
   if (variant === 'warehouse') return payload.type === 'staff' && payload.role === 'WAREHOUSE_STAFF'
-  return payload.type === 'staff' && ['ADMIN', 'SUPER_ADMIN'].includes(payload.role || '')
+  return payload.type === 'staff' && payload.role === 'ADMIN'
 }
 
 async function getPayload(request: NextRequest): Promise<AuthPayload | null> {

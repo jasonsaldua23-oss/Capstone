@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import type { ChartConfig } from '@/components/ui/chart'
 import type { InventoryStatusBreakdown, WarehouseOrderStats } from '@/lib/report-metrics'
+import type { DeliveredTransaction } from '@/lib/delivered-transactions'
 
 export type WarehouseDashboardViewProps = {
   assignedWarehouse: any
@@ -103,6 +104,7 @@ export type WarehouseLiveTrackingViewProps = {
   liveTrackingRouteLines: any[]
   liveTrackingCenter: [number, number]
   liveTrackingActiveTrips: any[]
+  liveTrackingDeliveredTransactions: DeliveredTransaction[]
   liveTrackingRecentLocations: any[]
 }
 

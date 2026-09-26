@@ -24,8 +24,10 @@ from .api_constants import (
 )
 from .api_utils import error as _err, json_body as _json_body, ok as _ok, to_int as _int
 from .auth import hash_password
+from .views_media import resolve_available_avatar
 from .models import (
     Customer,
+    Feedback,
     Order,
     OrderStatus,
     RoleType,
@@ -131,7 +133,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     if err:
         return err
     actor_role = str(staff.get("role") or "").upper()
-    if request.method == "POST" and actor_role not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+    if request.method == "POST" and actor_role != RoleType.ADMIN:
         return _err("Only administrators can create staff accounts", 403)
     if request.method == "GET":
         page, size, off = _pagination(request)
@@ -158,8 +160,6 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     name = str(body.get("name", "")).strip()
     password = str(body.get("password", "")).strip()
     role_id = str(body.get("roleId", "")).strip()
-    if role_id == RoleType.SUPER_ADMIN and actor_role != RoleType.SUPER_ADMIN:
-        return _err("Only the owner can create an owner account", 403)
     phone = _normalize_philippine_phone(body.get("phone"))
     email_verification_token = str(body.get("emailVerificationToken", "")).strip()
     # Fix: the structured name parts were accepted from the client and then dropped,
@@ -188,7 +188,7 @@ def users_collection(request: HttpRequest) -> JsonResponse:
     # Added: driver service area is selected during registration, not in fleet management.
     service_area = str(body.get("serviceArea") or "").strip().casefold()
     if role_id == RoleType.DRIVER:
-        if str(staff.get("role") or "").upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        if str(staff.get("role") or "").upper() != RoleType.ADMIN:
             return _err("Only administrators can assign a driver service area", 403)
         if service_area not in {"silay", "talisay"}:
             return _err("Select Silay or Talisay as the driver's service area", 400)
@@ -254,13 +254,11 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     except User.DoesNotExist:
         return _err("User not found", 404)
     actor_role = str(staff.get("role") or "").upper()
-    is_admin = actor_role in {RoleType.ADMIN, RoleType.SUPER_ADMIN}
+    is_admin = actor_role == RoleType.ADMIN
     is_self = str(staff.get("userId")) == str(user.id)
     # Fix: self-service profiles never grant administration of other accounts.
     if not is_admin and not is_self:
         return _err("Forbidden", 403)
-    if request.method != "GET" and user.role == RoleType.SUPER_ADMIN and actor_role != RoleType.SUPER_ADMIN:
-        return _err("Only the owner can modify this account", 403)
     if request.method == "DELETE" and (not is_admin or is_self):
         return _err("This account cannot be deleted by this session", 403)
     if request.method == "GET":
@@ -285,8 +283,6 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     # Fix: privilege changes require administration even on one's own account.
     if not is_admin and any(key in body for key in ("roleId", "isActive", "adminResetPassword")):
         return _err("Only administrators can change account privileges", 403)
-    if body.get("roleId") == RoleType.SUPER_ADMIN and actor_role != RoleType.SUPER_ADMIN:
-        return _err("Only the owner can assign this role", 403)
     if _submitted_person_name_has_number(body):
         return _err(PERSON_NAME_NUMBER_ERROR, 400)
     current_email = str(user.email or "").strip().lower()
@@ -304,7 +300,7 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     service_area = str(body.get("serviceArea") or "").strip().casefold()
     if requested_role == RoleType.DRIVER and service_area_supplied:
         # Added: service-area changes remain an administrator-owned account setting.
-        if str(staff.get("role") or "").upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        if str(staff.get("role") or "").upper() != RoleType.ADMIN:
             return _err("Only administrators can assign a driver service area", 403)
         if service_area not in {"silay", "talisay"}:
             return _err("Select Silay or Talisay as the driver's service area", 400)
@@ -320,11 +316,8 @@ def user_detail(request: HttpRequest, user_id: str) -> JsonResponse:
     admin_password_reset_requested = password_change_requested and bool(body.get("adminResetPassword"))
     if admin_password_reset_requested:
         actor_role = str(staff.get("role") or "").strip().upper()
-        target_role = str(user.role or "").strip().upper()
-        if actor_role not in {RoleType.SUPER_ADMIN, RoleType.ADMIN}:
+        if actor_role != RoleType.ADMIN:
             return _err("Only an administrator can reset another user's password", 403)
-        if target_role == RoleType.SUPER_ADMIN and actor_role != RoleType.SUPER_ADMIN:
-            return _err("Only the owner can reset this password", 403)
 
     if email_change_requested or (password_change_requested and not admin_password_reset_requested):
         email_verification_token = str(body.get("emailVerificationToken", "")).strip()
@@ -444,6 +437,15 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
             .values("customer_id")
             .annotate(successful_deliveries=Count("id"), successful_delivery_spend=Sum("total_amount"))
         }
+        # Fix: return satisfaction with the directory so the Clients page does
+        # not download/serialize every order and feedback just to calculate ratings.
+        rating_stats = {
+            str(entry["customer_id"]): entry
+            for entry in Feedback.objects.filter(customer_id__in=customer_ids, rating__gt=0)
+            .filter(Q(order__isnull=True) | Q(order__in=regular_orders.filter(status=OrderStatus.DELIVERED)))
+            .values("customer_id")
+            .annotate(rating_sum=Sum("rating"), rating_count=Count("id"))
+        }
         last_orders: dict[str, dict[str, Any]] = {}
         for entry in regular_orders.order_by("-created_at").values("customer_id", "order_number", "created_at"):
             last_orders.setdefault(str(entry["customer_id"]), entry)
@@ -451,12 +453,20 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
         serialized_customers = []
         for customer in rows:
             customer_data = _serialize_model(customer, exclude={"password"})
+            # Use the initials fallback only when a local avatar file is confirmed missing.
+            customer_data["avatar"] = resolve_available_avatar(customer.avatar)
             stats = delivered_stats.get(str(customer.id), {})
+            ratings = rating_stats.get(str(customer.id), {})
             last_order = last_orders.get(str(customer.id), {})
             customer_data["successfulDeliveries"] = _int(stats.get("successful_deliveries"), 0)
             customer_data["successfulDeliverySpend"] = float(stats.get("successful_delivery_spend") or 0)
             customer_data["lastOrderNumber"] = last_order.get("order_number")
             customer_data["lastOrderDate"] = _serialize_value(last_order.get("created_at"))
+            customer_data["ratingCount"] = _int(ratings.get("rating_count"), 0)
+            customer_data["rating"] = (
+                float(ratings["rating_sum"]) / customer_data["ratingCount"]
+                if customer_data["ratingCount"] else None
+            )
             serialized_customers.append(customer_data)
 
         return _ok({"success": True, "customers": serialized_customers, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
@@ -488,7 +498,7 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
     if p.get("type") != "staff" and p.get("userId") != c.id:
         return _err("Forbidden", 403)
     # Fix: delivery staff must not mutate customer accounts or security settings.
-    if p.get("type") == "staff" and p.get("role") not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+    if p.get("type") == "staff" and p.get("role") != RoleType.ADMIN:
         return _err("Only administrators can manage customer accounts", 403)
     if request.method == "DELETE":
         c.delete()
@@ -510,7 +520,6 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         "discountPercent",
     }
     if p.get("type") == "staff" and any(key in body for key in discount_keys):
-        staff_role = str(p.get("role") or "").strip().upper()
         option = str(body.get("discountOption") or getattr(c, "discount_option", DISCOUNT_NO)).strip().upper()
         status = str(body.get("discountStatus") or getattr(c, "discount_status", DISCOUNT_REMOVED)).strip().upper()
         percent = float(body.get("discountPercent") if body.get("discountPercent") is not None else getattr(c, "discount_percent", 0) or 0)
@@ -526,8 +535,6 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
             percent = max(0.0, percent)
             if percent <= 0:
                 return _err("For Other discount, set a custom percent", 400)
-            if percent > 25 and staff_role != RoleType.SUPER_ADMIN:
-                return _err("Only owner can apply custom discount above 25%", 403)
 
         c.discount_option = option
         c.discount_status = status

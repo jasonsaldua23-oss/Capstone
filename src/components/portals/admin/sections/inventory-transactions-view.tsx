@@ -165,7 +165,7 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
   const [selectedTx, setSelectedTx] = useState<TransactionRow | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
 
-  const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN' || !userRole
+  const isAdmin = userRole === 'ADMIN' || !userRole
 
   const fetchTransactions = useCallback(async () => {
     const requestId = ++searchRequestRef.current

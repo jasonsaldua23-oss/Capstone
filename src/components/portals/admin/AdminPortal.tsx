@@ -428,7 +428,6 @@ function formatNotificationTime(createdAt: string) {
 
 function formatRoleLabel(role: string | null | undefined) {
   const value = String(role || '').trim().toUpperCase()
-  if (value === 'SUPER_ADMIN') return 'ADMIN'
   return value || 'N/A'
 }
 

@@ -1,4 +1,4 @@
-export type StaffRole = "SUPER_ADMIN" | "ADMIN" | "WAREHOUSE_STAFF" | "DRIVER";
+export type StaffRole = "ADMIN" | "WAREHOUSE_STAFF" | "DRIVER";
 
 export interface AuthUser {
   userId: string;

@@ -11,7 +11,6 @@ def generate_cuid() -> str:
 
 
 class RoleType(models.TextChoices):
-    SUPER_ADMIN = "SUPER_ADMIN", "Super Admin"
     ADMIN = "ADMIN", "Admin"
     WAREHOUSE_STAFF = "WAREHOUSE_STAFF", "Warehouse Staff"
     DRIVER = "DRIVER", "Driver"

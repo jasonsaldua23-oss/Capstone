@@ -38,7 +38,7 @@ import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
-import { resolveReportCutoff, resolveReportSpanDays, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { buildReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 import { formatOrderItemsForExport, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
@@ -100,7 +100,8 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
         const txNumber = o.retailTransactionNumber || o.orderNumber || `POS-${o.id?.slice(-6)}`
         const customer = o.walkInName || o.customer?.name || o.shippingName || 'Walk-in Retail Customer'
         const amount = Number(o.totalAmount || o.subtotal || 0)
-        const date = o.createdAt || new Date().toISOString()
+        // Fix: missing timestamps must not appear as records created today.
+        const date = o.createdAt || ''
         const items = Array.isArray(o.items) ? o.items : []
 
         const rawStatus = String(o.retailStatus || o.retail_status || o.status || 'COMPLETED').toUpperCase()
@@ -128,7 +129,8 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
           txNumber: txNum,
           customer: rs.customerName || rs.walkInName || 'Walk-in Retail Customer',
           amount: Number(rs.totalAmount || rs.subtotal || 0),
-          date: rs.createdAt || new Date().toISOString(),
+          // Fix: missing timestamps must not appear as records created today.
+          date: rs.createdAt || '',
           itemsCount: Array.isArray(rs.items) ? rs.items.length : 0,
           items: rs.items || [],
           channel: 'RETAIL_POS',
@@ -143,34 +145,29 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
   // Split the selected date window from its immediately preceding comparison period.
   const { currentPeriodItems, prevPeriodItems, periodLabel, prevPeriodLabel } = useMemo(() => {
     const now = new Date()
-    let currentStartTime = Number.NEGATIVE_INFINITY
-    let currentEndTime = now.getTime()
+    // Fix: retail uses the same inclusive and open-ended range as the other reports.
+    const window = buildReportDateWindow(periodMode, dateFrom, dateTo, now)
+    const currentStartTime = window.start?.getTime() ?? Number.NEGATIVE_INFINITY
+    const currentEndTime = window.end?.getTime() ?? Number.POSITIVE_INFINITY
     let prevStartTime = Number.NEGATIVE_INFINITY
     let prevEndTime = Number.NEGATIVE_INFINITY
-    let label = 'All Time'
+    const label = window.label
     let prevLabel = 'No prior comparison'
 
     if (periodMode === 'custom') {
-      if (dateFrom) currentStartTime = new Date(`${dateFrom}T00:00:00`).getTime()
-      if (dateTo) currentEndTime = new Date(`${dateTo}T23:59:59.999`).getTime()
-      label = dateFrom || dateTo ? `${dateFrom || 'Start'} to ${dateTo || 'Today'}` : 'Custom Date Range'
-
       // A complete custom range can be compared with the equally sized preceding window.
       if (dateFrom && dateTo && currentEndTime >= currentStartTime) {
-        const duration = currentEndTime - currentStartTime
+        const duration = currentEndTime - currentStartTime + 1
         prevEndTime = currentStartTime
         prevStartTime = currentStartTime - duration
         prevLabel = 'prior matching period'
       }
     } else if (periodMode !== 'all') {
-      const days = resolveReportSpanDays(periodMode)
-      currentStartTime = resolveReportCutoff(periodMode, now).getTime()
       // The prior window must be the same length as the current one. It used to be
       // a flat N days against a current window of N+1, so growth always read high.
       prevEndTime = currentStartTime
-      prevStartTime = currentStartTime - (currentEndTime - currentStartTime)
-      label = periodMode === 'today' ? 'Today' : periodMode === '365' ? 'Past 1 Year' : `Past ${days} Days`
-      prevLabel = periodMode === 'today' ? 'Yesterday' : periodMode === '365' ? 'Prior 1 Year' : `Prior ${days} Days`
+      prevStartTime = currentStartTime - (currentEndTime - currentStartTime + 1)
+      prevLabel = periodMode === 'today' ? 'Yesterday' : periodMode === '365' ? 'Prior 1 Year' : `Prior ${periodMode} Days`
     }
 
     const currentPeriodItems = retailTransactions.filter((item) => {
@@ -406,9 +403,9 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
         <Card className="order-[-1] border border-slate-200 bg-white p-3 shadow-sm">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-slate-600">Custom Date Range:</span>
-            <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setCurrentPage(1) }} className="h-9 w-auto text-xs" aria-label="Retail sales date from" />
+            <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} max={dateTo || undefined} value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setCurrentPage(1) }} className="h-9 w-auto text-xs" aria-label="Retail sales date from" />
             <span className="text-xs text-slate-400">to</span>
-            <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={dateTo} onChange={(event) => { setDateTo(event.target.value); setCurrentPage(1) }} className="h-9 w-auto text-xs" aria-label="Retail sales date to" />
+            <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} min={dateFrom || undefined} value={dateTo} onChange={(event) => { setDateTo(event.target.value); setCurrentPage(1) }} className="h-9 w-auto text-xs" aria-label="Retail sales date to" />
           </div>
         </Card>
       )}

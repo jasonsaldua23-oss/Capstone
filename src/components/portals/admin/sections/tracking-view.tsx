@@ -45,6 +45,8 @@ import {
   fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
+import { buildDeliveredTransactions, deliveredTransactionPin } from '@/lib/delivered-transactions'
+import { LiveTrackingPage } from '@/components/portals/shared/live-tracking-page'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -73,8 +75,6 @@ export function TrackingView() {
   const [ordersForMap, setOrdersForMap] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [trackingDate, setTrackingDate] = useState(formatDayKey(new Date()))
-  const [activeTripsPage, setActiveTripsPage] = useState(1)
-  const activeTripsPageSize = 10
 
   const isDropPointCompleted = (status: unknown) => {
     const value = String(status || '').toUpperCase()
@@ -213,21 +213,12 @@ export function TrackingView() {
     () => trips.filter((trip: any) => ['IN_PROGRESS'].includes(normalizeTripStatus(trip?.status)) && tripMatchesTrackingDay(trip)),
     [trackingDate, trips]
   )
-  const totalActiveTripsPages = Math.max(1, Math.ceil(activeTrips.length / activeTripsPageSize))
-  const paginatedActiveTrips = useMemo(() => {
-    const start = (activeTripsPage - 1) * activeTripsPageSize
-    return activeTrips.slice(start, start + activeTripsPageSize)
-  }, [activeTrips, activeTripsPage])
-
-  useEffect(() => {
-    setActiveTripsPage(1)
-  }, [activeTrips.length, trackingDate])
-
-  useEffect(() => {
-    if (activeTripsPage > totalActiveTripsPages) {
-      setActiveTripsPage(totalActiveTripsPages)
-    }
-  }, [activeTripsPage, totalActiveTripsPages])
+  // Deliveries belong to the day they happened; completed trips are no longer drawn,
+  // so without this the day's deliveries disappeared once their trip finished.
+  const deliveredTransactions = useMemo(
+    () => buildDeliveredTransactions({ trips, orders: ordersForMap, dayKey: trackingDate || formatDayKey(new Date()) }),
+    [ordersForMap, trackingDate, trips]
+  )
 
   const recentLocations = trips
     .filter((trip: any) => tripMatchesTrackingDay(trip))
@@ -530,6 +521,14 @@ export function TrackingView() {
       }
     })
 
+    deliveredTransactions.forEach((delivery) => {
+      // Stops of a trip still in progress are already drawn above as Completed.
+      if (tripOrderIds.has(delivery.orderId)) return
+      tripOrderIds.add(delivery.orderId)
+      const pin = deliveredTransactionPin(delivery)
+      if (pin) locations.push(pin)
+    })
+
     // Fix: trucks exist only for the trips in the loop above, i.e. the ones
     // IN_PROGRESS on the tracking day. The old "last known location" pass put a
     // truck on the map for every driver with a fix that day, so drivers whose
@@ -540,6 +539,8 @@ export function TrackingView() {
     dayOrders.forEach((order: any) => {
       const orderId = String(order?.id || '').trim()
       if (orderId && tripOrderIds.has(orderId)) return
+      // A delivered order is shown on the day it was delivered (above), not its scheduled day.
+      if (isCompletedOrderStatus(order?.status)) return
 
       const lat = Number(order?.shippingLatitude)
       const lng = Number(order?.shippingLongitude)
@@ -568,7 +569,7 @@ export function TrackingView() {
     })
 
     return { locations, routeLines }
-  }, [driverLocations, ordersForMap, trackingDate, trips])
+  }, [deliveredTransactions, driverLocations, ordersForMap, trackingDate, trips])
 
   const mapLocations = mapData.locations
   const routeLines = mapData.routeLines
@@ -578,147 +579,26 @@ export function TrackingView() {
     : [10.55, 122.95]) as [number, number]
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Live Tracking</h1>
-          <p className="text-gray-500">Monitor active deliveries in real-time</p>
-        </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-          <Input
-            type="date"
-            value={trackingDate}
-            onChange={(event) => setTrackingDate(event.target.value)}
-            className="w-full sm:w-[160px]"
-          />
-          <Button className="gap-2" onClick={fetchTrackingTrips} disabled={isLoading}>
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
-            Refresh Map
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-          <Card className="h-[500px]">
-            <CardContent className="p-0 h-full">
-              <LiveTrackingMap
-                locations={mapLocations}
-                routeLines={routeLines}
-                center={mapCenter}
-                zoom={mapLocations.length > 0 ? 12 : 10}
-                className="w-full h-full rounded-xl overflow-hidden"
-                restrictToNegrosOccidental
-                showDriverSelfBadge={false}
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Active Trips</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                // Fix: mirror the compact trip-row layout so the loader remains
-                // inside the narrow tracking sidebar at desktop breakpoints.
-                <div className="space-y-3">
-                  {Array.from({ length: 2 }).map((_, index) => (
-                    <div key={`active-trip-skeleton-${index}`} className="flex min-w-0 items-center gap-3 rounded-lg bg-gray-50 p-2">
-                      <Skeleton className="h-2 w-2 shrink-0 rounded-full" />
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <Skeleton className="h-4 w-24 max-w-full" />
-                        <Skeleton className="h-3 w-36 max-w-full" />
-                      </div>
-                      <Skeleton className="h-6 w-10 shrink-0 rounded-md" />
-                    </div>
-                  ))}
-                </div>
-              ) : activeTrips.length === 0 ? (
-                <p className="text-sm text-gray-500">No active trips right now</p>
-              ) : (
-                <div className="space-y-3">
-                  {paginatedActiveTrips.map((trip: any) => (
-                    <div key={trip.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-                      <div className="bg-green-500 h-2 w-2 rounded-full animate-pulse"></div>
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">{trip.tripNumber}</p>
-                        <p className="text-xs text-gray-500">Driver: {trip.driver?.name || trip.driver?.user?.name || 'Unassigned'}</p>
-                      </div>
-                      <Badge variant="outline">
-                        {trip.completedDropPoints || 0}/{trip.totalDropPoints || 0}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {!isLoading && activeTrips.length > 0 ? (
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t pt-3">
-                  <p className="text-xs text-slate-500">
-                    Showing {(activeTripsPage - 1) * activeTripsPageSize + 1}-{Math.min(activeTripsPage * activeTripsPageSize, activeTrips.length)} of {activeTrips.length}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={activeTripsPage <= 1}
-                      onClick={() => setActiveTripsPage((prev) => Math.max(1, prev - 1))}
-                    >
-                      Previous
-                    </Button>
-                    <span className="text-sm text-slate-600">Page {activeTripsPage} of {totalActiveTripsPages}</span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={activeTripsPage >= totalActiveTripsPages}
-                      onClick={() => setActiveTripsPage((prev) => Math.min(totalActiveTripsPages, prev + 1))}
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Recent Locations</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                // Fix: this card reads from the same trips fetch as Active Trips, so it
-                // must show a loader too instead of claiming there are no logs.
-                <div className="space-y-2 text-sm">
-                  {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={`recent-location-skeleton-${index}`} className="flex min-w-0 items-center justify-between gap-2">
-                      <Skeleton className="h-4 w-20 max-w-full" />
-                      <Skeleton className="h-4 w-28 max-w-full" />
-                    </div>
-                  ))}
-                </div>
-              ) : recentLocations.length === 0 ? (
-                <p className="text-sm text-gray-500">No coordinate logs available</p>
-              ) : (
-                <div className="space-y-2 text-sm">
-                  {recentLocations.map((log: any) => (
-                    <div key={log.id} className="flex justify-between gap-2">
-                      <span className="text-gray-500 truncate">
-                        {new Date(log.recordedAt || log.createdAt || Date.now()).toLocaleTimeString()}
-                      </span>
-                      <span>{Number(log.latitude).toFixed(4)}, {Number(log.longitude).toFixed(4)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    </div>
+    <LiveTrackingPage
+      trackingDate={trackingDate}
+      onTrackingDateChange={setTrackingDate}
+      onRefresh={() => void fetchTrackingTrips()}
+      isRefreshing={isLoading}
+      activeTrips={activeTrips}
+      deliveries={deliveredTransactions}
+      recentLocations={recentLocations}
+      isLoadingTrips={isLoading}
+      map={
+        <LiveTrackingMap
+          locations={mapLocations}
+          routeLines={routeLines}
+          center={mapCenter}
+          zoom={mapLocations.length > 0 ? 12 : 10}
+          className="h-full w-full"
+          restrictToNegrosOccidental
+          showDriverSelfBadge={false}
+        />
+      }
+    />
   )
 }

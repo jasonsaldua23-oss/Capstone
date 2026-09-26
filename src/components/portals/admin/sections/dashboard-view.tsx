@@ -10,6 +10,7 @@ import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, BarChart, Bar, PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComparison, describeComposition, toPoints } from '@/lib/chart-interpretation'
+import { isIssuedPurchaseOrder } from '@/lib/purchase-documents'
 import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shared'
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
@@ -79,18 +80,9 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     fetchWarehouseInfo()
   }, [])
 
-  const isApprovedPurchaseOrder = (order: any): boolean => {
-    const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
-    if (orderNumber.startsWith('RPL-') || Boolean(order?.isScheduledReplacement)) return false
-    const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
-    const purchaseOrderStage = String(order?.purchaseOrderStage || order?.purchase_order_stage || '').trim()
-    const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
-    // Include historical cancelled POs in monitoring totals.
-    return Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
-  }
-
   const dashboardOrderStats = useMemo(() => {
-    const approvedPurchaseOrders = dashboardOrders.filter(isApprovedPurchaseOrder)
+    // Same membership rule as the Purchase Orders report; cancelled POs stay in the total.
+    const approvedPurchaseOrders = dashboardOrders.filter(isIssuedPurchaseOrder)
     const totalOrders = approvedPurchaseOrders.length
     const outForDelivery = approvedPurchaseOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'OUT_FOR_DELIVERY').length
     const delivered = approvedPurchaseOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'DELIVERED').length
@@ -138,7 +130,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    const approvedOrders = dashboardOrders.filter(isApprovedPurchaseOrder)
+    const approvedOrders = dashboardOrders.filter(isIssuedPurchaseOrder)
     for (const order of approvedOrders) {
       if (!order?.createdAt) continue
       const orderDate = new Date(order.createdAt)

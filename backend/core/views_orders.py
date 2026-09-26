@@ -434,7 +434,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
         })
     if request.method == "POST":
         # Fix: existing on-behalf flows belong to administration and warehouse staff.
-        if p.get("type") == "staff" and p.get("role") not in {RoleType.ADMIN, RoleType.SUPER_ADMIN, RoleType.WAREHOUSE_STAFF}:
+        if p.get("type") == "staff" and p.get("role") not in {RoleType.ADMIN, RoleType.WAREHOUSE_STAFF}:
             return _err("Forbidden", 403)
         body = _json_body(request)
         if _person_name_has_number(body.get("shippingName")):
@@ -652,7 +652,7 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
     reschedule_replacement_delivery = bool(body.get("rescheduleReplacementDelivery"))
     manual_schedule_confirmed = bool(body.get("manualScheduleConfirmed"))
     staff_role = str(staff.get("role") or "").strip().upper()
-    is_admin_role = staff_role in {RoleType.ADMIN, RoleType.SUPER_ADMIN}
+    is_admin_role = staff_role == RoleType.ADMIN
     is_warehouse_role = staff_role == RoleType.WAREHOUSE_STAFF
 
     current_status_normalized = str(_normalize_replacement_status(getattr(r, "status", None), r.replacement_mode) or "").upper()

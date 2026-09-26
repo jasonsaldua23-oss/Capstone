@@ -906,6 +906,8 @@ function useCustomerPortalState() {
       setCart((current) => Object.fromEntries(Object.entries(current).filter(([productId]) => !selectedCartIds.has(productId))));
       setMixedCart((current) => current.filter((item) => !selectedCartIds.has(item.id)));
       setSelectedCartIds(new Set());
+      // The note belongs to the request just placed and must not carry into the next one.
+      setNotes("");
       await refreshData(false, profile.userId);
       setOrderSearch("");
       setOrdersTab("ALL");

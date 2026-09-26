@@ -41,10 +41,10 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeRanking, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDayKey, withinRange } from '../shared'
+import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
-import { resolveReportCutoff } from '@/components/portals/admin/sections/report-date-utils'
+import { buildReportDateWindow, matchesReportDateWindow } from '@/components/portals/admin/sections/report-date-utils'
 import { formatReportProductNameForExport, isCancelledReportStatus } from '@/lib/report-metrics'
 
 interface WarehouseInventoryReportProps {
@@ -161,26 +161,17 @@ export function WarehouseInventoryReport({
       const start = new Date(dateFrom).getTime()
       const end = new Date(dateTo).getTime()
       const diff = Math.ceil((end - start) / (1000 * 60 * 60 * 24))
-      return Math.max(1, diff)
+      // Fix: both selected dates count toward the daily sales average.
+      return Math.max(1, diff + 1)
     }
     return 30
   }, [periodPreset, dateFrom, dateTo])
 
   // Date filtering helper
   const isDateInPeriod = useMemo(() => {
-    return (dateStr: string) => {
-      if (!dateStr) return false
-      const itemTime = new Date(dateStr).getTime()
-      if (periodPreset === 'all') return true
-      if (periodPreset === 'custom') {
-        if (dateFrom && itemTime < new Date(`${dateFrom}T00:00:00`).getTime()) return false
-        if (dateTo && itemTime > new Date(`${dateTo}T23:59:59.999`).getTime()) return false
-        return true
-      }
-      // Shared so every tab's window matches its chart; see resolveReportCutoff.
-      const cutoff = resolveReportCutoff(periodPreset)
-      return itemTime >= cutoff.getTime()
-    }
+    // Fix: invalid timestamps cannot pass a custom range, and presets end today.
+    const window = buildReportDateWindow(periodPreset, dateFrom, dateTo)
+    return (dateStr: string) => matchesReportDateWindow(dateStr, window)
   }, [periodPreset, dateFrom, dateTo])
 
   // Aggregate current inventory by product & warehouse
@@ -670,7 +661,8 @@ export function WarehouseInventoryReport({
     if (periodPreset === '30') return 'Past 30 Days'
     if (periodPreset === '90') return 'Past 90 Days'
     if (periodPreset === '365') return 'Past 1 Year'
-    if (periodPreset === 'custom' && dateFrom && dateTo) return `${dateFrom} to ${dateTo}`
+    // Fix: an open-ended custom filter must not be labelled All Time in exports.
+    if (periodPreset === 'custom') return buildReportDateWindow(periodPreset, dateFrom, dateTo).label
     return 'All Time'
   }, [periodPreset, dateFrom, dateTo])
 
@@ -934,7 +926,7 @@ export function WarehouseInventoryReport({
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateFrom}
+              max={dateTo || undefined} value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
                 setCurrentPage(1)
@@ -946,7 +938,7 @@ export function WarehouseInventoryReport({
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateTo}
+              min={dateFrom || undefined} value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)
                 setCurrentPage(1)

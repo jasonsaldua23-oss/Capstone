@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
@@ -36,7 +36,7 @@ import { SkuVelocityChart } from '@/components/shared/sku-velocity-chart'
 import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import {
   toArray,
-  getCollection,
+  fetchAllPaginatedCollection,
   getDefaultRouteDate,
   normalizeTripStatus,
   formatPeso,
@@ -80,6 +80,8 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
   const [warehouseStaffUsers, setWarehouseStaffUsers] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingInsights, setIsLoadingInsights] = useState(false)
+  const [insightsError, setInsightsError] = useState('')
+  const insightsRequest = useRef<AbortController | null>(null)
   const [loadError, setLoadError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isAutofillingLocation, setIsAutofillingLocation] = useState(false)
@@ -118,84 +120,38 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
 
   const loadWarehouseInsights = async (warehouse: any) => {
     if (!warehouse?.id) return
+    // Fix: superseded reads must not overwrite a newer warehouse refresh.
+    insightsRequest.current?.abort()
+    const controller = new AbortController()
+    insightsRequest.current = controller
     setIsLoadingInsights(true)
+    setInsightsError('')
+    setSelectedWarehouse(warehouse)
     try {
-      const [warehouseResponse, inventoryResponse, stockBatchesResponse, inventoryTransactionsResponse] = await Promise.all([
-        fetch(`/api/warehouses/${warehouse.id}`),
-        fetch('/api/inventory?limit=1000'),
-        fetch('/api/stock-batches?page=1&pageSize=500'),
-        fetch('/api/inventory-transactions?limit=1000'),
+      // Fix: the list already contains the warehouse profile. Read only this
+      // facility's stock, following every page so large histories stay accurate.
+      const scope = `warehouseId=${encodeURIComponent(String(warehouse.id))}`
+      const init = { signal: controller.signal }
+      const results = await Promise.all([
+        fetchAllPaginatedCollection(`/api/inventory?${scope}`, 'inventory', init),
+        fetchAllPaginatedCollection(`/api/stock-batches?${scope}`, 'stockBatches', init),
+        fetchAllPaginatedCollection(`/api/inventory-transactions?${scope}`, 'transactions', init),
       ])
-
-      const warehousePayload = await warehouseResponse.json().catch(() => ({}))
-      if (!warehouseResponse.ok || warehousePayload?.success === false) {
-        throw new Error(warehousePayload?.error || 'Failed to load warehouse insights')
+      if (controller.signal.aborted) return
+      const failed = results.find((result) => !result.ok)
+      if (failed) {
+        throw new Error(failed.data?.error || 'Failed to load warehouse insights')
       }
-
-      const warehouseData = warehousePayload?.data || warehousePayload?.warehouse || warehouse
-      const inventoryPayload = await inventoryResponse.json().catch(() => ({}))
-      const allInventory = inventoryResponse.ok
-        ? getCollection<any>(inventoryPayload, ['inventory'])
-        : []
-      const filteredInventory = allInventory.filter((item: any) => {
-        const itemWarehouseId = String(item?.warehouse?.id || item?.warehouseId || item?.warehouse_id || '').trim()
-        const itemWarehouseName = String(item?.warehouse?.name || '').toLowerCase()
-        const itemWarehouseCode = String(item?.warehouse?.code || '').toLowerCase()
-        const warehouseId = String(warehouseData?.id || warehouse?.id || '').trim()
-        const warehouseName = String(warehouseData?.name || warehouse?.name || '').toLowerCase()
-        const warehouseCode = String(warehouseData?.code || warehouse?.code || '').toLowerCase()
-        return (
-          (!itemWarehouseId && !itemWarehouseName) ||
-          (warehouseId && itemWarehouseId === warehouseId) ||
-          (warehouseName && itemWarehouseName === warehouseName) ||
-          (warehouseCode && itemWarehouseCode === warehouseCode)
-        )
-      })
-
-      const stockPayload = await stockBatchesResponse.json().catch(() => ({}))
-      const allStockBatches = stockBatchesResponse.ok ? getCollection<any>(stockPayload, ['stockBatches', 'batches']) : []
-      const filteredBatches = allStockBatches.filter((batch: any) => {
-        const batchWarehouseId = String(batch?.inventory?.warehouse?.id || batch?.warehouseId || '').trim()
-        const batchWarehouseName = String(batch?.inventory?.warehouse?.name || '').toLowerCase()
-        const batchWarehouseCode = String(batch?.inventory?.warehouse?.code || '').toLowerCase()
-        const warehouseId = String(warehouseData?.id || warehouse?.id || '').trim()
-        const warehouseName = String(warehouseData?.name || warehouse?.name || '').toLowerCase()
-        const warehouseCode = String(warehouseData?.code || warehouse?.code || '').toLowerCase()
-        return (
-          (!batchWarehouseId && !batchWarehouseName) ||
-          (warehouseId && batchWarehouseId === warehouseId) ||
-          (warehouseName && batchWarehouseName === warehouseName) ||
-          (warehouseCode && batchWarehouseCode === warehouseCode)
-        )
-      })
-
-      const transactionsPayload = await inventoryTransactionsResponse.json().catch(() => ({}))
-      const allInventoryTransactions = inventoryTransactionsResponse.ok
-        ? getCollection<any>(transactionsPayload, ['transactions'])
-        : []
-      const filteredTransactions = allInventoryTransactions.filter((entry: any) => {
-        const entryWarehouseId = String(entry?.warehouse?.id || '').trim()
-        const entryWarehouseName = String(entry?.warehouse?.name || '').toLowerCase()
-        const entryWarehouseCode = String(entry?.warehouse?.code || '').toLowerCase()
-        const warehouseId = String(warehouseData?.id || warehouse?.id || '').trim()
-        const warehouseName = String(warehouseData?.name || warehouse?.name || '').toLowerCase()
-        const warehouseCode = String(warehouseData?.code || warehouse?.code || '').toLowerCase()
-        return (
-          (!entryWarehouseId && !entryWarehouseName) ||
-          (warehouseId && entryWarehouseId === warehouseId) ||
-          (warehouseName && entryWarehouseName === warehouseName) ||
-          (warehouseCode && entryWarehouseCode === warehouseCode)
-        )
-      })
-
-      setSelectedWarehouse(warehouseData)
-      setWarehouseInventoryItems(filteredInventory.length > 0 ? filteredInventory : allInventory)
-      setInsightStockBatches(filteredBatches.length > 0 ? filteredBatches : allStockBatches)
-      setInsightInventoryTransactions(filteredTransactions.length > 0 ? filteredTransactions : allInventoryTransactions)
+      setWarehouseInventoryItems(results[0].data.inventory)
+      setInsightStockBatches(results[1].data.stockBatches)
+      setInsightInventoryTransactions(results[2].data.transactions)
     } catch (error: any) {
+      if (controller.signal.aborted) return
       console.warn('Failed to load warehouse insights:', error)
+      // Fix: a failed read is unavailable data, not an empty or healthy warehouse.
+      setInsightsError(error?.message || 'Failed to load warehouse insights')
     } finally {
-      setIsLoadingInsights(false)
+      if (!controller.signal.aborted) setIsLoadingInsights(false)
     }
   }
 
@@ -252,6 +208,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
   useEffect(() => {
     fetchWarehouses()
     fetchWarehouseStaffUsers()
+    return () => insightsRequest.current?.abort()
   }, [])
 
   const resetForm = () => {
@@ -810,7 +767,7 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
                   <p className="text-xs font-medium text-slate-500">Tracked SKUs</p>
                   <div className="flex items-center gap-1.5 mt-1">
                     <Package className="h-3.5 w-3.5 text-slate-400" />
-                    <p className="text-sm font-semibold text-slate-800">{stockKeepingUnits} SKU Types</p>
+                    <p className="text-sm font-semibold text-slate-800">{isLoadingInsights ? 'Loading...' : insightsError ? 'Unavailable' : `${stockKeepingUnits} SKU Types`}</p>
                   </div>
                 </div>
               </div>
@@ -820,6 +777,13 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
           {/* Inline Insights & Analytics Section */}
           {isLoadingInsights ? (
             <PortalCardsSkeleton cards={4} className="lg:grid-cols-2" />
+          ) : insightsError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-5 py-6 text-center text-sm text-rose-700">
+              {insightsError}
+              <Button variant="outline" className="mt-3 mx-auto block" onClick={() => void loadWarehouseInsights(activeWarehouse)}>
+                Retry
+              </Button>
+            </div>
           ) : (
             <div className="space-y-6">
               {/* Row 1: Capacity Utilization & 7-Day Trend */}

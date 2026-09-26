@@ -50,6 +50,24 @@ import {
   deriveOrderFulfillmentSummary,
 } from './shared'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
+import { CustomerOrderNoteCard, CustomerOrderNotePreview } from '@/components/portals/shared/customer-order-note'
+import {
+  getPurchaseDocumentAmount,
+  getPurchaseOrderDate,
+  getPurchaseOrderDeliveryDate,
+  getPurchaseOrderStage,
+  getPurchaseRequestDate,
+  getPurchaseRequestStatus,
+  isIssuedPurchaseOrder,
+  isPurchaseRequestDocument,
+  matchesPurchaseDatePreset,
+  PURCHASE_DATE_PRESET_OPTIONS,
+  PURCHASE_ORDER_STAGE_LABELS,
+  PURCHASE_REQUEST_STATUS_LABELS,
+  toPurchaseRequestRecord,
+  type PurchaseDatePreset,
+  type PurchaseOrderStage,
+} from '@/lib/purchase-documents'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -76,6 +94,22 @@ function formatRequestStatus(value: string) {
   return String(value || 'PENDING_APPROVAL').replace(/_/g, ' ')
 }
 
+const orderStageBadgeClass: Record<PurchaseOrderStage, string> = {
+  APPROVED: 'bg-cyan-100 text-cyan-800 hover:bg-cyan-100',
+  PROCESSING: 'bg-lime-100 text-lime-800 hover:bg-lime-100',
+  RESCHEDULED: 'bg-amber-100 text-amber-800 hover:bg-amber-100',
+  OUT_FOR_DELIVERY: 'bg-blue-100 text-blue-800 hover:bg-blue-100',
+  DELIVERED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
+  CANCELLED: 'bg-red-100 text-red-700 hover:bg-red-100',
+}
+
+function formatShortDate(value: unknown): string {
+  // Fix: scheduled dates must display on their calendar day in every timezone.
+  const raw = String(value || '').trim()
+  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw)
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString()
+}
+
 export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '', notificationReferenceId = '', notificationFocusKey }: { mode?: string; onOpenTransportation?: () => void; globalSearchQuery?: string; notificationReferenceId?: string; notificationFocusKey?: number } = {}) {
   const ORDERS_CACHE_KEY = 'admin_orders_cache_v2'
   const [orders, setOrders] = useState<any[]>([])
@@ -89,7 +123,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
   const [otherRejectReason, setOtherRejectReason] = useState('')
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
-  const [orderDatePreset, setOrderDatePreset] = useState('all')
+  const [orderDatePreset, setOrderDatePreset] = useState<PurchaseDatePreset>('all')
   const [orderCustomDateFilter, setOrderCustomDateFilter] = useState('')
   const [orderMinPriceFilter, setOrderMinPriceFilter] = useState('')
   const [orderMaxPriceFilter, setOrderMaxPriceFilter] = useState('')
@@ -103,6 +137,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
   // Purchase Requests dedicated state (aligned with Warehouse Staff)
   const [requestSearch, setRequestSearch] = useState('')
   const [requestStatusFilter, setRequestStatusFilter] = useState('all')
+  const [requestDatePreset, setRequestDatePreset] = useState<PurchaseDatePreset>('all')
   const [requestDateFilter, setRequestDateFilter] = useState('')
   const [requestMinAmount, setRequestMinAmount] = useState('')
   const [requestMaxAmount, setRequestMaxAmount] = useState('')
@@ -170,17 +205,9 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     return Boolean(order?.isScheduledReplacement) || orderNumber.startsWith('RPL-')
   }
 
-  // A PO exists only after warehouse approval created its PO number and stage.
-  const isApprovedPurchaseOrder = (order: any): boolean => {
-    const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
-    const purchaseOrderStage = order?.purchaseOrderStage || order?.purchase_order_stage
-    const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
-    // Persisted PO identity survives cancellation of its fulfillment.
-    return Boolean(purchaseOrderStage) && Boolean(purchaseOrderNumber)
-  }
-
+  // A PO exists once approval issued its PO number; the same rule as the PO report.
   const isPurchaseRequestOrder = (order: any): boolean => {
-    return !isApprovedPurchaseOrder(order)
+    return !isIssuedPurchaseOrder(order)
   }
 
   useEffect(() => {
@@ -275,8 +302,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
         )
 
         if (!result.ok) {
-          // Fallback: try a simpler single-page request before failing.
-          const fallback = await safeFetchJson('/api/orders?page=1&pageSize=100&includeFulfillments=true&includeWarehouseAllocations=true', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 })
+          // Fix: a recovery fetch must also include every page before replacing the snapshot.
+          const fallback = await fetchAllPaginatedCollection<any>('/api/orders?includeFulfillments=true&includeWarehouseAllocations=true', 'orders', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000, pageSize: 100 })
           if (fallback.ok && isMounted) {
             const fallbackOrders = getCollection<any>(fallback.data, ['orders'])
             if (fallbackOrders.length > 0) {
@@ -347,7 +374,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
           pageSize: '200',
           updatedAfter,
         })
-        const deltaResult = await safeFetchJson(`/api/orders?${params.toString()}`, { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 })
+        // Fix: advance the refresh cursor only after all changed orders have loaded.
+        const deltaResult = await fetchAllPaginatedCollection<any>(`/api/orders?${params.toString()}`, 'orders', { cache: 'no-store' }, { retries: 2, timeoutMs: 30000 })
         if (!deltaResult.ok) {
           isFetchingOrders = false
           await fetchOrdersFull(silent)
@@ -380,13 +408,9 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     }
 
     const hasCachedOrders = loadCachedOrders()
-    // Fix: cached rows only need the changed-order delta; a full item-heavy reload
-    // blocks status polling and makes driver delivery updates appear delayed.
-    if (hasCachedOrders) {
-      void fetchOrdersDeltaIfChanged(false)
-    } else {
-      void fetchOrdersFull()
-    }
+    // Fix: a delta cannot restore older rows omitted by a previously truncated cache.
+    // Show the snapshot immediately, then reconcile the complete collection on entry.
+    void fetchOrdersFull(hasCachedOrders)
 
     const unsubscribe = subscribeDataSync((message) => {
       if (message.scopes.includes('orders') || message.scopes.includes('trips')) {
@@ -445,46 +469,17 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     }
   }
 
-  const formatOrderStatus = (status: string, paymentStatus?: string) => {
-    const raw = String(status || '').toUpperCase()
-    if (['CANCELLED', 'CANCELED', 'FAILED_DELIVERY', 'FAILED'].includes(raw)) return 'CANCELLED'
-    if (['DELIVERED', 'COMPLETED', 'FULFILLED'].includes(raw)) return 'DELIVERED'
-    if (String(paymentStatus || '').toLowerCase() === 'pending_approval') {
-      return 'PENDING'
-    }
-    if (['APPROVED', 'PREPARING', 'PROCESSING', 'PACKED', 'READY_FOR_PICKUP'].includes(raw)) return 'PROCESSING'
-    if (raw === 'UNAPPROVED') return 'PENDING'
-    if (['DISPATCHED', 'IN_TRANSIT'].includes(raw)) return 'OUT FOR DELIVERY'
-    return raw.replace(/_/g, ' ')
-  }
-
-  const getDisplayOrderStatus = (order: any) => {
-    const summary = deriveOrderFulfillmentSummary(order)
-    if (summary.totalLegs > 1) {
-      if (summary.fulfillmentStatus === 'FULFILLED') return 'FULFILLED'
-      if (summary.fulfillmentStatus === 'IN_PROGRESS') return 'IN PROGRESS'
-    }
-    return formatOrderStatus(order?.status, order?.paymentStatus)
-  }
   const getOrderStatusTextClass = (status: string) => {
     const value = String(status || '').trim().toUpperCase()
     // Changed: match the blue delivery badge in the order details.
     if (value === 'OUT FOR DELIVERY') return 'text-blue-700'
-    if (value === 'PENDING') return 'text-yellow-700'
+    if (value === 'PENDING APPROVAL') return 'text-yellow-700'
+    if (value === 'APPROVED') return 'text-cyan-700'
     if (value === 'PROCESSING') return 'text-lime-700'
-    if (value === 'CANCELLED') return 'text-red-700'
+    if (value === 'RESCHEDULED') return 'text-amber-700'
+    if (value === 'CANCELLED' || value === 'REJECTED') return 'text-red-700'
     if (value === 'DELIVERED') return 'text-emerald-700'
     return 'text-slate-700'
-  }
-  const getOrderStatusBadgeClass = (status: string) => {
-    const value = String(status || '').trim().toUpperCase()
-    // Changed: show out-for-delivery orders in blue instead of the gray fallback.
-    if (value === 'OUT FOR DELIVERY') return 'bg-blue-100 text-blue-800 hover:bg-blue-100'
-    if (value === 'PENDING') return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
-    if (value === 'PROCESSING') return 'bg-lime-100 text-lime-800 hover:bg-lime-100'
-    if (value === 'CANCELLED') return 'bg-red-100 text-red-700 hover:bg-red-100'
-    if (value === 'DELIVERED') return 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-    return 'bg-slate-100 text-slate-700 hover:bg-slate-100'
   }
 
   const getOrderWarehouseMeta = (order: any) => {
@@ -559,25 +554,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     return !orderDetailsById[key]
   }
 
-  const orderStatusOptions = useMemo(() => {
-    const statuses = new Set<string>()
-    orders.forEach((order) => {
-      if (isReplacementOrder(order)) return
-      statuses.add(getDisplayOrderStatus(order))
-    })
-    return Array.from(statuses.values()).sort((a, b) => a.localeCompare(b))
-  }, [orders])
-
   const filteredOrders = useMemo(() => {
-    const dayMs = 24 * 60 * 60 * 1000
-    const datePresetDays: Record<string, number> = {
-      past_7_days: 7,
-      past_14_days: 14,
-      past_1_month: 30,
-      past_3_months: 90,
-      past_6_months: 180,
-      past_1_year: 365,
-    }
     const minPrice = Number(orderMinPriceFilter)
     const maxPrice = Number(orderMaxPriceFilter)
     const hasMinPrice = orderMinPriceFilter.trim() !== '' && Number.isFinite(minPrice)
@@ -587,7 +564,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
       if (isReplacementOrder(order)) return false
       // Never show an order in the PO view until warehouse approval created the PO metadata.
       if (mode === 'requests' && !isPurchaseRequestOrder(order)) return false
-      if (mode === 'orders' && !isApprovedPurchaseOrder(order)) return false
+      if (mode === 'orders' && !isIssuedPurchaseOrder(order)) return false
 
       const search = orderSearchQuery.trim().toLowerCase()
       if (search) {
@@ -605,20 +582,11 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
         if (!haystack.includes(search)) return false
       }
 
-      const normalizedStatus = getDisplayOrderStatus(order)
-      if (orderStatusFilter !== 'all' && normalizedStatus !== orderStatusFilter) return false
+      // Stage follows the PO report; date follows the Delivery Date displayed in this table.
+      if (orderStatusFilter !== 'all' && getPurchaseOrderStage(order) !== orderStatusFilter) return false
+      if (!matchesPurchaseDatePreset(getPurchaseOrderDeliveryDate(order), orderDatePreset, orderCustomDateFilter)) return false
 
-      const rawDate = String(order?.deliveryDate || order?.createdAt || '')
-      if (orderDatePreset === 'custom') {
-        if (orderCustomDateFilter && !rawDate.startsWith(orderCustomDateFilter)) return false
-      } else if (orderDatePreset !== 'all') {
-        const thresholdDays = datePresetDays[orderDatePreset]
-        const parsedDate = new Date(rawDate)
-        if (!Number.isFinite(thresholdDays) || Number.isNaN(parsedDate.getTime())) return false
-        if (parsedDate.getTime() < Date.now() - thresholdDays * dayMs) return false
-      }
-
-      const amount = Number(order?.totalAmount || 0)
+      const amount = getPurchaseDocumentAmount(order)
       if (hasMinPrice && amount < minPrice) return false
       if (hasMaxPrice && amount > maxPrice) return false
 
@@ -795,43 +763,41 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
     const max = Number(requestMaxAmount)
     return orders
       // Keep the full PR history here after approval; Purchase Orders remain available in their own view too.
-      .filter((order) => {
-        // A transaction can remain after its PR document is deleted; do not show it as a live request.
-        if (!order?.purchaseRequest) return false
-        if (isReplacementOrder(order)) return false
-        const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
-        return ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(requestStatus)
-      })
-      .filter((order) => {
-        const requestStatus = String(order?.requestStatus || order?.request_status || 'PENDING_APPROVAL').toUpperCase()
-        const warehouseLabel = String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim()
-        const amount = Number(order?.totalAmount || 0)
-        const dateRequested = String(order?.dateRequested || order?.createdAt || '').slice(0, 10)
-        const productText = Array.isArray(order?.items)
-          ? order.items.map((item: any) => String(item?.productName || item?.product?.name || '').trim()).join(' ')
+      // A transaction can remain after its PR document is deleted; do not show it as a live request.
+      .filter(isPurchaseRequestDocument)
+      // Rows show the request as submitted (the locked snapshot once approved), exactly
+      // as the Purchase Requests report does; actions still use the live transaction.
+      .map((order) => ({ order, request: toPurchaseRequestRecord(order) }))
+      .filter(({ request }) => {
+        const requestStatus = getPurchaseRequestStatus(request)
+        const warehouseLabel = String(request?.warehouseName || request?.warehouseCode || 'Unassigned').trim()
+        const amount = getPurchaseDocumentAmount(request)
+        const dateRequested = getPurchaseRequestDate(request)
+        const productText = Array.isArray(request?.items)
+          ? request.items.map((item: any) => String(item?.productName || item?.product?.name || '').trim()).join(' ')
           : ''
 
         if (requestStatusFilter !== 'all' && requestStatus !== requestStatusFilter) return false
-        if (requestDateFilter && dateRequested !== requestDateFilter) return false
+        if (!matchesPurchaseDatePreset(dateRequested, requestDatePreset, requestDateFilter)) return false
         if (requestMinAmount.trim() && Number.isFinite(min) && amount < min) return false
         if (requestMaxAmount.trim() && Number.isFinite(max) && amount > max) return false
         if (!query) return true
 
         return [
           // Search the PR number displayed in this history, including approved requests.
-          order?.purchaseRequestNumber,
-          order?.purchase_request_number,
-          order?.orderNumber,
-          order?.customer?.name,
-          order?.shippingName,
+          request?.purchaseRequestNumber,
+          request?.purchase_request_number,
+          request?.orderNumber,
+          request?.customer?.name,
+          request?.shippingName,
           warehouseLabel,
           requestStatus,
           requestStatus.replace(/_/g, ' '),
-          dateRequested,
+          dateRequested.slice(0, 10),
           productText,
         ].some((value) => String(value || '').toLowerCase().includes(query))
       })
-  }, [orders, requestSearch, orderSearchQuery, requestStatusFilter, requestDateFilter, requestMinAmount, requestMaxAmount])
+  }, [orders, requestSearch, orderSearchQuery, requestStatusFilter, requestDatePreset, requestDateFilter, requestMinAmount, requestMaxAmount])
 
   const handleRequestAction = async () => {
     if (!actionState) return
@@ -862,7 +828,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
               <CardDescription>Review and manage customer purchase requests before approval.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
                 <Input
                   value={requestSearch}
                   onChange={(event) => setRequestSearch(event.target.value)}
@@ -879,10 +845,28 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                   <option value="REJECTED">Rejected</option>
                   <option value="CANCELLED">Cancelled</option>
                 </select>
+                <select
+                  aria-label="Filter requests by date requested"
+                  value={requestDatePreset}
+                  onChange={(event) => {
+                    const next = event.target.value as PurchaseDatePreset
+                    setRequestDatePreset(next)
+                    if (next !== 'custom') setRequestDateFilter('')
+                  }}
+                  className="h-10 rounded-md border border-input bg-white px-3 text-sm"
+                >
+                  {PURCHASE_DATE_PRESET_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
                 <Input
                   type="date"
+                  aria-label="Date requested"
                   value={requestDateFilter}
-                  onChange={(event) => setRequestDateFilter(event.target.value)}
+                  onChange={(event) => {
+                    setRequestDateFilter(event.target.value)
+                    setRequestDatePreset(event.target.value ? 'custom' : 'all')
+                  }}
                 />
                 <Input
                   type="number"
@@ -907,6 +891,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                   onClick={() => {
                     setRequestSearch('')
                     setRequestStatusFilter('all')
+                    setRequestDatePreset('all')
                     setRequestDateFilter('')
                     setRequestMinAmount('')
                     setRequestMaxAmount('')
@@ -939,17 +924,19 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredRequests.map((order: any) => {
-                        const requestStatus = String(order?.requestStatus || order?.request_status || 'PENDING_APPROVAL').toUpperCase()
-                        const orderItems = Array.isArray(order?.items) ? order.items : []
-                        const isPending = requestStatus === 'PENDING_APPROVAL' || requestStatus === 'PENDING'
+                      {filteredRequests.map(({ order, request }: { order: any; request: any }) => {
+                        const requestStatus = getPurchaseRequestStatus(request)
+                        const orderItems = Array.isArray(request?.items) ? request.items : []
                         // Keep the original PR identity in PR history even after a PO is created.
-                        const reqId = order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber
+                        const reqId = request.purchaseRequestNumber || request.purchase_request_number || request.orderNumber
 
                         return (
                           <tr key={order.id} className="border-t border-slate-200 align-top text-sm hover:bg-slate-50/70 transition-colors">
                             <td className="px-4 py-3 font-semibold text-slate-900">{reqId}</td>
-                            <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
+                            <td className="max-w-[220px] px-4 py-3">
+                              <p>{request.customer?.name || request.shippingName || 'N/A'}</p>
+                              <CustomerOrderNotePreview order={order} />
+                            </td>
                             <td className="max-w-[280px] px-4 py-3 text-slate-600">
                               <div className="space-y-1">
                                 {orderItems.length > 0
@@ -977,8 +964,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                                   : <p>0</p>}
                               </div>
                             </td>
-                            <td className="px-4 py-3 font-semibold">{formatPeso(getOrderTotalWithEmpties(order))}</td>
-                            <td className="px-4 py-3">{new Date(order.dateRequested || order.createdAt).toLocaleDateString()}</td>
+                            <td className="px-4 py-3 font-semibold">{formatPeso(getPurchaseDocumentAmount(request))}</td>
+                            <td className="px-4 py-3">{formatShortDate(getPurchaseRequestDate(request))}</td>
                             <td className="px-4 py-3">
                               <Badge className={requestBadgeClass[requestStatus] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>
                                 {formatRequestStatus(requestStatus)}
@@ -1085,32 +1072,34 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                   className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
                 >
                   <option value="all">All statuses</option>
-                  {orderStatusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
+                  {(Object.keys(PURCHASE_ORDER_STAGE_LABELS) as PurchaseOrderStage[]).map((stage) => (
+                    <option key={stage} value={stage}>
+                      {PURCHASE_ORDER_STAGE_LABELS[stage]}
                     </option>
                   ))}
                 </select>
                 <select
-                  aria-label="Filter orders by date range"
+                  aria-label="Filter orders by delivery date"
                   value={orderDatePreset}
-                  onChange={(event) => setOrderDatePreset(event.target.value)}
+                  onChange={(event) => {
+                    const next = event.target.value as PurchaseDatePreset
+                    setOrderDatePreset(next)
+                    if (next !== 'custom') setOrderCustomDateFilter('')
+                  }}
                   className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
                 >
-                  <option value="all">All dates</option>
-                  <option value="past_7_days">Past 7 days</option>
-                  <option value="past_14_days">Past 14 days</option>
-                  <option value="past_1_month">Past 1 month</option>
-                  <option value="past_3_months">Past 3 months</option>
-                  <option value="past_6_months">Past 6 months</option>
-                  <option value="past_1_year">Past 1 year</option>
-                  <option value="custom">Custom date</option>
+                  {PURCHASE_DATE_PRESET_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
                 <Input
                   type="date"
+                  aria-label="Delivery date"
                   value={orderCustomDateFilter}
-                  onChange={(event) => setOrderCustomDateFilter(event.target.value)}
-                  disabled={orderDatePreset !== 'custom'}
+                  onChange={(event) => {
+                    setOrderCustomDateFilter(event.target.value)
+                    setOrderDatePreset(event.target.value ? 'custom' : 'all')
+                  }}
                   className="h-10"
                 />
                 <Input
@@ -1183,6 +1172,9 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                     <tbody>
                       {paginatedOrders.map((order: any) => {
                         const orderItems = Array.isArray(order?.items) ? order.items : []
+                        const stage = getPurchaseOrderStage(order)
+                        const emptiesAdjustment = getEmptiesAdjustment(order)
+                        const approvedDate = formatShortDate(getPurchaseOrderDate(order))
                         const transactionIds = Array.isArray(order?.inventoryTransactionIds)
                           ? order.inventoryTransactionIds.filter((id: unknown) => String(id || '').trim())
                           : String(order?.inventoryTransactionId || '').trim()
@@ -1194,6 +1186,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-gray-900">{order.orderNumber}</span>
                             </div>
+                            {approvedDate ? <p className="text-xs text-gray-500">Approved {approvedDate}</p> : null}
                           </td>
                           <td className="p-4 text-gray-600">
                             {/* Align each item's transaction number with its corresponding product row. */}
@@ -1226,6 +1219,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                           <td className="p-4">
                             <p className="font-semibold text-gray-900">{order.customer?.name || order.shippingName || 'N/A'}</p>
                             <p className="text-sm text-gray-700">{order.shippingCity || order.shippingProvince || 'N/A'}</p>
+                            <CustomerOrderNotePreview order={order} />
                           </td>
                           <td className="max-w-[280px] p-4 text-gray-600">
                             {/* Keep each product aligned with its individual ordered quantity. */}
@@ -1254,14 +1248,18 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                             </div>
                           </td>
                           <td className="p-4 text-gray-600">
-                            {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
+                            {/* Fix: display the same schedule used by the date filter, including timeline dates. */}
+                            {formatShortDate(getPurchaseOrderDeliveryDate(order)) || 'Not scheduled'}
                           </td>
-                          <td className="p-4 font-semibold text-gray-900">{formatPeso(getOrderTotalWithEmpties(order))}</td>
                           <td className="p-4">
-                            {(() => {
-                              const displayStatus = getDisplayOrderStatus(order)
-                              return <Badge className={getOrderStatusBadgeClass(displayStatus)}>{displayStatus}</Badge>
-                            })()}
+                            {/* The PO total matches the report; an empties shortfall is a separate deposit. */}
+                            <p className="font-semibold text-gray-900">{formatPeso(getPurchaseDocumentAmount(order))}</p>
+                            {emptiesAdjustment ? (
+                              <p className="text-xs text-[#8a7135]">+ {formatPeso(Number(emptiesAdjustment.amount || 0))} empties deposit</p>
+                            ) : null}
+                          </td>
+                          <td className="p-4">
+                            <Badge className={orderStageBadgeClass[stage]}>{PURCHASE_ORDER_STAGE_LABELS[stage].toUpperCase()}</Badge>
                           </td>
                           <td className="p-4">
                             <div className="flex items-center gap-3">
@@ -1323,27 +1321,36 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                   <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 sm:h-11 sm:w-11">
                     <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
                   </span>
-                  <span>{mode === 'requests' ? 'Purchase Request Details' : 'Order Progress'} - {selectedOrder.orderNumber}</span>
+                  <span>
+                    {mode === 'requests'
+                      ? `Purchase Request Details - ${selectedOrder.purchaseRequestNumber || selectedOrder.orderNumber}`
+                      : `Order Progress - ${selectedOrder.orderNumber}`}
+                  </span>
                 </DialogTitle>
               </DialogHeader>
               <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-7 sm:py-6">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/45 p-3.5 sm:p-4">
-                    <div className="mb-2 flex items-center justify-between">
-                      <p className="text-sm font-medium text-slate-600">Order Status</p>
-                      <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-emerald-700 sm:h-11 sm:w-11">
-                        <Truck className="h-5 w-5" />
-                      </div>
-                    </div>
-                    {(() => {
-                      const displayStatus = getDisplayOrderStatus(selectedOrder)
-                      return (
+                  {(() => {
+                    // Same status the table row and the report show for this document.
+                    const isRequestView = mode === 'requests'
+                    const displayStatus = (isRequestView
+                      ? PURCHASE_REQUEST_STATUS_LABELS[getPurchaseRequestStatus(toPurchaseRequestRecord(selectedOrder))]
+                      : PURCHASE_ORDER_STAGE_LABELS[getPurchaseOrderStage(selectedOrder)]
+                    ).toUpperCase()
+                    return (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/45 p-3.5 sm:p-4">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium text-slate-600">{isRequestView ? 'Request Status' : 'Order Status'}</p>
+                          <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-emerald-700 sm:h-11 sm:w-11">
+                            <Truck className="h-5 w-5" />
+                          </div>
+                        </div>
                         <p className={`text-[0.8rem] font-bold leading-tight sm:text-[0.98rem] ${getOrderStatusTextClass(displayStatus)}`}>
                           {displayStatus}
                         </p>
-                      )
-                    })()}
-                  </div>
+                      </div>
+                    )
+                  })()}
                   <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4">
                     <div className="mb-2 flex items-center justify-between">
                       <p className="text-sm font-medium text-slate-600">Driver Assignment</p>
@@ -1434,6 +1441,8 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                     <p className="flex items-start gap-3 text-sm sm:text-base"><MapPin className="mt-1 h-5 w-5 shrink-0 text-slate-500" />{formatOrderAddress(selectedOrder)}</p>
                   </div>
                 </div>
+
+                <CustomerOrderNoteCard order={selectedOrder} />
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
                   <p className="mb-3 flex items-center gap-3 text-[1.05rem] font-bold tracking-tight text-slate-900 sm:text-[1.2rem]">

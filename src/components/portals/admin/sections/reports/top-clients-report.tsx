@@ -33,9 +33,9 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeRanking, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, withinRange } from '../shared'
+import { formatPeso } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
-import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 import { isCancelledReportStatus, isRevenueRecognized, summarizeCustomerMix } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
@@ -158,22 +158,9 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
       return !isCancelledReportStatus(status) && status !== 'REJECTED'
     })
 
-    if (periodFilter !== 'all') {
-      if (periodFilter === 'custom') {
-        if (dateFrom) {
-          const fromTime = new Date(`${dateFrom}T00:00:00`).getTime()
-          list = list.filter((o) => new Date(o.createdAt || o.date).getTime() >= fromTime)
-        }
-        if (dateTo) {
-          const toTime = new Date(`${dateTo}T23:59:59.999`).getTime()
-          list = list.filter((o) => new Date(o.createdAt || o.date).getTime() <= toTime)
-        }
-      } else {
-        // Shared so every tab's window matches its chart; see resolveReportCutoff.
-        const cutoff = resolveReportCutoff(periodFilter)
-        list = list.filter((o) => withinRange(o.createdAt || o.date, cutoff))
-      }
-    }
+    // Fix: use both calendar boundaries for presets and inclusive custom ranges.
+    const dateWindow = buildReportDateWindow(periodFilter, dateFrom, dateTo)
+    list = list.filter((o) => matchesReportDateWindow(o.createdAt || o.date, dateWindow))
 
     return list
   }, [orders, periodFilter, dateFrom, dateTo])
@@ -291,14 +278,8 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
   // cannot relabel a long-standing client as new. Only the window's revenue is
   // split between the two groups.
   const customerMix = useMemo(() => {
-    let windowStart: Date | null = null
-    let windowEnd: Date | null = null
-    if (periodFilter === 'custom') {
-      windowStart = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null
-      windowEnd = dateTo ? new Date(`${dateTo}T23:59:59.999`) : null
-    } else if (periodFilter !== 'all') {
-      windowStart = resolveReportCutoff(periodFilter)
-    }
+    // Keep the cohort summary on the same date window as the leaderboard.
+    const { start: windowStart, end: windowEnd } = buildReportDateWindow(periodFilter, dateFrom, dateTo)
     return summarizeCustomerMix(orders, { windowStart, windowEnd })
   }, [orders, periodFilter, dateFrom, dateTo])
 
@@ -445,7 +426,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateFrom}
+              max={dateTo || undefined} value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
                 setCurrentPage(1)
@@ -457,7 +438,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateTo}
+              min={dateFrom || undefined} value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)
                 setCurrentPage(1)

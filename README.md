@@ -208,13 +208,10 @@ Note: this project sends the Google ID token to backend endpoints (`/api/auth/cu
 
 ## 🔐 User Roles & Permissions
 
-### Super Admin
+### Admin
 - Full system access
 - Manage all users and roles
 - Configure system settings
-- Access all reports
-
-### Admin / Operations Staff
 - Manage orders and deliveries
 - Assign drivers and vehicles
 - Monitor live deliveries

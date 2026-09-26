@@ -282,13 +282,11 @@ def auth_email_verification_request_existing(request: HttpRequest) -> JsonRespon
     target_user_id = str(body.get("targetUserId") or "").strip()
     current_email = _normalize_email(p.get("email"))
     if target_user_id:
-        if str(p.get("role") or "").upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        if str(p.get("role") or "").upper() != RoleType.ADMIN:
             return _err("Forbidden", 403)
         target_user = User.objects.filter(id=target_user_id).first()
         if not target_user:
             return _err("User not found", 404)
-        if target_user.role == RoleType.SUPER_ADMIN and str(p.get("role") or "").upper() != RoleType.SUPER_ADMIN:
-            return _err("Only the owner can modify this account", 403)
         current_email = _normalize_email(target_user.email)
     if email != current_email:
         return _err("Email does not match your current account email", 400)
@@ -339,13 +337,11 @@ def auth_email_verification_confirm_existing(request: HttpRequest) -> JsonRespon
     target_user_id = str(body.get("targetUserId") or "").strip()
     current_email = _normalize_email(p.get("email"))
     if target_user_id:
-        if str(p.get("role") or "").upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+        if str(p.get("role") or "").upper() != RoleType.ADMIN:
             return _err("Forbidden", 403)
         target_user = User.objects.filter(id=target_user_id).first()
         if not target_user:
             return _err("User not found", 404)
-        if target_user.role == RoleType.SUPER_ADMIN and str(p.get("role") or "").upper() != RoleType.SUPER_ADMIN:
-            return _err("Only the owner can modify this account", 403)
         current_email = _normalize_email(target_user.email)
     if email != current_email:
         return _err("Email does not match your current account email", 400)
@@ -568,7 +564,7 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     if retry_after:
         return throttle_response(retry_after)
     role_scope = {
-        "admin": {"SUPER_ADMIN", "ADMIN"},
+        "admin": {"ADMIN"},
         "driver": {"DRIVER"},
         "warehouse": {"WAREHOUSE_STAFF"},
         # Added: the neutral staff sign-in accepts every permitted staff role,

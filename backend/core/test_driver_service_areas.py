@@ -58,7 +58,8 @@ class DriverServiceAreaTests(TestCase):
     def test_trip_endpoint_rejects_unassigned_destination_without_creating_trip(self):
         warehouse = Warehouse.objects.create(name='Area Warehouse', code='AREA-TEST', address='Warehouse', city='City A', province='Province', zip_code='0000')
         vehicle = Vehicle.objects.create(license_plate='AREA-TEST', driver=self.driver, capacity=1000)
-        order = Order.objects.create(order_number='AREA-ORDER', warehouse_id=warehouse.id, shipping_name='Receiver', shipping_address='Address', shipping_city='City B', shipping_province='Province', shipping_zip_code='0000', subtotal=0, total_amount=0)
+        # A processed order, so only the service-area rule can refuse the trip.
+        order = Order.objects.create(order_number='AREA-ORDER', status='PREPARING', warehouse_id=warehouse.id, shipping_name='Receiver', shipping_address='Address', shipping_city='City B', shipping_province='Province', shipping_zip_code='0000', subtotal=0, total_amount=0)
         operator = User.objects.create(email='trip-operator@example.test', name='Operator', role='WAREHOUSE_STAFF')
         request = RequestFactory().post('/api/trips', data=json.dumps({'driverId': self.driver.id, 'vehicleId': vehicle.id, 'warehouseId': warehouse.id, 'orderIds': [order.id]}), content_type='application/json')
         self.assign(self.admin, ['City A'])

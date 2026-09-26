@@ -10,20 +10,29 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_CANCELLATION_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
+import { CustomerOrderNotePreview } from '@/components/portals/shared/customer-order-note'
 import type { WarehouseOrdersViewProps } from '../shared/types'
-import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { getEmptiesAdjustment } from '@/components/shared/empties-charge-note'
+import {
+  getPurchaseDocumentAmount,
+  getPurchaseOrderDate,
+  getPurchaseOrderDeliveryDate,
+  getPurchaseOrderStage,
+  isIssuedPurchaseOrder,
+  matchesPurchaseDatePreset,
+  PURCHASE_DATE_PRESET_OPTIONS,
+  PURCHASE_ORDER_STAGE_LABELS,
+  type PurchaseDatePreset,
+} from '@/lib/purchase-documents'
 
 type OrderAction = 'processing' | 'reschedule' | 'assign' | 'delivered' | 'completed' | 'cancel'
 
 const orderBadgeClass: Record<string, string> = {
   APPROVED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
   PROCESSING: 'bg-sky-100 text-sky-800 hover:bg-sky-100',
-  READY_FOR_DELIVERY: 'bg-violet-100 text-violet-800 hover:bg-violet-100',
-  FOR_DELIVERY: 'bg-indigo-100 text-indigo-800 hover:bg-indigo-100',
   OUT_FOR_DELIVERY: 'bg-orange-100 text-orange-800 hover:bg-orange-100',
   RESCHEDULED: 'bg-amber-100 text-amber-800 hover:bg-amber-100',
   DELIVERED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
-  COMPLETED: 'bg-emerald-200 text-emerald-950 hover:bg-emerald-200',
   CANCELLED: 'bg-red-100 text-red-800 hover:bg-red-100',
 }
 
@@ -33,7 +42,7 @@ function formatStage(value: string) {
 
 // Added: staff need the customer's scheduled delivery date on the PO itself.
 function formatScheduledDelivery(order: any): string {
-  const raw = String(order?.deliveryDate || order?.timeline?.deliveryDate || '').trim()
+  const raw = getPurchaseOrderDeliveryDate(order)
   if (!raw) return 'Not scheduled'
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
     const dateOnly = new Date(`${raw}T00:00:00`)
@@ -55,25 +64,9 @@ function formatTransactionId(value: unknown): string {
   return id.length > 20 ? `${id.slice(0, 8)}...${id.slice(-6)}` : id
 }
 
-function getOrderStage(order: any): string {
-  const status = String(order?.status || '').toUpperCase()
-  // Fix: a reschedule supersedes the previous PO delivery stage for display and filtering.
-  if (status === 'RESCHEDULED') return 'RESCHEDULED'
-  const explicit = String(order?.purchaseOrderStage || '').toUpperCase()
-  if (explicit && explicit !== 'APPROVED') return explicit
-  if (status === 'PREPARING') return 'PROCESSING'
-  if (status === 'OUT_FOR_DELIVERY') return 'OUT_FOR_DELIVERY'
-  if (status === 'DELIVERED') return 'DELIVERED'
-  if (status === 'CANCELLED' || status === 'REJECTED') return 'CANCELLED'
-  return explicit || 'APPROVED'
-}
-
-function isApprovedPurchaseOrder(order: any): boolean {
-  const requestStatus = String(order?.requestStatus || order?.request_status || '').trim().toUpperCase()
-  const purchaseOrderStage = String(order?.purchaseOrderStage || order?.purchase_order_stage || '').trim()
-  const purchaseOrderNumber = String(order?.purchaseOrderNumber || order?.purchase_order_number || '').trim()
-  // A persisted PO number keeps historical cancellations visible for audit.
-  return Boolean(purchaseOrderNumber) && Boolean(purchaseOrderStage)
+function formatApprovedDate(order: any): string {
+  const parsed = new Date(getPurchaseOrderDate(order))
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString()
 }
 
 function isMixedCaseItem(item: any) {
@@ -128,6 +121,7 @@ export function WarehouseOrdersView({
 }: WarehouseOrdersViewProps) {
   const [search, setSearch] = useState('')
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
+  const [datePreset, setDatePreset] = useState<PurchaseDatePreset>('all')
   const [dateApprovedFilter, setDateApprovedFilter] = useState('')
   const [minAmount, setMinAmount] = useState('')
   const [maxAmount, setMaxAmount] = useState('')
@@ -140,7 +134,7 @@ export function WarehouseOrdersView({
     return Array.from(
       new Set(
         purchaseOrders
-          .filter(isApprovedPurchaseOrder)
+          .filter(isIssuedPurchaseOrder)
           .map((order) => String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim())
           .filter(Boolean)
       )
@@ -152,11 +146,11 @@ export function WarehouseOrdersView({
     const min = Number(minAmount)
     const max = Number(maxAmount)
     return purchaseOrders.filter((order) => {
-      if (!isApprovedPurchaseOrder(order)) return false
-      const purchaseOrderStage = getOrderStage(order)
+      // Membership, stage and amount follow the PO report; date follows the table's delivery schedule.
+      if (!isIssuedPurchaseOrder(order)) return false
+      const purchaseOrderStage = getPurchaseOrderStage(order)
       const warehouseLabel = String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim()
-      const amount = Number(order?.totalAmount || 0)
-      const dateApproved = String(order?.dateApproved || order?.approvedAt || '').slice(0, 10)
+      const amount = getPurchaseDocumentAmount(order)
       const productText = Array.isArray(order?.items)
         ? order.items.map((item: any) => [
             formatOrderItemContents(item),
@@ -167,7 +161,7 @@ export function WarehouseOrdersView({
         : ''
 
       if (orderStatusFilter !== 'all' && purchaseOrderStage !== orderStatusFilter) return false
-      if (dateApprovedFilter && dateApproved !== dateApprovedFilter) return false
+      if (!matchesPurchaseDatePreset(getPurchaseOrderDeliveryDate(order), datePreset, dateApprovedFilter)) return false
       if (minAmount.trim() && Number.isFinite(min) && amount < min) return false
       if (maxAmount.trim() && Number.isFinite(max) && amount > max) return false
       if (!query) return true
@@ -181,7 +175,7 @@ export function WarehouseOrdersView({
         productText,
       ].some((value) => String(value || '').toLowerCase().includes(query))
     })
-  }, [purchaseOrders, search, orderStatusFilter, dateApprovedFilter, minAmount, maxAmount])
+  }, [purchaseOrders, search, orderStatusFilter, datePreset, dateApprovedFilter, minAmount, maxAmount])
 
   const submitAction = async () => {
     if (!actionState) return
@@ -233,27 +227,48 @@ export function WarehouseOrdersView({
           <CardDescription>View approved purchase orders and fulfillment status.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search PO, request, customer, product..." />
             <select value={orderStatusFilter} onChange={(event) => setOrderStatusFilter(event.target.value)} className="h-10 rounded-md border border-input bg-white px-3 text-sm">
               <option value="all">All order statuses</option>
-              <option value="APPROVED">Approved</option>
-              <option value="PROCESSING">Processing</option>
-              <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
-              <option value="RESCHEDULED">Rescheduled</option>
-              <option value="DELIVERED">Delivered</option>
-              <option value="CANCELLED">Cancelled</option>
+              {/* Fix: keep the complete status list identical to Admin, even with no matching orders. */}
+              {Object.entries(PURCHASE_ORDER_STAGE_LABELS).map(([stage, label]) => (
+                <option key={stage} value={stage}>{label}</option>
+              ))}
             </select>
-            <Input type="date" value={dateApprovedFilter} onChange={(event) => setDateApprovedFilter(event.target.value)} />
+            <select
+              aria-label="Filter orders by delivery date"
+              value={datePreset}
+              onChange={(event) => {
+                const next = event.target.value as PurchaseDatePreset
+                setDatePreset(next)
+                if (next !== 'custom') setDateApprovedFilter('')
+              }}
+              className="h-10 rounded-md border border-input bg-white px-3 text-sm"
+            >
+              {PURCHASE_DATE_PRESET_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <Input
+              type="date"
+              aria-label="Delivery date"
+              value={dateApprovedFilter}
+              onChange={(event) => {
+                setDateApprovedFilter(event.target.value)
+                setDatePreset(event.target.value ? 'custom' : 'all')
+              }}
+            />
             <Input type="number" min="0" step="0.01" value={minAmount} onChange={(event) => setMinAmount(event.target.value)} placeholder="Minimum amount" />
-          </div>
-          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
             <Input type="number" min="0" step="0.01" value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} placeholder="Maximum amount" />
+          </div>
+          <div className="flex justify-end">
             <Button
               variant="outline"
               onClick={() => {
                 setSearch('')
                 setOrderStatusFilter('all')
+                setDatePreset('all')
                 setDateApprovedFilter('')
                 setMinAmount('')
                 setMaxAmount('')
@@ -288,7 +303,9 @@ export function WarehouseOrdersView({
                 </thead>
                 <tbody>
                   {filteredOrders.map((order) => {
-                    const stage = getOrderStage(order)
+                    const stage = getPurchaseOrderStage(order)
+                    const emptiesAdjustment = getEmptiesAdjustment(order)
+                    const approvedDate = formatApprovedDate(order)
                     // Rescheduling is offered only after Start Processing confirms the date has passed.
                     const needsReschedule = Boolean(order?.showRescheduleAction)
                     // Fix: the dialog action can be cleared while an order update is still in progress.
@@ -327,6 +344,7 @@ export function WarehouseOrdersView({
                               {index === 0 ? <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber}
                                 {/* The stored PR reference survives approval and cancellation. */}
                                 {order.purchaseRequestNumber && <p className="text-xs font-normal text-slate-500">Originating PR: {order.purchaseRequestNumber}</p>}
+                                {approvedDate ? <p className="text-xs font-normal text-slate-500">Approved {approvedDate}</p> : null}
                               </td> : null}
                               <td className="px-4 py-3 text-slate-600">
                                 {/* IDs come from this exact order item, including multiple stock-batch deductions. */}
@@ -341,7 +359,12 @@ export function WarehouseOrdersView({
                                     })
                                   : '----'}
                               </td>
-                              {index === 0 ? <td rowSpan={displayItems.length} className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td> : null}
+                              {index === 0 ? (
+                                <td rowSpan={displayItems.length} className="max-w-[220px] px-4 py-3">
+                                  <p>{order.customer?.name || order.shippingName || 'N/A'}</p>
+                                  <CustomerOrderNotePreview order={order} />
+                                </td>
+                              ) : null}
                               <td className="max-w-[260px] px-4 py-3 text-slate-600">
                                 {item ? (
                                   <>
@@ -354,7 +377,13 @@ export function WarehouseOrdersView({
                               {index === 0 ? (
                                 <>
                                   <td rowSpan={displayItems.length} className="px-4 py-3 whitespace-nowrap text-slate-700">{formatScheduledDelivery(order)}</td>
-                                  <td rowSpan={displayItems.length} className="px-4 py-3 font-semibold">{formatPeso(getOrderTotalWithEmpties(order))}</td>
+                                  <td rowSpan={displayItems.length} className="px-4 py-3">
+                                    {/* The PO total matches the report; an empties shortfall is a separate deposit. */}
+                                    <p className="font-semibold">{formatPeso(getPurchaseDocumentAmount(order))}</p>
+                                    {emptiesAdjustment ? (
+                                      <p className="text-xs text-[#8a7135]">+ {formatPeso(Number(emptiesAdjustment.amount || 0))} empties deposit</p>
+                                    ) : null}
+                                  </td>
                                   <td rowSpan={displayItems.length} className="px-4 py-3">
                                     <Badge className={orderBadgeClass[stage] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>{formatStage(stage)}</Badge>
                                   </td>
@@ -394,7 +423,7 @@ export function WarehouseOrdersView({
                                 Reschedule
                               </Button>
                             ) : null}
-                            {stage === 'PROCESSING' || stage === 'READY_FOR_DELIVERY' ? (
+                            {stage === 'PROCESSING' ? (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -407,7 +436,7 @@ export function WarehouseOrdersView({
                                 {isAssignedToDelivery ? 'Assigned' : 'Assign Delivery'}
                               </Button>
                             ) : null}
-                            {stage !== 'COMPLETED' && stage !== 'CANCELLED' ? (
+                            {stage !== 'CANCELLED' ? (
                               // Fix: rescheduled orders are back in the unassigned route pool and may be cancelled.
                               <Button
                                 size="sm"

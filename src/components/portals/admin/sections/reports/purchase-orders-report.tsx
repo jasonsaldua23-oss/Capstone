@@ -32,11 +32,17 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDayKey, withinRange } from '../shared'
+import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
-import { buildDailyChartSeries, formatOrderItemsForExport, isCancelledReportStatus, isIssuedPurchaseOrder } from '@/lib/report-metrics'
-import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { buildDailyChartSeries, formatOrderItemsForExport } from '@/lib/report-metrics'
+import {
+  getPurchaseDocumentAmount,
+  getPurchaseOrderDate,
+  getPurchaseOrderStage,
+  isIssuedPurchaseOrder,
+} from '@/lib/purchase-documents'
+import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 
 interface PurchaseOrdersReportProps {
   orders: any[]
@@ -71,22 +77,14 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
         const clientEmail = o.customer?.email || ''
         const clientPhone = o.customer?.phone || o.shippingPhone || ''
         
-        let stage = String(o.purchaseOrderStage || '').toUpperCase()
-        if (isCancelledReportStatus(stage)) stage = 'CANCELLED'
-        if (!stage) {
-          const normStatus = String(o.status || '').toUpperCase()
-          if (normStatus === 'DELIVERED') stage = 'DELIVERED'
-          else if (normStatus === 'OUT_FOR_DELIVERY') stage = 'OUT_FOR_DELIVERY'
-          else if (normStatus === 'PREPARING') stage = 'PROCESSING'
-          else if (isCancelledReportStatus(normStatus)) stage = 'CANCELLED'
-          else stage = 'APPROVED'
-        }
-        // Ready/for-delivery records are represented by the simpler Processing stage in reports.
-        if (['READY_FOR_DELIVERY', 'FOR_DELIVERY'].includes(stage)) stage = 'PROCESSING'
-
-        const date = o.createdAt || new Date().toISOString()
+        // Shared document values keep status and totals aligned with the PO pages.
+        // This report dates the document by approval; staff pages filter delivery schedules.
+        const stage = getPurchaseOrderStage(o)
+        // A PO is created when its request is approved, not when the PR was submitted.
+        // Fix: missing timestamps must not appear as records created today.
+        const date = getPurchaseOrderDate(o) || ''
         const deliveredDate = o.timeline?.deliveredAt || (stage === 'DELIVERED' ? o.updatedAt : null)
-        const amount = Number(o.totalAmount || o.subtotal || 0)
+        const amount = getPurchaseDocumentAmount(o)
 
         return {
           id: o.id,
@@ -110,22 +108,9 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
     let list = rawPOList
 
     // Date filtering
-    if (datePreset !== 'all') {
-      if (datePreset === 'custom') {
-        if (dateFrom) {
-          const fromTime = new Date(`${dateFrom}T00:00:00`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() >= fromTime)
-        }
-        if (dateTo) {
-          const toTime = new Date(`${dateTo}T23:59:59.999`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() <= toTime)
-        }
-      } else {
-        // Shared so every tab's window matches its chart; see resolveReportCutoff.
-        const cutoff = resolveReportCutoff(datePreset)
-        list = list.filter((item) => withinRange(item.date, cutoff))
-      }
-    }
+    // Fix: use both calendar boundaries for presets and inclusive custom ranges.
+    const dateWindow = buildReportDateWindow(datePreset, dateFrom, dateTo)
+    list = list.filter((item) => matchesReportDateWindow(item.date, dateWindow))
 
     // Stage filter
     if (stageFilter !== 'all') {
@@ -158,12 +143,12 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
   // KPIs
   const kpis = useMemo(() => {
     const total = filteredPOs.length
-    const delivered = filteredPOs.filter((p) => p.stage === 'DELIVERED' || p.stage === 'COMPLETED').length
+    const delivered = filteredPOs.filter((p) => p.stage === 'DELIVERED').length
     const processing = filteredPOs.filter((p) => p.stage === 'PROCESSING').length
     const cancelled = filteredPOs.filter((p) => p.stage === 'CANCELLED').length
     // Cancelled and rejected orders remain auditable but do not contribute to purchase value.
     const totalValue = filteredPOs.reduce(
-      (sum, order) => ['CANCELLED', 'REJECTED'].includes(order.stage) ? sum : sum + (order.amount || 0),
+      (sum, order) => order.stage === 'CANCELLED' ? sum : sum + (order.amount || 0),
       0
     )
 
@@ -186,7 +171,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
           other: 0,
         }
       }
-      if (item.stage === 'DELIVERED' || item.stage === 'COMPLETED') {
+      if (item.stage === 'DELIVERED') {
         map[key].delivered += 1
       } else if (item.stage === 'CANCELLED') {
         map[key].cancelled += 1
@@ -239,8 +224,9 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
   const getStageBadge = (stage: string) => {
     switch (stage) {
       case 'DELIVERED':
-      case 'COMPLETED':
         return <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Delivered</Badge>
+      case 'RESCHEDULED':
+        return <Badge className="bg-amber-50 text-amber-700 border-amber-200">Rescheduled</Badge>
       case 'OUT_FOR_DELIVERY':
         return <Badge className="bg-purple-50 text-purple-700 border-purple-200">Out for Delivery</Badge>
       case 'PROCESSING':
@@ -426,9 +412,9 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
               <option value="all">All PO Stages</option>
               <option value="APPROVED">Approved PO</option>
               <option value="PROCESSING">Processing</option>
+              <option value="RESCHEDULED">Rescheduled</option>
               <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
               <option value="DELIVERED">Delivered</option>
-              <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
@@ -475,7 +461,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateFrom}
+              max={dateTo || undefined} value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
                 setCurrentPage(1)
@@ -487,7 +473,7 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateTo}
+              min={dateFrom || undefined} value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)
                 setCurrentPage(1)

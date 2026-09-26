@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import OuterRef, Prefetch, Q, Subquery
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -89,11 +89,18 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         return err
     if request.method == "GET":
         page, size, off = _pagination(request)
+        # Fix: load each row's latest stock-in in the page query instead of a
+        # separate database round trip per product when reports load all stock.
+        latest_stockin = InventoryTransaction.objects.filter(
+            warehouse_id=OuterRef("warehouse_id"), product_id=OuterRef("product_id"),
+            type="IN", reference_type="stock_batch",
+        ).order_by("-created_at").values("quantity")[:1]
         qs = (
             Inventory.objects.select_related("warehouse", "product").prefetch_related(
                 Prefetch("batches", to_attr="_availability_batches"),
                 Prefetch("reservations", queryset=InventoryReservation.objects.filter(status=ReservationStatus.RESERVED), to_attr="_active_reservations"),
             )
+            .annotate(_latest_stockin_quantity=Subquery(latest_stockin))
             .filter(product__in=_real_products(Product.objects.all()))
             .filter(product__is_active=True)
             .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))

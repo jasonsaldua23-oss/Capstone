@@ -260,7 +260,7 @@ def drivers_collection(request: HttpRequest) -> JsonResponse:
     body = _json_body(request)
     # Admin authority is limited to explicit area assignment, not fleet operations.
     if request.method == "PUT" and "serviceAreas" in body:
-        actor = User.objects.filter(id=staff.get("userId"), is_active=True, role__in=[RoleType.ADMIN, RoleType.SUPER_ADMIN]).first()
+        actor = User.objects.filter(id=staff.get("userId"), is_active=True, role=RoleType.ADMIN).first()
         if not actor:
             return _err("Only authorized admins can assign driver service areas", 403)
         if set(body) - {"id", "serviceAreas"}:

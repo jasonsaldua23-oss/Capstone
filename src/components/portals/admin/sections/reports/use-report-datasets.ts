@@ -107,41 +107,11 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     [feedbackDatePreset, feedbackDateFrom, feedbackDateTo]
   )
 
-  const warehouseDateWindow = useMemo(() => {
-    const today = new Date()
-    const end = new Date(today)
-    end.setHours(23, 59, 59, 999)
-
-    const start = new Date(today)
-    start.setHours(0, 0, 0, 0)
-
-    const startFromPreset = (daysBack: number) => {
-      const value = new Date(start)
-      value.setDate(value.getDate() - daysBack)
-      return value
-    }
-
-    if (warehouseDatePreset === 'all') return { start: new Date(0), end, label: 'All Time' }
-    if (warehouseDatePreset === 'custom') {
-      const customStart = warehouseDateFrom ? new Date(`${warehouseDateFrom}T00:00:00`) : startFromPreset(6)
-      const customEnd = warehouseDateTo ? new Date(`${warehouseDateTo}T23:59:59.999`) : end
-      if (Number.isNaN(customStart.getTime()) || Number.isNaN(customEnd.getTime()) || customEnd.getTime() < customStart.getTime()) {
-        const fallbackStart = startFromPreset(6)
-        return { start: fallbackStart, end, label: formatReportDateRangeLabel(fallbackStart, end) }
-      }
-      return {
-        start: customStart,
-        end: customEnd,
-        label: formatReportDateRangeLabel(customStart, customEnd),
-      }
-    }
-    const presetStart = startFromPreset(warehouseDatePreset === 'today' ? 0 : Math.max(0, Number(warehouseDatePreset) - 1))
-    return {
-      start: presetStart,
-      end,
-      label: warehouseDatePreset === 'today' ? 'Today' : warehouseDatePreset === '365' ? 'Past 1 Year' : `Past ${warehouseDatePreset} Days`,
-    }
-  }, [warehouseDatePreset, warehouseDateFrom, warehouseDateTo])
+  // Fix: honor open-ended and reversed custom ranges instead of substituting seven days.
+  const warehouseDateWindow = useMemo(
+    () => buildReportDateWindow(warehouseDatePreset, warehouseDateFrom, warehouseDateTo),
+    [warehouseDatePreset, warehouseDateFrom, warehouseDateTo]
+  )
 
   // The order report uses a single normalized row model so cards, charts, exports, and the table stay in sync.
   const orderRows = useMemo(() => {
@@ -703,9 +673,11 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       .filter((entry): entry is { createdAt: Date; quantity: number; movementType: string } => Boolean(entry))
 
     const points: Array<{ date: string; usedUnits: number; totalCapacity: number; utilizationPercent: number }> = []
-    const cursor = new Date(warehouseDateWindow.start)
+    // Open starts begin at the first recorded movement; an empty history needs only today.
+    const firstMovement = movements.reduce((earliest, movement) => Math.min(earliest, movement.createdAt.getTime()), Date.now())
+    const cursor = new Date(warehouseDateWindow.start ?? firstMovement)
     cursor.setHours(0, 0, 0, 0)
-    const endDate = new Date(warehouseDateWindow.end)
+    const endDate = new Date(warehouseDateWindow.end ?? Date.now())
     endDate.setHours(23, 59, 59, 999)
 
     while (cursor.getTime() <= endDate.getTime()) {

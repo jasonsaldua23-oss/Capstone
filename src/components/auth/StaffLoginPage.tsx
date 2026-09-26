@@ -47,7 +47,7 @@ function isSupportedSystemUser(user: unknown): user is AuthUser {
   const candidate = user as Partial<AuthUser>
   const role = String(candidate.role || '').trim().toUpperCase()
   if (candidate.type === 'customer') return true
-  return candidate.type === 'staff' && ['SUPER_ADMIN', 'ADMIN', 'WAREHOUSE_STAFF', 'DRIVER'].includes(role)
+  return candidate.type === 'staff' && ['ADMIN', 'WAREHOUSE_STAFF', 'DRIVER'].includes(role)
 }
 
 function getRequiredSystemPortal(): LoginPortal | null {

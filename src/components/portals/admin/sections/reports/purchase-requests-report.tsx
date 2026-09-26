@@ -34,11 +34,18 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDayKey, withinRange, toIsoDateTime } from '../shared'
+import { formatPeso, formatDayKey, toIsoDateTime } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
-import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { formatOrderItemsForExport, isCancelledReportStatus } from '@/lib/report-metrics'
+import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { formatOrderItemsForExport } from '@/lib/report-metrics'
+import {
+  getPurchaseDocumentAmount,
+  getPurchaseRequestDate,
+  getPurchaseRequestStatus,
+  isPurchaseRequestDocument,
+  toPurchaseRequestRecord,
+} from '@/lib/purchase-documents'
 
 interface PurchaseRequestsReportProps {
   orders: any[]
@@ -57,32 +64,17 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
 
   // Extract only real purchase-request documents. A transaction can remain for
   // audit history after its PurchaseRequest row is deleted and must not recreate
-  // a phantom PR from legacy number/status fields.
+  // a phantom PR from legacy number/status fields. Status, amount and date come
+  // from @/lib/purchase-documents, which the Purchase Requests tabs also use.
   const rawPRList = useMemo(() => {
     return orders
-      .filter((o) => {
-        if (!o.purchaseRequest) return false
-        // Exclude retail-only counter sales if they don't have PR lifecycle
-        const channel = String(o.salesChannel || '').toUpperCase()
-        return channel !== 'RETAIL_POS' && !o.isScheduledReplacement && !String(o.orderNumber || '').startsWith('RPL-')
-      })
+      .filter(isPurchaseRequestDocument)
       .map((transaction) => {
         // Approved PRs use their locked snapshot, independent of later PO edits.
-        const o = { ...transaction, ...transaction.purchaseRequest?.snapshot }
+        const o = toPurchaseRequestRecord(transaction)
         const prNumber = o.purchaseRequestNumber || o.requestId || `PR-${o.orderNumber || o.id?.slice(-6)}`
         const requester = o.customer?.name || o.shippingName || o.walkInName || 'Customer / Requester'
-        const rawStatus = String(
-          o.requestStatus || (
-            isCancelledReportStatus(o.status)
-              ? 'CANCELLED'
-              : o.status === 'REJECTED'
-                ? 'REJECTED'
-                : o.status === 'PENDING'
-                  ? 'PENDING_APPROVAL'
-                  : 'APPROVED'
-          )
-        ).toUpperCase()
-        const status = isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus
+        const status = getPurchaseRequestStatus(o)
         const approver = o.approvedByName || (status === 'APPROVED' ? 'Operations Admin' : null)
         const rejector = o.rejectedByName || (status === 'REJECTED' ? 'Operations Admin' : null)
         // Approved requests are immutable purchase-order inputs. Order cancellation
@@ -92,8 +84,9 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
           : status === 'CANCELLED'
             ? String(o.cancellationReason || o.rejectionReason || '')
             : ''
-        const date = o.createdAt || o.updatedAt || new Date().toISOString()
-        const amount = Number(o.totalAmount || o.subtotal || 0)
+        // Fix: missing timestamps must not appear as records created today.
+        const date = getPurchaseRequestDate(o) || o.updatedAt || ''
+        const amount = getPurchaseDocumentAmount(o)
         return {
           id: o.id,
           prNumber,
@@ -118,22 +111,9 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
     let list = rawPRList
 
     // Date filtering
-    if (datePreset !== 'all') {
-      if (datePreset === 'custom') {
-        if (dateFrom) {
-          const fromTime = new Date(`${dateFrom}T00:00:00`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() >= fromTime)
-        }
-        if (dateTo) {
-          const toTime = new Date(`${dateTo}T23:59:59.999`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() <= toTime)
-        }
-      } else {
-        // Shared so every tab's window matches its chart; see resolveReportCutoff.
-        const cutoff = resolveReportCutoff(datePreset)
-        list = list.filter((item) => withinRange(item.date, cutoff))
-      }
-    }
+    // Fix: use both calendar boundaries for presets and inclusive custom ranges.
+    const dateWindow = buildReportDateWindow(datePreset, dateFrom, dateTo)
+    list = list.filter((item) => matchesReportDateWindow(item.date, dateWindow))
 
     // Status filter
     if (statusFilter !== 'all') {
@@ -166,7 +146,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
   const kpis = useMemo(() => {
     const total = filteredPRs.length
     const approved = filteredPRs.filter((p) => p.status === 'APPROVED').length
-    const pending = filteredPRs.filter((p) => p.status === 'PENDING_APPROVAL' || p.status === 'PENDING').length
+    const pending = filteredPRs.filter((p) => p.status === 'PENDING_APPROVAL').length
     const rejected = filteredPRs.filter((p) => p.status === 'REJECTED' || p.status === 'CANCELLED').length
     // Cancelled and rejected requests remain auditable but do not contribute to requested value.
     const totalValue = filteredPRs.reduce(
@@ -233,7 +213,6 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
       case 'APPROVED':
         return <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Approved</Badge>
       case 'PENDING_APPROVAL':
-      case 'PENDING':
         return <Badge className="bg-amber-50 text-amber-700 border-amber-200">Pending Approval</Badge>
       case 'REJECTED':
         return <Badge className="bg-rose-50 text-rose-700 border-rose-200">Rejected</Badge>
@@ -467,7 +446,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateFrom}
+              max={dateTo || undefined} value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
                 setCurrentPage(1)
@@ -479,7 +458,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateTo}
+              min={dateFrom || undefined} value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)
                 setCurrentPage(1)

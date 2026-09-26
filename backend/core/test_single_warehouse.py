@@ -28,7 +28,7 @@ class SingleWarehouseApiContractTests(TestCase):
             email="single.warehouse.admin@example.com",
             password="hashed",
             name="Single Warehouse Admin",
-            role=RoleType.SUPER_ADMIN,
+            role=RoleType.ADMIN,
             is_active=True,
         )
         self.staff = User.objects.create(
@@ -43,7 +43,7 @@ class SingleWarehouseApiContractTests(TestCase):
                 "userId": self.admin.id,
                 "email": self.admin.email,
                 "name": self.admin.name,
-                "role": RoleType.SUPER_ADMIN,
+                "role": RoleType.ADMIN,
                 "type": "staff",
             }
         )

@@ -31,9 +31,9 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDayKey, withinRange } from '../shared'
+import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
-import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 import { buildDailyChartSeries, formatOrderItemsForExport, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
@@ -69,7 +69,8 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       const client = o.customer?.name || o.shippingName || o.walkInName || 'Client / Customer'
       const clientEmail = o.customer?.email || ''
       const amount = Number(o.totalAmount || o.subtotal || 0)
-      const date = o.createdAt || new Date().toISOString()
+      // Fix: missing timestamps must not appear as records created today.
+      const date = o.createdAt || ''
       const rawStatus = String(o.status || 'PENDING').toUpperCase()
       const status = isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus
       const paymentStatus = String(o.paymentStatus || (status === 'DELIVERED' ? 'PAID' : 'PENDING')).toUpperCase()
@@ -108,7 +109,8 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
           client: rs.customerName || rs.walkInName || 'Walk-in Retail Customer',
           clientEmail: '',
           amount: Number(rs.totalAmount || rs.subtotal || 0),
-          date: rs.createdAt || new Date().toISOString(),
+          // Fix: missing timestamps must not appear as records created today.
+          date: rs.createdAt || '',
           channel: 'RETAIL',
           // Fix: preserve cancelled standalone retail sales instead of treating them as revenue.
           status,
@@ -127,22 +129,9 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
     let list = allTransactions
 
     // Date filtering
-    if (datePreset !== 'all') {
-      if (datePreset === 'custom') {
-        if (dateFrom) {
-          const fromTime = new Date(`${dateFrom}T00:00:00`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() >= fromTime)
-        }
-        if (dateTo) {
-          const toTime = new Date(`${dateTo}T23:59:59.999`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() <= toTime)
-        }
-      } else {
-        // Shared so every tab's window matches its chart; see resolveReportCutoff.
-        const cutoff = resolveReportCutoff(datePreset)
-        list = list.filter((item) => withinRange(item.date, cutoff))
-      }
-    }
+    // Fix: use both calendar boundaries for presets and inclusive custom ranges.
+    const dateWindow = buildReportDateWindow(datePreset, dateFrom, dateTo)
+    list = list.filter((item) => matchesReportDateWindow(item.date, dateWindow))
 
     // Channel filter
     if (channelFilter !== 'all') {
@@ -517,7 +506,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateFrom}
+              max={dateTo || undefined} value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
                 setCurrentPage(1)
@@ -529,7 +518,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateTo}
+              min={dateFrom || undefined} value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)
                 setCurrentPage(1)

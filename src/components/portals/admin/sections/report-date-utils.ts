@@ -79,7 +79,7 @@ export function buildReportDateWindow(
       start,
       end,
       label: from || to
-        ? `${from || 'Start'} to ${to || 'Today'}`
+        ? `${from || 'Start'} to ${to || 'End'}`
         : 'Custom Date Range',
     }
   }
@@ -92,4 +92,15 @@ export function buildReportDateWindow(
     end,
     label: preset === 'today' ? 'Today' : preset === '365' ? 'Past 1 Year' : `Past ${preset} Days`,
   }
+}
+
+/** Apply inclusive local calendar boundaries consistently across report tables and exports. */
+export function matchesReportDateWindow(value: unknown, window: ReportDateWindow): boolean {
+  if (!window.start && !window.end) return true
+  if (!value) return false
+  const time = new Date(String(value)).getTime()
+  // Invalid dates and reversed ranges must not silently turn into an unfiltered report.
+  return Number.isFinite(time)
+    && (!window.start || time >= window.start.getTime())
+    && (!window.end || time <= window.end.getTime())
 }

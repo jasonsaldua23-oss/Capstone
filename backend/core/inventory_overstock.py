@@ -16,20 +16,23 @@ def _is_inventory_overstocked_flagged_by_stockin(inventory: Inventory) -> bool:
     # Fix: reserved stock is not available excess stock and must not keep an item overstocked.
     if available_quantity < (threshold * 10):
         return False
-    latest_stockin = (
-        InventoryTransaction.objects.filter(
-            warehouse_id=getattr(inventory, "warehouse_id", None),
-            product_id=getattr(inventory, "product_id", None),
-            type="IN",
-            reference_type="stock_batch",
+    # Fix: inventory lists already fetch this value for the whole page. None
+    # means no matching stock-in; detail and write paths retain a fresh lookup.
+    if hasattr(inventory, "_latest_stockin_quantity"):
+        latest_quantity = inventory._latest_stockin_quantity
+    else:
+        latest_quantity = (
+            InventoryTransaction.objects.filter(
+                warehouse_id=getattr(inventory, "warehouse_id", None),
+                product_id=getattr(inventory, "product_id", None),
+                type="IN",
+                reference_type="stock_batch",
+            )
+            .order_by("-created_at")
+            .values_list("quantity", flat=True)
+            .first()
         )
-        .order_by("-created_at")
-        .only("quantity")
-        .first()
-    )
-    if not latest_stockin:
-        return False
-    return max(0, _int(getattr(latest_stockin, "quantity", 0), 0)) >= (threshold * 10)
+    return latest_quantity is not None and max(0, _int(latest_quantity, 0)) >= (threshold * 10)
 
 
 def _is_inventory_overstocked_for_restock_block(inventory: Inventory, incoming_restock_qty: int = 0) -> bool:

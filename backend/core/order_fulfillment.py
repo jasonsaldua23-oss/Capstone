@@ -358,17 +358,15 @@ def _generate_next_trip_number() -> str:
 
 
 def _resolve_primary_admin_phone() -> str:
-    """Return the configured business contact, preferring the oldest active super admin."""
-    base_query = (
-        User.objects.filter(is_active=True)
+    """Return the configured business contact: the oldest active admin with a phone."""
+    admin_user = (
+        User.objects.filter(is_active=True, role=RoleType.ADMIN)
         .exclude(phone__isnull=True)
         .exclude(phone__exact="")
         .only("phone")
+        .order_by("created_at")
+        .first()
     )
-    super_admin = base_query.filter(role=RoleType.SUPER_ADMIN).order_by("created_at").first()
-    if super_admin:
-        return str(getattr(super_admin, "phone", "") or "").strip()
-    admin_user = base_query.filter(role=RoleType.ADMIN).order_by("created_at").first()
     return str(getattr(admin_user, "phone", "") or "").strip()
 
 

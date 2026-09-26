@@ -20,7 +20,7 @@ import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import type { FeedbackServiceDimension } from '@shared/customer-logic/feedback-reasons'
 import {  } from '../shared'
-import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
+import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
 import { ReportKpiRow } from './report-kpi'
@@ -352,7 +352,8 @@ export function FeedbackReportTab({
                 </tr>
               </thead>
               <tbody>
-                {previewRows(feedbackRows).map((row, index) => (
+                {/* Fix: show every filtered review counted by the KPI, including rows beyond the old eight-row preview. */}
+                {feedbackRows.map((row, index) => (
                   <tr key={`${row.id || row.createdAt}-${index}`} className="border-b last:border-0 align-top">
                     <td className="p-3">{formatReportTableDateTime(row.createdAt)}</td>
                     <td className="p-3">{String(row.customer || 'N/A')}</td>
@@ -399,10 +400,9 @@ export function FeedbackReportTab({
               </tbody>
             </table>
             {feedbackRows.length === 0 ? <p className="py-8 text-center text-gray-500">No feedback records found for this range</p> : null}
-            {feedbackRows.length > previewRows(feedbackRows).length ? (
-              // The table is a preview; every row reaches the CSV, print and PDF exports.
+            {feedbackRows.length > 0 ? (
               <p className="pt-3 text-xs text-gray-400">
-                Showing {previewRows(feedbackRows).length} of {feedbackRows.length} reviews. Export or print this report for all of them.
+                Showing all {feedbackRows.length} {feedbackRows.length === 1 ? 'review' : 'reviews'}.
               </p>
             ) : null}
           </div>

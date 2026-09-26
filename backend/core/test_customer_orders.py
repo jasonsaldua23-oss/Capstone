@@ -951,24 +951,24 @@ class CustomerOrdersPostApiContractTests(TestCase):
 class CustomerCreationPermissionContractTests(TestCase):
     def setUp(self) -> None:
         self.client = Client()
-        self.owner_user = User.objects.create(
-            email="owner.customer.create@gmail.com",
+        self.admin_user = User.objects.create(
+            email="admin.customer.create@gmail.com",
             password="hashed",
-            name="Owner User",
-            role="SUPER_ADMIN",
+            name="Admin User",
+            role="ADMIN",
             is_active=True,
         )
-        self.owner_token = create_token(
+        self.admin_token = create_token(
             {
-                "userId": self.owner_user.id,
-                "email": self.owner_user.email,
-                "name": self.owner_user.name,
-                "role": self.owner_user.role,
+                "userId": self.admin_user.id,
+                "email": self.admin_user.email,
+                "name": self.admin_user.name,
+                "role": self.admin_user.role,
                 "type": "staff",
             }
         )
 
-    def test_super_admin_cannot_create_customer_account(self) -> None:
+    def test_admin_cannot_create_customer_account(self) -> None:
         response = self.client.post(
             "/api/customers",
             data={
@@ -977,7 +977,7 @@ class CustomerCreationPermissionContractTests(TestCase):
                 "password": "StrongPass1!",
             },
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.owner_token}",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
         )
         self.assertEqual(response.status_code, 403)
         payload = response.json()

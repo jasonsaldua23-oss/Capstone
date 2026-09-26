@@ -119,6 +119,12 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             if not allowed_warehouse_ids:
                 return _ok({"success": True, "stockBatches": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
             qs = qs.filter(inventory__warehouse_id__in=list(allowed_warehouse_ids))
+        # Fix: warehouse insights request only this facility's batches, before pagination.
+        warehouse_id = str(request.GET.get("warehouseId") or "").strip()
+        if warehouse_id:
+            if allowed_warehouse_ids is not None and warehouse_id not in allowed_warehouse_ids:
+                return _err("Forbidden: warehouse is outside your assigned scope", 403)
+            qs = qs.filter(inventory__warehouse_id=warehouse_id)
         total = qs.count()
         rows = list(qs[off : off + size])
         data = [_serialize_model(x, include={"inventory": lambda o: _serialize_model(o.inventory, include={"warehouse": lambda i: _serialize_model(i.warehouse), "product": lambda i: _serialize_model(i.product)})}) for x in rows]

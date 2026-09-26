@@ -288,7 +288,7 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
         return False
 
     role = str(payload.get("role") or "").strip().upper()
-    if role in {RoleType.SUPER_ADMIN, RoleType.ADMIN}:
+    if role == RoleType.ADMIN:
         return (
             Order.objects.filter(pod_photo_url__in=media_urls).exists()
             or TripDropPoint.objects.filter(delivery_photo__in=media_urls).exists()
@@ -333,16 +333,47 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
     return False
 
 
+def _local_upload_file(path: str) -> Path | None:
+    """Resolve an existing upload under either supported local storage root."""
+    for local_root in (
+        Path(settings.MEDIA_ROOT) / "uploads",
+        Path(settings.BASE_DIR).parent / "public" / "uploads",
+    ):
+        local_root = local_root.resolve()
+        candidate = (local_root / path).resolve()
+        try:
+            candidate.relative_to(local_root)
+        except ValueError:
+            return None
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def resolve_available_avatar(value: Any) -> str | None:
+    """Do not advertise a known-missing local file as a usable client avatar."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    prefix = next((part for part in ("/uploads/", "/api/media/") if raw.startswith(part)), None)
+    # Remote avatars and cloud-backed uploads cannot be judged from the local disk.
+    # Keep them intact without adding a network request for every client in the list.
+    if not prefix or object_storage.is_configured():
+        return raw
+    path = _normalized_upload_path(raw[len(prefix):])
+    # Fix: a stale local URL uses the existing initials fallback; the stored reference
+    # is untouched so restoring the original file makes the avatar available again.
+    return raw if path and _local_upload_file(path) else None
+
+
 def _private_media_response(path: str) -> JsonResponse | FileResponse | HttpResponse:
     """Read a protected asset only after its caller has passed record-level access checks."""
-    local_root = (Path(settings.MEDIA_ROOT) / "uploads").resolve()
-    target = (local_root / path).resolve()
-    try:
-        target.relative_to(local_root)
-    except ValueError:
+    if not _normalized_upload_path(path):
         return _err("Private media not found", 404)
+    # Legacy avatars under public/uploads use the same authorized reader.
+    target = _local_upload_file(path)
 
-    if target.is_file():
+    if target is not None:
         response: JsonResponse | FileResponse | HttpResponse = FileResponse(
             target.open("rb"),
             content_type=mimetypes.guess_type(str(target))[0] or "application/octet-stream",

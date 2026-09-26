@@ -26,6 +26,14 @@ import {
   Camera,
 } from 'lucide-react'
 import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
+import { CustomerOrderNoteCard } from '@/components/portals/shared/customer-order-note'
+import {
+  getPurchaseOrderStage,
+  getPurchaseRequestStatus,
+  isIssuedPurchaseOrder,
+  PURCHASE_ORDER_STAGE_LABELS,
+  PURCHASE_REQUEST_STATUS_LABELS,
+} from '@/lib/purchase-documents'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import { getWarehouseOrderStatusTextClass, isWarehouseRescheduledOrder, formatScheduledDeliveryDate, formatWarehouseOrderAddress, getOrderItemSizeLabel } from '../../warehouse-order-helpers'
 import type { MutableRefObject } from 'react'
@@ -37,7 +45,6 @@ import type { deriveOrderFulfillmentSummaryImpl } from '../../warehouse-order-he
 export type WarehouseOrderDetailDialogProps = {
   assignedWarehouse: WarehouseItem | null
   deriveOrderFulfillmentSummary: (order: any) => ReturnType<typeof deriveOrderFulfillmentSummaryImpl>
-  getWarehouseDisplayOrderStatus: (order: any) => string
   loadingOrderDetail: boolean
   orderDetailRequestRef: MutableRefObject<number>
   orders: WarehouseOrderItem[]
@@ -50,7 +57,6 @@ export type WarehouseOrderDetailDialogProps = {
 export function WarehouseOrderDetailDialog({
   assignedWarehouse,
   deriveOrderFulfillmentSummary,
-  getWarehouseDisplayOrderStatus,
   loadingOrderDetail,
   orderDetailRequestRef,
   orders,
@@ -87,22 +93,29 @@ export function WarehouseOrderDetailDialog({
             </DialogHeader>
             <div className="flex-1 space-y-3.5 overflow-y-auto px-4 py-4 sm:space-y-4 sm:px-7 sm:py-5">
               <div className="grid gap-3 sm:gap-4 sm:grid-cols-3">
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/45 p-3.5 sm:p-4.5">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-sm font-medium text-slate-600">Order Status</p>
-                    <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-emerald-700 sm:h-11 sm:w-11">
-                      <Truck className="h-5 w-5" />
-                    </div>
-                  </div>
-                  {(() => {
-                    const displayStatus = getWarehouseDisplayOrderStatus(selectedOrder)
-                    return (
+                {(() => {
+                  // Same status the PR / PO tables and reports show: the PO stage once a
+                  // PO exists, the request decision before that. (This card used to read
+                  // an approved PO as "PENDING".)
+                  const isPurchaseOrder = isIssuedPurchaseOrder(selectedOrder)
+                  const displayStatus = (isPurchaseOrder
+                    ? PURCHASE_ORDER_STAGE_LABELS[getPurchaseOrderStage(selectedOrder)]
+                    : PURCHASE_REQUEST_STATUS_LABELS[getPurchaseRequestStatus(selectedOrder)]
+                  ).toUpperCase()
+                  return (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/45 p-3.5 sm:p-4.5">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium text-slate-600">{isPurchaseOrder ? 'Order Status' : 'Request Status'}</p>
+                        <div className="grid h-10 w-10 place-items-center rounded-full bg-emerald-100 text-emerald-700 sm:h-11 sm:w-11">
+                          <Truck className="h-5 w-5" />
+                        </div>
+                      </div>
                       <p className={`text-[0.8rem] font-bold leading-tight sm:text-[0.98rem] ${getWarehouseOrderStatusTextClass(displayStatus)}`}>
                         {displayStatus}
                       </p>
-                    )
-                  })()}
-                </div>
+                    </div>
+                  )
+                })()}
                 <div className="rounded-2xl border border-blue-200 bg-blue-50/45 p-3.5 sm:p-4.5">
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-sm font-medium text-slate-600">Driver Assignment</p>
@@ -180,6 +193,7 @@ export function WarehouseOrderDetailDialog({
                   <p className="flex items-start gap-3 text-sm sm:text-base"><MapPin className="mt-1 h-5 w-5 shrink-0 text-slate-500" />{formatWarehouseOrderAddress(selectedOrder)}</p>
                 </div>
               </div>
+              <CustomerOrderNoteCard order={selectedOrder} />
               {(() => {
                 const summary = deriveOrderFulfillmentSummary(selectedOrder)
                 const isMultiWarehouse = summary.totalLegs > 1

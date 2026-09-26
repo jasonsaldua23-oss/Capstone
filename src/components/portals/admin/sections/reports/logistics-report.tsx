@@ -33,9 +33,9 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatDayKey, formatPeso, withinRange, normalizeTripStatus, toArray } from '../shared'
+import { formatDayKey, formatPeso, normalizeTripStatus, toArray } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
-import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 import { buildDailyChartSeries } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
@@ -98,7 +98,8 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       const destinationsList = dropPoints.map((dp) => getDropPointBarangay(dp.address, dp.city))
       const destinationSummary = destinationsList.length > 0 ? destinationsList.slice(0, 2).join(', ') + (destinationsList.length > 2 ? ` +${destinationsList.length - 2} more` : '') : 'Multiple Drop Points'
 
-      const date = trip.createdAt || trip.plannedStartAt || new Date().toISOString()
+      // Fix: missing timestamps must not appear as records created today.
+      const date = trip.createdAt || trip.plannedStartAt || ''
       // Server-computed from delivered stops; replacement (RPL-) deliveries are free and excluded.
       const cashCollected = Number(trip.cashCollectedTotal || 0)
       const completionTime = trip.actualEndAt
@@ -127,22 +128,9 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
     let list = rawLogisticsList
 
     // Date filtering
-    if (datePreset !== 'all') {
-      if (datePreset === 'custom') {
-        if (dateFrom) {
-          const fromTime = new Date(`${dateFrom}T00:00:00`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() >= fromTime)
-        }
-        if (dateTo) {
-          const toTime = new Date(`${dateTo}T23:59:59.999`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() <= toTime)
-        }
-      } else {
-        // Shared so every tab's window matches its chart; see resolveReportCutoff.
-        const cutoff = resolveReportCutoff(datePreset)
-        list = list.filter((item) => withinRange(item.date, cutoff))
-      }
-    }
+    // Fix: use both calendar boundaries for presets and inclusive custom ranges.
+    const dateWindow = buildReportDateWindow(datePreset, dateFrom, dateTo)
+    list = list.filter((item) => matchesReportDateWindow(item.date, dateWindow))
 
     // Status filter
     if (statusFilter !== 'all') {
@@ -499,7 +487,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateFrom}
+              max={dateTo || undefined} value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
                 setCurrentPage(1)
@@ -511,7 +499,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateTo}
+              min={dateFrom || undefined} value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)
                 setCurrentPage(1)

@@ -44,7 +44,6 @@ function toArray<T>(value: unknown): T[] {
 function formatRoleLabel(role: string | null | undefined) {
   const value = String(role || '').trim().toUpperCase()
   if (!value) return 'Unknown'
-  if (value === 'SUPER_ADMIN') return 'Owner'
   return value
     .split('_')
     .map((segment) => segment.charAt(0) + segment.slice(1).toLowerCase())
@@ -186,7 +185,7 @@ export function UsersView() {
           }))
           .filter((row) => {
             const roleCode = String(row?.roleId || '').trim().toUpperCase()
-            return roleCode !== 'SUPER_ADMIN' && roleCode !== 'ADMIN'
+            return roleCode !== 'ADMIN'
           })
         setUsers(rows)
       }
@@ -209,7 +208,7 @@ export function UsersView() {
         const seen = new Set<string>()
         const filtered = rawRoles.filter((role) => {
           const roleCode = String(role?.id || role?.name || '').trim().toUpperCase()
-          if (!roleCode || roleCode === 'CUSTOMER' || roleCode === 'SUPER_ADMIN' || roleCode === 'ADMIN') return false
+          if (!roleCode || roleCode === 'CUSTOMER' || roleCode === 'ADMIN') return false
           const labelKey = formatRoleLabel(roleCode).toUpperCase()
           if (seen.has(labelKey)) return false
           seen.add(labelKey)

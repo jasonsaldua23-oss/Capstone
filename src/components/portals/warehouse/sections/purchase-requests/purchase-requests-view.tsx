@@ -10,8 +10,17 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
+import { CustomerOrderNotePreview } from '@/components/portals/shared/customer-order-note'
 import type { WarehousePurchaseRequestsViewProps } from '../shared/types'
-import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import {
+  getPurchaseDocumentAmount,
+  getPurchaseRequestDate,
+  getPurchaseRequestStatus,
+  matchesPurchaseDatePreset,
+  PURCHASE_DATE_PRESET_OPTIONS,
+  toPurchaseRequestRecord,
+  type PurchaseDatePreset,
+} from '@/lib/purchase-documents'
 
 type RequestActionState = {
   order: any
@@ -57,6 +66,7 @@ export function WarehousePurchaseRequestsView({
 }: WarehousePurchaseRequestsViewProps) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [datePreset, setDatePreset] = useState<PurchaseDatePreset>('all')
   const [dateFilter, setDateFilter] = useState('')
   const [minAmount, setMinAmount] = useState('')
   const [maxAmount, setMaxAmount] = useState('')
@@ -79,36 +89,40 @@ export function WarehousePurchaseRequestsView({
     const query = search.trim().toLowerCase()
     const min = Number(minAmount)
     const max = Number(maxAmount)
-    return purchaseRequests.filter((order) => {
-      const requestStatus = String(order?.requestStatus || 'PENDING_APPROVAL').toUpperCase()
-      const warehouseLabel = String(order?.warehouseName || order?.warehouseCode || 'Unassigned').trim()
-      const amount = Number(order?.totalAmount || 0)
-      const dateRequested = String(order?.dateRequested || order?.createdAt || '').slice(0, 10)
-      const productText = Array.isArray(order?.items)
-        ? order.items.map((item: any) => String(item?.productName || item?.product?.name || '').trim()).join(' ')
-        : ''
+    return purchaseRequests
+      // Rows show the request as submitted (the locked snapshot once approved), exactly
+      // as the Purchase Requests report does; actions still use the live transaction.
+      .map((order) => ({ order, request: toPurchaseRequestRecord(order) }))
+      .filter(({ request }) => {
+        const requestStatus = getPurchaseRequestStatus(request)
+        const warehouseLabel = String(request?.warehouseName || request?.warehouseCode || 'Unassigned').trim()
+        const amount = getPurchaseDocumentAmount(request)
+        const dateRequested = getPurchaseRequestDate(request)
+        const productText = Array.isArray(request?.items)
+          ? request.items.map((item: any) => String(item?.productName || item?.product?.name || '').trim()).join(' ')
+          : ''
 
-      if (statusFilter !== 'all' && requestStatus !== statusFilter) return false
-      if (dateFilter && dateRequested !== dateFilter) return false
-      if (minAmount.trim() && Number.isFinite(min) && amount < min) return false
-      if (maxAmount.trim() && Number.isFinite(max) && amount > max) return false
-      if (!query) return true
+        if (statusFilter !== 'all' && requestStatus !== statusFilter) return false
+        if (!matchesPurchaseDatePreset(dateRequested, datePreset, dateFilter)) return false
+        if (minAmount.trim() && Number.isFinite(min) && amount < min) return false
+        if (maxAmount.trim() && Number.isFinite(max) && amount > max) return false
+        if (!query) return true
 
-      return [
-        // Search the displayed PR identity even after orderNumber becomes a PO.
-        order?.purchaseRequestNumber,
-        order?.purchase_request_number,
-        order?.orderNumber,
-        order?.customer?.name,
-        order?.shippingName,
-        dateRequested,
-        formatRequestStatus(requestStatus),
-        warehouseLabel,
-        requestStatus,
-        productText,
-      ].some((value) => String(value || '').toLowerCase().includes(query))
-    })
-  }, [purchaseRequests, search, statusFilter, dateFilter, minAmount, maxAmount])
+        return [
+          // Search the displayed PR identity even after orderNumber becomes a PO.
+          request?.purchaseRequestNumber,
+          request?.purchase_request_number,
+          request?.orderNumber,
+          request?.customer?.name,
+          request?.shippingName,
+          dateRequested.slice(0, 10),
+          formatRequestStatus(requestStatus),
+          warehouseLabel,
+          requestStatus,
+          productText,
+        ].some((value) => String(value || '').toLowerCase().includes(query))
+      })
+  }, [purchaseRequests, search, statusFilter, datePreset, dateFilter, minAmount, maxAmount])
 
   const handleAction = async () => {
     if (!actionState || busyId) return
@@ -142,7 +156,7 @@ export function WarehousePurchaseRequestsView({
           <CardDescription>Review and manage customer purchase requests before approval.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search request, customer, product..." />
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-10 rounded-md border border-input bg-white px-3 text-sm">
               <option value="all">All request statuses</option>
@@ -151,7 +165,29 @@ export function WarehousePurchaseRequestsView({
               <option value="REJECTED">Rejected</option>
               <option value="CANCELLED">Cancelled</option>
             </select>
-            <Input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} />
+            <select
+              aria-label="Filter requests by date requested"
+              value={datePreset}
+              onChange={(event) => {
+                const next = event.target.value as PurchaseDatePreset
+                setDatePreset(next)
+                if (next !== 'custom') setDateFilter('')
+              }}
+              className="h-10 rounded-md border border-input bg-white px-3 text-sm"
+            >
+              {PURCHASE_DATE_PRESET_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <Input
+              type="date"
+              aria-label="Date requested"
+              value={dateFilter}
+              onChange={(event) => {
+                setDateFilter(event.target.value)
+                setDatePreset(event.target.value ? 'custom' : 'all')
+              }}
+            />
             <Input type="number" min="0" step="0.01" value={minAmount} onChange={(event) => setMinAmount(event.target.value)} placeholder="Minimum amount" />
             <Input type="number" min="0" step="0.01" value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} placeholder="Maximum amount" />
           </div>
@@ -161,6 +197,7 @@ export function WarehousePurchaseRequestsView({
               onClick={() => {
                 setSearch('')
                 setStatusFilter('all')
+                setDatePreset('all')
                 setDateFilter('')
                 setMinAmount('')
                 setMaxAmount('')
@@ -193,17 +230,20 @@ export function WarehousePurchaseRequestsView({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRequests.map((order) => {
-                    const requestStatus = String(order?.requestStatus || 'PENDING_APPROVAL').toUpperCase()
-                    const orderItems = Array.isArray(order?.items) ? order.items : []
-                    const isPending = requestStatus === 'PENDING_APPROVAL' || requestStatus === 'PENDING'
+                  {filteredRequests.map(({ order, request }) => {
+                    const requestStatus = getPurchaseRequestStatus(request)
+                    const orderItems = Array.isArray(request?.items) ? request.items : []
+                    const isPending = requestStatus === 'PENDING_APPROVAL'
                     return (
                       <tr key={order.id} className="border-t border-slate-200 align-top text-sm">
                         <td className="px-4 py-3 font-semibold text-slate-900">
                           {/* Keep the original PR identity in PR history even after a PO is created. */}
-                          {order.purchaseRequestNumber || order.purchase_request_number || order.orderNumber}
+                          {request.purchaseRequestNumber || request.purchase_request_number || request.orderNumber}
                         </td>
-                        <td className="px-4 py-3">{order.customer?.name || order.shippingName || 'N/A'}</td>
+                        <td className="max-w-[220px] px-4 py-3">
+                          <p>{request.customer?.name || request.shippingName || 'N/A'}</p>
+                          <CustomerOrderNotePreview order={order} />
+                        </td>
                         <td className="max-w-[280px] px-4 py-3 text-slate-600">
                           <div className="space-y-1">
                             {orderItems.length > 0
@@ -231,8 +271,8 @@ export function WarehousePurchaseRequestsView({
                               : <p>0</p>}
                           </div>
                         </td>
-                        <td className="px-4 py-3 font-semibold">{formatPeso(getOrderTotalWithEmpties(order))}</td>
-                        <td className="px-4 py-3">{new Date(order.dateRequested || order.createdAt).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 font-semibold">{formatPeso(getPurchaseDocumentAmount(request))}</td>
+                        <td className="px-4 py-3">{new Date(getPurchaseRequestDate(request)).toLocaleDateString()}</td>
                         <td className="px-4 py-3">
                           <Badge className={requestBadgeClass[requestStatus] || 'bg-slate-100 text-slate-700 hover:bg-slate-100'}>
                             {formatRequestStatus(requestStatus)}

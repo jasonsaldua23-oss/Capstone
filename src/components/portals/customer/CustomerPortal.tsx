@@ -1058,6 +1058,7 @@ export function CustomerPortal() {
     setIsOrderConfirmationOpen,
     setIsPlacingOrder,
     setLastPlacedOrderNumber,
+    setNotes,
     setOrders,
     setOrdersSearch,
     setOrdersTab,

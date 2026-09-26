@@ -3,6 +3,7 @@ import type { WarehouseOrderItem, WarehouseTripItem } from '../../warehouse-port
 import { normalizeTripStatus } from '../../warehouse-portal-utils'
 import { isDropPointCompleted, isCompletedOrderStatus, isCancelledLikeStatus, isDateMatch } from '../../warehouse-order-helpers'
 import type { DriverLocationItem } from '../../warehouse-portal-types'
+import { buildDeliveredTransactions, deliveredTransactionPin } from '@/lib/delivered-transactions'
 
 /**
  * Live-tracking map data: which trips, drop points and driver locations belong to the selected tracking day, and the route lines drawn for them.
@@ -66,6 +67,13 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
       dropPoint?.deliveryDate,
     ].some((value) => isDateMatch(value, trackingDate))
   }, [trackingDate])
+
+  // Deliveries belong to the day they happened; completed trips are not drawn below,
+  // so without this the day's deliveries disappeared once their trip finished.
+  const liveTrackingDeliveredTransactions = useMemo(
+    () => buildDeliveredTransactions({ trips: scopedTrips, orders: scopedOrders, dayKey: trackingDate }),
+    [scopedOrders, scopedTrips, trackingDate]
+  )
 
   const liveMapData = useMemo(() => {
     const locations: Array<{
@@ -363,6 +371,14 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
         }
       })
 
+    liveTrackingDeliveredTransactions.forEach((delivery) => {
+      // Stops of a trip still in progress are already drawn above as Completed.
+      if (tripOrderIds.has(delivery.orderId)) return
+      tripOrderIds.add(delivery.orderId)
+      const pin = deliveredTransactionPin(delivery)
+      if (pin) locations.push(pin)
+    })
+
     // Fix: trucks exist only for the trips in the loop above, i.e. the ones
     // IN_PROGRESS on the tracking day. The old "last known location" pass put a
     // truck on the map for every driver with a fix that day, so drivers whose
@@ -372,6 +388,8 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
 
     dayOrders.forEach((order: any) => {
       if (order?.id && tripOrderIds.has(order.id)) return
+      // A delivered order is shown on the day it was delivered (above), not its scheduled day.
+      if (isCompletedOrderStatus(order?.status)) return
       const lat = Number(order?.shippingLatitude)
       const lng = Number(order?.shippingLongitude)
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
@@ -399,7 +417,7 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
     })
 
     return { locations, routeLines }
-  }, [driverLocations, dropPointMatchesTrackingDay, orderMatchesTrackingDay, scopedOrders, scopedTrips, trackingDate, tripMatchesTrackingDay])
+  }, [driverLocations, dropPointMatchesTrackingDay, liveTrackingDeliveredTransactions, orderMatchesTrackingDay, scopedOrders, scopedTrips, trackingDate, tripMatchesTrackingDay])
 
   const liveTrackingLocations = liveMapData.locations
   const liveTrackingRouteLines = liveMapData.routeLines
@@ -435,6 +453,7 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
   return {
     liveTrackingActiveTrips,
     liveTrackingCenter,
+    liveTrackingDeliveredTransactions,
     liveTrackingLocations,
     liveTrackingRecentLocations,
     liveTrackingRouteLines,

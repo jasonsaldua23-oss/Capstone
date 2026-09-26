@@ -9,6 +9,7 @@ from django.db.models import DateTimeField, F, Max, Min, Prefetch, Q
 from django.db.models.deletion import ProtectedError
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest, JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -26,8 +27,11 @@ from .models import (
     Order,
     OrderDepositRefundClaim,
     OrderItem,
+    OrderStatus,
+    OrderTimeline,
     Product,
     ProductPackaging,
+    PurchaseOrderStage,
     Replacement,
     RoleType,
     Trip,
@@ -90,6 +94,10 @@ def _delivery_date_is_past(value: Any) -> bool:
     return legacy._delivery_date_is_past(value)
 
 
+def _email_order_preparing_to_customer(order: Order) -> None:
+    return legacy._email_order_preparing_to_customer(order)
+
+
 def _email_trip_assigned_to_driver(trip: Trip) -> None:
     return legacy._email_trip_assigned_to_driver(trip)
 
@@ -132,6 +140,70 @@ def _serialize_trip(trip: Trip, include_points: bool=True, *, ctx: dict=None) ->
 
 def _strip_default_country_suffix(address: Any) -> str:
     return legacy._strip_default_country_suffix(address)
+
+
+def _normalize_order_status(value: Any) -> str:
+    return legacy._normalize_order_status(value)
+
+
+# Orders that may never ride on a trip: requests still awaiting approval, and closed orders.
+TRIP_BLOCKED_ORDER_STATUSES = {
+    OrderStatus.PENDING: "not yet approved",
+    OrderStatus.DELIVERED: "already delivered",
+    OrderStatus.CANCELLED: "cancelled",
+    OrderStatus.REJECTED: "rejected",
+}
+# A purchase order still waiting for "Start Processing".
+AWAITING_PROCESSING_ORDER_STATUSES = (OrderStatus.APPROVED, OrderStatus.RESCHEDULED)
+
+
+def _trip_order_status_error(orders: list[Order]) -> str | None:
+    blocked = [
+        f"{order.order_number} ({TRIP_BLOCKED_ORDER_STATUSES[status]})"
+        for order in orders
+        if (status := _normalize_order_status(order.status)) in TRIP_BLOCKED_ORDER_STATUSES
+    ]
+    if not blocked:
+        return None
+    return "Order(s) cannot be assigned to a trip: " + ", ".join(blocked)
+
+
+def _start_processing_for_trip(order_ids: list[str]) -> list[Order]:
+    """Move purchase orders a trip now carries into Processing, as Start Processing does.
+
+    Trip assignment used to leave a PO Approved, so the Purchase Orders page kept
+    offering "Start Processing" for an order already on a truck. Being on a trip now
+    implies Processing, the same way trip start implies Out for Delivery. Replacement
+    deliveries have no PO and no processing step; trip start still dispatches them.
+    Call inside the transaction that creates the drop points; email after it commits.
+    """
+    now = timezone.now()
+    started: list[Order] = []
+    candidates = (
+        Order.objects.select_for_update()
+        .filter(id__in=order_ids, status__in=AWAITING_PROCESSING_ORDER_STATUSES)
+        .exclude(purchase_order_number__isnull=True)
+        .exclude(purchase_order_number="")
+    )
+    for order in candidates:
+        order.status = OrderStatus.PREPARING
+        order.purchase_order_stage = PurchaseOrderStage.PROCESSING
+        order.save(update_fields=["status", "purchase_order_stage", "updated_at"])
+        timeline, _ = OrderTimeline.objects.get_or_create(order=order)
+        timeline.processed_at = now
+        timeline.save()
+        started.append(order)
+    return started
+
+
+def _email_orders_started_processing(orders: list[Order]) -> None:
+    for order in orders:
+        try:
+            _email_order_preparing_to_customer(
+                Order.objects.select_related("customer", "timeline").prefetch_related("items__product").get(id=order.id)
+            )
+        except Exception:
+            logger.exception("Failed to email the processing notice for %s", order.id)
 
 
 def _vehicle_overload_message(vehicle: Vehicle, assigned_weight: float) -> str | None:
@@ -516,6 +588,9 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             + ", ".join(overdue_orders),
             409,
         )
+    status_error = _trip_order_status_error(orders_to_assign)
+    if status_error:
+        return _err(status_error, 409)
 
     order_allocations_map = _build_order_warehouse_allocations_map(requested_order_ids)
     incompatible_orders: list[str] = []
@@ -574,6 +649,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
 
     trip = None
     trip_was_created = False
+    started_processing: list[Order] = []
     for _ in range(5):
         try:
             with transaction.atomic():
@@ -633,6 +709,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                     warehouse_id=requested_warehouse_id,
                     performed_by=staff_user_id or None,
                 )
+                started_processing = _start_processing_for_trip(requested_order_ids)
             trip_was_created = True
             break
         except IntegrityError:
@@ -673,6 +750,7 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
             _email_trip_assigned_to_driver(trip)
         except Exception:
             logger.exception("Failed to email the trip assignment for %s", trip.id)
+        _email_orders_started_processing(started_processing)
     return _ok({"success": True, "trip": _serialize_trip(trip)}, 201 if trip_was_created else 200)
 
 
@@ -733,6 +811,7 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
             return _err("No trip changes provided", 400)
 
         terminal_drop_point_statuses = {"COMPLETED", "FAILED", "SKIPPED", "CANCELLED"}
+        started_processing: list[Order] = []
 
         with transaction.atomic():
             existing_drop_points_count = TripDropPoint.objects.select_for_update().filter(trip_id=trip.id).count()
@@ -818,6 +897,11 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                         + ", ".join(overdue_orders),
                         409,
                     )
+                status_error = _trip_order_status_error(list(orders_map.values()))
+                if status_error:
+                    # Nothing in this edit may apply, including drop points removed above.
+                    transaction.set_rollback(True)
+                    return _err(status_error, 409)
 
                 staff_role = str(staff.get("role") or "").strip().upper()
                 staff_user_id = str(staff.get("userId") or "").strip()
@@ -875,6 +959,7 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
                         contact_name=(order.shipping_name or None),
                         contact_phone=(order.shipping_phone or None),
                     )
+                started_processing = _start_processing_for_trip(add_order_ids)
 
             if assign_warehouse_legs and requested_add_order_ids:
                 target_warehouse_id = assign_warehouse_id or str(getattr(trip, "warehouse_id", "") or "").strip()
@@ -957,6 +1042,7 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
             reference_type="trip",
             reference_id=trip.id,
         )
+        _email_orders_started_processing(started_processing)
         if driver_changed and next_driver:
             # Notify only the newly assigned driver when trip ownership changes.
             _create_user_notification(

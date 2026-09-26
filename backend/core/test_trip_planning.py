@@ -1,6 +1,7 @@
 """Trip creation, route planning, and tracking collection API contracts."""
 
 import json
+from unittest.mock import patch
 from datetime import datetime, time, timedelta
 
 from django.test import (
@@ -993,3 +994,138 @@ class TripsPostCreationContractTests(TestCase):
         # Regression: existing orders reopened in Edit Trip retain their per-order load.
         self.assertEqual(trip_payload["dropPoints"][0]["order"]["totalCases"], 5)
         self.assertEqual(trip_payload["dropPoints"][0]["order"]["totalWeight"], 50.0)
+
+    def _make_issued_purchase_order(self, order: Order, *, status: str) -> None:
+        order.status = status
+        order.request_status = "APPROVED"
+        order.purchase_request_number = f"PR-{order.order_number}"
+        order.purchase_order_number = f"PO-{order.order_number}"
+        order.purchase_order_stage = "APPROVED"
+        order.save(update_fields=["status", "request_status", "purchase_request_number", "purchase_order_number", "purchase_order_stage", "updated_at"])
+
+    def _post_trip(self, order_ids: list[str]):
+        return self.client.post(
+            "/api/trips",
+            data={
+                "driverId": self.driver.id,
+                "vehicleId": self.vehicle.id,
+                "warehouseId": self.warehouse.id,
+                "orderIds": order_ids,
+                "status": "PLANNED",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+    def test_trips_post_moves_approved_and_rescheduled_purchase_orders_into_processing(self) -> None:
+        # Regression: a PO put on a trip stayed Approved, so the Purchase Orders page
+        # kept offering "Start Processing" for an order already assigned to a truck.
+        self._make_issued_purchase_order(self.order_1, status=OrderStatus.APPROVED)
+        self._make_issued_purchase_order(self.order_2, status=OrderStatus.RESCHEDULED)
+
+        with patch("core.views_api._email_order_preparing_to_customer") as preparing_email:
+            response = self._post_trip([self.order_1.id, self.order_2.id])
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        for order in (self.order_1, self.order_2):
+            order.refresh_from_db()
+            self.assertEqual(order.status, OrderStatus.PREPARING)
+            self.assertEqual(order.purchase_order_stage, "PROCESSING")
+            self.assertIsNotNone(OrderTimeline.objects.get(order=order).processed_at)
+        # The customer hears about it exactly as if staff had pressed Start Processing.
+        self.assertEqual(
+            sorted(call.args[0].id for call in preparing_email.call_args_list),
+            sorted([self.order_1.id, self.order_2.id]),
+        )
+
+    def test_trips_post_leaves_replacement_delivery_approved(self) -> None:
+        # Replacement deliveries have no processing step; trip start dispatches them.
+        self.order_1.status = OrderStatus.APPROVED
+        self.order_1.save(update_fields=["status", "updated_at"])
+
+        response = self._post_trip([self.order_1.id])
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        self.order_1.refresh_from_db()
+        self.assertEqual(self.order_1.status, OrderStatus.APPROVED)
+
+    def test_trips_post_rejects_unapproved_and_closed_orders(self) -> None:
+        for status in (OrderStatus.PENDING, OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED):
+            with self.subTest(status=status):
+                self.order_1.status = status
+                self.order_1.save(update_fields=["status", "updated_at"])
+
+                response = self._post_trip([self.order_1.id])
+
+                self.assertEqual(response.status_code, 409, response.content.decode())
+                self.assertIn(self.order_1.order_number, response.json()["error"])
+                self.assertFalse(Trip.objects.filter(vehicle=self.vehicle).exists())
+
+    def test_trip_edit_moves_added_purchase_order_into_processing(self) -> None:
+        created = self._post_trip([self.order_2.id])
+        self.assertEqual(created.status_code, 201, created.content.decode())
+        self._make_issued_purchase_order(self.order_1, status=OrderStatus.APPROVED)
+
+        response = self.client.patch(
+            f"/api/trips/{created.json()['trip']['id']}",
+            data={"addOrderIds": [self.order_1.id]},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.order_1.refresh_from_db()
+        self.assertEqual(self.order_1.status, OrderStatus.PREPARING)
+        self.assertEqual(self.order_1.purchase_order_stage, "PROCESSING")
+
+    def test_trip_edit_rejects_unapproved_order(self) -> None:
+        created = self._post_trip([self.order_2.id])
+        self.assertEqual(created.status_code, 201, created.content.decode())
+        self.order_1.status = OrderStatus.PENDING
+        self.order_1.save(update_fields=["status", "updated_at"])
+
+        response = self.client.patch(
+            f"/api/trips/{created.json()['trip']['id']}",
+            data={"addOrderIds": [self.order_1.id]},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 409, response.content.decode())
+        self.assertFalse(TripDropPoint.objects.filter(order=self.order_1).exists())
+
+    def test_repair_migration_moves_purchase_orders_already_on_open_trips_into_processing(self) -> None:
+        from importlib import import_module
+        from types import SimpleNamespace
+
+        from django.apps import apps
+        from django.db import connection
+
+        repair = import_module("core.migrations.0145_start_processing_for_purchase_orders_on_trips")
+        planned_trip = Trip.objects.create(
+            trip_number="TRP-REPAIR-OPEN", driver=self.driver_user, vehicle=self.vehicle,
+            warehouse_id=self.warehouse.id, status=TripStatus.PLANNED,
+        )
+        failed_trip = Trip.objects.create(
+            trip_number="TRP-REPAIR-DONE", driver=self.driver_user, vehicle=self.vehicle,
+            warehouse_id=self.warehouse.id, status=TripStatus.COMPLETED,
+        )
+        # Stuck: an Approved PO waiting on a planned trip.
+        self._make_issued_purchase_order(self.order_1, status=OrderStatus.APPROVED)
+        TripDropPoint.objects.create(trip=planned_trip, order=self.order_1, sequence=1, status="PENDING")
+        # Legitimate: rescheduled after a failed stop on a finished trip; still needs processing.
+        self._make_issued_purchase_order(self.order_2, status=OrderStatus.RESCHEDULED)
+        TripDropPoint.objects.create(trip=failed_trip, order=self.order_2, sequence=1, status="FAILED")
+        # Replacement delivery (no PO) keeps its own flow.
+        replacement = Order.objects.create(
+            order_number="RPL-2026-0001", customer=self.customer, status=OrderStatus.APPROVED,
+            subtotal=0, total_amount=0, warehouse_id=self.warehouse.id,
+        )
+        TripDropPoint.objects.create(trip=planned_trip, order=replacement, sequence=2, status="PENDING")
+
+        repair.start_processing_for_purchase_orders_on_trips(apps, SimpleNamespace(connection=connection))
+
+        for order, expected in ((self.order_1, OrderStatus.PREPARING), (self.order_2, OrderStatus.RESCHEDULED), (replacement, OrderStatus.APPROVED)):
+            order.refresh_from_db()
+            self.assertEqual(order.status, expected, order.order_number)
+        self.assertEqual(self.order_1.purchase_order_stage, "PROCESSING")

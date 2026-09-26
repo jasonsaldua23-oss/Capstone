@@ -3,7 +3,8 @@
 export const REPORT_DATASETS = {
   orders: { endpoint: '/api/orders', keys: ['orders'] },
   trips: { endpoint: '/api/trips?limit=1000', keys: ['trips'] },
-  drivers: { endpoint: '/api/drivers?limit=500&includeSample=true', keys: ['drivers'] },
+  // Fix: reporting must use the same real-driver collection as operational pages.
+  drivers: { endpoint: '/api/drivers?limit=500', keys: ['drivers'] },
   warehouses: { endpoint: '/api/warehouses?limit=200', keys: ['warehouses'] },
   inventory: { endpoint: '/api/inventory?limit=1000', keys: ['inventory'] },
   inventoryTransactions: { endpoint: '/api/inventory-transactions?limit=1000', keys: ['transactions'] },

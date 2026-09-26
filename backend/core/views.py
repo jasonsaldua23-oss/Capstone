@@ -178,7 +178,7 @@ def ensure_demo_accounts() -> None:
             "name": "Admin User",
             "password": hash_password("admin123"),
             "phone": "+1-555-0100",
-            "role": "SUPER_ADMIN",
+            "role": "ADMIN",
             "is_active": True,
         },
     )

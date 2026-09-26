@@ -80,7 +80,6 @@ class PrelaunchAccessGuardTests(TestCase):
 class PrelaunchRemainingSecurityTests(TestCase):
     def setUp(self):
         from .models import User
-        self.owner = User.objects.create(name="Owner", email="owner@audit.invalid", role="SUPER_ADMIN")
         self.admin = User.objects.create(name="Admin", email="admin@audit.invalid", role="ADMIN")
         self.driver = User.objects.create(name="Driver", email="driver@audit.invalid", role="DRIVER")
         self.customer = Customer.objects.create(name="Customer", email="customer@audit.invalid")
@@ -92,7 +91,7 @@ class PrelaunchRemainingSecurityTests(TestCase):
     def test_driver_cannot_promote_disable_create_or_delete_accounts(self):
         from .models import User
         client, _ = self.client_for(self.driver)
-        for target, body in [(self.driver, {"roleId": "SUPER_ADMIN"}), (self.admin, {"isActive": False})]:
+        for target, body in [(self.driver, {"roleId": "ADMIN"}), (self.admin, {"isActive": False})]:
             self.assertEqual(client.put(f"/api/users/{target.id}", body, content_type="application/json").status_code, 403)
         self.assertEqual(client.delete(f"/api/users/{self.admin.id}").status_code, 403)
         self.assertEqual(client.post("/api/users", {}, content_type="application/json").status_code, 403)
@@ -100,13 +99,17 @@ class PrelaunchRemainingSecurityTests(TestCase):
         self.admin.refresh_from_db()
         self.assertEqual(self.driver.role, "DRIVER")
         self.assertTrue(self.admin.is_active)
-        self.assertEqual(User.objects.count(), 3)
+        self.assertEqual(User.objects.count(), 2)
 
-    def test_admin_cannot_modify_owner_but_can_edit_own_profile(self):
+    def test_admin_is_the_only_administrator_role(self):
+        from .models import RoleType
+        # The separate owner tier was merged into Admin; its role code no longer exists.
+        self.assertNotIn("SUPER_ADMIN", RoleType.values)
         client, _ = self.client_for(self.admin)
-        self.assertEqual(client.put(f"/api/users/{self.owner.id}", {"isActive": False}, content_type="application/json").status_code, 403)
-        self.assertEqual(client.put(f"/api/users/{self.admin.id}", {"roleId": "SUPER_ADMIN"}, content_type="application/json").status_code, 403)
+        self.assertEqual(client.put(f"/api/users/{self.admin.id}", {"roleId": "SUPER_ADMIN"}, content_type="application/json").status_code, 404)
         self.assertEqual(client.put(f"/api/users/{self.admin.id}", {"name": "Updated Admin"}, content_type="application/json").status_code, 200)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.role, "ADMIN")
 
     def test_driver_cannot_change_customer_password(self):
         client, _ = self.client_for(self.driver)

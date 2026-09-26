@@ -23,7 +23,7 @@ def _create_staff_notifications(
     reference_id: str | None = None,
 ) -> None:
     _notify_staff_roles(
-        roles=[RoleType.SUPER_ADMIN, RoleType.ADMIN, RoleType.WAREHOUSE_STAFF],
+        roles=[RoleType.ADMIN, RoleType.WAREHOUSE_STAFF],
         title=title,
         message=message,
         notification_type=notification_type,
@@ -41,10 +41,10 @@ def _create_admin_notifications(
     reference_id: str | None = None,
 ) -> None:
     """Notify administrators only, for events only an administrator can act on."""
-    # Added: client registration review is ADMIN/SUPER_ADMIN-only, so warehouse
+    # Added: client registration review is ADMIN-only, so warehouse
     # staff would get an alert they have no way to resolve.
     _notify_staff_roles(
-        roles=[RoleType.SUPER_ADMIN, RoleType.ADMIN],
+        roles=[RoleType.ADMIN],
         title=title,
         message=message,
         notification_type=notification_type,

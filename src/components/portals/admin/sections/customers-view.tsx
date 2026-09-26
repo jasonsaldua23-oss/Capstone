@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
-import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -20,7 +19,6 @@ import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import { resolveClientImageUrl } from '@/lib/client-image'
 import {
-  toArray,
   getCollection,
   getDefaultRouteDate,
   normalizeTripStatus,
@@ -47,10 +45,8 @@ const AddressMapPicker = dynamic(
 )
 
 export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: string } = {}) {
-  const { user } = useAuth()
   const [customers, setCustomers] = useState<any[]>([])
-  const [orders, setOrders] = useState<any[]>([])
-  const [feedback, setFeedback] = useState<any[]>([])
+  const [loadingError, setLoadingError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [ratingFilter, setRatingFilter] = useState('all')
@@ -71,25 +67,22 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
     customerRefreshRef.current = true
     if (showLoading) setIsLoading(true)
     try {
-      const [customersResponse, ordersResult, feedbackResponse] = await Promise.all([
-        fetch('/api/customers?page=1&pageSize=500', { cache: 'no-store' }),
-        fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=none',
-          'orders',
-          { cache: 'no-store' },
-          { retries: 3, timeoutMs: 15000, pageSize: 200, maxPages: 100 }
-        ),
-        fetch('/api/feedback?page=1&pageSize=1000'),
-      ])
-
-      const customersData = customersResponse.ok ? await customersResponse.json().catch(() => ({})) : {}
-      const feedbackData = feedbackResponse.ok ? await feedbackResponse.json().catch(() => ({})) : {}
-
-      // Preserve last-known records on transient failures instead of displaying empty tables.
-      if (customersResponse.ok) setCustomers(toArray<any>(customersData?.data ?? customersData?.customers ?? customersData))
-      if (ordersResult.ok) setOrders(getCollection<any>(ordersResult.data, ['orders']))
-      if (feedbackResponse.ok) setFeedback(getCollection<any>(feedbackData, ['feedbacks']))
+      // Fix: the directory supplies complete delivery/rating aggregates; fetching
+      // all order details here made a short client list wait for the slowest page.
+      const result = await fetchAllPaginatedCollection<any>(
+        '/api/customers',
+        'customers',
+        { cache: 'no-store' },
+        { retries: 2, timeoutMs: 15000, pageSize: 500, maxPages: 100 }
+      )
+      if (!result.ok) throw new Error(result.data?.error || 'Failed to load clients')
+      setCustomers(getCollection<any>(result.data, ['customers']))
+      setLoadingError(null)
     } catch (error) {
+      // Preserve last-known rows and distinguish an unavailable directory from an empty one.
+      const message = error instanceof Error ? error.message : 'Failed to load clients'
+      setLoadingError(message)
+      toast.error(message)
       console.error('Failed to fetch customers:', error)
     } finally {
       customerRefreshRef.current = false
@@ -103,83 +96,22 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
     // Sync events now carry other devices' changes too (see lib/sync-hub.ts), so
     // the timer is only a safety net for an unreachable stamp endpoint.
     const unsubscribe = subscribeDataSync(({ scopes }) => {
-      if (scopes.includes('customers') || scopes.includes('orders')) refresh()
+      if (scopes.includes('customers') || scopes.includes('orders') || scopes.includes('feedback')) refresh()
     })
     const timer = window.setInterval(refresh, 60000)
     return () => { unsubscribe(); window.clearInterval(timer) }
   }, [])
 
   const customerRows = useMemo(() => {
-    const statsByCustomer = new Map<string, { orderCount: number; totalSpend: number; lastOrderNumber: string | null; lastOrderDate: string | null }>()
-    const lastOrderByCustomer = new Map<string, { lastOrderNumber: string | null; lastOrderDate: string | null }>()
-    const ratingByCustomer = new Map<string, { sum: number; count: number }>()
-    const deliveredOrderIds = new Set<string>()
-
-    for (const order of orders) {
-      const customerId = String(order?.customerId || order?.customer_id || order?.customer?.id || '').trim()
-      if (!customerId) continue
-      const createdAtRaw = String(order?.createdAt || order?.created_at || '').trim() || null
-      const createdAt = createdAtRaw ? new Date(createdAtRaw) : null
-      const prevLast = lastOrderByCustomer.get(customerId) || { lastOrderNumber: null, lastOrderDate: null }
-      const prevLastDate = prevLast.lastOrderDate ? new Date(prevLast.lastOrderDate) : null
-      const isNewerLast = createdAt && !Number.isNaN(createdAt.getTime()) && (!prevLastDate || createdAt.getTime() > prevLastDate.getTime())
-      if (isNewerLast) {
-        lastOrderByCustomer.set(customerId, {
-          lastOrderNumber: order?.orderNumber || order?.order_number || prevLast.lastOrderNumber,
-          lastOrderDate: createdAtRaw || prevLast.lastOrderDate,
-        })
-      }
-
-      const normalizedOrderStatus = String(order?.status || '').toUpperCase()
-      const normalizedDeliveryStatus = String(order?.deliveryStatus || '').toUpperCase()
-      const isSuccessfulDelivery = normalizedOrderStatus === 'DELIVERED' || normalizedDeliveryStatus === 'DELIVERED'
-      if (!isSuccessfulDelivery) continue
-      if (order?.id) deliveredOrderIds.add(String(order.id))
-      const prev = statsByCustomer.get(customerId) || { orderCount: 0, totalSpend: 0, lastOrderNumber: null, lastOrderDate: null }
-      const totalAmount = Number(order?.totalAmount ?? order?.total_amount ?? 0)
-      const prevDate = prev.lastOrderDate ? new Date(prev.lastOrderDate) : null
-      const isNewer = createdAt && !Number.isNaN(createdAt.getTime()) && (!prevDate || createdAt.getTime() > prevDate.getTime())
-
-      statsByCustomer.set(customerId, {
-        orderCount: prev.orderCount + 1,
-        totalSpend: prev.totalSpend + (Number.isFinite(totalAmount) ? totalAmount : 0),
-        lastOrderNumber: isNewer ? (order?.orderNumber || order?.order_number || prev.lastOrderNumber) : prev.lastOrderNumber,
-        lastOrderDate: isNewer ? (createdAtRaw || prev.lastOrderDate) : prev.lastOrderDate,
-      })
-    }
-
-    for (const item of feedback) {
-      const feedbackOrderId = String(item?.orderId || item?.order_id || '').trim()
-      if (feedbackOrderId && !deliveredOrderIds.has(feedbackOrderId)) continue
-
-      const customerId = String(item?.customerId || item?.customer_id || item?.customer?.id || '').trim()
-      if (!customerId) continue
-      const rating = Number(item?.rating || 0)
-      if (!Number.isFinite(rating) || rating <= 0) continue
-      const prev = ratingByCustomer.get(customerId) || { sum: 0, count: 0 }
-      ratingByCustomer.set(customerId, { sum: prev.sum + rating, count: prev.count + 1 })
-    }
-
-    return customers.map((customer) => {
-      const orderStats = statsByCustomer.get(customer.id) || { orderCount: 0, totalSpend: 0, lastOrderNumber: null, lastOrderDate: null }
-      const lastOrderStats = lastOrderByCustomer.get(customer.id) || { lastOrderNumber: null, lastOrderDate: null }
-      const feedbackStats = ratingByCustomer.get(customer.id) || { sum: 0, count: 0 }
-      const rating = feedbackStats.count > 0 ? Number((feedbackStats.sum / feedbackStats.count).toFixed(1)) : null
-      // The customer endpoint supplies fast database aggregates even when the
-      // full orders request is still loading or times out.
-      const successfulDeliveries = Number(customer?.successfulDeliveries)
-      const successfulDeliverySpend = Number(customer?.successfulDeliverySpend)
-      return {
-        ...customer,
-        orderCount: Number.isFinite(successfulDeliveries) ? successfulDeliveries : orderStats.orderCount,
-        totalSpend: Number.isFinite(successfulDeliverySpend) ? successfulDeliverySpend : orderStats.totalSpend,
-        lastOrderNumber: customer?.lastOrderNumber || lastOrderStats.lastOrderNumber,
-        lastOrderDate: customer?.lastOrderDate || lastOrderStats.lastOrderDate,
-        rating,
-        ratingCount: feedbackStats.count,
-      }
-    })
-  }, [customers, orders, feedback])
+    return customers.map((customer) => ({
+      ...customer,
+      // Keep the same one-decimal rating display/filter semantics using server aggregates.
+      orderCount: Number(customer.successfulDeliveries),
+      totalSpend: Number(customer.successfulDeliverySpend),
+      rating: customer.rating == null ? null : Number(Number(customer.rating).toFixed(1)),
+      ratingCount: Number(customer.ratingCount),
+    }))
+  }, [customers])
 
   const filteredRows = useMemo(() => {
     return customerRows.filter((row) => {
@@ -267,12 +199,6 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
 
   const saveDiscount = async () => {
     if (!discountTarget?.id) return
-    const percentValue = Number(discountPercent || 0)
-    const isOwner = String((user as any)?.role || '').toUpperCase() === 'SUPER_ADMIN'
-    if (discountOption === 'OTHER' && percentValue > 25 && !isOwner) {
-      toast.error('Only owner can apply custom discount above 25%')
-      return
-    }
     setIsSavingDiscount(true)
     try {
       const response = await fetch(`/api/customers/${discountTarget.id}`, {
@@ -421,6 +347,8 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
         <CardContent className="p-0">
           {isLoading ? (
             <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
+          ) : loadingError && customers.length === 0 ? (
+            <div className="text-center py-12 text-gray-500" role="alert">{loadingError}</div>
           ) : filteredRows.length === 0 ? (
             <div className="text-center py-12 text-gray-500">No registered clients found</div>
           ) : (

@@ -15,6 +15,7 @@ import { getCollection } from './warehouse-portal-utils'
 import { writePortalCache } from '@/lib/portal-data-cache'
 import { getMaxOrderUpdatedAt, mergeWarehouseOrders } from './warehouse-order-helpers'
 import { safeFetchJson } from './warehouse-portal-api'
+import { fetchAllPaginatedCollection } from '../admin/sections/shared'
 import type { Dispatch, SetStateAction, MutableRefObject } from 'react'
 
 /**
@@ -117,7 +118,8 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
         query.set('warehouseId', normalizedWarehouseId)
       }
       const inventoryUrl = `/api/inventory?${query.toString()}`
-      const result = await safeFetchJson(inventoryUrl, { cache: 'no-store' })
+      // Fix: stock totals must include every inventory page, matching the reports.
+      const result = await fetchAllPaginatedCollection<InventoryItem>(inventoryUrl, 'inventory', { cache: 'no-store' })
       if (!result.ok) {
         return null
       }
@@ -167,7 +169,8 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
 
   const fetchProductsData = async () => {
     try {
-      const result = await safeFetchJson('/api/products?page=1&pageSize=1000', { cache: 'no-store' })
+      // Fix: later-page products are not deleted products; load them before pruning cached stock.
+      const result = await fetchAllPaginatedCollection<ProductOption>('/api/products?pageSize=1000', 'products', { cache: 'no-store' })
       if (!result.ok) {
         return
       }
@@ -192,7 +195,8 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
     const showLoading = options?.showLoading !== false
     if (showLoading) setLoadingBatches(true)
     try {
-      const result = await safeFetchJson('/api/stock-batches?page=1&pageSize=200', { cache: 'no-store' })
+      // Fix: historical batches must not disappear after the first page.
+      const result = await fetchAllPaginatedCollection<StockBatchItem>('/api/stock-batches?pageSize=200', 'stockBatches', { cache: 'no-store' })
       if (!result.ok) {
         return null
       }
@@ -271,7 +275,9 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
     }
 
     const merged = getCollection<WarehouseOrderItem>(first.data, ['orders'])
-    const totalPages = Math.min(Math.max(1, Number((first.data as any)?.totalPages || 1)), maxPages)
+    const totalPages = Math.max(1, Number((first.data as any)?.totalPages || 1))
+    // Fix: do not replace a complete snapshot with a silently capped result.
+    if (!Number.isFinite(totalPages) || totalPages > maxPages) throw new Error('Orders exceed the supported page limit')
 
     for (let page = 2; page <= totalPages; page += 1) {
       const next = await fetchPage(page)
@@ -316,7 +322,8 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
             pageSize: '200',
             updatedAfter: latestOrderUpdatedAtRef.current,
           })
-          const deltaResult = await safeFetchJson(`/api/orders?${deltaParams.toString()}`, { cache: 'no-store', credentials: 'include' })
+          // Fix: fetching only the newest page permanently skipped the remaining changes.
+          const deltaResult = await fetchAllPaginatedCollection<WarehouseOrderItem>(`/api/orders?${deltaParams.toString()}`, 'orders', { cache: 'no-store', credentials: 'include' })
           if (deltaResult.ok) {
             const deltaOrders = getCollection<WarehouseOrderItem>(deltaResult.data, ['orders'])
             if (deltaOrders.length > 0) {
@@ -429,7 +436,8 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
   const fetchInventoryTransactionsData = async () => {
     setLoadingInventoryTransactions(true)
     try {
-      const result = await safeFetchJson('/api/inventory-transactions?limit=1000', { cache: 'no-store' })
+      // Fix: history and report totals must use the same complete movement collection.
+      const result = await fetchAllPaginatedCollection<InventoryTransactionItem>('/api/inventory-transactions', 'transactions', { cache: 'no-store' })
       if (!result.ok) {
         return
       }
@@ -444,10 +452,8 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
   const fetchReplacementsData = async () => {
     setLoadingReplacements(true)
     try {
-      let result = await safeFetchJson('/api/replacements?limit=300', { cache: 'no-store' })
-      if (!result.ok) {
-        result = await safeFetchJson('/api/orders?includeReplacements=true&includeOrders=false&includeItems=none&limit=300', { cache: 'no-store' })
-      }
+      // Fix: keep the previous snapshot on failure instead of falling back to a truncated history.
+      const result = await fetchAllPaginatedCollection<WarehouseReplacementItem>('/api/replacements', 'replacements', { cache: 'no-store' })
       if (!result.ok) return
       setReplacements(getCollection<WarehouseReplacementItem>(result.data, ['replacements']))
     } catch (error) {

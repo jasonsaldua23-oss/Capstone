@@ -104,7 +104,7 @@ OTP_EXPIRY_MINUTES = 2
 EMAIL_VERIFICATION_TOKEN_HOURS = 1
 
 _PASSWORD_RESET_PORTAL_ROLES = {
-    "admin": {RoleType.SUPER_ADMIN, RoleType.ADMIN},
+    "admin": {RoleType.ADMIN},
     "warehouse": {RoleType.WAREHOUSE_STAFF},
     "driver": {RoleType.DRIVER},
 }
@@ -155,7 +155,6 @@ _REPLACEMENT_CUSTOMER_COPY: dict[str, dict[str, str]] = {
 }
 
 STAFF_LOGIN_ROLE_SCOPE = {
-    RoleType.SUPER_ADMIN,
     RoleType.ADMIN,
     RoleType.WAREHOUSE_STAFF,
     RoleType.DRIVER,

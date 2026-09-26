@@ -45,6 +45,7 @@ export type CustomerCartInputs = {
   setIsOrderConfirmationOpen: Dispatch<SetStateAction<boolean>>
   setIsPlacingOrder: CustomerPortalState['setIsPlacingOrder']
   setLastPlacedOrderNumber: Dispatch<SetStateAction<string>>
+  setNotes: CustomerPortalState['setNotes']
   setOrders: CustomerPortalState['setOrders']
   setOrdersSearch: CustomerPortalState['setOrdersSearch']
   setOrdersTab: CustomerPortalState['setOrdersTab']
@@ -93,6 +94,7 @@ export function useCustomerCart(inputs: CustomerCartInputs) {
     setIsOrderConfirmationOpen,
     setIsPlacingOrder,
     setLastPlacedOrderNumber,
+    setNotes,
     setOrders,
     setOrdersSearch,
     setOrdersTab,
@@ -795,8 +797,9 @@ export function useCustomerCart(inputs: CustomerCartInputs) {
         selectedIds.forEach((id) => next.delete(id))
         return next
       })
-      // The credit belongs to the completed request and must not carry into the next order.
+      // The credit and the note belong to the completed request and must not carry into the next order.
       setDepositRefundLines([])
+      setNotes('')
       // Refresh once in background via shared sync channel.
       emitDataSync(['orders', 'customers', 'auth', 'user'])
       void fetchProducts()

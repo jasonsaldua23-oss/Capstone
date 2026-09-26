@@ -35,7 +35,7 @@ import {
   RetailSalesReport,
   TopClientsReport,
 } from './reports'
-import { getCollection, fetchAllPaginatedCollection, safeFetchJson } from './shared'
+import { getCollection, fetchAllPaginatedCollection } from './shared'
 import { exportToCsv, reportColumns } from './reports/export-utils'
 import { downloadReportPdf, type ReportPdfOptions } from './reports/report-pdf'
 import { type ReportToolbarConfig } from './reports/chart-styles'
@@ -93,11 +93,10 @@ export function ReportsView() {
       retry: false, // safeFetchJson already owns request retries.
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const dataset = REPORT_DATASETS[name]
-        const result = name === 'orders'
-          ? await fetchAllPaginatedCollection<any>(dataset.endpoint, 'orders', { signal }, {
+        // Fix: every report needs the complete collection, not just the first page.
+        const result = await fetchAllPaginatedCollection<any>(dataset.endpoint, dataset.keys[0], { signal, cache: 'no-store' }, {
               retries: 1, timeoutMs: 20000, pageSize: 200, maxPages: 100,
             })
-          : await safeFetchJson(dataset.endpoint, { signal }, { retries: 1, timeoutMs: 20000 })
         // A failed dataset must not become a cached, apparently empty financial report.
         if (!result.ok) throw new Error(`Unable to load report data (${name}). Please retry.`)
         return getCollection<any>(result.data, dataset.keys)
@@ -345,8 +344,8 @@ export function ReportsView() {
             </select>
             {feedbackDatePreset === 'custom' ? (
               <>
-                <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={feedbackDateFrom} onChange={(event) => setFeedbackDateFrom(event.target.value)} className="h-11 w-[170px]" aria-label="Feedback date from" />
-                <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} value={feedbackDateTo} onChange={(event) => setFeedbackDateTo(event.target.value)} className="h-11 w-[170px]" aria-label="Feedback date to" />
+                <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} max={feedbackDateTo || undefined} value={feedbackDateFrom} onChange={(event) => setFeedbackDateFrom(event.target.value)} className="h-11 w-[170px]" aria-label="Feedback date from" />
+                <Input type="date" onClick={(event) => event.currentTarget.showPicker?.()} min={feedbackDateFrom || undefined} value={feedbackDateTo} onChange={(event) => setFeedbackDateTo(event.target.value)} className="h-11 w-[170px]" aria-label="Feedback date to" />
               </>
             ) : null}
           </>
@@ -370,7 +369,7 @@ export function ReportsView() {
             <Input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={warehouseDateFrom}
+              max={warehouseDateTo || undefined} value={warehouseDateFrom}
               onChange={(event) => setWarehouseDateFrom(event.target.value)}
               disabled={warehouseDatePreset !== 'custom'}
               className="h-10 w-[170px]"
@@ -379,7 +378,7 @@ export function ReportsView() {
             <Input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={warehouseDateTo}
+              min={warehouseDateFrom || undefined} value={warehouseDateTo}
               onChange={(event) => setWarehouseDateTo(event.target.value)}
               disabled={warehouseDatePreset !== 'custom'}
               className="h-10 w-[170px]"
@@ -600,14 +599,7 @@ export function ReportsView() {
         </div>
       </div>
 
-      {loadError ? (
-        <div role="alert" className="space-y-3">
-          <p>{loadError.message}</p>
-          <Button variant="outline" onClick={() => void Promise.all(requiredQueries.map((query) => query.refetch()))}>Retry</Button>
-        </div>
-      ) : isLoading ? (
-        <PortalDashboardSkeleton />
-      ) : (
+      {/* Fix: keep navigation available while a report loads or needs a retry. */}
         <Tabs value={activeReportTab} onValueChange={setActiveReportTab} className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
             <TabsList className="flex flex-wrap h-auto w-full gap-1.5 bg-transparent p-0">
@@ -624,6 +616,15 @@ export function ReportsView() {
             </TabsList>
           </div>
 
+          {loadError ? (
+            <div role="alert" className="space-y-3">
+              <p>{loadError.message}</p>
+              <Button variant="outline" onClick={() => void Promise.all(requiredQueries.map((query) => query.refetch()))}>Retry</Button>
+            </div>
+          ) : isLoading ? (
+            <PortalDashboardSkeleton />
+          ) : (
+          <>
           <TabsContent value="orders" className="space-y-4">
             <OrdersReportTab
               orderKpi={orderKpi}
@@ -743,8 +744,9 @@ export function ReportsView() {
             <TopClientsReport orders={orders} customers={customers} />
           </TabsContent>
 
+          </>
+          )}
         </Tabs>
-      )}
     </div>
   )
 }

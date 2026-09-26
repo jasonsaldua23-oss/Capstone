@@ -13,7 +13,7 @@ function tokenPortal(token: string | null): string | null {
     if (payload.type === 'customer') return 'customer'
     if (payload.type !== 'staff') return null
     const role = String(payload.role || '').toUpperCase()
-    return role === 'DRIVER' ? 'driver' : role === 'WAREHOUSE_STAFF' ? 'warehouse' : ['ADMIN', 'SUPER_ADMIN'].includes(role) ? 'admin' : null
+    return role === 'DRIVER' ? 'driver' : role === 'WAREHOUSE_STAFF' ? 'warehouse' : role === 'ADMIN' ? 'admin' : null
   } catch { return null }
 }
 

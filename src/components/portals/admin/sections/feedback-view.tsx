@@ -535,7 +535,7 @@ export function FeedbackView() {
               <div className="flex flex-1 items-center gap-2">
                 <Input
                   type="date"
-                  value={dateFrom}
+                  max={dateTo || undefined} value={dateFrom}
                   onChange={(event) => setDateFrom(event.target.value)}
                   onClick={(event) => event.currentTarget.showPicker?.()}
                   className="text-sm"
@@ -543,7 +543,7 @@ export function FeedbackView() {
                 <span className="text-sm text-gray-400">to</span>
                 <Input
                   type="date"
-                  value={dateTo}
+                  min={dateFrom || undefined} value={dateTo}
                   onChange={(event) => setDateTo(event.target.value)}
                   onClick={(event) => event.currentTarget.showPicker?.()}
                   className="text-sm"

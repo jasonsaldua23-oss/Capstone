@@ -9,14 +9,9 @@ async function main() {
   // Create Roles
   const roles = await Promise.all([
     prisma.role.upsert({
-      where: { name: 'SUPER_ADMIN' },
-      update: {},
-      create: { name: 'SUPER_ADMIN', description: 'Full system access' }
-    }),
-    prisma.role.upsert({
       where: { name: 'ADMIN' },
       update: {},
-      create: { name: 'ADMIN', description: 'Administrative access' }
+      create: { name: 'ADMIN', description: 'Full system access' }
     }),
     prisma.role.upsert({
       where: { name: 'WAREHOUSE_STAFF' },
@@ -45,7 +40,7 @@ async function main() {
       name: 'Admin User',
       password: hashedPassword,
       phone: '+1-555-0100',
-      roleId: roles.find(r => r.name === 'SUPER_ADMIN')?.id || roles[0].id,
+      roleId: roles.find(r => r.name === 'ADMIN')?.id || roles[0].id,
       isActive: true,
     }
   })
@@ -58,7 +53,7 @@ async function main() {
       name: 'Staff Member',
       password: hashedPassword,
       phone: '+1-555-0101',
-      roleId: roles.find(r => r.name === 'ADMIN')?.id || roles[1].id,
+      roleId: roles.find(r => r.name === 'ADMIN')?.id || roles[0].id,
       isActive: true,
     }
   })
@@ -71,7 +66,7 @@ async function main() {
       name: 'Warehouse Staff',
       password: hashedPassword,
       phone: '+1-555-0102',
-      roleId: roles.find(r => r.name === 'WAREHOUSE_STAFF')?.id || roles[2].id,
+      roleId: roles.find(r => r.name === 'WAREHOUSE_STAFF')?.id || roles[1].id,
       isActive: true,
     }
   })
@@ -84,7 +79,7 @@ async function main() {
       name: 'Mike Johnson',
       password: driverPassword,
       phone: '+1-555-0103',
-      roleId: roles.find(r => r.name === 'DRIVER')?.id || roles[3].id,
+      roleId: roles.find(r => r.name === 'DRIVER')?.id || roles[2].id,
       isActive: true,
     }
   })

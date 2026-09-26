@@ -61,10 +61,10 @@ def _require_retail_warehouse(request: HttpRequest) -> tuple[dict[str, Any] | No
     if error:
         return None, None, error
     role = str(payload.get("role") or "").strip().upper()
-    if role not in (RoleType.WAREHOUSE_STAFF, RoleType.ADMIN, RoleType.SUPER_ADMIN):
+    if role not in (RoleType.WAREHOUSE_STAFF, RoleType.ADMIN):
         return None, None, _err("Retail is available only to warehouse staff and administrators", 403)
     staff_id = str(payload.get("userId") or "").strip()
-    if role in (RoleType.ADMIN, RoleType.SUPER_ADMIN):
+    if role == RoleType.ADMIN:
         requested_id = str(request.GET.get("warehouseId") or "").strip()
         if request.method != "GET":
             requested_id = str(_json_body(request).get("warehouseId") or requested_id).strip()

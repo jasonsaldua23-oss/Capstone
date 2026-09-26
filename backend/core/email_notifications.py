@@ -218,7 +218,7 @@ def _warehouse_staff_emails() -> list[str]:
 
 def _ops_staff_emails() -> list[str]:
     rows = User.objects.filter(
-        role__in=[RoleType.SUPER_ADMIN, RoleType.ADMIN, RoleType.WAREHOUSE_STAFF],
+        role__in=[RoleType.ADMIN, RoleType.WAREHOUSE_STAFF],
         is_active=True,
     ).values_list("email", flat=True)
     out: list[str] = []

@@ -54,7 +54,7 @@
     "name": "Admin User",
     "phone": "+1-555-0100",
     "avatar": null,
-    "role": "SUPER_ADMIN",
+    "role": "ADMIN",
     "license_number": null,
     "license_type": null,
     "license_expiry": null,

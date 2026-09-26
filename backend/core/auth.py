@@ -27,7 +27,7 @@ def token_portal(payload: dict[str, Any]) -> str | None:
         return "customer"
     if payload.get("type") != "staff":
         return None
-    return {"ADMIN": "admin", "SUPER_ADMIN": "admin", "WAREHOUSE_STAFF": "warehouse", "DRIVER": "driver"}.get(
+    return {"ADMIN": "admin", "WAREHOUSE_STAFF": "warehouse", "DRIVER": "driver"}.get(
         str(payload.get("role") or "").strip().upper()
     )
 

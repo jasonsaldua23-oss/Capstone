@@ -34,11 +34,11 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatDayKey, withinRange } from '../shared'
+import { formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
-import { resolveReportCutoff, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { formatReportProductNameForExport } from '@/lib/report-metrics'
+import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { buildDailyChartSeries, formatReportProductNameForExport } from '@/lib/report-metrics'
 
 interface ReplacementRecordsReportProps {
   replacements: any[]
@@ -177,7 +177,8 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         }
       }
 
-      const date = rep.createdAt || new Date().toISOString()
+      // Fix: missing timestamps must not appear as records created today.
+      const date = rep.createdAt || ''
       const processedDate = rep.processedAt || rep.pickupCompleted || null
 
       // Build per-product lines for the table
@@ -291,22 +292,9 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     let list = rawReplacementsList
 
     // Date filtering
-    if (datePreset !== 'all') {
-      if (datePreset === 'custom') {
-        if (dateFrom) {
-          const fromTime = new Date(`${dateFrom}T00:00:00`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() >= fromTime)
-        }
-        if (dateTo) {
-          const toTime = new Date(`${dateTo}T23:59:59.999`).getTime()
-          list = list.filter((item) => new Date(item.date).getTime() <= toTime)
-        }
-      } else {
-        // Shared so every tab's window matches its chart; see resolveReportCutoff.
-        const cutoff = resolveReportCutoff(datePreset)
-        list = list.filter((item) => withinRange(item.date, cutoff))
-      }
-    }
+    // Fix: use both calendar boundaries for presets and inclusive custom ranges.
+    const dateWindow = buildReportDateWindow(datePreset, dateFrom, dateTo)
+    list = list.filter((item) => matchesReportDateWindow(item.date, dateWindow))
 
     // Status filter
     if (statusFilter !== 'all') {
@@ -355,21 +343,8 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
 
   // Trend Chart Data (Chronological daily breakdown with full continuous date range)
   const chartData = useMemo(() => {
-    // Generate a continuous 14-day chronological map so isolated data points don't stretch
+    // Fix: build the trend from the filtered dates, including historical custom ranges.
     const map: Record<string, { dateKey: string; date: string; total: number; resolved: number; pending: number }> = {}
-    const now = new Date()
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(now)
-      d.setDate(d.getDate() - i)
-      const key = formatDayKey(d)
-      map[key] = {
-        dateKey: key,
-        date: `${d.getMonth() + 1}/${d.getDate()}`,
-        total: 0,
-        resolved: 0,
-        pending: 0,
-      }
-    }
 
     filteredReplacements.forEach((item) => {
       const d = new Date(item.date)
@@ -391,7 +366,13 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
       }
     })
 
-    return Object.values(map).sort((a, b) => a.dateKey.localeCompare(b.dateKey)).slice(-14)
+    return buildDailyChartSeries(map, {
+      days: 14,
+      fillEmpty: (dateKey) => {
+        const [, month, day] = dateKey.split('-')
+        return { dateKey, date: `${Number(month)}/${Number(day)}`, total: 0, resolved: 0, pending: 0 }
+      },
+    })
   }, [filteredReplacements])
 
   // Reported volume first, then how much of it has actually been closed out.
@@ -691,7 +672,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateFrom}
+              max={dateTo || undefined} value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
                 setCurrentPage(1)
@@ -703,7 +684,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
             <input
               type="date"
               onClick={(event) => event.currentTarget.showPicker?.()}
-              value={dateTo}
+              min={dateFrom || undefined} value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)
                 setCurrentPage(1)

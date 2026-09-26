@@ -13,7 +13,6 @@ datasource db {
 // ==================== USER MANAGEMENT ====================
 
 enum RoleType {
-  SUPER_ADMIN
   ADMIN
   WAREHOUSE_STAFF
   DRIVER

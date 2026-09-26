@@ -80,7 +80,7 @@ def warehouses_collection(request: HttpRequest) -> JsonResponse:
             serialized["staffIds"] = [manager_id] if manager_id else []
             payload_rows.append(serialized)
         return _ok({"success": True, "warehouses": payload_rows, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
-    if str(staff.get("role") or "").strip().upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+    if str(staff.get("role") or "").strip().upper() != RoleType.ADMIN:
         return _err("Only administrators can manage warehouses", 403)
     body = _json_body(request)
     required = ["name", "code", "address", "city", "province", "zipCode", "capacity"]
@@ -147,7 +147,7 @@ def warehouse_detail(request: HttpRequest, warehouse_id: str) -> JsonResponse:
         manager_id = str(getattr(w, "manager_id", "") or "").strip()
         warehouse_data["staffIds"] = [manager_id] if manager_id else []
         return _ok({"success": True, "warehouse": warehouse_data})
-    if str(staff.get("role") or "").strip().upper() not in {RoleType.ADMIN, RoleType.SUPER_ADMIN}:
+    if str(staff.get("role") or "").strip().upper() != RoleType.ADMIN:
         return _err("Only administrators can manage warehouses", 403)
     if request.method == "DELETE":
         w.is_active = False

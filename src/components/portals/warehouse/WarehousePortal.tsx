@@ -113,6 +113,7 @@ import { WarehouseCreateTripDialog } from './sections/trips/create-trip-dialog'
 // Modularized: API response contracts are kept separate from the stateful portal shell.
 import { WarehouseCreateRouteDialog } from './sections/trips/create-route-dialog'
 import { useWarehousePortalData } from './use-warehouse-portal-data'
+import { isPurchaseRequestDocument } from '@/lib/purchase-documents'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -405,6 +406,7 @@ export function WarehousePortal() {
   const {
     liveTrackingActiveTrips,
     liveTrackingCenter,
+    liveTrackingDeliveredTransactions,
     liveTrackingLocations,
     liveTrackingRecentLocations,
     liveTrackingRouteLines,
@@ -744,9 +746,8 @@ export function WarehousePortal() {
           fetchProductsData(),
           fetchInventoryTransactionsData(),
           initial
-            // The snapshot is already on screen, so revalidate behind it instead
-            // of replacing the tables with a loading state.
-            ? fetchOrdersData({ showLoading: !cacheState.ordersCached, onlyIfNew: cacheState.ordersCached, lightweightDetails: true, silent: cacheState.ordersCached })
+            // Fix: fully reconcile old snapshots; a delta cannot restore omitted historical POs.
+            ? fetchOrdersData({ showLoading: !cacheState.ordersCached, lightweightDetails: true, silent: cacheState.ordersCached })
             : fetchOrdersData({ showLoading: false, silent: true }),
           cacheState.tripsFresh ? Promise.resolve() : fetchTripsData({ showLoading: !cacheState.tripsCached }),
           fetchReplacementsData(),
@@ -1439,11 +1440,8 @@ export function WarehousePortal() {
           {activeView === 'purchaseRequests' && (
             <WarehousePurchaseRequestsView
               loadingOrders={loadingOrders}
-              purchaseRequests={scopedOrders.filter((o) => {
-                const isReplacement = Boolean((o as any)?.isScheduledReplacement) || String((o as any)?.orderNumber || '').toUpperCase().startsWith('RPL-')
-                // Deleted PR documents must not be reconstructed from their remaining transaction.
-                return Boolean((o as any)?.purchaseRequest) && !isReplacement
-              })}
+              // Deleted PR documents must not be reconstructed from their remaining transaction.
+              purchaseRequests={scopedOrders.filter(isPurchaseRequestDocument)}
               formatPeso={formatPeso}
               openOrderDetail={openOrderDetail}
               updateWarehouseOrderStatus={updateWarehouseOrderStatus as any}
@@ -1518,6 +1516,7 @@ export function WarehousePortal() {
               liveTrackingRouteLines={liveTrackingRouteLines}
               liveTrackingCenter={liveTrackingCenter}
               liveTrackingActiveTrips={liveTrackingActiveTrips}
+              liveTrackingDeliveredTransactions={liveTrackingDeliveredTransactions}
               liveTrackingRecentLocations={liveTrackingRecentLocations}
             />
           )}
@@ -1740,7 +1739,6 @@ export function WarehousePortal() {
       <WarehouseOrderDetailDialog
         assignedWarehouse={assignedWarehouse}
         deriveOrderFulfillmentSummary={deriveOrderFulfillmentSummary}
-        getWarehouseDisplayOrderStatus={getWarehouseDisplayOrderStatus}
         loadingOrderDetail={loadingOrderDetail}
         orderDetailRequestRef={orderDetailRequestRef}
         orders={orders}
