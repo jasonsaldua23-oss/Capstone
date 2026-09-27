@@ -19,7 +19,7 @@
     "dev:https:lan:driver": "set NEXT_PUBLIC_APP_VARIANT=driver&& next dev -H 0.0.0.0 -p 3000 --experimental-https --experimental-https-key certificates/lan-key.pem --experimental-https-cert certificates/lan-cert.pem",
     "dev:https:customer": "set NEXT_PUBLIC_APP_VARIANT=customer&& next dev -H 0.0.0.0 -p 3000 --experimental-https",
     "dev:https:lan:customer": "set NEXT_PUBLIC_APP_VARIANT=customer&& next dev -H 0.0.0.0 -p 3000 --experimental-https --experimental-https-key certificates/lan-key.pem --experimental-https-cert certificates/lan-cert.pem",
-    "build": "next build",
+    "build": "next build --webpack",
     "build:admin": "set NEXT_PUBLIC_APP_VARIANT=admin&& next build",
     "build:warehouse": "set NEXT_PUBLIC_APP_VARIANT=warehouse&& next build",
     "build:driver": "set NEXT_PUBLIC_APP_VARIANT=driver&& next build",
