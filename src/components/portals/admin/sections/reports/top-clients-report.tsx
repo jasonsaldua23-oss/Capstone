@@ -132,7 +132,7 @@ function getClientBarangay(address: unknown, city: unknown) {
 }
 
 export function TopClientsReport({ orders, customers = [] }: TopClientsReportProps) {
-  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('30')
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [searchTerm, setSearchTerm] = useState('')

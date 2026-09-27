@@ -1026,7 +1026,7 @@ def _restock_consumed_retail_inventory(order: Order, performed_by: str) -> None:
             repack_batch_loose_stock(inventory, batch)
         inventory.save(update_fields=["quantity", "loose_bottles", "updated_at"])
         if batch:
-            batch.status = "ACTIVE"
+            batch.status = "HEALTHY"
             batch.save(update_fields=["quantity", "loose_units", "status", "updated_at"])
         after = inventory.quantity if standard_cases else inventory_base_units(inventory, product)
         InventoryTransaction.objects.create(

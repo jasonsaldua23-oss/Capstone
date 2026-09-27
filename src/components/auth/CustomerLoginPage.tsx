@@ -65,6 +65,12 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
   const [suffix, setSuffix] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'register'>(initialAuthMode)
   const [rememberMe, setRememberMe] = useState(false)
+  // Google's callback is registered once when its button renders, so it reads
+  // the checkbox through this ref rather than a stale render's value.
+  const rememberMeRef = useRef(rememberMe)
+  useEffect(() => {
+    rememberMeRef.current = rememberMe
+  }, [rememberMe])
   const [showPassword, setShowPassword] = useState(false)
   const [isVerificationSending, setIsVerificationSending] = useState(false)
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false)
@@ -124,9 +130,11 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
 
     setLoginMethod('google')
     setIsLoading(true)
+    // Google sign-in follows the same "Keep me logged in" choice as a password login.
+    const remember = rememberMeRef.current
     try {
       // Fix: web and Capacitor login must never create an account for an unknown Google identity.
-      const requestBody = JSON.stringify({ credential, rememberMe: true, signInOnly: true })
+      const requestBody = JSON.stringify({ credential, rememberMe: remember, signInOnly: true })
       let response: Response | null = null
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
@@ -135,7 +143,6 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             cache: 'no-store',
-            // Google customer sign-in is always remembered for the full persistent session.
             body: requestBody,
           })
         } catch (error) {
@@ -160,8 +167,6 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
         setGoogleCredential(credential)
         // Google does not provide the email to this form, so use the verified API response for the OTP screen.
         if (data?.email) setEmail(String(data.email))
-        // The Google endpoint intentionally creates a persistent customer session after OTP verification too.
-        setRememberMe(true)
         setIsLoginOtpOpen(true)
         if (!isResend) toast.success(data?.message || 'Verification code sent')
         return true
@@ -177,7 +182,7 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
       }
 
       persistCustomerWelcomeState(data?.created ? 'new' : 'existing', String(data?.user?.name || '').trim())
-      if (data.token) setTabAuthToken(data.token, { persistent: true })
+      if (data.token) setTabAuthToken(data.token, { persistent: remember })
       toast.dismiss()
       // Show confirmed login feedback here and retain it across portal navigation.
       setLoginSucceeded(true)

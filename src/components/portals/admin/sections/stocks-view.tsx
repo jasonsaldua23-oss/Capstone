@@ -1,9 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import {
+  STOCK_BATCH_DAYS_LEFT_CLASSES,
+  StockBatchHealthBadge,
+  StockBatchHealthFilterSelect,
+  stockBatchDaysLeftText,
+  type StockBatchHealthFilter,
+} from '@/components/portals/shared/stock-batch-health'
+import { stockBatchDaysLeft, stockBatchHealth } from '@/lib/stock-batch-health'
 import { subscribeDataSync } from '@/lib/data-sync'
 import {
   ADMIN_STOCK_BATCH_CACHE_KEY,
@@ -28,7 +35,7 @@ function getCollection<T>(payload: unknown, keys: string[]): T[] {
 }
 
 export function StocksView() {
-  const [expiryFilter, setExpiryFilter] = useState('all')
+  const [healthFilter, setHealthFilter] = useState<StockBatchHealthFilter>('all')
   const [stockBatches, setStockBatches] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -110,20 +117,15 @@ export function StocksView() {
     }
   }, [])
 
-  const filteredStockBatches = useMemo(() => {
-    // Added: monitor expired stock awaiting warehouse action without changing physical quantities.
-    return stockBatches.filter((batch) => {
-      const expired = !!batch.expiryDate && new Date(batch.expiryDate).getTime() <= Date.now()
-      return expiryFilter === 'all' || (expiryFilter === 'expired' ? expired : !expired)
-    })
-  }, [stockBatches, expiryFilter])
-
-  const getDaysLeft = (expiryDate: string | null) => {
-    if (!expiryDate) return null
-    const end = new Date(expiryDate).getTime()
-    const start = new Date().getTime()
-    return Math.ceil((end - start) / (1000 * 60 * 60 * 24))
-  }
+  // Every row and the filter read one clock, so a batch cannot change status mid-render.
+  const now = new Date()
+  const batchRows = stockBatches.map((batch) => ({
+    batch,
+    health: stockBatchHealth(batch.expiryDate, now),
+    daysLeft: stockBatchDaysLeft(batch.expiryDate, now),
+  }))
+  // Expired stock stays listed until the warehouse records its disposal.
+  const visibleBatchRows = batchRows.filter((row) => healthFilter === 'all' || row.health === healthFilter)
 
   const getBatchSizeLabel = (batch: any) => {
     const productSizes = Array.isArray(batch?.inventory?.product?.sizes)
@@ -156,15 +158,13 @@ export function StocksView() {
             </div>
           </div>
         </div>
-        <select aria-label="Filter batches by expiry" className="h-10 w-fit rounded-md border border-input bg-background px-3 text-sm" value={expiryFilter} onChange={(event) => setExpiryFilter(event.target.value)}>
-          <option value="all">All batches</option><option value="current">Not expired</option><option value="expired">Expired - awaiting action</option>
-        </select>
+        <StockBatchHealthFilterSelect value={healthFilter} onChange={setHealthFilter} className="w-fit" />
         <p className="text-xs text-gray-500">Expired stock stays in physical inventory until its supplier return or disposal is confirmed.</p>
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
           <PortalTableSkeleton rows={4} columns={5} className="border-0 shadow-none" />
-        ) : filteredStockBatches.length === 0 ? (
+        ) : visibleBatchRows.length === 0 ? (
           <div className="h-40 flex items-center justify-center text-gray-500">No stock-in batches found</div>
         ) : (
           <div className="max-w-full overflow-x-auto overscroll-x-contain">
@@ -184,10 +184,7 @@ export function StocksView() {
                 </tr>
               </thead>
               <tbody>
-                {filteredStockBatches.map((batch) => {
-                  const daysLeft = getDaysLeft(batch.expiryDate)
-                  const expiringSoon = typeof daysLeft === 'number' && daysLeft >= 0 && daysLeft <= 14
-                  const expired = !!batch.expiryDate && new Date(batch.expiryDate).getTime() <= Date.now()
+                {visibleBatchRows.map(({ batch, health, daysLeft }) => {
                   return (
                     <tr key={batch.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="p-4 font-medium text-gray-900">{batch.batchNumber}</td>
@@ -199,13 +196,11 @@ export function StocksView() {
                       <td className="p-4 font-semibold text-gray-700">{Number(batch.looseUnits || 0)}</td>
                       <td className="p-4">{new Date(batch.receiptDate).toLocaleDateString()}</td>
                       <td className="p-4">{batch.expiryDate ? new Date(batch.expiryDate).toLocaleDateString() : 'N/A'}</td>
-                      <td className={`p-4 font-semibold ${expired ? 'text-red-600' : expiringSoon ? 'text-orange-600' : 'text-green-600'}`}>
-                        {expired ? 'Expired' : typeof daysLeft === 'number' ? `${Math.max(daysLeft, 0)} days` : 'N/A'}
+                      <td className={`p-4 font-semibold ${STOCK_BATCH_DAYS_LEFT_CLASSES[health]}`}>
+                        {stockBatchDaysLeftText(health, daysLeft)}
                       </td>
                       <td className="p-4">
-                        {expired && <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Expired</Badge>}
-                        {!expired && expiringSoon && <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">Expiring Soon</Badge>}
-                        {!expired && !expiringSoon && <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Active</Badge>}
+                        <StockBatchHealthBadge health={health} />
                       </td>
                     </tr>
                   )

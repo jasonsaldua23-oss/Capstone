@@ -50,7 +50,7 @@ class PrelaunchAccessGuardTests(TestCase):
         warehouse = Warehouse.objects.create(name="Audit Warehouse", code="AUDIT", address="Audit", city="Talisay", province="Negros Occidental", zip_code="6115")
         product = Product.objects.create(name="Audit Water", sku="AUDIT-WATER", unit="case", price=120, is_active=True)
         inventory = Inventory.objects.create(warehouse=warehouse, product=product, quantity=100, reserved_quantity=0, threshold=2)
-        StockBatch.objects.create(batch_number="AUDIT-BATCH", inventory=inventory, quantity=100, receipt_date=timezone.now(), status="ACTIVE")
+        StockBatch.objects.create(batch_number="AUDIT-BATCH", inventory=inventory, quantity=100, receipt_date=timezone.now(), status="HEALTHY")
         response = self.client.post("/api/orders", {
             "customerId": self.customer.id, "warehouseId": warehouse.id,
             "shippingLatitude": 10.67, "shippingLongitude": 122.95,

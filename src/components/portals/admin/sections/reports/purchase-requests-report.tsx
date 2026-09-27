@@ -55,7 +55,7 @@ interface PurchaseRequestsReportProps {
 export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [datePreset, setDatePreset] = useState<'all' | 'today' | '7' | '30' | '90' | '365' | 'custom'>('30')
+  const [datePreset, setDatePreset] = useState<'all' | 'today' | '7' | '30' | '90' | '365' | 'custom'>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')

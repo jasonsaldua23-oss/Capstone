@@ -118,6 +118,5 @@ export type WarehouseWarehousesViewProps = {
 export type WarehouseStocksViewProps = {
   loadingBatches: boolean
   stockBatches: any[]
-  getDaysLeft: (date: string | null) => number | null
   openBatchQuantityDialog: (batch: any) => void
 }

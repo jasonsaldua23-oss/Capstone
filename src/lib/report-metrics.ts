@@ -859,7 +859,7 @@ export function buildOrderReportVolumeChart(
   }
 ) {
   const grouped = new Map<string, { key: string; label: string; sortDate: Date; orders: number }>()
-  const granularity: 'day' | 'week' = options.rangeDays === '90' ? 'week' : 'day'
+  const granularity: 'day' | 'week' = options.rangeDays === '90' || options.rangeDays === 'all' ? 'week' : 'day'
 
   rows.forEach((row) => {
     const date = toDate(row.createdAt)

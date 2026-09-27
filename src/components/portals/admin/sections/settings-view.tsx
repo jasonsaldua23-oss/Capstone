@@ -690,6 +690,7 @@ export function SettingsView() {
                     twoFactorEnabled ? 'bg-blue-600' : 'bg-slate-300'
                   } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
                   role="switch"
+                  aria-label="2FA Verification"
                   aria-checked={twoFactorEnabled}
                 >
                   <span
@@ -718,6 +719,7 @@ export function SettingsView() {
                     loginAlertsEnabled ? 'bg-blue-600' : 'bg-slate-300'
                   } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
                   role="switch"
+                  aria-label="Login Alerts"
                   aria-checked={loginAlertsEnabled}
                 >
                   <span

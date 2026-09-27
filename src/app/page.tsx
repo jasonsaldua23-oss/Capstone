@@ -7,6 +7,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { LoginSuccess } from '@/components/shared/login-success'
 import { clearTabAuthToken, getTabAuthToken, setTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor, logoutTabAuthSession } from '@/lib/client-auth'
+import {
+  ACTIVITY_REPORT_INTERVAL_MS,
+  SESSION_ACTIVITY_URL,
+  idleCheckOutcome,
+  parseSessionIdleStatus,
+  type SessionIdleStatus,
+} from '@/lib/session-idle'
 import { getAllowedPortals, getDefaultPortalForVariant, resolveAppVariant } from '@/lib/app-variant'
 import type { AuthUser, PortalType } from '@/types'
 import { AlertTriangle } from 'lucide-react'
@@ -400,20 +407,65 @@ export default function Home() {
     const configuredMinutes = Number(user.sessionTimeoutMinutes ?? 30)
     const timeoutMinutes = Number.isFinite(configuredMinutes) ? Math.max(5, Math.floor(configuredMinutes)) : 30
     const timeoutMs = timeoutMinutes * 60 * 1000
+    let disposed = false
+    let lastActivityReportAt = 0
+    let trailingActivityReport: number | null = null
+
+    const expireSession = () => {
+      const targetPortal = portal
+      setSessionExpiredPortal(targetPortal)
+      queryClient.clear()
+      // Fix: capture and revoke this tab's Bearer token before clearing it.
+      // Cookie fallback may belong to a different account signed in elsewhere.
+      void logoutTabAuthSession(targetPortal).then((succeeded) => {
+        if (!succeeded) console.error('Logout background request failed')
+      })
+    }
+
+    // The server keeps one idle clock for every tab of this session.
+    const sendActivityReport = () => {
+      lastActivityReportAt = Date.now()
+      void fetch(SESSION_ACTIVITY_URL, { method: 'POST', cache: 'no-store', credentials: 'include', keepalive: true })
+        .catch(() => undefined)
+    }
+    const reportActivity = () => {
+      const waitMs = lastActivityReportAt + ACTIVITY_REPORT_INTERVAL_MS - Date.now()
+      if (waitMs <= 0) {
+        sendActivityReport()
+      } else if (trailingActivityReport === null) {
+        // Activity inside the interval is reported at its end, so the server's
+        // clock never trails the last real activity by more than the interval.
+        trailingActivityReport = window.setTimeout(() => {
+          trailingActivityReport = null
+          if (!disposed) sendActivityReport()
+        }, waitMs)
+      }
+    }
+
+    // This tab's user has been quiet for the whole limit. Another tab may not
+    // have been, so the server decides whether the session is actually over.
+    const checkIdleWithServer = async () => {
+      let status: SessionIdleStatus = { kind: 'unknown' }
+      try {
+        const response = await fetch(SESSION_ACTIVITY_URL, { cache: 'no-store', credentials: 'include' })
+        status = parseSessionIdleStatus(response.status, await response.json().catch(() => null))
+      } catch {
+        status = { kind: 'unknown' }
+      }
+      if (disposed) return
+      const outcome = idleCheckOutcome(status)
+      if (outcome.action === 'logout') expireSession()
+      else scheduleIdleCheck(outcome.delayMs)
+    }
+    const scheduleIdleCheck = (delayMs: number) => {
+      if (sessionTimerRef.current) window.clearTimeout(sessionTimerRef.current)
+      sessionTimerRef.current = window.setTimeout(() => void checkIdleWithServer(), delayMs)
+    }
 
     const restartSessionTimer = () => {
       if (sessionExpiredPortal) return
-      if (sessionTimerRef.current) window.clearTimeout(sessionTimerRef.current)
-      sessionTimerRef.current = window.setTimeout(() => {
-        const targetPortal = portal
-        setSessionExpiredPortal(targetPortal)
-        queryClient.clear()
-        // Fix: capture and revoke this tab's Bearer token before clearing it.
-        // Cookie fallback may belong to a different account signed in elsewhere.
-        void logoutTabAuthSession(targetPortal).then((succeeded) => {
-          if (!succeeded) console.error('Logout background request failed')
-        })
-      }, timeoutMs)
+      reportActivity()
+      scheduleIdleCheck(timeoutMs)
     }
 
     const activityEvents: Array<keyof WindowEventMap> = [
@@ -430,18 +482,21 @@ export default function Home() {
     })
     window.addEventListener('focus', restartSessionTimer)
     const onDriverTrackingActivity = () => {
-      if (portal === 'driver' && user) {
-        restartSessionTimer()
+      // The GPS upload that produced this event already counted as activity on the server.
+      if (portal === 'driver' && user && !sessionExpiredPortal) {
+        scheduleIdleCheck(timeoutMs)
       }
     }
     window.addEventListener(DRIVER_ACTIVITY_EVENT, onDriverTrackingActivity)
     restartSessionTimer()
 
     return () => {
+      disposed = true
       if (sessionTimerRef.current) {
         window.clearTimeout(sessionTimerRef.current)
         sessionTimerRef.current = null
       }
+      if (trailingActivityReport !== null) window.clearTimeout(trailingActivityReport)
       activityEvents.forEach((eventName) => {
         window.removeEventListener(eventName, restartSessionTimer)
       })

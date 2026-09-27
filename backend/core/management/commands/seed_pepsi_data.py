@@ -727,7 +727,7 @@ class Command(BaseCommand):
                     'receipt_date': now - timedelta(days=5),
                     'expiry_date': now + timedelta(days=365),
                     'location_label': f"Bay-Cold-{col}",
-                    'status': 'ACTIVE'
+                    'status': 'HEALTHY'
                 }
             )
 

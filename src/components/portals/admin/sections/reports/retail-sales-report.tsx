@@ -79,7 +79,7 @@ interface RetailSalesReportProps {
 type PeriodMode = 'all' | 'today' | '7' | '30' | '90' | '365' | 'custom'
 
 export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesReportProps) {
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('30')
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [searchTerm, setSearchTerm] = useState('')

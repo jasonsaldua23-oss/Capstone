@@ -89,7 +89,6 @@ import {
   ShoppingCart,
 } from 'lucide-react'
 import {
-  getDaysLeft,
   getMaxOrderUpdatedAt,
   parseIssueMeta,
   deriveOrderFulfillmentSummaryImpl,
@@ -1579,7 +1578,6 @@ export function WarehousePortal() {
                 <WarehouseStocksView
                   loadingBatches={loadingBatches}
                   stockBatches={stockBatches}
-                  getDaysLeft={getDaysLeft}
                   openBatchQuantityDialog={openBatchQuantityDialog}
                 />
               </TabsContent>

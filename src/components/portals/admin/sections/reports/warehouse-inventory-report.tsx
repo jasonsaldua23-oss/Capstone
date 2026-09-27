@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, type ReactNode } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,9 +18,6 @@ import {
   Calendar,
   AlertTriangle,
   Clock,
-  Download,
-  Printer,
-  FileSpreadsheet,
   CheckCircle2,
   Zap,
   Activity,
@@ -44,6 +41,7 @@ import { describeRanking, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
+import { InventoryReportHeader } from './inventory-report-header'
 import { buildReportDateWindow, matchesReportDateWindow } from '@/components/portals/admin/sections/report-date-utils'
 import { formatReportProductNameForExport, isCancelledReportStatus } from '@/lib/report-metrics'
 
@@ -54,6 +52,8 @@ interface WarehouseInventoryReportProps {
   retailSales?: any[]
   warehouses?: any[]
   stockBatches?: any[]
+  /** The Inventory tab's report picker, shown in this report's header. */
+  reportTypeSelect?: ReactNode
 }
 
 type PeriodPreset = 'today' | '7' | '30' | '90' | '365' | 'all' | 'custom'
@@ -139,8 +139,9 @@ export function WarehouseInventoryReport({
   orders = [],
   retailSales = [],
   stockBatches = [],
+  reportTypeSelect,
 }: WarehouseInventoryReportProps) {
-  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('30')
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
@@ -152,6 +153,14 @@ export function WarehouseInventoryReport({
 
   // Number of days in the active period for daily velocity calculation
   const periodDays = useMemo(() => {
+    // All-time velocity uses the actual observed history instead of a 30-day divisor.
+    if (periodPreset === 'all') {
+      const dates = [...inventoryTransactions, ...orders, ...retailSales]
+        .map((item) => new Date(String(item?.createdAt || item?.created_at || '')).getTime())
+        .filter(Number.isFinite)
+      const earliest = dates.reduce((min, time) => Math.min(min, time), Date.now())
+      return Math.max(1, Math.floor((Date.now() - earliest) / 86400000) + 1)
+    }
     if (periodPreset === 'today') return 1
     if (periodPreset === '7') return 7
     if (periodPreset === '30') return 30
@@ -165,7 +174,7 @@ export function WarehouseInventoryReport({
       return Math.max(1, diff + 1)
     }
     return 30
-  }, [periodPreset, dateFrom, dateTo])
+  }, [periodPreset, dateFrom, dateTo, inventoryTransactions, orders, retailSales])
 
   // Date filtering helper
   const isDateInPeriod = useMemo(() => {
@@ -705,52 +714,19 @@ export function WarehouseInventoryReport({
 
   return (
     <div className="report-design-system flex flex-col gap-6">
-      {/* Header & Controls */}
-      <div className="order-[-2] flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-slate-900">Fastest-Moving Products & Velocity Ranking</h2>
-            <Badge className="bg-amber-50 text-amber-700 border-amber-200 gap-1 text-xs">
-              <Zap className="h-3 w-3 text-amber-600" /> Fast-Movers
-            </Badge>
-          </div>
-          <p className="text-sm text-slate-500">
-            Product turnover velocity, stock outflow rate, revenue contribution, and days of inventory remaining.
-          </p>
-        </div>
-
-        {/* Action Controls & Exports */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Export Buttons */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportCsv}
-            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
-          >
-            <FileSpreadsheet className="h-4 w-4 text-slate-700" />
-            Export CSV
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportPdf}
-            className="h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-100"
-          >
-            <Download className="h-4 w-4 text-blue-600" />
-            Export PDF
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePrint}
-            className="h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
-          >
-            <Printer className="h-4 w-4 text-slate-600" />
-            Print
-          </Button>
-        </div>
-      </div>
+      <InventoryReportHeader
+        title="Fastest-Moving Products & Velocity Ranking"
+        badge={{
+          icon: <Zap className="h-3 w-3 text-amber-600" />,
+          label: 'Fast-Movers',
+          className: 'bg-amber-50 text-amber-700 border-amber-200',
+        }}
+        description="Product turnover velocity, stock outflow rate, revenue contribution, and days of inventory remaining."
+        reportTypeSelect={reportTypeSelect}
+        onExportCsv={handleExportCsv}
+        onExportPdf={handleExportPdf}
+        onPrint={handlePrint}
+      />
 
       {/* The fastest mover is what a warehouse plans around, so it leads; the
           volume and value figures underneath say how much movement that is. */}

@@ -364,7 +364,7 @@ export function CustomerPurchaseRequestView(props: any) {
                               <p className="text-xs text-slate-500">
                                 {formatQuantityWithUnit(item)}
                               </p>
-                              {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
+                              {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
                             </div>
                           </div>
                         ))}

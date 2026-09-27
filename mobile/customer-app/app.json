@@ -19,7 +19,8 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "android": {
       "package": "com.logitrack.customer",

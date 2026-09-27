@@ -324,7 +324,7 @@ def products_collection(request: HttpRequest) -> JsonResponse:
                     inventory=inventory,
                     quantity=initial_quantity,
                     receipt_date=timezone.now(),
-                    status="ACTIVE",
+                    status="HEALTHY",
                 )
                 InventoryTransaction.objects.create(
                     warehouse=warehouse,

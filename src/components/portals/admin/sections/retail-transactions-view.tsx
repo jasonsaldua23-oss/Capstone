@@ -307,7 +307,7 @@ export function RetailTransactionsView() {
                                       ×{item.quantity} ({modeLabel})
                                     </span>
                                     {item.components && item.components.length > 0 ? (
-                                      <MixedCaseComponents item={item} compact />
+                                      <MixedCaseComponents item={item} compact showImages={false} />
                                     ) : null}
                                   </div>
                                 )
@@ -423,17 +423,30 @@ export function RetailTransactionsView() {
                             const itemPrice = item.unitPrice ?? 0
                             const itemSubtotal = item.subtotal ?? item.productSubtotal ?? 0
                             const displayName = getProductDisplayName(item)
+                            // A mixed case has no product of its own; its contents carry the pictures.
+                            const imageUrl = String(item.imageUrl || item.product?.imageUrl || '').trim()
                             return (
                               <tr key={item.id || idx}>
                                 <td className="px-3 py-2">
-                                  <div className="font-medium text-slate-900">{displayName}</div>
-                                  <div className="text-[11px] text-slate-400">
-                                    Mode: {item.mode}
-                                    {item.emptyBottlesProvided ? ` • Returned: ${item.emptyBottlesProvided} empties` : ''}
+                                  <div className="flex items-start gap-2.5">
+                                    <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                                      {imageUrl ? (
+                                        <img src={imageUrl} alt={displayName} className="h-full w-full object-cover" />
+                                      ) : (
+                                        <Package className="h-4 w-4 text-slate-400" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="font-medium text-slate-900">{displayName}</div>
+                                      <div className="text-[11px] text-slate-400">
+                                        Mode: {item.mode}
+                                        {item.emptyBottlesProvided ? ` • Returned: ${item.emptyBottlesProvided} empties` : ''}
+                                      </div>
+                                      {item.components && item.components.length > 0 ? (
+                                        <MixedCaseComponents item={item} compact />
+                                      ) : null}
+                                    </div>
                                   </div>
-                                  {item.components && item.components.length > 0 ? (
-                                    <MixedCaseComponents item={item} compact />
-                                  ) : null}
                                 </td>
                                 <td className="px-3 py-2 text-center font-medium text-slate-700">{item.quantity}</td>
                                 <td className="px-3 py-2 text-right text-slate-600">{formatPeso(itemPrice)}</td>

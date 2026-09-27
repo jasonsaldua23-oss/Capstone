@@ -90,12 +90,12 @@ def _persist_stock_batch_quantity(batch: StockBatch) -> None:
         has_loose_stock = _int(batch.loose_units, 0) > 0
         if has_loose_stock or batch.reservations.exists():
             batch.quantity = 0
-            batch.status = "ACTIVE" if has_loose_stock else "DEPLETED"
+            batch.status = "HEALTHY" if has_loose_stock else "DEPLETED"
             batch.save(update_fields=["quantity", "status", "updated_at"])
             return
         batch.delete()
         return
-    batch.status = "ACTIVE"
+    batch.status = "HEALTHY"
     batch.save(update_fields=["quantity", "status", "updated_at"])
 
 
@@ -148,7 +148,7 @@ def _reserve_inventory_for_order_item(
         StockBatch.objects.select_for_update().select_related("inventory")
         .filter(inventory_id__in=list(inventory_by_id.keys()), quantity__gt=0)
         # Fix: legacy reservations and deliveries must exclude expired/quarantined stock.
-        .filter(status__iexact="ACTIVE")
+        .filter(status__iexact="HEALTHY")
         .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.now()))
     )
     # Fix: cap by the batch-backed sellable cases the catalog shows, so the error
@@ -693,7 +693,7 @@ def _allocate_inventory_for_order_item(
         StockBatch.objects.select_for_update(of=("self",)).select_related("inventory")
         .filter(inventory_id__in=list(inventory_by_id.keys()), quantity__gt=0)
         # Fix: legacy reservations and deliveries must exclude expired/quarantined stock.
-        .filter(status__iexact="ACTIVE")
+        .filter(status__iexact="HEALTHY")
         .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.now()))
     )
     if not batches:

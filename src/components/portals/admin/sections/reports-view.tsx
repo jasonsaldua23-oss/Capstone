@@ -66,17 +66,17 @@ export function ReportsView() {
   // Fix: use the backend's staff identity for both query loading and cache invalidation.
   const reportUserId = getReportUserId(user)
   const [activeReportTab, setActiveReportTab] = useState('purchase_requests')
-  const [rangeDays, setRangeDays] = useState<'today' | '7' | '30' | '90'>('30')
+  const [rangeDays, setRangeDays] = useState<'all' | 'today' | '7' | '30' | '90'>('all')
   const [selectedDriver, setSelectedDriver] = useState('all')
   const [selectedOrderStatus, setSelectedOrderStatus] = useState('all')
   const [selectedTripStatus, setSelectedTripStatus] = useState('all')
   const [selectedDriverTripVolume, setSelectedDriverTripVolume] = useState<'all' | 'with_trips' | '10_plus'>('all')
   const [selectedMovementType, setSelectedMovementType] = useState('all')
   const [selectedReplacementStatus, setSelectedReplacementStatus] = useState('all')
-  const [feedbackDatePreset, setFeedbackDatePreset] = useState<ReportDatePreset>('30')
+  const [feedbackDatePreset, setFeedbackDatePreset] = useState<ReportDatePreset>('all')
   const [feedbackDateFrom, setFeedbackDateFrom] = useState('')
   const [feedbackDateTo, setFeedbackDateTo] = useState('')
-  const [warehouseDatePreset, setWarehouseDatePreset] = useState<ReportDatePreset>('30')
+  const [warehouseDatePreset, setWarehouseDatePreset] = useState<ReportDatePreset>('all')
   const [warehouseDateFrom, setWarehouseDateFrom] = useState('')
   const [warehouseDateTo, setWarehouseDateTo] = useState('')
   const queryClient = useQueryClient()
@@ -263,8 +263,8 @@ export function ReportsView() {
   }
 
   const resetFilters = () => {
-    setRangeDays('30')
-    setWarehouseDatePreset('30')
+    setRangeDays('all')
+    setWarehouseDatePreset('all')
     setWarehouseDateFrom('')
     setWarehouseDateTo('')
     setSelectedDriver('all')
@@ -273,7 +273,7 @@ export function ReportsView() {
     setSelectedDriverTripVolume('all')
     setSelectedMovementType('all')
     setSelectedReplacementStatus('all')
-    setFeedbackDatePreset('30')
+    setFeedbackDatePreset('all')
     setFeedbackDateFrom('')
     setFeedbackDateTo('')
   }
@@ -309,6 +309,7 @@ export function ReportsView() {
     showWarehouse = false,
     showDriver = false,
     showStatus = true,
+    showExports = true,
   }: ReportToolbarConfig) => (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -316,9 +317,10 @@ export function ReportsView() {
           <select
             className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
             value={rangeDays}
-            onChange={(event) => setRangeDays(event.target.value as 'today' | '7' | '30' | '90')}
+            onChange={(event) => setRangeDays(event.target.value as 'all' | 'today' | '7' | '30' | '90')}
             title="Select report date range"
           >
+            <option value="all">All Time</option>
             <option value="today">Today</option>
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
@@ -424,16 +426,20 @@ export function ReportsView() {
         <Button variant="outline" className="gap-2 rounded-lg border-slate-200" onClick={resetFilters}>
           Reset Filters
         </Button>
-        <Button variant="outline" className="order-[-1] h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50" onClick={exportCurrentCsv} disabled={isLoading}>
-          <FileSpreadsheet className="h-4 w-4" />
-          Export CSV
-        </Button>
-        <Button variant="outline" className="order-[-1] h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
-          <Download className="h-4 w-4" />
-          {`Export ${title} PDF`}
-        </Button>
-        {/* Force every filter onto the row below the export actions. */}
-        <div aria-hidden className="order-[-1] basis-full" />
+        {showExports ? (
+          <>
+            <Button variant="outline" className="order-[-1] h-11 gap-2 rounded-xl border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50" onClick={exportCurrentCsv} disabled={isLoading}>
+              <FileSpreadsheet className="h-4 w-4" />
+              Export CSV
+            </Button>
+            <Button variant="outline" className="order-[-1] h-11 gap-2 rounded-xl border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100" onClick={() => void exportCurrentPdf()} disabled={isLoading}>
+              <Download className="h-4 w-4" />
+              {`Export ${title} PDF`}
+            </Button>
+            {/* Force every filter onto the row below the export actions. */}
+            <div aria-hidden className="order-[-1] basis-full" />
+          </>
+        ) : null}
       </div>
     </div>
   )
@@ -684,6 +690,7 @@ export function ReportsView() {
               stockExpiryKpi={stockExpiryKpi}
               stockExpiryRows={stockExpiryRows}
               stockTrendSummary={stockTrendSummary}
+              movementRangeLabel={standardDateRangeLabel}
               warehouses={warehouses}
             />
           </TabsContent>

@@ -499,11 +499,6 @@ export default function App() {
     }
   }
 
-  async function persistSecurityPreferences(nextPrefs: DriverSecurityPreferences) {
-    setSecurityPrefs(nextPrefs);
-    await AsyncStorage.setItem(DRIVER_SECURITY_PREFS_KEY, JSON.stringify(nextPrefs));
-  }
-
   async function refreshData(showLoader = true) {
     if (showLoader) setLoading(true);
     else setRefreshing(true);
@@ -1956,12 +1951,6 @@ export default function App() {
                   description="Receive email notifications when your account is logged in from a new device."
                   value={securityPrefs.loginAlerts}
                   onValueChange={(value) => void handleSecurityPreferenceChange("loginAlerts", value)}
-                />
-                <ToggleRow
-                  label="Remember Device Sessions"
-                  description="Keep trusted sessions active on your browser for faster access."
-                  value={securityPrefs.rememberDevice}
-                  onValueChange={(value) => void persistSecurityPreferences({ ...securityPrefs, rememberDevice: value })}
                 />
               </View>
             ) : null}

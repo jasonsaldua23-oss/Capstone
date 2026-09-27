@@ -239,6 +239,21 @@ class ConsumedAuthProof(models.Model):
         db_table = "ConsumedAuthProof"
 
 
+class SessionActivity(models.Model):
+    """Last user activity of an idle-limited web session, shared by every API worker.
+
+    Keyed by the session token's jti. A session with no row has been idle since
+    its token was issued.
+    """
+
+    jti = models.CharField(primary_key=True, max_length=64)
+    last_active_at = models.DateTimeField()
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = "SessionActivity"
+
+
 class AuthThrottleState(models.Model):
     """Database-backed counters for authentication and OTP abuse controls."""
 
@@ -382,7 +397,8 @@ class StockBatch(models.Model):
     receipt_date = models.DateTimeField()
     expiry_date = models.DateTimeField(blank=True, null=True)
     location_label = models.CharField(max_length=255, blank=True, null=True)
-    status = models.CharField(max_length=50, default="ACTIVE")
+    # HEALTHY while the batch holds stock, DEPLETED once it is used up but kept as a history anchor.
+    status = models.CharField(max_length=50, default="HEALTHY")
     created_by = models.CharField(max_length=100, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

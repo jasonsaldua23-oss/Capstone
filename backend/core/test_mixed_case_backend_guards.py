@@ -332,7 +332,7 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
         self.assertEqual(inventory.quantity, 3)
         self.assertEqual(opening_batch.quantity, 3)
         self.assertEqual(opening_batch.loose_units, 0)
-        self.assertEqual(opening_batch.status, "ACTIVE")
+        self.assertEqual(opening_batch.status, "HEALTHY")
         self.assertIsNone(opening_batch.expiry_date)
         self.assertTrue(
             InventoryTransaction.objects.filter(
@@ -455,7 +455,7 @@ class MixedCaseBackendGuardTests(MixedCaseFixtureMixin, TestCase):
             quantity=8,
             receipt_date=timezone.now() - timedelta(days=60),
             expiry_date=timezone.now() - timedelta(days=1),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         StockBatch.objects.create(
             batch_number="BATCH-HELD-AVAILABILITY",

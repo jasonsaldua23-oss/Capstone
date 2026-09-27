@@ -398,7 +398,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 receipt_date=manufactured_date or timezone.now(),
                 expiry_date=expiry_date,
                 location_label=body.get("locationLabel"),
-                status=body.get("status") or "ACTIVE",
+                status="HEALTHY",
                 created_by=created_by,
             )
 
@@ -509,7 +509,7 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
             "expiry_date": expiry_date,
             "batch_number": str(batch_item.get("batchNumber") or f"BATCH-{int(timezone.now().timestamp())}-{idx}"),
             "location_label": batch_item.get("locationLabel"),
-            "status": batch_item.get("status") or "ACTIVE",
+            "status": "HEALTHY",
         })
 
     created_by = (_payload(request) or {}).get("userId")

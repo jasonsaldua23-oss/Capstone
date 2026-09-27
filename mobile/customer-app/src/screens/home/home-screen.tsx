@@ -366,7 +366,7 @@ export function HomeScreen() {
                       {!item.isMixedCase ? (
                         <Text style={styles.orderRailItemMeta}>Size: {item.sizeLabel}</Text>
                       ) : null}
-                      {item.isMixedCase ? <MixedCaseComponents item={{ components: item.components }} compact /> : null}
+                      {item.isMixedCase ? <MixedCaseComponents item={{ components: item.components }} compact showImages={false} /> : null}
                     </View>
                     <Text style={styles.orderRailItemTotal}>{formatPeso(item.quantity * item.unitPrice)}</Text>
                   </View>

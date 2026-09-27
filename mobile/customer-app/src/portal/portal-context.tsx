@@ -641,7 +641,7 @@ function useCustomerPortalState() {
     setLoading(true);
     setError(null);
     try {
-      const loggedIn = await loginWithGoogle(idToken);
+      const loggedIn = await loginWithGoogle(idToken, rememberMe);
       setUser(loggedIn);
       await hydrateStoredCart(loggedIn.userId);
       await refreshData(false, loggedIn.userId, loggedIn);

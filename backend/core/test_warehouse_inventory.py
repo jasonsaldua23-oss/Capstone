@@ -182,7 +182,7 @@ class BulkStockInExistingProductContractTests(TestCase):
             quantity=1,
             receipt_date=timezone.now(),
             expiry_date=timezone.now() + timedelta(days=30),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         response = self.client.put(
             "/api/stock-batches",
@@ -464,14 +464,14 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
             inventory=self.primary_inventory,
             quantity=5,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         StockBatch.objects.create(
             batch_number="BATCH-SCOPE-002",
             inventory=self.other_inventory,
             quantity=5,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         response = self.client.get(
             "/api/stock-batches",
@@ -535,7 +535,7 @@ class WarehouseStaffInventoryScopeContractTests(TestCase):
             inventory=self.primary_inventory,
             quantity=10,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         original_tx = InventoryTransaction.objects.create(
             warehouse=self.primary_warehouse,

@@ -31,6 +31,8 @@ export type ReportToolbarConfig = {
   showWarehouse?: boolean
   showDriver?: boolean
   showStatus?: boolean
+  /** Off when the tab's own header carries the exports for what is on screen. */
+  showExports?: boolean
 }
 
 /** The screen renders the shared filter toolbar; tabs receive it as a renderer. */

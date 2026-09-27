@@ -5,6 +5,8 @@ import { apiWrite } from './api-write'
 
 const TAB_AUTH_TOKEN_KEY = 'tab-auth-token'
 const PERSISTENT_TAB_AUTH_TOKEN_KEY = 'persistent-tab-auth-token'
+const SESSION_CLIENT_HEADER = 'X-Session-Client'
+const SESSION_ACTIVITY_PATH = '/api/auth/activity'
 // Persistent credentials are scoped too: another portal must not replace this role on restart.
 function tokenPortal(token: string | null): string | null {
   if (!token) return null
@@ -227,6 +229,9 @@ export function installTabAuthFetchInterceptor() {
     if (token && !hasAuthHeader) {
       headers.set('Authorization', `Bearer ${token}`)
     }
+    // Marks this as the web portal, whose sessions without "Keep me logged in"
+    // get the server's idle logout. The mobile apps never send it.
+    if (!headers.has(SESSION_CLIENT_HEADER)) headers.set(SESSION_CLIENT_HEADER, 'web')
     // Cookie-only sessions must keep the same portal on shared API endpoints.
     if (!headers.has('X-Portal')) {
       // Use the visible portal, since the last login may have happened in another staff portal.
@@ -239,6 +244,12 @@ export function installTabAuthFetchInterceptor() {
       headers,
     }
     const method = getRequestMethod(input, init)
+
+    // Idle-session bookkeeping changes no portal data: never retried, and never a
+    // reason to drop cached reads.
+    if (getApiUrl(input)?.pathname === SESSION_ACTIVITY_PATH) {
+      return originalFetch(input, requestInit)
+    }
 
     // Any write can affect multiple portal views, so invalidate before sending it.
     if (method !== 'GET') {

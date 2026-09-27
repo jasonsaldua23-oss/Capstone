@@ -1,6 +1,6 @@
 'use client'
 
-import { type Dispatch, type SetStateAction } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { WarehouseInventoryReport } from '.'
@@ -19,15 +19,22 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComparison, describeRanking, toPoints } from '@/lib/chart-interpretation'
-import {  } from '../shared'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
 import { ReportKpiRow } from './report-kpi'
 import { formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
+import { exportReportPdf, exportToCsv, printReportTable } from './export-utils'
+import {
+  InventoryReportHeader,
+  InventoryReportTypeSelect,
+  type InventoryReportType,
+} from './inventory-report-header'
+import { INVENTORY_REPORT_HEADERS, buildInventoryReportExport } from './inventory-report-exports'
 
 /**
- * Inventory tab: product velocity, stock levels, movement and batch expiry.
+ * Inventory tab: product velocity, stock movement, low stock and batch expiry,
+ * one report at a time, picked from the dropdown in the report header.
  * Storage capacity and utilization belong to the warehouse tab.
  */
 export type InventoryReportTabProps = {
@@ -40,6 +47,8 @@ export type InventoryReportTabProps = {
   inventoryTransactions: any[]
   lowStockKpi: ReportDatasets['lowStockKpi']
   lowStockRows: ReportDatasets['lowStockRows']
+  /** Label of the shared date range the movement figures are filtered by. */
+  movementRangeLabel: string
   orders: any[]
   reportToolbar: ReportToolbarRenderer
   retailSales: any[]
@@ -62,6 +71,7 @@ export function InventoryReportTab({
   inventoryTransactions,
   lowStockKpi,
   lowStockRows,
+  movementRangeLabel,
   orders,
   reportToolbar,
   retailSales,
@@ -93,6 +103,8 @@ export function InventoryReportTab({
       emptyMessage: 'No stock movement falls inside the selected range, so there is nothing to interpret yet.',
     }
   )
+  const [reportType, setReportType] = useState<InventoryReportType>('fast-moving')
+  const reportTypeSelect = <InventoryReportTypeSelect value={reportType} onChange={setReportType} />
   const topLowStock = lowStockRows.slice(0, 5)
   const lowStockInterpretation = describeRanking(
     toPoints(topLowStock, (row: any) => row.product, (row: any) => Math.max(0, Number(row.reorderPoint || 0) - Number(row.currentStock || 0))),
@@ -103,9 +115,8 @@ export function InventoryReportTab({
     }
   )
 
-  return (
-    <>
-      {/* Fastest-Moving Products Ranking & Velocity Report */}
+  if (reportType === 'fast-moving') {
+    return (
       <WarehouseInventoryReport
         inventory={inventory}
         inventoryTransactions={inventoryTransactions}
@@ -113,41 +124,56 @@ export function InventoryReportTab({
         retailSales={retailSales}
         warehouses={warehouses}
         stockBatches={stockBatches}
+        reportTypeSelect={reportTypeSelect}
+      />
+    )
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+  const report = buildInventoryReportExport(reportType, {
+    inventoryKpi,
+    inventoryMovementRows,
+    lowStockKpi,
+    lowStockRows,
+    movementRangeLabel,
+    selectedMovementType,
+    stockExpiryKpi,
+    stockExpiryRows,
+  })
+  const header = INVENTORY_REPORT_HEADERS[reportType]
+
+  return (
+    <div className="report-design-system flex flex-col gap-6">
+      <InventoryReportHeader
+        title={header.title}
+        badge={header.badge}
+        description={header.description}
+        reportTypeSelect={reportTypeSelect}
+        onExportCsv={() => exportToCsv(`${report.filename}-${today}.csv`, report.columns, report.rows)}
+        onExportPdf={() => void exportReportPdf(`${report.filename}-${today}.pdf`, header.title, report.columns, report.rows, report.summaryLines, report.dateLabel)}
+        onPrint={() => printReportTable(header.title, report.columns, report.rows, report.summaryLines, report.dateLabel)}
       />
 
-      {/* Stock level, movement and expiry health overview */}
-      <div className="pt-6 border-t border-slate-200 space-y-6">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900">Inventory Stock & Movement Overview</h3>
-          <p className="text-xs text-slate-500">Stock on hand, inventory movement trends, low stock alerts, and batch expiry records</p>
-        </div>
+      {reportType === 'stock-movement' ? (
+        <>
+          {reportToolbar({
+            title: 'Inventory',
+            statusLabel: 'Movement Types',
+            statusOptions: inventoryMovementTypeOptions,
+            statusValue: selectedMovementType,
+            onStatusChange: setSelectedMovementType,
+            showWarehouse: true,
+            showExports: false,
+          })}
 
-        {reportToolbar({
-          title: 'Inventory',
-          statusLabel: 'Movement Types',
-          statusOptions: inventoryMovementTypeOptions,
-          statusValue: selectedMovementType,
-          onStatusChange: setSelectedMovementType,
-          showWarehouse: true,
-        })}
+          <ReportKpiRow
+            items={[
+              { label: 'Total On Hand', value: inventoryKpi.totalQuantity, hint: 'Units available', tone: 'slate' },
+              { label: 'Stock In', value: inventoryKpi.stockIn, hint: 'Received in period', tone: 'blue' },
+              { label: 'Stock Out', value: inventoryKpi.stockOut, hint: 'Issued in period', tone: 'purple' },
+            ]}
+          />
 
-        {/* Low stock is the line that triggers action, so it leads; the volume
-            figures say how much stock that judgement is being made against. */}
-        <ReportKpiRow
-          headline={{
-            label: 'Low Stock SKUs',
-            value: inventoryKpi.lowStock,
-            hint: `of ${inventoryKpi.totalSkus} tracked, at or below reorder point`,
-            tone: inventoryKpi.lowStock > 0 ? 'amber' : 'emerald',
-          }}
-          items={[
-            { label: 'Total On Hand', value: inventoryKpi.totalQuantity, hint: 'Units available', tone: 'slate' },
-            { label: 'Stock In', value: inventoryKpi.stockIn, hint: 'Received in period', tone: 'blue' },
-            { label: 'Stock Out', value: inventoryKpi.stockOut, hint: 'Issued in period', tone: 'purple' },
-          ]}
-        />
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Card className={chartCardClassName}>
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-3">
@@ -179,38 +205,6 @@ export function InventoryReportTab({
               <ChartInterpretation text={movementInterpretation} />
             </CardContent>
           </Card>
-          <Card className={chartCardClassName}>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Low Stock Alerts</CardTitle>
-              <CardDescription>Products below minimum stock levels</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-72 w-full">
-                {lowStockRows.length === 0 ? (
-                  <p className="py-8 text-center text-gray-500">All stock levels are healthy</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={lowStockRows.slice(0, 5)} margin={{ top: 10, right: 20, left: 0, bottom: 26 }}>
-                      <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
-                      <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                      <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} />
-                      <Bar dataKey="currentStock" name="Current" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={30} />
-                      <Bar dataKey="reorderPoint" name="Reorder Point" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-              <ChartInterpretation
-                text={
-                  lowStockRows.length === 0
-                    ? 'Every tracked product is at or above its reorder point, so no replenishment is flagged.'
-                    : `${lowStockInterpretation} ${lowStockKpi.critical} of ${lowStockKpi.total} flagged products are already below minimum stock and ${lowStockKpi.outOfStock} are out of stock.`
-                }
-              />
-            </CardContent>
-          </Card>
-        </div>
 
         <Card className={chartCardClassName}>
           <CardHeader className="pb-3">
@@ -282,8 +276,8 @@ export function InventoryReportTab({
         <Card className="rounded-2xl border border-slate-200 shadow-sm">
           <CardHeader>
             <div>
-              <CardTitle>Inventory Movement Report</CardTitle>
-              <CardDescription>Stock transactions and movement history</CardDescription>
+              <CardTitle>Movement History</CardTitle>
+              <CardDescription>Stock transactions in the selected range</CardDescription>
             </div>
           </CardHeader>
           <CardContent>
@@ -312,17 +306,53 @@ export function InventoryReportTab({
             </div>
           </CardContent>
         </Card>
+        </>
+      ) : null}
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
+      {reportType === 'low-stock' ? (
+        <>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Low Stock Items</CardDescription><CardTitle className="text-[30px] leading-none text-amber-600">{lowStockKpi.total}</CardTitle><p className="text-[11px] text-amber-600">Below reorder point</p></CardHeader></Card>
           <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{lowStockKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Below minimum stock</p></CardHeader></Card>
           <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Out of Stock</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{lowStockKpi.outOfStock}</CardTitle><p className="text-[11px] text-red-700">Immediate reorder needed</p></CardHeader></Card>
         </div>
 
+          <Card className={chartCardClassName}>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Low Stock Alerts</CardTitle>
+              <CardDescription>Products below minimum stock levels</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-72 w-full">
+                {lowStockRows.length === 0 ? (
+                  <p className="py-8 text-center text-gray-500">All stock levels are healthy</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={lowStockRows.slice(0, 5)} margin={{ top: 10, right: 20, left: 0, bottom: 26 }}>
+                      <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="product" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} />
+                      <Bar dataKey="currentStock" name="Current" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                      <Bar dataKey="reorderPoint" name="Reorder Point" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <ChartInterpretation
+                text={
+                  lowStockRows.length === 0
+                    ? 'Every tracked product is at or above its reorder point, so no replenishment is flagged.'
+                    : `${lowStockInterpretation} ${lowStockKpi.critical} of ${lowStockKpi.total} flagged products are already below minimum stock and ${lowStockKpi.outOfStock} are out of stock.`
+                }
+              />
+            </CardContent>
+          </Card>
+
         <Card className="rounded-2xl border border-slate-200 shadow-sm">
           <CardHeader>
             <div>
-              <CardTitle>Low Stock Alert Report</CardTitle>
+              <CardTitle>Low Stock Products</CardTitle>
               <CardDescription>Products requiring replenishment attention</CardDescription>
             </div>
           </CardHeader>
@@ -360,8 +390,12 @@ export function InventoryReportTab({
             </div>
           </CardContent>
         </Card>
+        </>
+      ) : null}
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
+      {reportType === 'batch-expiry' ? (
+        <>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
           <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Tracked Batches</CardDescription><CardTitle className="text-[30px] leading-none">{stockExpiryKpi.total}</CardTitle><p className="text-[11px] text-slate-400">Inventory batches with expiry dates</p></CardHeader></Card>
           <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Critical (&lt;30 days)</CardDescription><CardTitle className="text-[30px] leading-none text-red-600">{stockExpiryKpi.critical}</CardTitle><p className="text-[11px] text-red-600">Immediate action needed</p></CardHeader></Card>
           <Card className="rounded-2xl border border-slate-200 shadow-sm"><CardHeader className="p-4"><CardDescription className="text-xs text-slate-500">Expired</CardDescription><CardTitle className="text-[30px] leading-none text-red-700">{stockExpiryKpi.expired}</CardTitle><p className="text-[11px] text-red-700">Write-off required</p></CardHeader></Card>
@@ -371,7 +405,7 @@ export function InventoryReportTab({
         <Card className="rounded-2xl border border-slate-200 shadow-sm">
           <CardHeader>
             <div>
-              <CardTitle>Stock Batch Expiry Report</CardTitle>
+              <CardTitle>Batches by Expiry</CardTitle>
               <CardDescription>Batches nearing expiration sorted by urgency</CardDescription>
             </div>
           </CardHeader>
@@ -415,7 +449,8 @@ export function InventoryReportTab({
             </div>
           </CardContent>
         </Card>
-      </div>
-    </>
+        </>
+      ) : null}
+    </div>
   )
 }

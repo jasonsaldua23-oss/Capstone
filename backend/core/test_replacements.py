@@ -919,7 +919,7 @@ class CustomerReplacementRequestContractTests(TestCase):
             inventory=inventory,
             quantity=1,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         replacement = Replacement.objects.create(
             replacement_number="RPL-BOTTLE-PRICE-001",
@@ -1005,14 +1005,14 @@ class CustomerReplacementRequestContractTests(TestCase):
             inventory=inventory_a,
             quantity=5,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         StockBatch.objects.create(
             batch_number="BATCH-MIXED-REPL-B",
             inventory=inventory_b,
             quantity=2,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         replacement = Replacement.objects.create(
             replacement_number="RPL-MIXED-REPL-001",
@@ -1119,7 +1119,7 @@ class CustomerReplacementRequestContractTests(TestCase):
             inventory=inventory,
             quantity=5,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         replacement_order = Order.objects.create(
             order_number="RPL-BOTTLE-STOCKED-001",

@@ -31,13 +31,6 @@ export const isDateMatch = (value: unknown, dayKey: string) => {
   return formatDayKey(parsed) === dayKey
 }
 
-export const getDaysLeft = (expiryDate: string | null) => {
-  if (!expiryDate) return null
-  const end = new Date(expiryDate).getTime()
-  const start = new Date().getTime()
-  return Math.ceil((end - start) / (1000 * 60 * 60 * 24))
-}
-
 export const normalizeFulfillmentStatus = (status: unknown) => {
   const value = String(status || '').trim().toUpperCase()
   if (!value) return 'PENDING'

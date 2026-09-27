@@ -140,6 +140,11 @@ export function printReportTable<T>(
         <style>
           body { font-family: 'Times New Roman', Times, serif; margin: 30px; color: #000; font-size: 12px; }
           .header { margin-bottom: 20px; text-align: center; }
+          /* Added: keep the existing brand mark compact and visible in printed reports. */
+          .brand { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px; padding-bottom: 9px; border-bottom: 2px solid #06418b; }
+          .brand img { width: 52px; height: 52px; object-fit: contain; }
+          .brand-name { font-size: 20px; font-weight: 700; }
+          .brand-accent { height: 3px; width: 48px; margin: 5px auto 0; background: #44a51a; }
           h1 { margin: 0 0 10px 0; font-size: 25px; color: #000; }
           h2 { margin: 0 0 14px 0; font-size: 18px; color: #000; }
           .subtitle { margin: 0; color: #000; font-size: 11px; }
@@ -164,7 +169,7 @@ export function printReportTable<T>(
       </head>
       <body>
         <div class="header">
-          <h1>Ann Ann's Beverages Trading</h1>
+          <div class="brand"><img src="/ann-anns-logo.png" alt="Ann Ann's Beverages Trading logo"><div><div class="brand-name">Ann Ann's Beverages Trading</div><div class="brand-accent"></div></div></div>
           <h2>${escapeHtml(title)}</h2>
           <p class="subtitle">Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
           ${dateLabel ? `<p class="subtitle">Period: ${escapeHtml(dateLabel)}</p>` : ''}
@@ -198,9 +203,13 @@ export function printReportTable<T>(
   printWin.document.write(html)
   printWin.document.close()
   printWin.focus()
-  setTimeout(() => {
-    printWin.print()
-  }, 250)
+  // Wait for the logo to load so it is present in the actual print output.
+  const logo = printWin.document.querySelector?.<HTMLImageElement>('.brand img')
+  const print = () => printWin.print()
+  if (logo && !logo.complete) {
+    logo.onload = print
+    logo.onerror = print
+  } else print()
 }
 
 /**
@@ -302,9 +311,19 @@ export async function exportReportPdf<T>(
       y = pageHeight - margin
     }
 
+    // Added: embed the same public logo used by the print view into the PDF header.
+    const logoResponse = await fetch('/ann-anns-logo.png')
+    if (!logoResponse.ok) throw new Error('Could not load report logo')
+    const logo = await pdfDoc.embedPng(await logoResponse.arrayBuffer())
     const company = "Ann Ann's Beverages Trading"
-    page.drawText(company, { x: centeredX(company, 25), y, size: 25, font: fontBold, color: rgb(0, 0, 0) })
-    y -= 29
+    const logoSize = 52
+    const companySize = 19
+    const brandWidth = logoSize + 12 + measurePdfText(company, companySize, fontBold)
+    const brandX = (pageWidth - brandWidth) / 2
+    page.drawImage(logo, { x: brandX, y: y - 39, width: logoSize, height: logoSize })
+    page.drawText(company, { x: brandX + logoSize + 12, y: y - 15, size: companySize, font: fontBold, color: rgb(0.02, 0.25, 0.55) })
+    page.drawLine({ start: { x: margin, y: y - 45 }, end: { x: pageWidth - margin, y: y - 45 }, thickness: 1.5, color: rgb(0.02, 0.25, 0.55) })
+    y -= 67
     page.drawText(title, { x: centeredX(title, 18), y, size: 18, font: fontBold, color: rgb(0, 0, 0) })
     y -= 25
     const generated = `Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`

@@ -438,7 +438,7 @@ class MixedCaseInventoryTests(MixedCaseFixtureMixin, TestCase):
             quantity=1,
             receipt_date=timezone.now() - timedelta(days=60),
             expiry_date=timezone.now() - timedelta(days=1),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         StockBatch.objects.create(
             batch_number="BATCH-HELD",
@@ -491,7 +491,7 @@ class MixedCaseInventoryTests(MixedCaseFixtureMixin, TestCase):
             loose_units=12,
             receipt_date=timezone.now() - timedelta(days=60),
             expiry_date=timezone.now() - timedelta(days=1),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         _, item = self.create_mixed_item(number="ORD-EXPIRED-LOOSE")
 

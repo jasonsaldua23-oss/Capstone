@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { stockBatchDaysLeft } from '@/lib/stock-batch-health'
 import { toArray, normalizeTripStatus, toIsoDateTime, formatDayLabel, withinRange, getWarehouseIdFromRow } from '../shared'
 import {
   buildFeedbackDimensionBreakdown,
@@ -48,7 +49,7 @@ export type ReportDatasetsInputs = {
   inventory: any[]
   inventoryTransactions: any[]
   orders: any[]
-  rangeDays: 'today' | '7' | '30' | '90'
+  rangeDays: 'all' | 'today' | '7' | '30' | '90'
   replacementsData: any[]
   selectedDriver: string
   selectedDriverTripVolume: 'all' | 'with_trips' | '10_plus'
@@ -93,14 +94,26 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   // Starts at local midnight so earlier records from this calendar day remain
   // visible, and covers exactly the number of days the preset names - the same
   // N-1 convention warehouseDateWindow below and the chart builders already use.
-  const rangeStart = useMemo(() => resolveReportCutoff(rangeDays), [rangeDays])
+  const rangeStart = useMemo(() => {
+    if (rangeDays !== 'all') return resolveReportCutoff(rangeDays)
+    // Start charts at the first real record so All Time includes history without decades of empty points.
+    let earliest = Date.now()
+    for (const row of [...orders, ...trips, ...inventoryTransactions, ...replacementsData]) {
+      const time = new Date(String(row?.createdAt || row?.plannedStartAt || '')).getTime()
+      if (Number.isFinite(time) && time < earliest) earliest = time
+    }
+    const start = new Date(earliest)
+    start.setHours(0, 0, 0, 0)
+    return start
+  }, [rangeDays, orders, trips, inventoryTransactions, replacementsData])
   const standardDateRangeLabel = useMemo(() => {
+    if (rangeDays === 'all') return 'All Time'
     const start = new Date(rangeStart)
     start.setHours(0, 0, 0, 0)
     const end = new Date()
     end.setHours(23, 59, 59, 999)
     return formatReportDateRangeLabel(start, end)
-  }, [rangeStart])
+  }, [rangeDays, rangeStart])
 
   const feedbackDateWindow = useMemo(
     () => buildReportDateWindow(feedbackDatePreset, feedbackDateFrom, feedbackDateTo),
@@ -397,7 +410,8 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
         const expiryDateValue = batch.expiryDate || batch.expiry_date || null
         const expiryDate = expiryDateValue ? new Date(expiryDateValue) : null
         const manufacturedDate = manufacturedDateValue ? new Date(manufacturedDateValue) : null
-        const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null
+        // Calendar days, as on the Stocks tab: a batch expiring later today has 0 left, not 1.
+        const daysUntilExpiry = stockBatchDaysLeft(expiryDateValue, now)
         return {
           batchNumber: batch.batchNumber || batch.batch_number || 'N/A',
           product: formatReportProductName(batch.inventory?.product, 'N/A'),

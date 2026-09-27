@@ -30,9 +30,14 @@ from .auth import (
     TOKEN_NAME,
     create_token,
     decode_token,
+    decode_session,
     extract_token,
     hash_password,
+    idle_logout_requested,
+    record_session_activity,
     revoke_session,
+    session_idle_minutes,
+    session_idle_remaining_seconds,
     token_portal,
     verify_password,
 )
@@ -492,13 +497,13 @@ def _start_customer_login_two_factor(
     return _ok(response_payload, 202)
 
 
-def _issue_staff_login_response(user: User, remember_me: bool) -> JsonResponse:
+def _issue_staff_login_response(request: HttpRequest, user: User, remember_me: bool) -> JsonResponse:
     """Create the normal staff session after all required factors have passed."""
     user.last_login_at = timezone.now()
     user.save(update_fields=["last_login_at", "updated_at"])
     payload = _user_payload(user)
     token = create_token(
-        {**payload, "rememberMe": remember_me},
+        {**payload, "rememberMe": remember_me, "idleLogout": idle_logout_requested(request, remember_me)},
         REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
     )
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
@@ -512,6 +517,7 @@ def _issue_staff_login_response(user: User, remember_me: bool) -> JsonResponse:
 
 
 def _issue_customer_login_response(
+    request: HttpRequest,
     customer: Customer,
     remember_me: bool,
     *,
@@ -522,7 +528,7 @@ def _issue_customer_login_response(
     """Create the normal Customer session while retaining Google registration metadata."""
     payload = _customer_payload(customer)
     token = create_token(
-        {**payload, "rememberMe": remember_me},
+        {**payload, "rememberMe": remember_me, "idleLogout": idle_logout_requested(request, remember_me)},
         REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
     )
     response_payload: dict[str, Any] = {
@@ -589,7 +595,7 @@ def auth_login(request: HttpRequest) -> JsonResponse:
     if bool(getattr(user, "two_factor_enabled", False)):
         return _start_staff_login_two_factor(request, user, portal, remember_me)
 
-    return _issue_staff_login_response(user, remember_me)
+    return _issue_staff_login_response(request, user, remember_me)
 
 
 @csrf_exempt
@@ -651,7 +657,10 @@ def auth_login_verify_otp(request: HttpRequest) -> JsonResponse:
     # Keep auth token lifetime independent from UI inactivity timeout.
     token_exp_hours = REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS
     # Preserve the original remember-me choice through the completed 2FA login.
-    token = create_token({**payload, "rememberMe": remember_me}, token_exp_hours)
+    token = create_token(
+        {**payload, "rememberMe": remember_me, "idleLogout": idle_logout_requested(request, remember_me)},
+        token_exp_hours,
+    )
     resp = _ok({"success": True, "user": payload, "token": token, "message": "Login successful"})
     _set_auth_cookie(resp, token, remember_me)
     if bool(getattr(account, "login_alerts_enabled", True)):
@@ -685,7 +694,7 @@ def auth_customer_login(request: HttpRequest) -> JsonResponse:
     clear_account_failures("password_login", email)
     if bool(getattr(customer, "two_factor_enabled", False)):
         return _start_customer_login_two_factor(request, customer, remember_me)
-    return _issue_customer_login_response(customer, remember_me)
+    return _issue_customer_login_response(request, customer, remember_me)
 
 
 @csrf_exempt
@@ -782,6 +791,7 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
 
         if created:
             return _issue_customer_login_response(
+                request,
                 customer,
                 remember_me,
                 message="Registration successful",
@@ -791,7 +801,7 @@ def auth_customer_google(request: HttpRequest) -> JsonResponse:
         if bool(getattr(customer, "two_factor_enabled", False)):
             # Fix: Google is a primary factor, not a bypass for Customer 2FA.
             return _start_customer_login_two_factor(request, customer, remember_me, include_email=True)
-        return _issue_customer_login_response(customer, remember_me, created=False)
+        return _issue_customer_login_response(request, customer, remember_me, created=False)
     except Exception as exc:
         logger.exception("Google customer auth post-verification failed: %s", str(exc))
         if getattr(settings, "DEBUG", False):
@@ -844,7 +854,7 @@ def auth_staff_google(request: HttpRequest) -> JsonResponse:
         # Keep the same second factor as password login; Google is the primary factor.
         return _start_staff_login_two_factor(request, user, "staff", remember_me, include_email=True)
 
-    return _issue_staff_login_response(user, remember_me)
+    return _issue_staff_login_response(request, user, remember_me)
 
 
 @csrf_exempt
@@ -878,12 +888,12 @@ def auth_unified_login(request: HttpRequest) -> JsonResponse:
     if staff:
         if bool(getattr(staff, "two_factor_enabled", False)):
             return _start_staff_login_two_factor(request, staff, "unified", remember_me)
-        return _issue_staff_login_response(staff, remember_me)
+        return _issue_staff_login_response(request, staff, remember_me)
 
     # At this point the resolver guarantees that customer is the one valid account.
     if bool(getattr(customer, "two_factor_enabled", False)):
         return _start_customer_login_two_factor(request, customer, remember_me)
-    return _issue_customer_login_response(customer, remember_me)
+    return _issue_customer_login_response(request, customer, remember_me)
 
 
 @csrf_exempt
@@ -930,13 +940,13 @@ def auth_unified_google(request: HttpRequest) -> JsonResponse:
             return _err("Google account is not authorized for this system", 401)
         if bool(getattr(staff, "two_factor_enabled", False)):
             return _start_staff_login_two_factor(request, staff, "unified", remember_me, include_email=True)
-        return _issue_staff_login_response(staff, remember_me)
+        return _issue_staff_login_response(request, staff, remember_me)
 
     if not customer.is_active:
         return _err("Google account is not authorized for this system", 401)
     if bool(getattr(customer, "two_factor_enabled", False)):
         return _start_customer_login_two_factor(request, customer, remember_me, include_email=True)
-    return _issue_customer_login_response(customer, remember_me)
+    return _issue_customer_login_response(request, customer, remember_me)
 
 
 @csrf_exempt
@@ -1010,6 +1020,7 @@ def auth_register(request: HttpRequest) -> JsonResponse:
     )
     # Customer registration no longer requires a separate administrator decision.
     return _issue_customer_login_response(
+        request,
         customer,
         remember_me,
         message="Registration successful",
@@ -1044,6 +1055,37 @@ def auth_me(request: HttpRequest) -> JsonResponse:
         # Fix: customer cookie restores need the same tab-local session pinning as staff.
         return _ok({"success": True, "user": customer_payload, "token": extract_token(request)})
     return _ok({"success": True, "user": p})
+
+
+@csrf_exempt
+@never_cache
+@require_http_methods(["GET", "POST"])
+def auth_activity(request: HttpRequest) -> JsonResponse:
+    """Idle-limited web sessions: POST records user activity, GET only reports.
+
+    Every tab of a session shares one clock here, so a tab whose own user has
+    gone quiet asks before logging out rather than ending a session that is in
+    use in another tab.
+    """
+    token = extract_token(request)
+    payload = decode_session(token) if token else None
+    if not payload:
+        return _err("Unauthorized", 401)
+    if not payload.get("idleLogout"):
+        return _ok({"success": True, "idleLogout": False})
+    if request.method == "POST":
+        record_session_activity(payload)
+    model = User if payload.get("type") == "staff" else Customer
+    account = model.objects.filter(id=payload.get("userId"), is_active=True).first()
+    if not account:
+        return _err("Unauthorized", 401)
+    remaining = session_idle_remaining_seconds(payload, account) or 0
+    return _ok({
+        "success": True,
+        "idleLogout": True,
+        "idleMinutes": session_idle_minutes(account),
+        "remainingSeconds": max(0, int(remaining)),
+    })
 
 
 @csrf_exempt

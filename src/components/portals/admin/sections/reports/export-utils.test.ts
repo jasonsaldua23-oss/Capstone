@@ -1,8 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { PDFDocument, PDFPage } from 'pdf-lib'
 // @ts-ignore Node's test runner loads this TypeScript source directly.
 import { calculateReportColumnWidths, cleanReportPdfColumns, exportReportPdf, exportToCsv, printReportTable, reportColumns } from './export-utils.ts'
+
+// Serve the existing public logo when the browser PDF exporter runs in Node tests.
+const fetchReportLogo = async () => new Response(await readFile('public/ann-anns-logo.png'))
 
 test('weighted report columns reserve extra width for dense content', () => {
   assert.deepEqual(
@@ -25,9 +29,11 @@ test('PDF retains rows, columns and long cell values across pages', async () => 
   const originalCreateUrl = URL.createObjectURL
   const originalRevokeUrl = URL.revokeObjectURL
   const originalDrawText = PDFPage.prototype.drawText
+  const originalFetch = globalThis.fetch
   const drawn: string[] = []
   let download: Blob | undefined
   try {
+    globalThis.fetch = fetchReportLogo
     globalThis.document = {
       createElement: () => ({ click() {} }),
       body: { appendChild() {}, removeChild() {} },
@@ -61,6 +67,7 @@ test('PDF retains rows, columns and long cell values across pages', async () => 
     URL.createObjectURL = originalCreateUrl
     URL.revokeObjectURL = originalRevokeUrl
     PDFPage.prototype.drawText = originalDrawText
+    globalThis.fetch = originalFetch
   }
 })
 
@@ -167,9 +174,11 @@ test('CSV and PDF export identical headers, numbering and cell values', async ()
   const originalCreateUrl = URL.createObjectURL
   const originalRevokeUrl = URL.revokeObjectURL
   const originalDrawText = PDFPage.prototype.drawText
+  const originalFetch = globalThis.fetch
   let download: Blob | undefined
   const drawn: string[] = []
   try {
+    globalThis.fetch = fetchReportLogo
     globalThis.document = {
       createElement: () => ({ click() {}, setAttribute() {} }),
       body: { appendChild() {}, removeChild() {} },
@@ -198,5 +207,6 @@ test('CSV and PDF export identical headers, numbering and cell values', async ()
     URL.createObjectURL = originalCreateUrl
     URL.revokeObjectURL = originalRevokeUrl
     PDFPage.prototype.drawText = originalDrawText
+    globalThis.fetch = originalFetch
   }
 })

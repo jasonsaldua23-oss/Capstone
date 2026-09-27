@@ -119,7 +119,7 @@ def available_base_units(inventory: Inventory, product: Product | None = None) -
     """Return stock that the normalized allocator can actually reserve.
 
     Inventory summary columns include expired/quarantined batches for accounting
-    purposes. Checkout must use the same ACTIVE/unexpired batch rules as the
+    purposes. Checkout must use the same HEALTHY/unexpired batch rules as the
     allocator, otherwise a quote can succeed and the immediately following
     reservation can fail.
     """
@@ -158,9 +158,9 @@ def available_base_units(inventory: Inventory, product: Product | None = None) -
     tracked_loose_units = sum(max(0, _int(batch.loose_units, 0)) for batch in batches)
     allocatable = 0
     for batch in batches:
-        is_active = str(batch.status or "").strip().upper() == "ACTIVE"
+        is_healthy = str(batch.status or "").strip().upper() == "HEALTHY"
         is_unexpired = batch.expiry_date is None or batch.expiry_date > now
-        if not is_active or not is_unexpired:
+        if not is_healthy or not is_unexpired:
             continue
         batch_units = max(0, _int(batch.quantity, 0)) * per_case + max(0, _int(batch.loose_units, 0))
         allocatable += max(0, batch_units - reserved_by_batch.get(batch.id, 0))
@@ -217,9 +217,9 @@ def allocatable_standard_cases(inventory: Inventory, product: Product | None = N
 
     available_cases = 0
     for batch in batches:
-        is_active = str(batch.status or "").strip().upper() == "ACTIVE"
+        is_healthy = str(batch.status or "").strip().upper() == "HEALTHY"
         is_unexpired = batch.expiry_date is None or batch.expiry_date > now
-        if not is_active or not is_unexpired:
+        if not is_healthy or not is_unexpired:
             continue
         batch_cases = max(0, _int(batch.quantity, 0))
         batch_units = batch_cases * per_case + max(0, _int(batch.loose_units, 0))
@@ -451,7 +451,7 @@ def _reserve_product_units(
     batches = list(
         StockBatch.objects.select_for_update(of=("self",))
         .filter(inventory=inventory)
-        .filter(status__iexact="ACTIVE")
+        .filter(status__iexact="HEALTHY")
         .filter(Q(expiry_date__isnull=True) | Q(expiry_date__gt=timezone.now()))
         .filter(Q(quantity__gt=0) | Q(loose_units__gt=0))
     )
@@ -649,7 +649,7 @@ def _persist_batch(batch: StockBatch) -> None:
         batch.status = "DEPLETED"
         batch.save(update_fields=["quantity", "loose_units", "status", "updated_at"])
         return
-    batch.status = "ACTIVE"
+    batch.status = "HEALTHY"
     batch.save(update_fields=["quantity", "loose_units", "status", "updated_at"])
 
 
@@ -663,8 +663,8 @@ def _consume_reservation(reservation: InventoryReservation, performed_by: str | 
     batch = None
     if reservation.stock_batch_id:
         batch = StockBatch.objects.select_for_update(of=("self",)).get(id=reservation.stock_batch_id)
-        if str(batch.status or "").strip().upper() != "ACTIVE":
-            raise ValueError(f"Reserved batch is no longer active for product {product.sku}")
+        if str(batch.status or "").strip().upper() != "HEALTHY":
+            raise ValueError(f"Reserved batch is depleted for product {product.sku}")
         if batch.expiry_date is not None and batch.expiry_date <= timezone.now():
             raise ValueError(f"Reserved batch has expired for product {product.sku}")
 

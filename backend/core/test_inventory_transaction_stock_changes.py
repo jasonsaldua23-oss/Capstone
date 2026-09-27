@@ -145,7 +145,7 @@ class InventoryTransactionStockChangeTests(TestCase):
         batch.save(update_fields=["quantity", "loose_units"])
         _persist_stock_batch_quantity(batch)
         batch.refresh_from_db()
-        self.assertEqual((batch.quantity, batch.loose_units, batch.status), (0, 3, "ACTIVE"))
+        self.assertEqual((batch.quantity, batch.loose_units, batch.status), (0, 3, "HEALTHY"))
 
     def test_failed_delivery_rolls_back_before_retry(self):
         inventory, order = self.make_delivery()

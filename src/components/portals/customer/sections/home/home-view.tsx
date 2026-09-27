@@ -344,7 +344,7 @@ export function CustomerHomeView({
                     ) : null}
                     {item.itemType === 'MIXED_CASE' ? (
                       <div>
-                        <MixedCaseComponents item={item} compact />
+                        <MixedCaseComponents item={item} compact showImages={false} />
                       </div>
                     ) : null}
                   </div>

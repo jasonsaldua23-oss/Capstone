@@ -290,14 +290,22 @@ export function WarehouseSettingsView({
                   <p className="text-sm font-semibold text-slate-900">2FA Verification</p>
                   <p className="text-xs text-slate-500">Require OTP when signing in to warehouse portal</p>
                 </div>
-                <Button
+                {/* Match the admin security controls so enabled and disabled states read the same way. */}
+                <button
                   type="button"
-                  className={twoFactorEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}
                   onClick={() => setTwoFactorEnabled((prev) => !prev)}
                   disabled={!isEditingSecurity}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    twoFactorEnabled ? 'bg-blue-600' : 'bg-slate-300'
+                  } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  role="switch"
+                  aria-label="2FA Verification"
+                  aria-checked={twoFactorEnabled}
                 >
-                  {twoFactorEnabled ? 'Enabled' : 'Disabled'}
-                </Button>
+                  <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                    twoFactorEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`} />
+                </button>
               </div>
 
               <div className="flex items-center justify-between rounded-md border p-3">
@@ -305,14 +313,21 @@ export function WarehouseSettingsView({
                   <p className="text-sm font-semibold text-slate-900">Login Alerts</p>
                   <p className="text-xs text-slate-500">Send alert when your account signs in from a new device</p>
                 </div>
-                <Button
+                <button
                   type="button"
-                  className={loginAlertsEnabled ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}
                   onClick={() => setLoginAlertsEnabled((prev) => !prev)}
                   disabled={!isEditingSecurity}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    loginAlertsEnabled ? 'bg-blue-600' : 'bg-slate-300'
+                  } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  role="switch"
+                  aria-label="Login Alerts"
+                  aria-checked={loginAlertsEnabled}
                 >
-                  {loginAlertsEnabled ? 'Enabled' : 'Disabled'}
-                </Button>
+                  <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                    loginAlertsEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`} />
+                </button>
               </div>
 
               <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => {

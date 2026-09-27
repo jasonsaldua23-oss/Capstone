@@ -902,7 +902,7 @@ export function CustomerOrdersView(props: any) {
                                   ? `x${replacementRequestDisplay.qty} ${replacementRequestDisplay.label}${replacementRequestDisplay.qty > 1 ? 's' : ''}`
                                   : formatQuantityWithUnit(item)}
                               </p>
-                              {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact /> : null}
+                              {item?.itemType === 'MIXED_CASE' ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
                             </div>
                           </div>
                         ))}

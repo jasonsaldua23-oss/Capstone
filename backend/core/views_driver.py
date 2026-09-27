@@ -21,7 +21,7 @@ from .api_utils import (
     ok as _ok,
     to_float_or_none as _to_float_or_none,
 )
-from .auth import REMEMBER_ME_EXP_HOURS, TOKEN_EXP_HOURS, create_token
+from .auth import REMEMBER_ME_EXP_HOURS, TOKEN_EXP_HOURS, create_token, record_session_activity
 from .fleet_sync import TERMINAL_DROP_POINT_STATUSES, local_date_of, trip_is_overdue
 from .models import (
     LocationLog,
@@ -323,6 +323,10 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     d = User.objects.filter(id=p.get("userId"), role="DRIVER").first()
     if not d:
         return _err("Driver not found", 404)
+    # A driver on a trip is working even with the phone locked; the native GPS
+    # service's uploads keep an idle-limited web session alive, as the portal's
+    # own timer already counts tracking as activity.
+    record_session_activity(p)
     body = _json_body(request)
     lat = _to_float_or_none(body.get("latitude"))
     lng = _to_float_or_none(body.get("longitude"))
@@ -557,7 +561,8 @@ def driver_profile(request: HttpRequest) -> JsonResponse:
         # Fix: refresh signed claims so later email-sensitive actions use the new Gmail address.
         remember_me = bool(p.get("rememberMe", False))
         token = create_token(
-            {**_user_payload(d), "rememberMe": remember_me},
+            # Keep the session's idle rule; only the signed email changes.
+            {**_user_payload(d), "rememberMe": remember_me, "idleLogout": bool(p.get("idleLogout"))},
             REMEMBER_ME_EXP_HOURS if remember_me else TOKEN_EXP_HOURS,
         )
         response_payload["token"] = token

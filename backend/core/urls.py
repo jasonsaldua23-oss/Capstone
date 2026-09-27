@@ -43,6 +43,7 @@ urlpatterns = [
     path("auth/email-verification/request-existing", auth_v.auth_email_verification_request_existing),
     path("auth/email-verification/confirm-existing", auth_v.auth_email_verification_confirm_existing),
     path("auth/me", auth_v.auth_me),
+    path("auth/activity", auth_v.auth_activity),
     path("auth/logout", auth_v.auth_logout),
     path("auth/password-reset/request-otp", auth_v.auth_password_reset_request_otp),
     path("auth/password-reset/verify-otp", auth_v.auth_password_reset_verify_otp),

@@ -10,6 +10,7 @@ import type {
   Product,
 } from "../types";
 import { ApiError, MAIL_REQUEST_TIMEOUT_MS, apiRequest } from "./api";
+import { deleteProtectedToken, readProtectedToken, storeProtectedToken } from "./secure-token-store";
 
 const TOKEN_KEY = "customer_auth_token";
 const USER_KEY = "customer_auth_user";
@@ -218,7 +219,9 @@ export async function login(email: string, password: string, rememberMe = true):
 }
 
 async function persistAuthenticatedSession(data: LoginResponse, rememberMe: boolean): Promise<CustomerUser> {
-  await AsyncStorage.setItem(TOKEN_KEY, data.token);
+  // The bearer token goes to the encrypted store, never to plain AsyncStorage.
+  await storeProtectedToken(TOKEN_KEY, data.token, rememberMe);
+  await AsyncStorage.removeItem(TOKEN_KEY);
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
   await AsyncStorage.setItem(REMEMBER_ME_KEY, rememberMe ? "true" : "false");
   return data.user;
@@ -270,12 +273,13 @@ export async function registerCustomer(input: {
   return persistAuthenticatedSession(data, true);
 }
 
-export async function loginWithGoogle(idToken: string): Promise<CustomerUser> {
+// Google sign-in follows the same "Keep me logged in" choice as a password login.
+export async function loginWithGoogle(idToken: string, rememberMe: boolean): Promise<CustomerUser> {
   const data = await apiRequest<LoginResponse>("/api/auth/customer/google", {
     method: "POST",
-    body: JSON.stringify({ idToken, rememberMe: true }),
+    body: JSON.stringify({ idToken, rememberMe }),
   });
-  return persistAuthenticatedSession(data, true);
+  return persistAuthenticatedSession(data, rememberMe);
 }
 
 export async function logout(): Promise<void> {
@@ -285,16 +289,34 @@ export async function logout(): Promise<void> {
   } catch {
     // Ignore logout API failures.
   }
+  await deleteProtectedToken(TOKEN_KEY);
   await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, REMEMBER_ME_KEY]);
 }
 
 export async function getToken(): Promise<string | null> {
-  return AsyncStorage.getItem(TOKEN_KEY);
+  const rememberMe = await AsyncStorage.getItem(REMEMBER_ME_KEY) === "true";
+  const protectedToken = await readProtectedToken(TOKEN_KEY, rememberMe);
+  if (protectedToken) return protectedToken;
+  // Earlier versions kept the token in plain AsyncStorage; move it once.
+  const legacyToken = await AsyncStorage.getItem(TOKEN_KEY);
+  if (!legacyToken) return null;
+  await AsyncStorage.removeItem(TOKEN_KEY);
+  await storeProtectedToken(TOKEN_KEY, legacyToken, rememberMe);
+  return legacyToken;
 }
 
 export async function getStoredUser(): Promise<CustomerUser | null> {
   const rememberMe = await AsyncStorage.getItem(REMEMBER_ME_KEY);
   if (rememberMe !== "true") {
+    await deleteProtectedToken(TOKEN_KEY);
+    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, REMEMBER_ME_KEY]);
+    return null;
+  }
+  try {
+    if (!await getToken()) return null;
+  } catch {
+    // An unreadable encrypted entry (e.g. restored from another device) cannot be used.
+    await deleteProtectedToken(TOKEN_KEY);
     await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, REMEMBER_ME_KEY]);
     return null;
   }

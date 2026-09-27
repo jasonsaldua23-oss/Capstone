@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, PackageCheck, ShoppingCart, Truck, Warehouse, Users, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Package, CircleCheck } from 'lucide-react'
+import { Boxes, CircleCheck, MessageSquare, Package, ShoppingCart, TrendingUp, Truck, Users } from 'lucide-react'
 import type { DashboardStats } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
@@ -11,10 +11,20 @@ import { AreaChart, CartesianGrid, YAxis, XAxis, Area, BarChart, Bar, PieChart, 
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComparison, describeComposition, toPoints } from '@/lib/chart-interpretation'
 import { isIssuedPurchaseOrder } from '@/lib/purchase-documents'
+import { buildInventoryStatusBreakdown, summarizeStockHealth, summarizeWarehouseDashboardOrders } from '@/lib/report-metrics'
+import {
+  DashboardMetricCard,
+  DashboardSummaryCard,
+  InventoryStatusOverviewCard,
+  StockHealthCard,
+} from '@/components/portals/shared/dashboard-cards'
+import { summarizeReplacementCases } from '@/components/portals/shared/replacement-summary'
 import { fetchAllPaginatedCollection, getCollection, formatDayKey } from './shared'
 
 export function DashboardView({ stats, isLoading }: { stats: DashboardStats | null; isLoading: boolean }) {
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([])
+  const [dashboardInventory, setDashboardInventory] = useState<any[]>([])
+  const [dashboardReplacements, setDashboardReplacements] = useState<any[]>([])
   const [dashboardOrdersLoading, setDashboardOrdersLoading] = useState(true)
   const [welcomeState] = useState(() => {
     if (typeof window === 'undefined') return { open: false, message: 'Welcome back!' }
@@ -34,21 +44,42 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   })
   const [showWelcomePopup, setShowWelcomePopup] = useState(welcomeState.open)
   const welcomeMessage = welcomeState.message
-  const [warehouseName, setWarehouseName] = useState('Ann Ann warehouse')
 
   useEffect(() => {
     async function fetchDashboardData() {
       try {
-        const ordersResult = await fetchAllPaginatedCollection<any>(
-          '/api/orders?includeItems=none&summaryOnly=true',
-          'orders',
-          { cache: 'no-store' },
-          // Keep the dashboard loading state until the real order totals arrive.
-          { retries: 1, timeoutMs: 90000, pageSize: 200, maxPages: 100 }
-        )
+        // The stock and replacement figures load alongside the orders, so the
+        // dashboard waits for the slowest of the three rather than their sum.
+        const [ordersResult, inventoryResult, replacementsResult] = await Promise.all([
+          fetchAllPaginatedCollection<any>(
+            '/api/orders?includeItems=none&summaryOnly=true',
+            'orders',
+            { cache: 'no-store' },
+            // Keep the dashboard loading state until the real order totals arrive.
+            { retries: 1, timeoutMs: 90000, pageSize: 200, maxPages: 100 }
+          ),
+          fetchAllPaginatedCollection<any>(
+            '/api/inventory',
+            'inventory',
+            { cache: 'no-store' },
+            { retries: 1, timeoutMs: 30000, pageSize: 200, maxPages: 50 }
+          ),
+          fetchAllPaginatedCollection<any>(
+            '/api/replacements',
+            'replacements',
+            { cache: 'no-store' },
+            { retries: 1, timeoutMs: 30000, pageSize: 200, maxPages: 50 }
+          ),
+        ])
 
         if (ordersResult.ok) {
           setDashboardOrders(getCollection<any>(ordersResult.data, ['orders']))
+        }
+        if (inventoryResult.ok) {
+          setDashboardInventory(getCollection<any>(inventoryResult.data, ['inventory']))
+        }
+        if (replacementsResult.ok) {
+          setDashboardReplacements(getCollection<any>(replacementsResult.data, ['replacements']))
         }
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error)
@@ -59,58 +90,18 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
     fetchDashboardData()
   }, [])
 
-  useEffect(() => {
-    async function fetchWarehouseInfo() {
-      try {
-        const result = await fetchAllPaginatedCollection<any>(
-          '/api/warehouses',
-          'warehouses',
-          { cache: 'no-store' },
-          { retries: 2, timeoutMs: 12000, pageSize: 100, maxPages: 20 }
-        )
-        if (!result.ok) return
-        const warehouses = getCollection<any>(result.data, ['warehouses'])
-        if (warehouses.length > 0 && warehouses[0]?.name) {
-          setWarehouseName(warehouses[0].name)
-        }
-      } catch {
-        // keep fallback
-      }
-    }
-    fetchWarehouseInfo()
-  }, [])
-
-  const dashboardOrderStats = useMemo(() => {
-    // Same membership rule as the Purchase Orders report; cancelled POs stay in the total.
-    const approvedPurchaseOrders = dashboardOrders.filter(isIssuedPurchaseOrder)
-    const totalOrders = approvedPurchaseOrders.length
-    const outForDelivery = approvedPurchaseOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'OUT_FOR_DELIVERY').length
-    const delivered = approvedPurchaseOrders.filter((order: any) => String(order?.status || '').trim().toUpperCase() === 'DELIVERED').length
-
-    return {
-      totalOrders,
-      outForDelivery,
-      delivered,
-    }
-  }, [dashboardOrders])
+  // Same helpers as the warehouse dashboard, so both portals show the same figures.
+  const dashboardOrderStats = useMemo(() => summarizeWarehouseDashboardOrders(dashboardOrders), [dashboardOrders])
+  const replacementSummary = useMemo(() => summarizeReplacementCases(dashboardReplacements), [dashboardReplacements])
+  const inventoryStatusBreakdown = useMemo(() => buildInventoryStatusBreakdown(dashboardInventory), [dashboardInventory])
+  const lowStockCount = useMemo(() => summarizeStockHealth(dashboardInventory).belowThreshold, [dashboardInventory])
 
   const totalVehicles = Number(stats?.totalVehicles || 0)
   const totalClients = Number(stats?.totalCustomers || 0)
-  const availableDrivers = Number(stats?.availableDrivers || stats?.activeDrivers || 0)
-
-  const statCards = [
-    { label: 'Purchase Orders', value: dashboardOrderStats.totalOrders, color: 'blue', icon: PackageCheck },
-    { label: 'Warehouse', value: warehouseName, color: 'red', icon: Warehouse },
-    { label: 'Vehicles', value: totalVehicles, color: 'green', icon: Truck },
-    { label: 'Clients', value: totalClients, color: 'indigo', icon: Users },
-  ]
-
-  const colorClasses = {
-    blue: 'bg-blue-50 text-blue-600 border-blue-200',
-    red: 'bg-red-50 text-red-600 border-red-200',
-    green: 'bg-green-50 text-green-600 border-green-200',
-    indigo: 'bg-indigo-50 text-indigo-600 border-indigo-200',
-  }
+  const activeTrips = Number(stats?.activeTrips || 0)
+  const deliverySuccessRate = dashboardOrderStats.totalOrders > 0
+    ? Math.round((dashboardOrderStats.delivered / dashboardOrderStats.totalOrders) * 100)
+    : 0
 
   const last7Days = useMemo(() => {
     return Array.from({ length: 7 }).map((_, index) => {
@@ -210,83 +201,34 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             <p className="text-gray-500">Here&apos;s your logistics overview.</p>
           </div>
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map((stat, i) => {
-          const gradients: { [key: string]: string } = {
-            blue: 'from-blue-50 to-indigo-50',
-            red: 'from-red-50 to-rose-50',
-            green: 'from-green-50 to-emerald-50',
-            indigo: 'from-indigo-50 to-blue-50',
-          }
-          const textColors: { [key: string]: string } = {
-            blue: 'text-blue-900',
-            red: 'text-red-900',
-            green: 'text-green-900',
-            indigo: 'text-indigo-900',
-          }
-          return (
-            <Card key={i} className={`relative overflow-hidden rounded-2xl border-0 shadow-sm bg-gradient-to-br ${gradients[stat.color as keyof typeof gradients] || 'from-gray-50 to-gray-100'}`}>
-              <CardContent className="flex min-h-[160px] flex-col items-center justify-center p-6 text-center">
-                <div className={`inline-flex rounded-xl border-0 p-3 ${colorClasses[stat.color as keyof typeof colorClasses]}`}>
-                  <stat.icon className="h-6 w-6" />
-                </div>
-                <p className={`font-bold leading-tight mt-4 ${typeof stat.value === 'string' ? 'text-lg sm:text-xl line-clamp-2 px-1' : 'text-3xl'} ${textColors[stat.color as keyof typeof textColors] || 'text-gray-900'}`}>
-                  {typeof stat.value === 'number' ? stat.value.toLocaleString() : stat.value}
-                </p>
-                <p className="mt-2 text-sm leading-tight text-gray-600">{stat.label}</p>
-              </CardContent>
-            </Card>
-          )
-        })}
+          {/* Order Status Cards */}
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+            <DashboardMetricCard icon={ShoppingCart} value={dashboardOrderStats.totalOrders} label="Purchase Orders" tone="blue" />
+            <DashboardMetricCard icon={Package} value={replacementSummary.totalCases} label="Replacement Cases" tone="rose" />
+            <DashboardMetricCard icon={CircleCheck} value={dashboardOrderStats.delivered} label="Delivered" tone="emerald" />
+            <DashboardMetricCard icon={Truck} value={activeTrips} label="Active Trips" tone="indigo" />
           </div>
 
-      {/* Quick Stats Row */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {/* Stock, fleet and clients */}
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <DashboardSummaryCard icon={Boxes} label="Inventory Items" value={dashboardInventory.length} hint="Total SKUs tracked" tone="emerald" />
+            <DashboardSummaryCard icon={Truck} label="Vehicles" value={totalVehicles} hint="In the fleet" tone="indigo" />
+            <DashboardSummaryCard icon={Users} label="Clients" value={totalClients} hint="Registered clients" tone="blue" />
+            <DashboardSummaryCard
+              icon={MessageSquare}
+              label="Avg. Customer Rating"
+              value={Number(stats?.avgRating || 0).toFixed(1)}
+              valueKind="number"
+              hint="Out of 5 stars"
+              tone="amber"
+            />
+          </div>
 
-        <Card className="bg-gradient-to-br from-green-600 to-green-700 text-white">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-green-100 text-sm">Available Drivers</p>
-                <p className="text-3xl font-bold mt-1">{availableDrivers}</p>
-              </div>
-              <UserCheck className="h-10 w-10 text-green-200" />
-            </div>
-          </CardContent>
-        </Card>
+          <InventoryStatusOverviewCard breakdown={inventoryStatusBreakdown} totalItems={dashboardInventory.length} />
 
-        <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-orange-100 text-sm">Avg. Customer Rating</p>
-                <p className="text-3xl font-bold mt-1">{Number(stats?.avgRating || 0).toFixed(1)}</p>
-              </div>
-              <MessageSquare className="h-10 w-10 text-orange-200" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-cyan-500 to-blue-600 text-white">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-cyan-100 text-sm">Delivery Success Rate</p>
-                <p className="text-3xl font-bold mt-1">
-                  {dashboardOrderStats.totalOrders > 0
-                    ? Math.round((dashboardOrderStats.delivered / dashboardOrderStats.totalOrders) * 100)
-                    : 0}%
-                </p>
-              </div>
-              <CircleCheck className="h-10 w-10 text-cyan-200" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card className="xl:col-span-2 rounded-2xl border-0 shadow-sm">
+          {/* Two columns on tablets, one row of four on wide screens: no empty cells at either. */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="rounded-2xl border-0 shadow-sm md:col-span-2">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -326,7 +268,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Delivery Performance</CardTitle>
-            <CardDescription>Delivered vs Failed orders</CardDescription>
+            <CardDescription>Delivered vs failed orders · {deliverySuccessRate}% of purchase orders delivered</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
@@ -347,6 +289,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
             <ChartInterpretation text={deliveryInterpretation} />
           </CardContent>
         </Card>
+        <StockHealthCard lowStockCount={lowStockCount} totalItems={dashboardInventory.length} />
       </div>
     </div>
   )}

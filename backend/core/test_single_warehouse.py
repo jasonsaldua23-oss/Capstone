@@ -240,7 +240,7 @@ class SingleWarehouseApiContractTests(TestCase):
             inventory=inventory,
             quantity=10,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         manufactured_date = timezone.now() - timedelta(days=10)
         expiry_date = timezone.now() + timedelta(days=90)
@@ -496,7 +496,7 @@ class SingleWarehouseApiContractTests(TestCase):
             inventory=inventory,
             quantity=10,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
 
         stock_in = self.client.post(

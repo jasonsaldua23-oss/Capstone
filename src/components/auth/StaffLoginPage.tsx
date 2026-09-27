@@ -126,6 +126,12 @@ export function SystemLoginPage({
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
+  // Google's callback is registered once when its button renders, so it reads
+  // the checkbox through this ref rather than a stale render's value.
+  const rememberMeRef = useRef(rememberMe)
+  useEffect(() => {
+    rememberMeRef.current = rememberMe
+  }, [rememberMe])
   const [showPassword, setShowPassword] = useState(false)
   const [requiresTwoFactor, setRequiresTwoFactor] = useState(false)
   const [challengeToken, setChallengeToken] = useState('')
@@ -274,6 +280,8 @@ export function SystemLoginPage({
     setLoginError('')
     setIsLoading(true)
     setLoginMethod('google')
+    // Google sign-in follows the same "Keep me logged in" choice as a password login.
+    const remember = rememberMeRef.current
 
     try {
       const response = await apiWrite(() => fetch('/api/auth/unified/google', {
@@ -281,8 +289,7 @@ export function SystemLoginPage({
         credentials: 'include',
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
-        // Google sign-in always uses the same persistent session as "Keep me logged in".
-        body: JSON.stringify({ credential, rememberMe: true }),
+        body: JSON.stringify({ credential, rememberMe: remember }),
       }), { fallbackError: null })
       const data = await response.json().catch(() => null)
 
@@ -304,7 +311,7 @@ export function SystemLoginPage({
         return false
       }
 
-      return completeSystemLogin(data.user, data.token, true)
+      return completeSystemLogin(data.user, data.token, remember)
     } catch (error) {
       console.error('Staff Google login failed unexpectedly:', error)
       toast.error('Unable to reach Google sign-in. Please check your connection and try again.')
@@ -369,7 +376,8 @@ export function SystemLoginPage({
         toast.error(data?.error || 'Invalid or expired verification code.')
         return false
       }
-      return completeSystemLogin(data.user, data.token, loginMethod === 'google' ? true : rememberMe)
+      // The challenge carried the same choice to the server for either sign-in method.
+      return completeSystemLogin(data.user, data.token, rememberMe)
     } catch {
       toast.error('Unable to verify the code. Please try again.')
       return false

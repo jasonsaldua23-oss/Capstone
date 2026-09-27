@@ -494,7 +494,7 @@ class CustomerOrdersApiContractTests(TestCase):
             inventory=inventory,
             quantity=10,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
 
         response = self.client.post(
@@ -579,7 +579,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             inventory=self.inventory,
             quantity=20,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
 
     def test_customer_orders_post_reserves_and_cancellation_releases_inventory(self) -> None:
@@ -869,14 +869,14 @@ class CustomerOrdersPostApiContractTests(TestCase):
             inventory=near_inventory,
             quantity=20,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         StockBatch.objects.create(
             batch_number="BATCH-POST-FAR-001",
             inventory=far_inventory,
             quantity=20,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
 
         response = self.client.post(
@@ -1065,7 +1065,7 @@ class PurchaseOrderApprovalStockTests(TestCase):
             quantity=quantity,
             receipt_date=timezone.now(),
             expiry_date=timezone.now() + timedelta(days=90),
-            status="ACTIVE",
+            status="HEALTHY",
         )
 
     def _checkout(self, items: list[dict]) -> str:
@@ -1251,7 +1251,7 @@ class PurchaseOrderApprovalStockTests(TestCase):
             inventory=soda_inventory,
             quantity=3,
             receipt_date=timezone.now(),
-            status="ACTIVE",
+            status="HEALTHY",
         )
         order_id = self._checkout([
             {"productId": self.product.id, "quantity": 10},

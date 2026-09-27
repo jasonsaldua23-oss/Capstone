@@ -303,7 +303,7 @@ export function OrdersScreen() {
                           <View style={styles.flex}>
                             <Text style={styles.listCardItemName}>{getOrderItemDisplayName(item)}</Text>
                             <Text style={styles.listCardItemQty}>{formatOrderedQuantityWithContainer(item)}</Text>
-                            {item?.itemType === "MIXED_CASE" ? <MixedCaseComponents item={item} compact /> : null}
+                            {item?.itemType === "MIXED_CASE" ? <MixedCaseComponents item={item} compact showImages={false} /> : null}
                           </View>
                         </View>
                       ))
