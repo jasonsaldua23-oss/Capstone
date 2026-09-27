@@ -33,7 +33,7 @@ import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, ResponsiveContainer, Legend } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { SkuVelocityChart } from '@/components/shared/sku-velocity-chart'
-import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
+import { describeCapacity, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import {
   toArray,
   fetchAllPaginatedCollection,
@@ -53,6 +53,8 @@ import {
   buildSkuVelocityData,
   buildUtilizationTrend,
   buildWarehouseCapacitySummary,
+  describeSkuDemand,
+  describeStockHealth,
   summarizeStockHealth,
 } from '@/lib/report-metrics'
 
@@ -514,10 +516,9 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
   ]
 
   // One reading per chart on the selected warehouse's analytics row.
-  const capacityInterpretation = describeComposition(
-    toPoints(capacityBreakdown, (row: any) => row.name, (row: any) => row.value),
-    { noun: 'units of capacity', entityNoun: 'segment', emptyMessage: 'This warehouse has no capacity recorded yet, so the split cannot be read.' }
-  )
+  const capacityInterpretation = describeCapacity(estimatedUsage, totalCapacity, {
+    emptyMessage: 'This warehouse has no capacity recorded yet, so the split cannot be read.',
+  })
   const utilizationInterpretation = describeTrend(
     toPoints(usageTrend, (row: any) => row.day, (row: any) => row.utilization),
     {
@@ -529,14 +530,8 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
       emptyMessage: 'No utilization has been recorded over the last 7 days, so there is no trend to read.',
     }
   )
-  const velocityInterpretation = describeRanking(
-    toPoints(skuVelocityData, (row: any) => row.name, (row: any) => row.velocity),
-    { noun: 'velocity', entityNoun: 'charted product', emptyMessage: 'No SKU has moved recently, so there is no velocity ranking to read.' }
-  )
-  const stockHealthInterpretation = describeComposition(
-    toPoints(stockHealthDistribution, (row: any) => row.name, (row: any) => row.value),
-    { noun: 'SKUs', entityNoun: 'health band', emptyMessage: 'No SKU is stocked in this warehouse yet, so stock health cannot be read.' }
-  )
+  const velocityInterpretation = describeSkuDemand(skuVelocityData)
+  const stockHealthInterpretation = describeStockHealth(stockHealthDistribution)
 
   const getStockHealthDotClass = (name: string) => {
     const key = name.toLowerCase()

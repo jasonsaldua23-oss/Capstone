@@ -19,6 +19,10 @@ import {
   buildOrderReportRows,
   buildOrderReportStatusBreakdown,
   buildDailyChartSeries,
+  buildSkuVelocityData,
+  chartBucketNoun,
+  describeSkuDemand,
+  describeStockHealth,
   isCancelledReportStatus,
   isRevenueRecognized,
   sumRecognizedRevenue,
@@ -763,4 +767,74 @@ test('daily chart series runs oldest to newest and keeps the latest days', () =>
   assert.deepEqual(reordered.map((row) => row.dateKey), series.map((row) => row.dateKey))
 
   assert.deepEqual(buildDailyChartSeries({}, { fillEmpty }), [])
+})
+
+// Regression: the order, stock-movement and replacement-loss charts switch to
+// weekly or monthly bars on long ranges while their readings said "per day".
+test('chartBucketNoun reads the bucket from the keys the chart builders emit', () => {
+  assert.equal(chartBucketNoun([{ key: '2026-09-01' }, { key: '2026-09-02' }]), 'day')
+  assert.equal(chartBucketNoun([{ key: '2026-W36' }]), 'week')
+  assert.equal(chartBucketNoun([{ key: '2026-09' }]), 'month')
+  assert.equal(chartBucketNoun([]), 'day')
+})
+
+test('buildSkuVelocityData keeps the reserved and shortfall parts of the score', () => {
+  const [row] = buildSkuVelocityData([
+    { id: 'a', product: { sku: 'COLA', name: 'Cola' }, quantity: 20, reservedQuantity: 12, minStock: 15 },
+  ])
+  // 20 on hand − 12 reserved = 8 available, 7 short of the reorder level of 15.
+  assert.equal(row.reserved, 12)
+  assert.equal(row.shortfall, 7)
+  assert.equal(row.velocity, 19)
+})
+
+// Regression: this chart's score used to be read as "12 velocity, 30% of the total".
+test('describeSkuDemand explains the score as stock promised to orders and shortfall', () => {
+  const text = describeSkuDemand([
+    { name: 'Cola 1.5L', velocity: 40, reserved: 30, shortfall: 10 },
+    { name: 'Lemon 1L', velocity: 12, reserved: 12, shortfall: 0 },
+    { name: 'Soda 500ml', velocity: 3, reserved: 0, shortfall: 3 },
+  ])
+  assert.equal(
+    text,
+    'Cola 1.5L is under the most pressure: 30 units are promised to orders and it is 10 units below its reorder level. ' +
+      '2 of the 3 products shown are below their reorder level, so restock those first.'
+  )
+})
+
+test('describeSkuDemand says when nothing is below its reorder level', () => {
+  const text = describeSkuDemand([{ name: 'Lemon 1L', velocity: 1, reserved: 1, shortfall: 0 }])
+  assert.equal(
+    text,
+    'Lemon 1L is under the most pressure: 1 unit is promised to orders. None of the products shown is below its reorder level.'
+  )
+})
+
+test('describeSkuDemand handles products with no pressure and an empty chart', () => {
+  assert.equal(
+    describeSkuDemand([{ name: 'Cola', velocity: 0, reserved: 0, shortfall: 0 }]),
+    'None of the products shown has stock promised to orders or sits below its reorder level, so nothing needs restocking right now.'
+  )
+  assert.equal(describeSkuDemand([], 'Nothing yet.'), 'Nothing yet.')
+})
+
+test('describeStockHealth reads the health mix and flags low or critical SKUs', () => {
+  const text = describeStockHealth([
+    { name: 'Healthy', value: 40 },
+    { name: 'Low', value: 6 },
+    { name: 'Critical', value: 2 },
+    { name: 'Overstocked', value: 2 },
+  ])
+  assert.match(text, /^Healthy is the biggest group: 40 of the 50 SKUs \(80%\)\./)
+  assert.match(text, /8 SKUs are low or critical, so check them for restocking\.$/)
+})
+
+test('describeStockHealth adds no restock hint when every SKU is fine', () => {
+  const text = describeStockHealth([
+    { name: 'Healthy', value: 5 },
+    { name: 'Low', value: 0 },
+    { name: 'Critical', value: 0 },
+    { name: 'Overstocked', value: 1 },
+  ])
+  assert.doesNotMatch(text, /restock/)
 })

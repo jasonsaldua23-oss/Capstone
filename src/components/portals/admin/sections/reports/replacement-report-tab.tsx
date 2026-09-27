@@ -14,6 +14,7 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeTrend, toPoints } from '@/lib/chart-interpretation'
+import { chartBucketNoun } from '@/lib/report-metrics'
 import { formatPeso } from '../shared'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
@@ -48,7 +49,8 @@ export function ReplacementReportTab({
     {
       noun: 'replacement loss',
       nounIsPlural: false,
-      periodNoun: 'day',
+      // 30-day and longer ranges draw weekly or monthly bars.
+      periodNoun: chartBucketNoun(replacementLossTrendChart),
       format: (value) => formatPeso(value),
       emptyMessage: 'No replacement loss falls inside the selected range, so there is nothing to interpret yet.',
     }

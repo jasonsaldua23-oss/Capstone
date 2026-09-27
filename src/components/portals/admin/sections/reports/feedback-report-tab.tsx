@@ -17,7 +17,7 @@ import {
   LabelList,
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
-import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
+import { describeComposition, describeRanking, describeTrend, formatStars, toPoints } from '@/lib/chart-interpretation'
 import type { FeedbackServiceDimension } from '@shared/customer-logic/feedback-reasons'
 import {  } from '../shared'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle } from './chart-styles'
@@ -94,9 +94,10 @@ export function FeedbackReportTab({
         // The area drawing the most complaints is the actionable part, not the loudest one.
         (() => {
           const worst = mentionedDimensions.slice().sort((a, b) => b.negativeRate - a.negativeRate)[0]
-          return worst && worst.negative > 0
-            ? ` ${worst.label} draws the most complaints, with ${worst.negativeRate}% of its mentions rated 1-2 stars.`
-            : ' No service area drew a negative rating in this range.'
+          if (!worst || worst.negative <= 0) return ' No service area drew a negative rating in this range.'
+          // Only a sizeable share of bad ratings is worth acting on; one stray low score is not.
+          const hint = worst.negativeRate >= 30 ? ` Look into ${worst.label} first.` : ''
+          return ` ${worst.label} draws the most complaints: ${worst.negativeRate}% of its mentions came with a 1- or 2-star rating.${hint}`
         })()
       }`
 
@@ -107,10 +108,11 @@ export function FeedbackReportTab({
   const trendInterpretation = ratedTrendPoints.length === 0
     ? 'No month in the last six carries a rated response, so the trend cannot be read yet.'
     : `${describeTrend(
-        toPoints(ratedTrendPoints, (point: any) => point.label, (point: any) => point.avgScore),
+        // Weighted by responses, so a month with one rating cannot outvote a month with a hundred.
+        toPoints(ratedTrendPoints, (point: any) => point.label, (point: any) => point.avgScore, (point: any) => point.responses),
         // 'level' keeps this reading as an average rating rather than a running total.
-        { noun: 'satisfaction scores', periodNoun: 'month', measure: 'level' }
-      )} That is based on ${trendResponses.toLocaleString('en-US')} rated responses across ${ratedTrendPoints.length} of the last 6 months.`
+        { noun: 'satisfaction', nounIsPlural: false, periodNoun: 'month', periodScope: 'with ratings', measure: 'level', format: formatStars }
+      )} This is based on ${trendResponses.toLocaleString('en-US')} ${trendResponses === 1 ? 'rating' : 'ratings'} across ${ratedTrendPoints.length} of the last 6 months.`
 
   return (
     <>

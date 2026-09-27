@@ -19,7 +19,7 @@ import {
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComposition, describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso } from '../shared'
-import { formatOrderReportStatus } from '@/lib/report-metrics'
+import { chartBucketNoun, formatOrderReportStatus } from '@/lib/report-metrics'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, formatOrderCountLabel, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
@@ -54,7 +54,8 @@ export function OrdersReportTab({
   // Both readings come off the same arrays the charts draw, so they follow the filters.
   const volumeInterpretation = describeTrend(
     toPoints(orderOutcomeTrendChart, (row: any) => row.label, (row: any) => row.orders),
-    { noun: 'orders', periodNoun: 'day', emptyMessage: 'No orders fall inside the selected range, so there is nothing to interpret yet.' }
+    // Long ranges draw weekly bars, so the reading takes its period from the chart.
+    { noun: 'orders', periodNoun: chartBucketNoun(orderOutcomeTrendChart), emptyMessage: 'No orders fall inside the selected range, so there is nothing to interpret yet.' }
   )
   const statusInterpretation = describeComposition(
     toPoints(orderStatusChart, (row: any) => row.name, (row: any) => row.value),

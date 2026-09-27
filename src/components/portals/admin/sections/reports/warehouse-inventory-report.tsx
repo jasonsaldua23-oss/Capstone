@@ -610,7 +610,10 @@ export function WarehouseInventoryReport({
   // Units here are the normalized comparable quantity the ranking itself uses.
   const chartInterpretation = useMemo(() => {
     const fastest = top10ChartData[0]
-    const velocity = fastest ? ` ${fastest.fullName} moves fastest at ${Number(fastest.velocity || 0).toFixed(1)} units per day.` : ''
+    const perDay = Number(Number(fastest?.velocity || 0).toFixed(1))
+    const velocity = fastest && perDay > 0
+      ? ` That works out to about ${perDay.toLocaleString('en-US')} ${perDay === 1 ? 'unit' : 'units'} a day for ${fastest.fullName}, the fastest mover.`
+      : ''
     return `${describeRanking(toPoints(top10ChartData, (row: any) => row.fullName, (row: any) => row.units), {
       noun: 'dispatched units',
       entityNoun: 'charted product',

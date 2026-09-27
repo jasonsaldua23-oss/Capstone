@@ -14,7 +14,7 @@ import {
   Legend,
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
-import { describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
+import { describeRanking, describeTrend, joinNames, toPoints } from '@/lib/chart-interpretation'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
@@ -37,16 +37,26 @@ export function WarehouseReportTab({
   warehouseCapacityTrendPoints,
   warehouseCapacityVsUsedChart,
 }: WarehouseReportTabProps) {
-  // Utilization is already a percentage per warehouse, so this ranks rather than totals.
-  const capacityInterpretation = describeRanking(
+  // Utilization is already a percentage per warehouse, so the reading compares
+  // levels and never adds two warehouses' percentages together.
+  const nearlyFull = warehouseCapacityVsUsedChart.filter((row: any) => Number(row.usedPercent || 0) >= 90).map((row: any) => String(row.name))
+  const capacityInterpretation = `${describeRanking(
     toPoints(warehouseCapacityVsUsedChart, (row: any) => row.name, (row: any) => row.usedPercent),
     {
       noun: 'utilization',
+      nounIsPlural: false,
       entityNoun: 'warehouse',
+      measure: 'level',
       format: formatPercentValue,
       emptyMessage: 'No warehouse capacity has been recorded, so there is nothing to interpret yet.',
     }
-  )
+  )}${
+    nearlyFull.length === 0
+      ? ''
+      : nearlyFull.length <= 3
+        ? ` ${joinNames(nearlyFull)} ${nearlyFull.length === 1 ? 'is' : 'are'} almost full, so check space there before sending more stock.`
+        : ` ${nearlyFull.length} warehouses are almost full, so check space there before sending more stock.`
+  }`
   // Utilization is a rate, so the reading describes the level rather than a total.
   const utilizationTrendInterpretation = describeTrend(
     toPoints(warehouseCapacityTrendPoints, (point: any) => point.date, (point: any) => point.utilizationPercent),

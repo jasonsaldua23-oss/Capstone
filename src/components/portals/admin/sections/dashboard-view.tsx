@@ -171,7 +171,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   const ordersInterpretation = useMemo(() => describeComparison(
     { name: 'This week', points: toPoints(ordersComparisonData, (row) => row.day, (row) => row.thisWeek) },
     { name: 'Last week', points: toPoints(ordersComparisonData, (row) => row.day, (row) => row.lastWeek) },
-    { noun: 'approved orders', periodNoun: 'day', emptyMessage: 'No approved orders landed in either week, so there is nothing to compare yet.' }
+    { noun: 'approved orders', periodNoun: 'day', framing: 'change', emptyMessage: 'No approved orders landed in either week, so there is nothing to compare yet.' }
   ), [ordersComparisonData])
 
   const deliveryInterpretation = useMemo(() => describeComposition(

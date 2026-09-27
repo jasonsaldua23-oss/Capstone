@@ -19,6 +19,7 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComparison, describeRanking, toPoints } from '@/lib/chart-interpretation'
+import { chartBucketNoun } from '@/lib/report-metrics'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
@@ -94,26 +95,41 @@ export function InventoryReportTab({
       emptyMessage: 'No product movement falls inside the selected range, so there is nothing to interpret yet.',
     }
   )
-  const movementTrendInterpretation = describeComparison(
+  const movementIn = inventoryMovementChart.reduce((sum, row: any) => sum + Number(row.inQty || 0), 0)
+  const movementOut = inventoryMovementChart.reduce((sum, row: any) => sum + Number(row.outQty || 0), 0)
+  const movementNet = movementIn - movementOut
+  // What the two lines add up to for the shelves is the question this chart answers.
+  const movementNetReading = movementIn + movementOut === 0
+    ? ''
+    : movementNet > 0
+      ? ` Overall, ${movementNet.toLocaleString('en-US')} more units came in than went out, so stock built up.`
+      : movementNet < 0
+        ? ` Overall, ${Math.abs(movementNet).toLocaleString('en-US')} more units went out than came in, so stock was drawn down.`
+        : ' Overall, as many units came in as went out, so stock levels held.'
+  const movementTrendInterpretation = `${describeComparison(
     { name: 'Stock in', points: toPoints(inventoryMovementChart, (row: any) => row.label, (row: any) => row.inQty) },
     { name: 'Stock out', points: toPoints(inventoryMovementChart, (row: any) => row.label, (row: any) => row.outQty) },
     {
       noun: 'units',
-      periodNoun: 'day',
+      // Longer ranges draw weekly or monthly bars.
+      periodNoun: chartBucketNoun(inventoryMovementChart),
       emptyMessage: 'No stock movement falls inside the selected range, so there is nothing to interpret yet.',
     }
-  )
+  )}${movementNetReading}`
   const [reportType, setReportType] = useState<InventoryReportType>('fast-moving')
   const reportTypeSelect = <InventoryReportTypeSelect value={reportType} onChange={setReportType} />
   const topLowStock = lowStockRows.slice(0, 5)
-  const lowStockInterpretation = describeRanking(
-    toPoints(topLowStock, (row: any) => row.product, (row: any) => Math.max(0, Number(row.reorderPoint || 0) - Number(row.currentStock || 0))),
-    {
-      noun: 'units below the reorder point',
-      entityNoun: 'product',
-      emptyMessage: 'Every tracked product is at or above its reorder point, so no replenishment is flagged.',
-    }
+  const lowStockPoints = toPoints(
+    topLowStock,
+    (row: any) => row.product,
+    (row: any) => Math.max(0, Number(row.reorderPoint || 0) - Number(row.currentStock || 0))
   )
+  const furthestBelow = [...lowStockPoints].sort((a, b) => b.value - a.value)[0]
+  const lowStockInterpretation = `${describeRanking(lowStockPoints, {
+    noun: 'units below the reorder point',
+    entityNoun: 'product',
+    emptyMessage: 'Every tracked product is at or above its reorder point, so no replenishment is flagged.',
+  })}${furthestBelow && furthestBelow.value > 0 ? ` Restock ${furthestBelow.label} first.` : ''}`
 
   if (reportType === 'fast-moving') {
     return (

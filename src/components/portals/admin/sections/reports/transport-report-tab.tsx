@@ -55,18 +55,22 @@ export function TransportReportTab({
   trips,
 }: TransportReportTabProps) {
   const bandInterpretation = describeComposition(
-    toPoints(transportCompletionBandChart, (row: any) => `the ${row.name} band`, (row: any) => row.count),
+    // No leading article: the label also appears mid-sentence ("… and 0-39% completion had none").
+    toPoints(transportCompletionBandChart, (row: any) => `${row.name} completion`, (row: any) => row.count),
     {
       noun: 'drivers',
       entityNoun: 'band',
       emptyMessage: 'No driver has completion data under the selected filters, so the bands are empty.',
     }
   )
-  // Completion rate is a percentage per driver, so the ranking reads the leader rather than a total.
+  // Completion rate is a percentage per driver, so the reading compares levels
+  // and never adds two drivers' rates together.
   const topDriverInterpretation = describeRanking(
     toPoints(transportTopDrivers, (row: any) => row.name, (row: any) => row.completionRate),
     {
-      noun: 'completion',
+      noun: 'completion rate',
+      nounIsPlural: false,
+      measure: 'level',
       entityNoun: 'driver',
       format: (value) => `${value.toFixed(1)}%`,
       emptyMessage: 'No driver matches the selected filters, so there is no ranking to interpret yet.',

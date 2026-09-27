@@ -281,7 +281,10 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
     const transactions = trendChartData.reduce((sum: number, row: any) => sum + Number(row.count || 0), 0)
     return `${describeTrend(toPoints(trendChartData, (row: any) => row.label, (row: any) => row.sales), {
       noun: 'retail sales',
+      nounIsPlural: false,
       periodNoun: bucket,
+      // The chart only draws days (or months) that had a sale, so the reading says so.
+      periodScope: 'with sales',
       format: (value) => formatPeso(value),
     })} That came from ${transactions.toLocaleString('en-US')} transactions in the period.`
   }, [trendChartData, periodMode])

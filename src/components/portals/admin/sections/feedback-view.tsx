@@ -25,7 +25,7 @@ import { resolveClientImageUrl } from '@/lib/client-image'
 import { getCollection, fetchAllPaginatedCollection } from './shared'
 import { buildReportDateWindow, type ReportDatePreset } from './report-date-utils'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
-import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
+import { describeComposition, describeRanking, describeTrend, formatStars, toPoints } from '@/lib/chart-interpretation'
 import { chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle } from './reports/chart-styles'
 import {
   buildFeedbackAttentionQueue,
@@ -427,8 +427,10 @@ export function FeedbackView() {
       return 'No review in this range named a service dimension, so there is nothing to interpret yet.'
     }
     const worst = [...mentioned].sort((a, b) => b.negative - a.negative)[0]
+    // Only a sizeable share of bad ratings is worth acting on; one stray low score is not.
+    const hint = worst.negativeRate >= 30 ? ` Look into ${worst.label} first.` : ''
     const complaints = worst.negative > 0
-      ? ` ${worst.label} draws the most complaints with ${worst.negative} negative of ${worst.mentions} mentions (${worst.negativeRate}%).`
+      ? ` ${worst.label} draws the most complaints: ${worst.negative} of its ${worst.mentions} mentions (${worst.negativeRate}%) came with a 1- or 2-star rating.${hint}`
       : ' No dimension drew a negative mention in this range.'
     return `${describeRanking(
       toPoints(mentioned, (row) => row.label, (row) => row.mentions),
@@ -452,9 +454,10 @@ export function FeedbackView() {
     }
     const responses = scored.reduce((sum, row) => sum + Number(row.responses || 0), 0)
     return `${describeTrend(
-      toPoints(scored, (row) => row.label, (row) => row.avgScore),
-      { noun: 'satisfaction scores', periodNoun: 'month', measure: 'level' }
-    )} That is based on ${responses.toLocaleString('en-US')} rated responses across ${scored.length} of the last 6 months.`
+      // Weighted by responses, so a month with one rating cannot outvote a month with a hundred.
+      toPoints(scored, (row) => row.label, (row) => row.avgScore, (row) => row.responses),
+      { noun: 'satisfaction', nounIsPlural: false, periodNoun: 'month', periodScope: 'with ratings', measure: 'level', format: formatStars }
+    )} This is based on ${responses.toLocaleString('en-US')} ${responses === 1 ? 'rating' : 'ratings'} across ${scored.length} of the last 6 months.`
   }, [satisfactionTrend])
 
   // Raw rows keep the nested order payload the driver fallback needs; a map keeps the

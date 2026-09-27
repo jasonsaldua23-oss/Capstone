@@ -8,7 +8,8 @@ import { Loader2 } from 'lucide-react'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { SkuVelocityChart } from '@/components/shared/sku-velocity-chart'
-import { describeComposition, describeRanking, describeTrend, toPoints } from '@/lib/chart-interpretation'
+import { describeCapacity, describeTrend, toPoints } from '@/lib/chart-interpretation'
+import { describeSkuDemand, describeStockHealth } from '@/lib/report-metrics'
 import type { WarehouseWarehousesViewProps } from '../shared/types'
 
 export function WarehouseWarehousesView({
@@ -18,9 +19,10 @@ export function WarehouseWarehousesView({
   getStockHealthDotClass,
 }: WarehouseWarehousesViewProps) {
   // Each chart on this screen gets its reading from the same stats object it draws.
-  const capacityInterpretation = describeComposition(
-    toPoints(warehouseOverviewStats.capacityBreakdown, (row: any) => row.name, (row: any) => row.value),
-    { noun: 'units of capacity', entityNoun: 'segment', emptyMessage: 'This warehouse has no capacity recorded yet, so the split cannot be read.' }
+  const capacityInterpretation = describeCapacity(
+    Number(warehouseOverviewStats.usedCapacity || 0),
+    Number(warehouseOverviewStats.totalCapacity || 0),
+    { emptyMessage: 'This warehouse has no capacity recorded yet, so the split cannot be read.' }
   )
   const utilizationInterpretation = describeTrend(
     toPoints(warehouseOverviewStats.utilizationTrend, (row: any) => row.day, (row: any) => row.utilization),
@@ -33,14 +35,8 @@ export function WarehouseWarehousesView({
       emptyMessage: 'No utilization has been recorded over the last 7 days, so there is no trend to read.',
     }
   )
-  const velocityInterpretation = describeRanking(
-    toPoints(warehouseOverviewStats.skuVelocityData, (row: any) => row.name, (row: any) => row.velocity),
-    { noun: 'velocity', entityNoun: 'charted product', emptyMessage: 'No SKU has moved recently, so there is no velocity ranking to read.' }
-  )
-  const stockHealthInterpretation = describeComposition(
-    toPoints(warehouseOverviewStats.stockHealthDistribution, (row: any) => row.name, (row: any) => row.value),
-    { noun: 'SKUs', entityNoun: 'health band', emptyMessage: 'No SKU is stocked in this warehouse yet, so stock health cannot be read.' }
-  )
+  const velocityInterpretation = describeSkuDemand(warehouseOverviewStats.skuVelocityData || [])
+  const stockHealthInterpretation = describeStockHealth(warehouseOverviewStats.stockHealthDistribution || [])
 
   return (
     <div className="space-y-5">

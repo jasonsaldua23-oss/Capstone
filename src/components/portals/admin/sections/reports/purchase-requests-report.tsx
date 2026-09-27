@@ -38,7 +38,7 @@ import { formatPeso, formatDayKey, toIsoDateTime } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { formatOrderItemsForExport } from '@/lib/report-metrics'
+import { buildDailyChartSeries, formatOrderItemsForExport } from '@/lib/report-metrics'
 import {
   getPurchaseDocumentAmount,
   getPurchaseRequestDate,
@@ -178,11 +178,16 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
       else map[key].pending += 1
     })
 
-    // Keep the time-series chronological so the chart communicates an actual daily trend.
-    return Object.entries(map)
-      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
-      .slice(-14)
-      .map(([, values]) => values)
+    // Same fix as the Purchase Orders trend: days with no requests stay on the
+    // axis as zeros, so the gaps read as quiet days instead of disappearing and
+    // the reading's "per day" average counts every day shown.
+    return buildDailyChartSeries(map, {
+      days: 14,
+      fillEmpty: (dateKey) => {
+        const [, month, day] = dateKey.split('-')
+        return { date: `${Number(month)}/${Number(day)}`, approved: 0, pending: 0, rejected: 0, total: 0 }
+      },
+    })
   }, [filteredPRs])
 
   // Stacked daily bars show volume and its status breakdown without overlapping series.

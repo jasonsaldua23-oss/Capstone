@@ -8,6 +8,7 @@ import {
   stripOtherReasonPrefix,
   type FeedbackServiceDimension,
 } from '../../shared/customer-logic/src/feedback-reasons.ts'
+import { describeComposition, toPoints } from './chart-interpretation.ts'
 
 export type InventoryAlertLevel = 'healthy' | 'low' | 'critical' | 'out_of_stock' | 'overstocked'
 
@@ -326,6 +327,27 @@ export function summarizeStockHealth(items: any[], now = Date.now()): StockHealt
   })
 }
 
+/**
+ * Reads the stock health donut (Healthy / Low / Critical / Overstocked) and,
+ * when any SKU is low or critical, says so as the one thing to act on.
+ */
+export function describeStockHealth(
+  distribution: ReadonlyArray<{ name: string; value: number }>,
+  emptyMessage = 'No SKU is stocked in this warehouse yet, so stock health cannot be read.',
+) {
+  const reading = describeComposition(
+    toPoints(distribution, (row) => row.name, (row) => row.value),
+    { noun: 'SKUs', entityNoun: 'health band', emptyMessage },
+  )
+  const atRisk = distribution
+    .filter((row) => /^(low|critical)$/i.test(row.name))
+    .reduce((sum, row) => sum + Math.max(0, asNumber(row.value)), 0)
+  if (atRisk <= 0) return reading
+  return `${reading} ${atRisk.toLocaleString('en-US')} ${atRisk === 1 ? 'SKU is' : 'SKUs are'} low or critical, so check ${
+    atRisk === 1 ? 'it' : 'them'
+  } for restocking.`
+}
+
 export function buildInventoryStatusBreakdown(items: any[], now = Date.now()): InventoryStatusBreakdown {
   const summary = summarizeStockHealth(items, now)
   return {
@@ -435,11 +457,58 @@ export function buildSkuVelocityData(items: any[]) {
         productName: String(item?.product?.name || '').trim() || sku,
         sizeLabel: getReportProductSizeLabel(item?.product),
         sku,
+        // The score's two parts, kept so the chart's reading can say what drives it.
+        reserved,
+        shortfall: pressure,
         velocity: reserved + pressure,
       }
     })
     .sort((a, b) => b.velocity - a.velocity)
     .slice(0, 10)
+}
+
+/**
+ * Reads the SKU velocity chart in plain words. Its score is stock promised to
+ * orders plus the shortfall below the reorder level, so the reading names those
+ * two parts rather than calling the number a speed or adding scores into shares.
+ */
+export function describeSkuDemand(
+  rows: ReadonlyArray<{ name: string; velocity: number; reserved: number; shortfall: number }>,
+  emptyMessage = 'No product is stocked here yet, so there is nothing to rank.',
+) {
+  if (rows.length === 0) return emptyMessage
+  const units = (count: number) => `${count.toLocaleString('en-US')} ${count === 1 ? 'unit' : 'units'}`
+  const top = [...rows].sort((a, b) => b.velocity - a.velocity)[0]
+  if (top.velocity <= 0) {
+    return 'None of the products shown has stock promised to orders or sits below its reorder level, so nothing needs restocking right now.'
+  }
+
+  const parts = [
+    top.reserved > 0 ? `${units(top.reserved)} ${top.reserved === 1 ? 'is' : 'are'} promised to orders` : null,
+    top.shortfall > 0 ? `it is ${units(top.shortfall)} below its reorder level` : null,
+  ].filter(Boolean)
+  const lead = `${top.name} is under the most pressure: ${parts.join(' and ')}.`
+
+  const below = rows.filter((row) => row.shortfall > 0).length
+  const shown = `${rows.length} ${rows.length === 1 ? 'product' : 'products'} shown`
+  const restock = below === 0
+    ? 'None of the products shown is below its reorder level.'
+    : below === 1
+      ? `1 of the ${shown} is below its reorder level, so restock it first.`
+      : `${below} of the ${shown} are below their reorder level, so restock those first.`
+  return `${lead} ${restock}`
+}
+
+/**
+ * The bucket a time-series chart draws, read from the keys the builders above
+ * emit (2026-09-01 day, 2026-W36 week, 2026-09 month), so a reading never says
+ * "per day" under weekly bars.
+ */
+export function chartBucketNoun(points: ReadonlyArray<{ key?: string }>): 'day' | 'week' | 'month' {
+  const key = String(points[0]?.key || '')
+  if (/^\d{4}-W\d{2}$/.test(key)) return 'week'
+  if (/^\d{4}-\d{2}$/.test(key)) return 'month'
+  return 'day'
 }
 
 function isWarehouseDashboardOrder(order: any) {

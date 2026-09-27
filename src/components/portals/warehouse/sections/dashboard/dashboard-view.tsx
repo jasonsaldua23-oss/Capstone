@@ -65,7 +65,7 @@ export function WarehouseDashboardView({
   const weeklyTrendInterpretation = useMemo(() => describeComparison(
     { name: 'This week', points: toPoints(weeklyTrendData, (row: any) => row.day, (row: any) => row.thisWeek) },
     { name: 'Last week', points: toPoints(weeklyTrendData, (row: any) => row.day, (row: any) => row.lastWeek) },
-    { noun: 'orders', periodNoun: 'day', emptyMessage: 'No orders landed in either week, so there is nothing to compare yet.' }
+    { noun: 'orders', periodNoun: 'day', framing: 'change', emptyMessage: 'No orders landed in either week, so there is nothing to compare yet.' }
   ), [weeklyTrendData])
 
   return (

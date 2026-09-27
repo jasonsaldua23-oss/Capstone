@@ -300,6 +300,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
     const orders = chartData.reduce((sum: number, row: any) => sum + Number(row.orders || 0), 0)
     return `${describeRanking(toPoints(chartData, (row: any) => row.name, (row: any) => row.amount), {
       noun: 'revenue',
+      nounIsPlural: false,
       entityNoun: 'listed client',
       format: (value) => formatPeso(value),
     })} The ${chartData.length} charted clients placed ${orders.toLocaleString('en-US')} orders between them.`
