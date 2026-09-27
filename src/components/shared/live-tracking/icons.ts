@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import type { TruckIconDirection } from './types'
 import { normalizeAngle } from './geometry'
+import { rotateScreenOffset } from './pin-spread'
 
 // Fix for default marker icons in Next.js + Leaflet
 export const DefaultIcon = L.icon({
@@ -25,16 +26,35 @@ const TRUCK_ICON_BASE_HEADING = 45;
 
 const TRUCK_ROTATION_QUANTIZATION_DEG = 1;
 
-export function getStatusPinIcon(color: 'green' | 'blue' | 'red' | 'orange', number?: number | string) {
+// Neighbouring heads of a fanned group lean this far apart, which about clears a 25px head.
+export const STATUS_PIN_TILT_STEP_DEG = 45;
+
+// The ETA tooltip already carries a [0, -34] offset, so its anchor supplies only the difference.
+const offsetBetween = ([x1, y1]: [number, number], [x2, y2]: [number, number]): [number, number] => [x1 - x2, y1 - y2];
+
+/**
+ * `tilt` is set only for a pin sharing its coordinate with others (see
+ * pin-spread): the pin leans that many degrees about the coordinate it stands
+ * on, so its tip stays there while its head moves clear of the others. Its
+ * number stays upright.
+ */
+export function getStatusPinIcon(color: 'green' | 'blue' | 'red' | 'orange', number?: number | string, tilt?: number) {
   const label = number === undefined || number === null || String(number).trim() === '' ? '' : String(number);
-  const cacheKey = `${color}:${label}`;
+  const fanned = typeof tilt === 'number';
+  const angle = fanned ? tilt : 0;
+  const cacheKey = `${color}:${label}:${fanned ? angle : '-'}`;
   const cached = statusPinIconCache.get(cacheKey);
   if (cached) return cached;
 
+  // A fanned group's markers all stand on one point, so their untilted boxes
+  // overlap exactly; only the drawn pin and its number take clicks, or the
+  // top box would open its own order wherever the others' heads were clicked.
+  const fanStyle = fanned ? `transform:rotate(${angle}deg);transform-origin:14px 44px;pointer-events:none;` : '';
+  const hitStyle = fanned ? 'pointer-events:auto;' : '';
   const icon = L.divIcon({
     className: 'status-pin-icon',
     html: `
-      <div style="position:relative;width:28px;height:44px;display:flex;align-items:flex-start;justify-content:center;">
+      <div style="position:relative;width:28px;height:44px;display:flex;align-items:flex-start;justify-content:center;${fanStyle}">
         <img
             src="${color === 'green'
         ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png'
@@ -45,15 +65,18 @@ export function getStatusPinIcon(color: 'green' | 'blue' | 'red' | 'orange', num
             : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png'
       }"
           alt="pin"
-          style="width:25px;height:41px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.2));"
+          style="width:25px;height:41px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.2));${hitStyle}"
           onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';"
         />
-        ${label ? `<div style="position:absolute;top:9px;left:50%;transform:translateX(-50%);min-width:14px;height:14px;padding:0 3px;border-radius:9999px;background:rgba(255,255,255,0.96);border:1px solid rgba(15,23,42,0.08);color:${color === 'green' ? '#047857' : '#0369a1'};font-size:10px;line-height:14px;font-weight:800;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,0.14);">${label}</div>` : ''}
+        ${label ? `<div style="position:absolute;top:9px;left:50%;transform:translateX(-50%)${fanned ? ` rotate(${-angle}deg)` : ''};min-width:14px;height:14px;padding:0 3px;border-radius:9999px;background:rgba(255,255,255,0.96);border:1px solid rgba(15,23,42,0.08);color:${color === 'green' ? '#047857' : '#0369a1'};font-size:10px;line-height:14px;font-weight:800;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,0.14);${hitStyle}">${label}</div>` : ''}
       </div>
     `,
-    iconSize: [28, 44],
+    // A zero-size box leaves nothing but the tilted pin to hit; the anchor still sets where it stands.
+    iconSize: fanned ? [0, 0] : [28, 44],
     iconAnchor: [14, 44],
-    popupAnchor: [1, -34],
+    // The popup and the ETA label follow the head as it leans.
+    popupAnchor: rotateScreenOffset([1, -34], angle),
+    tooltipAnchor: fanned ? offsetBetween(rotateScreenOffset([0, -34], angle), [0, -34]) : [0, 0],
   });
 
   statusPinIconCache.set(cacheKey, icon);

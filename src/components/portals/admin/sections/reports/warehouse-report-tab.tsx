@@ -28,7 +28,6 @@ export type WarehouseReportTabProps = {
   reportToolbar: ReportToolbarRenderer
   warehouseCapacityTrendPoints: ReportDatasets['warehouseCapacityTrendPoints']
   warehouseCapacityVsUsedChart: ReportDatasets['warehouseCapacityVsUsedChart']
-  warehouses: any[]
 }
 
 const formatPercentValue = (value: number) => `${value.toFixed(1)}%`
@@ -37,7 +36,6 @@ export function WarehouseReportTab({
   reportToolbar,
   warehouseCapacityTrendPoints,
   warehouseCapacityVsUsedChart,
-  warehouses,
 }: WarehouseReportTabProps) {
   // Utilization is already a percentage per warehouse, so this ranks rather than totals.
   const capacityInterpretation = describeRanking(
@@ -93,7 +91,6 @@ export function WarehouseReportTab({
           tone: 'amber',
         }}
         items={[
-          { label: 'Warehouses', value: warehouses.length, hint: 'Facilities on record', tone: 'slate' },
           { label: 'Stored Units', value: storedUnits.toLocaleString(), hint: 'Occupying space', tone: 'blue' },
           { label: 'Remaining', value: remainingCapacity.toLocaleString(), hint: 'Units still free', tone: 'emerald' },
         ]}

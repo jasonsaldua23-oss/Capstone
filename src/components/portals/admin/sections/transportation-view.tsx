@@ -766,7 +766,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
             <div className="flex items-center gap-3">
               <div className="rounded-lg p-2 bg-purple-100 text-purple-600"><UserCheck className="h-4 w-4" /></div>
               <div>
-                <p className="text-sm text-gray-600">Drivers On Duty</p>
+                <p className="text-sm text-gray-600">Drivers</p>
                 <p className="text-2xl font-bold">{driversOnDutyCount}</p>
               </div>
             </div>

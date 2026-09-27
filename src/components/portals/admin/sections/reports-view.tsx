@@ -661,7 +661,6 @@ export function ReportsView() {
               reportToolbar={reportToolbar}
               warehouseCapacityTrendPoints={warehouseCapacityTrendPoints}
               warehouseCapacityVsUsedChart={warehouseCapacityVsUsedChart}
-              warehouses={warehouses}
             />
           </TabsContent>
 

@@ -11,6 +11,7 @@ import {
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
 import type { DriverLocation, LiveRouteLine } from './live-tracking/types';
+import { coincidentPinTilts, rotateScreenOffset } from './live-tracking/pin-spread';
 
 const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 const TRUCK_BACK_ICON_URL = '/icons/aab-van-back.png';
@@ -51,8 +52,33 @@ type DropPinMarkerEntry = {
   marker: maplibregl.Marker;
   lat: number;
   lng: number;
+  tilt: number | undefined;
   popupHtml: string;
 };
+
+const DROP_PIN_COLOR = '#dc2626';
+// The native SVG tip is at y=34.8 inside its 41px viewBox; this lifts that tip onto lngLat.
+const DROP_PIN_TIP_OFFSET_Y = -17.16;
+const DROP_PIN_POPUP_OFFSET: [number, number] = [0, -52];
+// That tip within the marker element at scale 1.2 (13.5, 34.8 of a 27x41 viewBox).
+const DROP_PIN_TIP: [number, number] = [16.2, 41.76];
+// The native head is wide for its length, so neighbours in a fan need to lean further apart.
+const DROP_PIN_TILT_STEP_DEG = 55;
+
+/** Fans a pin that shares its coordinate (see pin-spread), or stands one back up that no longer does. */
+function applyDropPinTilt(marker: maplibregl.Marker, tilt: number | undefined) {
+  const angle = tilt ?? 0;
+  const element = marker.getElement();
+  // The marker rotates about this origin, so the tip stays on the coordinate.
+  element.style.transformOrigin = tilt === undefined ? '' : `${DROP_PIN_TIP[0]}px ${DROP_PIN_TIP[1]}px`;
+  // A fanned pin's box overlaps its neighbours' heads; only the drawn pin takes clicks.
+  element.style.pointerEvents = tilt === undefined ? '' : 'none';
+  element.querySelectorAll<SVGElement>('path, circle').forEach((shape) => {
+    shape.style.pointerEvents = tilt === undefined ? '' : 'visiblePainted';
+  });
+  marker.setRotation(angle);
+  marker.getPopup()?.setOffset(rotateScreenOffset(DROP_PIN_POPUP_OFFSET, angle));
+}
 
 function escapeHtml(value: unknown) {
   return String(value ?? '')
@@ -571,31 +597,38 @@ export default function MapLibreNavigationMap({
     const map = mapRef.current;
     if (!map) return;
     const activePinIds = new Set<string>();
+    // Stops at one address share a coordinate; fan their pins out about it instead of stacking them.
+    const pinTilts = coincidentPinTilts(locations, DROP_PIN_TILT_STEP_DEG);
     locations.filter((location) => location.markerType === 'pin').forEach((location) => {
       activePinIds.add(location.id);
+      const tilt = pinTilts.get(location.id);
       let entry = dropPinMarkersRef.current.get(location.id);
       if (!entry) {
         // Fix: MapLibre's native marker owns the anchor calculation, keeping the
         // pin tip bound to its geographic coordinate throughout every zoom level.
         const marker = new maplibregl.Marker({
-          color: '#dc2626',
+          color: DROP_PIN_COLOR,
           scale: 1.2,
-          // Fix: the native SVG tip is at y=34.8 inside its 41px viewBox.
-          // This center offset places that visible tip—not the shadow box—on lngLat.
+          // A center anchor plus this offset places the visible tip—not the shadow box—on lngLat.
           anchor: 'center',
-          offset: [0, -17.16],
+          offset: [0, DROP_PIN_TIP_OFFSET_Y],
           pitchAlignment: 'viewport',
           rotationAlignment: 'viewport',
           subpixelPositioning: true,
         })
           .setLngLat([location.lng, location.lat])
-          .setPopup(new maplibregl.Popup({ closeButton: false, offset: [0, -52] }).setHTML(popupHtml(location)))
+          .setPopup(new maplibregl.Popup({ closeButton: false, offset: DROP_PIN_POPUP_OFFSET }).setHTML(popupHtml(location)))
           .addTo(map);
         const markerElement = marker.getElement();
         markerElement.setAttribute('aria-label', 'Drop point');
 
-        entry = { marker, lat: location.lat, lng: location.lng, popupHtml: '' };
+        entry = { marker, lat: location.lat, lng: location.lng, tilt: undefined, popupHtml: '' };
         dropPinMarkersRef.current.set(location.id, entry);
+      }
+      // A pin joining or leaving the group at this coordinate re-spaces the rest.
+      if (entry.tilt !== tilt) {
+        applyDropPinTilt(entry.marker, tilt);
+        entry.tilt = tilt;
       }
       // Fix: live truck updates rebuild `locations`; do not reset a stationary
       // drop pin unless that drop point's stored coordinates actually changed.

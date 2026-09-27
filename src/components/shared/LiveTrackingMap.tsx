@@ -37,7 +37,8 @@ import {
   roadSnappedRouteCache,
   shortestAngleDelta,
 } from './live-tracking/geometry'
-import { DefaultIcon, getStatusPinIcon, getTruckIcon } from './live-tracking/icons'
+import { DefaultIcon, getStatusPinIcon, getTruckIcon, STATUS_PIN_TILT_STEP_DEG } from './live-tracking/icons'
+import { coincidentPinTilts } from './live-tracking/pin-spread'
 import {
   TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS,
   TRUCK_MAX_ROUTE_SNAP_METERS,
@@ -689,6 +690,8 @@ export default function LiveTrackingMap({
     };
   }, [navigationPerspective, navigationRouteKey, truckRoadLinesKey, truckTargetSignature, mapVisibilityEpoch]);
 
+  // Orders to the same address share a coordinate; fan their pins out about it instead of stacking them.
+  const pinTilts = useMemo(() => coincidentPinTilts(smoothedLocations, STATUS_PIN_TILT_STEP_DEG), [smoothedLocations]);
   const singleTruck = smoothedLocations.filter((loc) => loc.markerType === 'truck');
   const navTruck = singleTruck.length === 1 ? singleTruck[0] : null;
   // The truck's position changes every animation frame, but the grey/blue
@@ -979,7 +982,7 @@ export default function LiveTrackingMap({
                 <MarkerUnsafe
                   key={loc.id}
                   position={[loc.lat, loc.lng]}
-                  icon={getStatusPinIcon(pinColor, loc.markerNumber)}
+                  icon={getStatusPinIcon(pinColor, loc.markerNumber, pinTilts.get(loc.id))}
                 >
                   {loc.markerEta ? (
                     <TooltipUnsafe
