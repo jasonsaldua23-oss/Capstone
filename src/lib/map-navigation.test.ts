@@ -195,3 +195,31 @@ test('a new road that does not continue the old one replaces it', () => {
   assert.deepEqual(joinRoadTrack(previous, next), next);
   assert.deepEqual(joinRoadTrack(undefined, next), next);
 });
+
+
+test('the road taken ends at the icon, not at the newest point recorded', async () => {
+  const { roadTakenToIcon } = await import('./map-navigation.ts')
+  const east = (meters: number): [number, number] => [10.7, 122.95 + meters / 109_400]
+  const road = [0, 100, 200, 300, 400, 500].map(east)
+  const cut = roadTakenToIcon(road, east(320))
+  assert.deepEqual(cut[cut.length - 1], east(320))
+  assert.ok(cut.every((point) => point[1] <= east(320)[1] + 1e-9), 'the road ran on past the icon')
+})
+
+test('coming back along a road already driven, the road taken keeps the way out and back', async () => {
+  const { roadTakenToIcon } = await import('./map-navigation.ts')
+  const east = (meters: number, north = 0): [number, number] => [10.7 + north / 110_540, 122.95 + meters / 109_400]
+  // Out 600 m east, then back west on the same street (a few metres over) to 250 m.
+  const road = [0, 150, 300, 450, 600].map((m) => east(m)).concat([450, 350, 250].map((m) => east(m, 4)))
+  const cut = roadTakenToIcon(road, east(300, 4))
+  // Everything out to 600 m is kept; the cut is on the way back, at the icon.
+  assert.ok(cut.some((point) => Math.abs(point[1] - east(600)[1]) < 1e-9))
+  assert.deepEqual(cut[cut.length - 1], east(300, 4))
+})
+
+test('an icon a little past the last recorded point is led on to', async () => {
+  const { roadTakenToIcon } = await import('./map-navigation.ts')
+  const east = (meters: number): [number, number] => [10.7, 122.95 + meters / 109_400]
+  const cut = roadTakenToIcon([east(0), east(100)], east(160))
+  assert.deepEqual(cut, [east(0), east(100), east(160)])
+})

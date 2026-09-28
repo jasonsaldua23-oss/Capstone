@@ -31,6 +31,7 @@ from .models import (
     Replacement,
     Trip,
     TripDropPoint,
+    TripPathPoint,
     TripStatus,
     User,
     Vehicle,
@@ -360,19 +361,24 @@ def driver_location(request: HttpRequest) -> JsonResponse:
     trip_id = None
     trip_resolution = "none"
     tracking_allowed = False
+    # Only a trip under way gets the fix added to the road it has taken.
+    trip_underway = False
     if requested_trip_id:
         requested_trip = Trip.objects.filter(id=requested_trip_id, driver_id=d.id).first()
         if requested_trip:
             trip_id = requested_trip.id
             tracking_allowed = requested_trip.status in active_statuses | {"PLANNED"}
+            trip_underway = requested_trip.status in active_statuses
             trip_resolution = "requested_trip_matched_driver"
         elif active_trip:
             trip_id = active_trip.id
             tracking_allowed = True
+            trip_underway = True
             trip_resolution = "fallback_active_trip"
     else:
         trip_id = active_trip.id if active_trip else None
         tracking_allowed = bool(active_trip)
+        trip_underway = bool(active_trip)
         trip_resolution = "auto_active_trip" if trip_id else "none"
     with transaction.atomic():
         # Lock before reading: concurrent first uploads must not create competing latest rows.
@@ -433,6 +439,8 @@ def driver_location(request: HttpRequest) -> JsonResponse:
             )
 
         LocationLog.objects.filter(driver_id=d.id).exclude(id=log.id).delete()
+        if trip_underway and trip_id:
+            _record_trip_path_point(trip_id, lat, lng, accuracy, gps_speed, recorded_at)
     return _ok({
         "success": True,
         "locationLogId": log.id,
@@ -441,6 +449,38 @@ def driver_location(request: HttpRequest) -> JsonResponse:
         "tripResolution": trip_resolution,
         "trackingAllowed": tracking_allowed,
     })
+
+
+# The road taken is drawn through a point at least this far from the one before...
+TRIP_PATH_MIN_SPACING_METERS = 15
+# ...from fixes no vaguer than this...
+TRIP_PATH_MAX_ACCURACY_METERS = 50
+# ...taken while the van was moving: a parked phone's wander is not a road driven...
+TRIP_PATH_PARKED_SPEED_MPS = 1.0
+# ...and never a leap faster than this from the point before, within this long of it.
+TRIP_PATH_MAX_SPEED_MPS = 45
+TRIP_PATH_LEAP_WINDOW_SECONDS = 120
+
+
+def _record_trip_path_point(trip_id: str, lat: float, lng: float, accuracy: float | None, speed: float | None, recorded_at) -> None:
+    """Add a fix to the road the trip has taken, if it says something new about it."""
+    if accuracy is not None and accuracy > TRIP_PATH_MAX_ACCURACY_METERS:
+        return
+    if speed is not None and speed < TRIP_PATH_PARKED_SPEED_MPS:
+        return
+    last = TripPathPoint.objects.filter(trip_id=trip_id).order_by("-recorded_at").first()
+    if last is not None:
+        if recorded_at <= last.recorded_at:
+            return
+        meters = legacy._haversine_km(last.latitude, last.longitude, lat, lng) * 1000
+        if meters < max(TRIP_PATH_MIN_SPACING_METERS, accuracy or 0):
+            return
+        seconds = (recorded_at - last.recorded_at).total_seconds()
+        if seconds < TRIP_PATH_LEAP_WINDOW_SECONDS and meters > TRIP_PATH_MAX_SPEED_MPS * max(seconds, 1):
+            return
+    TripPathPoint.objects.create(
+        trip_id=trip_id, latitude=lat, longitude=lng, accuracy=accuracy, speed=speed, recorded_at=recorded_at,
+    )
 
 
 # How long a GPS fix keeps a coarser, speedless one from replacing it. Matches

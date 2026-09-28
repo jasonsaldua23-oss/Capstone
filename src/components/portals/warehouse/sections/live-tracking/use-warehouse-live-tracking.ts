@@ -1,4 +1,5 @@
 import { reportedFixFields } from '@/components/shared/live-tracking/report-fields'
+import { tripPathPoints, type TripPaths } from '@/lib/trip-path'
 import { useCallback, useMemo } from 'react'
 import type { WarehouseOrderItem, WarehouseTripItem } from '../../warehouse-portal-types'
 import { normalizeTripStatus } from '../../warehouse-portal-utils'
@@ -11,6 +12,8 @@ import { buildDeliveredTransactions, deliveredTransactionPin } from '@/lib/deliv
  */
 export type WarehouseLiveTrackingInputs = {
   driverLocations: DriverLocationItem[]
+  /** The road each trip has actually taken (see lib/trip-path). */
+  tripPaths: TripPaths
   scopedOrders: WarehouseOrderItem[]
   scopedTrips: WarehouseTripItem[]
   trackingDate: string
@@ -22,6 +25,7 @@ const recordedAtMs = (point: any) =>
 export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
   const {
     driverLocations,
+    tripPaths,
     scopedOrders,
     scopedTrips,
     trackingDate,
@@ -94,6 +98,7 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
       weight?: number
       dashArray?: string
       snapToRoad?: boolean
+      followsTruckId?: string
     }> = []
 
     const cancelledOrderIds = new Set(
@@ -299,7 +304,24 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
           }
         }
 
-        if (logs.length > 0) {
+        // The road the driver actually drove, recorded as the trip went on; it ends
+        // at the truck's icon and is drawn above the route still ahead. The routing
+        // service's road through the latest position is kept only for a trip started
+        // before the road was recorded.
+        const roadTaken = tripPathPoints(tripPaths[String(trip.id)])
+        const truckMarkerId = driverLocationMarker?.id
+        if (roadTaken.length > 1) {
+          routeLines.push({
+            id: `passed-${trip.id}`,
+            points: roadTaken,
+            color: '#6b7280',
+            label: `${trip.tripNumber || 'Trip'} - Path taken`,
+            opacity: 0.95,
+            weight: 7,
+            dashArray: '8 8',
+            followsTruckId: truckMarkerId,
+          })
+        } else if (logs.length > 0) {
           const passedPathPoints: [number, number][] = [
             ...(warehouseStart ? [warehouseStart] : []),
             ...logs.map((log: any) => [Number(log.latitude), Number(log.longitude)] as [number, number]),
@@ -319,6 +341,7 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
             weight: 7,
             dashArray: '8 8',
             snapToRoad: true,
+            followsTruckId: truckMarkerId,
           })
           }
         }
@@ -410,7 +433,7 @@ export function useWarehouseLiveTracking(inputs: WarehouseLiveTrackingInputs) {
     })
 
     return { locations, routeLines }
-  }, [driverLocations, dropPointMatchesTrackingDay, liveTrackingDeliveredTransactions, orderMatchesTrackingDay, scopedOrders, scopedTrips, trackingDate, tripMatchesTrackingDay])
+  }, [driverLocations, dropPointMatchesTrackingDay, liveTrackingDeliveredTransactions, orderMatchesTrackingDay, scopedOrders, scopedTrips, trackingDate, tripMatchesTrackingDay, tripPaths])
 
   const liveTrackingLocations = liveMapData.locations
   const liveTrackingRouteLines = liveMapData.routeLines

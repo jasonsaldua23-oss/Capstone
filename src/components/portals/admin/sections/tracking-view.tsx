@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { reportedFixFields } from '@/components/shared/live-tracking/report-fields'
+import { mergeTripPathTails, tripPathPoints, tripPathsFromTrips, type TripPaths } from '@/lib/trip-path'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
@@ -64,6 +65,8 @@ const recordedAtMs = (point: any) =>
 export function TrackingView() {
   const [trips, setTrips] = useState<any[]>([])
   const [driverLocations, setDriverLocations] = useState<any[]>([])
+  // The road each trip has actually taken, grown by every position refresh.
+  const [tripPaths, setTripPaths] = useState<TripPaths>({})
   const [ordersForMap, setOrdersForMap] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [trackingDate, setTrackingDate] = useState(formatDayKey(new Date()))
@@ -127,7 +130,11 @@ export function TrackingView() {
   // refreshed on its own instead of re-reading every trip and order to get it.
   const fetchDriverPositions = async () => {
     const response = await safeFetchJson('/api/trips?page=1&pageSize=1&includeTracking=1', { cache: 'no-store' })
-    if (response.ok) setDriverLocations(toArray<any>(response.data?.driverLocations))
+    if (response.ok) {
+      const locations = toArray<any>(response.data?.driverLocations)
+      setDriverLocations(locations)
+      setTripPaths((previous) => mergeTripPathTails(previous, locations))
+    }
   }
 
   const fetchTrackingTrips = async () => {
@@ -152,8 +159,11 @@ export function TrackingView() {
         ),
       ])
 
-      setTrips(tripsResponse.ok ? getCollection(tripsResponse.data, ['trips']) : [])
-      setDriverLocations(tripsResponse.ok ? toArray<any>(tripsResponse.data?.driverLocations) : [])
+      const loadedTrips = tripsResponse.ok ? getCollection<any>(tripsResponse.data, ['trips']) : []
+      const loadedLocations = tripsResponse.ok ? toArray<any>(tripsResponse.data?.driverLocations) : []
+      setTrips(loadedTrips)
+      setDriverLocations(loadedLocations)
+      setTripPaths((previous) => mergeTripPathTails(tripPathsFromTrips(loadedTrips, previous), loadedLocations))
       setOrdersForMap(ordersResponse.ok ? getCollection(ordersResponse.data, ['orders']) : [])
     } catch (error) {
       console.error('Failed to fetch live tracking data:', error)
@@ -252,6 +262,7 @@ export function TrackingView() {
       weight?: number
       dashArray?: string
       snapToRoad?: boolean
+      followsTruckId?: string
     }> = []
 
     const tripsForMap = trips.filter((trip: any) =>
@@ -448,7 +459,27 @@ export function TrackingView() {
         return !(Math.abs(point[0] - previous[0]) < 0.000001 && Math.abs(point[1] - previous[1]) < 0.000001)
       })
 
-      if (passedPathPoints.length > 1) {
+      // The road the driver actually drove, recorded as the trip went on. It ends at
+      // the truck's icon and is drawn above the route still ahead of it. The old
+      // "path taken" was the routing service's road from the warehouse to wherever
+      // the van was - a guess, often a different road - and it is kept only for a
+      // trip started before the road was recorded.
+      const roadTaken = tripPathPoints(tripPaths[String(trip.id)])
+      const truckMarkerId = hasDriverPosition && ['IN_PROGRESS'].includes(normalizedTripStatus)
+        ? `driver-${driverId || trip.id}`
+        : undefined
+      if (roadTaken.length > 1) {
+        routeLines.push({
+          id: `completed-${trip.id}`,
+          points: roadTaken,
+          color: '#93c5fd',
+          label: `${trip.tripNumber || 'Trip'} - Completed route`,
+          opacity: 0.85,
+          weight: 6,
+          dashArray: '7 9',
+          followsTruckId: truckMarkerId,
+        })
+      } else if (passedPathPoints.length > 1) {
         routeLines.push({
           id: `completed-${trip.id}`,
           points: passedPathPoints,
@@ -458,6 +489,7 @@ export function TrackingView() {
           weight: 6,
           dashArray: '7 9',
           snapToRoad: true,
+          followsTruckId: truckMarkerId,
         })
       } else if (hasDriverPosition && warehouseStart) {
         // Fallback so "path taken" is still visible even with sparse GPS logs.
@@ -562,7 +594,7 @@ export function TrackingView() {
     })
 
     return { locations, routeLines }
-  }, [deliveredTransactions, driverLocations, ordersForMap, trackingDate, trips])
+  }, [deliveredTransactions, driverLocations, ordersForMap, trackingDate, tripPaths, trips])
 
   const mapLocations = mapData.locations
   const routeLines = mapData.routeLines

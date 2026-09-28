@@ -121,6 +121,50 @@ class DriverLocationAccuracyContractTests(TestCase):
         self.assertNotIn('ignored', response.json())
         self.assertEqual(LocationLog.objects.get(driver=self.driver).latitude, 10.68)
 
+    def _trip_for_path(self, status: str) -> Trip:
+        vehicle = Vehicle.objects.create(license_plate=f"PATH-{status}", type=VehicleType.VAN, driver=self.driver)
+        return Trip.objects.create(trip_number=f"TRP-PATH-{status}", driver=self.driver, vehicle=vehicle, status=status)
+
+    def _post_path_fix(self, trip: Trip, *, meters_east: float, seconds: int, speed: float | None = 9, accuracy: float = 6):
+        body = {
+            'latitude': 10.70, 'longitude': 122.95 + meters_east / 109_400, 'accuracy': accuracy,
+            'recordedAt': int((self.path_start + timedelta(seconds=seconds)).timestamp() * 1000), 'tripId': trip.id,
+        }
+        if speed is not None:
+            body['speed'] = speed
+        return self.client.post('/api/driver/location', data=body, content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {self.token}')
+
+    def test_a_trip_underway_keeps_the_road_the_driver_took(self) -> None:
+        from .models import TripPathPoint
+        trip = self._trip_for_path(TripStatus.IN_PROGRESS)
+        self.path_start = timezone.now() - timedelta(minutes=5)
+        for meters, seconds in [(0, 0), (40, 4), (46, 5), (90, 9), (140, 14)]:
+            self.assertEqual(self._post_path_fix(trip, meters_east=meters, seconds=seconds).status_code, 200)
+        # A fix 6 m on from the last kept point adds nothing to the line.
+        east = [round((point.longitude - 122.95) * 109_400) for point in TripPathPoint.objects.filter(trip=trip).order_by('recorded_at')]
+        self.assertEqual(east, [0, 40, 90, 140])
+
+    def test_standing_wander_and_impossible_leaps_are_not_roads_driven(self) -> None:
+        from .models import TripPathPoint
+        trip = self._trip_for_path(TripStatus.IN_PROGRESS)
+        self.path_start = timezone.now() - timedelta(minutes=5)
+        self._post_path_fix(trip, meters_east=0, seconds=0)
+        self._post_path_fix(trip, meters_east=25, seconds=10, speed=0.2)  # parked, GPS wandering
+        self._post_path_fix(trip, meters_east=3000, seconds=12)  # 3 km in two seconds
+        self._post_path_fix(trip, meters_east=80, seconds=20, accuracy=90)  # too vague to draw
+        self._post_path_fix(trip, meters_east=60, seconds=24)
+        east = [round((point.longitude - 122.95) * 109_400) for point in TripPathPoint.objects.filter(trip=trip).order_by('recorded_at')]
+        self.assertEqual(east, [0, 60])
+
+    def test_no_road_is_recorded_before_the_trip_starts(self) -> None:
+        from .models import TripPathPoint
+        trip = self._trip_for_path(TripStatus.PLANNED)
+        self.path_start = timezone.now() - timedelta(minutes=5)
+        self._post_path_fix(trip, meters_east=0, seconds=0)
+        self._post_path_fix(trip, meters_east=60, seconds=6)
+        self.assertFalse(TripPathPoint.objects.filter(trip=trip).exists())
+
     def test_degraded_but_usable_gps_sample_updates_the_driver_location(self) -> None:
         # After the client grace period, 100–300m GPS estimates keep the vehicle moving.
         response = self.client.post(

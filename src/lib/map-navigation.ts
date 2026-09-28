@@ -237,6 +237,39 @@ export function joinRoadTrack(
   });
 }
 
+/**
+ * The road a vehicle has taken, ending where its icon is drawn. The icon is looked
+ * for near the end of the road only: a van that drove out and is coming back along
+ * the same street passes its outbound track too, and cutting the road there dropped
+ * everything it had driven since.
+ */
+export function roadTakenToIcon(
+  road: [number, number][],
+  icon: [number, number],
+  searchBackMeters = 400,
+  reachMeters = 40
+): [number, number][] {
+  if (road.length < 2) return road;
+  let start = road.length - 1;
+  let walked = 0;
+  while (start > 0 && walked < searchBackMeters) {
+    walked += approximateMapDistanceMeters(road[start - 1], road[start]);
+    start -= 1;
+  }
+  const tail = road.slice(start);
+  const meet = projectPointOntoRoute(icon, tail);
+  if (meet && meet.distanceFromRouteMeters <= reachMeters) {
+    const driven = splitRouteAtDistance(tail, meet.distanceAlongMeters).completed;
+    return [...road.slice(0, start), ...(driven.length > 0 ? driven : [tail[0]]), icon].filter((point, index, list) => {
+      if (index === 0) return true;
+      const prev = list[index - 1];
+      return !(Math.abs(point[0] - prev[0]) < 1e-7 && Math.abs(point[1] - prev[1]) < 1e-7);
+    });
+  }
+  // The icon is past the last point recorded so far: lead the road on to it.
+  return approximateMapDistanceMeters(road[road.length - 1], icon) <= 150 ? [...road, icon] : road;
+}
+
 export function resolveNavigationHeading(routeHeading: number | null | undefined, gpsHeading: number | null | undefined) {
   if (typeof routeHeading === 'number' && Number.isFinite(routeHeading)) return normalizeMapAngle(routeHeading);
   if (typeof gpsHeading === 'number' && Number.isFinite(gpsHeading) && gpsHeading >= 0) return normalizeMapAngle(gpsHeading);

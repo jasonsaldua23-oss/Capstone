@@ -186,6 +186,50 @@ class TripsCollectionTrackingContractTests(TestCase):
         # rather than being dropped for being falsy.
         self.assertEqual(location["speed"], 0.0)
 
+    def test_include_tracking_sends_the_road_each_trip_actually_took(self) -> None:
+        from datetime import timedelta
+        from unittest.mock import patch
+        from .models import TripPathPoint
+
+        trip = Trip.objects.create(trip_number="TRP-PATH-PAYLOAD", driver=self.driver, vehicle=self.vehicle, status="IN_PROGRESS")
+        start = timezone.now() - timedelta(minutes=10)
+        for index in range(7):
+            TripPathPoint.objects.create(trip=trip, latitude=10.70, longitude=122.95 + index * 0.0002,
+                recorded_at=start + timedelta(seconds=index * 5))
+
+        with patch("core.views_trips.TRIP_PATH_MAX_POINTS", 3):
+            response = self.client.get("/api/trips", data={"includeTracking": "true"},
+                HTTP_AUTHORIZATION=f"Bearer {self.admin_token}")
+        row = next(item for item in response.json()["trips"] if item["id"] == trip.id)
+        # Oldest first, thinned evenly to the limit, and always ending where the van last was.
+        self.assertEqual([round((lng - 122.95) / 0.0002) for _, lng in row["pathPoints"]], [0, 3, 6])
+        self.assertEqual(row["pathEndsAt"], (start + timedelta(seconds=30)).isoformat())
+
+        # A later page of a list can ask for the roads alone.
+        response = self.client.get("/api/trips", data={"includePaths": "1"}, HTTP_AUTHORIZATION=f"Bearer {self.admin_token}")
+        payload = response.json()
+        row = next(item for item in payload["trips"] if item["id"] == trip.id)
+        self.assertEqual(len(row["pathPoints"]), 7)
+        self.assertEqual(payload["driverLocations"], [])
+
+    def test_driver_positions_carry_the_newest_stretch_of_the_road_taken(self) -> None:
+        from datetime import timedelta
+        from .models import TripPathPoint
+
+        trip = Trip.objects.create(trip_number="TRP-PATH-TAIL", driver=self.driver, vehicle=self.vehicle, status="IN_PROGRESS")
+        now = timezone.now()
+        TripPathPoint.objects.create(trip=trip, latitude=10.70, longitude=122.9500, recorded_at=now - timedelta(minutes=10))
+        recent = [now - timedelta(seconds=40), now - timedelta(seconds=10)]
+        for index, at in enumerate(recent):
+            TripPathPoint.objects.create(trip=trip, latitude=10.70, longitude=122.9510 + index * 0.0002, recorded_at=at)
+        LocationLog.objects.create(driver=self.driver, trip=trip, latitude=10.70, longitude=122.9513, recorded_at=now)
+
+        response = self.client.get("/api/trips", data={"page": 1, "pageSize": 1, "includeTracking": "1"},
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}")
+        location = next(row for row in response.json()["driverLocations"] if row["tripId"] == trip.id)
+        # Only the last few minutes, each point with the time it was taken.
+        self.assertEqual([point[2] for point in location["pathTail"]], [int(at.timestamp() * 1000) for at in recent])
+
     def _make_trip(self, trip_number: str, *, status: str, created_days_ago: int, ended_days_ago: int | None = None) -> Trip:
         now = timezone.now()
         trip = Trip.objects.create(

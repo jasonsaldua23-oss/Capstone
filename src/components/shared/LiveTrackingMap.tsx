@@ -8,6 +8,7 @@ import MapLibreNavigationMap, { type NavigationMapHandle, type NavigationTruckPo
 import {
   projectPointOntoRoute,
   quantizeRouteSplitMeters,
+  roadTakenToIcon,
   splitRouteAtDistance,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
@@ -793,27 +794,42 @@ export default function LiveTrackingMap({
   // report behind the newest position (it only drives road it is known to have
   // driven), so the road from the icon to that position leads into the planned
   // route from there - which, fetched from an older report, may start behind it.
+  //
+  // A road a truck has taken (`followsTruckId`) ends at that truck's icon, and is
+  // drawn above the route still ahead: where the van comes back along a road it
+  // already drove, the road taken shows and the route ahead picks up past it.
   const reportDisplayRouteLines = useMemo(() => {
     if (navigationPerspective) return renderedRouteLines;
     const leadByLine = new Map<string, [number, number][]>();
+    const truckPoints = new Map<string, [number, number]>();
     smoothedLocations.forEach((location) => {
+      if (location.markerType !== 'truck') return;
+      truckPoints.set(location.id, [location.lat, location.lng]);
       const lead = truckLeads[location.id];
-      if (location.markerType === 'truck' && location.roadLineId && lead && lead.length > 1) {
-        leadByLine.set(location.roadLineId, lead);
-      }
+      if (location.roadLineId && lead && lead.length > 1) leadByLine.set(location.roadLineId, lead);
     });
-    if (leadByLine.size === 0) return renderedRouteLines;
-    return renderedRouteLines.map((line) => {
+    const lines = renderedRouteLines.map((line) => {
       const lead = leadByLine.get(line.id);
-      if (!lead) return line;
-      const leadEnd = lead[lead.length - 1];
-      const meet = projectPointOntoRoute(leadEnd, line.points);
-      const ahead = meet && meet.distanceFromRouteMeters <= 25
-        ? splitRouteAtDistance(line.points, meet.distanceAlongMeters).remaining
-        : line.points;
-      return { ...line, points: dedupeConsecutivePoints([...lead, ...ahead]) };
+      if (lead) {
+        const leadEnd = lead[lead.length - 1];
+        const meet = projectPointOntoRoute(leadEnd, line.points);
+        const ahead = meet && meet.distanceFromRouteMeters <= 25
+          ? splitRouteAtDistance(line.points, meet.distanceAlongMeters).remaining
+          : line.points;
+        return { ...line, points: dedupeConsecutivePoints([...lead, ...ahead]) };
+      }
+      const icon = line.followsTruckId ? truckPoints.get(line.followsTruckId) : undefined;
+      return icon ? { ...line, points: roadTakenToIcon(line.points, icon) } : line;
     });
+    return [
+      ...lines.filter((line) => !line.followsTruckId),
+      ...lines.filter((line) => line.followsTruckId),
+    ];
   }, [navigationPerspective, renderedRouteLines, smoothedLocations, truckLeads]);
+  // Leaflet stacks lines in the order they are first added. Each road arrives from
+  // the routing service on its own, so a road that came back late was added last and
+  // covered the rest. A new set of lines is added afresh, in the order above.
+  const routeLayerOrderKey = reportDisplayRouteLines.map((line) => line.id).join('|');
 
   const strictBounds = restrictToNegrosOccidental
     ? serviceBoundary
@@ -928,7 +944,7 @@ export default function LiveTrackingMap({
           : null}
         {reportDisplayRouteLines.map((line) =>
           Array.isArray(line.points) && line.points.length > 1 ? (
-            <Fragment key={line.id}>
+            <Fragment key={`${routeLayerOrderKey}::${line.id}`}>
               {(() => {
                 const rawColor = String(line.color || '').toLowerCase();
                 const isUpcoming = rawColor === '#2563eb' && !line.dashArray;

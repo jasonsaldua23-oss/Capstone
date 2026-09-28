@@ -676,6 +676,27 @@ class LocationLog(models.Model):
         db_table = "LocationLog"
 
 
+class TripPathPoint(models.Model):
+    """Where the driver actually went during a trip, a point every several metres.
+
+    LocationLog keeps only each driver's latest position, so the "path taken" line on
+    the tracking maps used to be the routing service's idea of a road from the
+    warehouse to wherever the van was - not the road the van had driven.
+    """
+
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name="path_points")
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    accuracy = models.FloatField(blank=True, null=True)
+    speed = models.FloatField(blank=True, null=True, help_text="GPS speed in m/s")
+    recorded_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "TripPathPoint"
+        indexes = [models.Index(fields=["trip", "recorded_at"], name="trip_path_point_trip_time")]
+
+
 class Replacement(models.Model):
     # The scheduled shipment belongs directly to its replacement request.
     delivery_transaction = models.OneToOneField(Order, on_delete=models.PROTECT, blank=True, null=True, related_name="scheduled_replacement")

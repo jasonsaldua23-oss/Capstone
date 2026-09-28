@@ -1,7 +1,8 @@
 """Trip planning and assignment endpoints."""
 
 import logging
-from datetime import datetime
+import math
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import IntegrityError, transaction
@@ -36,6 +37,7 @@ from .models import (
     RoleType,
     Trip,
     TripDropPoint,
+    TripPathPoint,
     TripStatus,
     User,
     Vehicle,
@@ -56,6 +58,52 @@ def driver_vehicle_license_error(driver: Any, vehicle: Any) -> str | None:
 
 # Helpers owned by sibling modules. Routing them through views_api keeps
 # a single resolution point, so tests that patch there still apply.
+
+
+# A trip's road is sent as at most this many points; a longer one is thinned evenly.
+TRIP_PATH_MAX_POINTS = 1500
+
+
+def _trip_paths(trip_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """The road each trip actually took, oldest first, as [lat, lng] pairs."""
+    points_by_trip: dict[str, list[list[float]]] = {}
+    ends_at: dict[str, Any] = {}
+    rows = (
+        TripPathPoint.objects.filter(trip_id__in=trip_ids)
+        .order_by("trip_id", "recorded_at")
+        .values_list("trip_id", "latitude", "longitude", "recorded_at")
+    )
+    for trip_id, latitude, longitude, recorded_at in rows:
+        points_by_trip.setdefault(trip_id, []).append([latitude, longitude])
+        ends_at[trip_id] = recorded_at
+    paths: dict[str, dict[str, Any]] = {}
+    for trip_id, points in points_by_trip.items():
+        if len(points) > TRIP_PATH_MAX_POINTS:
+            step = math.ceil(len(points) / TRIP_PATH_MAX_POINTS)
+            points = points[::step] + ([points[-1]] if (len(points) - 1) % step else [])
+        paths[trip_id] = {"points": points, "endsAt": ends_at[trip_id].isoformat()}
+    return paths
+
+
+# How far back the stretch sent with each position refresh reaches: well past the few
+# seconds between refreshes, so a missed refresh or two leaves no gap in the line.
+TRIP_PATH_TAIL_SECONDS = 180
+
+
+def _trip_path_tails(trip_ids: list[str]) -> dict[str, list[list[float]]]:
+    """Each trip's road over the last few minutes, as [lat, lng, epoch ms] points."""
+    if not trip_ids:
+        return {}
+    since = timezone.now() - timedelta(seconds=TRIP_PATH_TAIL_SECONDS)
+    tails: dict[str, list[list[float]]] = {}
+    rows = (
+        TripPathPoint.objects.filter(trip_id__in=trip_ids, recorded_at__gte=since)
+        .order_by("trip_id", "recorded_at")
+        .values_list("trip_id", "latitude", "longitude", "recorded_at")
+    )
+    for trip_id, latitude, longitude, recorded_at in rows:
+        tails.setdefault(trip_id, []).append([latitude, longitude, int(recorded_at.timestamp() * 1000)])
+    return tails
 
 
 def _assign_order_items_to_trip_for_warehouse(*, trip: Trip, order_ids: list[str], warehouse_id: str, performed_by: str | None=None) -> int:
@@ -258,6 +306,9 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         ).order_by("-created_at")
         tracking_date_raw = str(request.GET.get("trackingDate") or "").strip()
         include_tracking = str(request.GET.get("includeTracking") or "").strip().lower() in {"1", "true", "yes"}
+        # The road each trip took, without the driver positions includeTracking also
+        # reads - for the later pages of a list that asked for positions on page one.
+        include_paths = str(request.GET.get("includePaths") or "").strip().lower() in {"1", "true", "yes"}
         staff_role = str(staff.get("role") or "").strip().upper()
         staff_user_id = str(staff.get("userId") or "").strip()
         allowed_warehouse_ids: set[str] | None = None
@@ -447,6 +498,12 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
         serialized_rows = [_serialize_trip(trip, ctx=serialization_context) for trip in rows]
 
         driver_locations: list[dict[str, Any]] = []
+        if include_paths and not include_tracking and serialized_rows:
+            path_by_trip = _trip_paths([row.get("id") for row in serialized_rows if row.get("id")])
+            for trip_row in serialized_rows:
+                path = path_by_trip.get(trip_row.get("id"))
+                trip_row["pathPoints"] = path["points"] if path else []
+                trip_row["pathEndsAt"] = path["endsAt"] if path else None
         if include_tracking:
             if serialized_rows:
                 trip_ids = [row.get("id") for row in serialized_rows if row.get("id")]
@@ -471,12 +528,17 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                     if log.trip_id not in latest_log_by_trip:
                         latest_log_by_trip[log.trip_id] = row
 
+                path_by_trip = _trip_paths(trip_ids)
                 for trip_row in serialized_rows:
                     trip_id = trip_row.get("id")
                     if not trip_id:
                         continue
                     trip_row["locationLogs"] = logs_by_trip.get(trip_id, [])
                     trip_row["latestLocation"] = latest_log_by_trip.get(trip_id)
+                    # The road the driver actually took, for the "path taken" line.
+                    path = path_by_trip.get(trip_id)
+                    trip_row["pathPoints"] = path["points"] if path else []
+                    trip_row["pathEndsAt"] = path["endsAt"] if path else None
 
             # Fix: expose one latest GPS point per active driver independently of
             # trip status. Completed or unlinked locations must remain visible to
@@ -513,6 +575,16 @@ def trips_collection(request: HttpRequest) -> JsonResponse:
                         "vehiclePlate": str(getattr(tracked_vehicle, "license_plate", "") or "").strip() or None,
                     }
                 )
+            # The newest stretch of each moving trip's road rides along with the driver
+            # positions refreshed every few seconds, so the maps can grow the "path taken"
+            # line they already hold without re-reading every trip.
+            tail_trip_ids = [
+                row["tripId"] for row in driver_locations
+                if row.get("tripId") and str(row.get("tripStatus") or "").upper() == "IN_PROGRESS"
+            ]
+            tails = _trip_path_tails(tail_trip_ids)
+            for row in driver_locations:
+                row["pathTail"] = tails.get(row.get("tripId") or "", [])
 
         return _ok(
             {

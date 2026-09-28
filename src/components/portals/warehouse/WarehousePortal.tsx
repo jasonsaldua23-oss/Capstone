@@ -3,6 +3,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { TripPaths } from '@/lib/trip-path'
 import dynamic from 'next/dynamic'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAuth } from '@/app/page'
@@ -161,6 +162,8 @@ export function WarehousePortal() {
   const [orders, setOrders] = useState<WarehouseOrderItem[]>([])
   const [trips, setTrips] = useState<WarehouseTripItem[]>([])
   const [driverLocations, setDriverLocations] = useState<DriverLocationItem[]>([])
+  // The road each trip has actually taken, grown by every position refresh.
+  const [tripPaths, setTripPaths] = useState<TripPaths>({})
   const [replacements, setReplacements] = useState<WarehouseReplacementItem[]>([])
   const [drivers, setDrivers] = useState<DriverOption[]>([])
   const [driversLoadFailed, setDriversLoadFailed] = useState(false)
@@ -411,6 +414,7 @@ export function WarehousePortal() {
     liveTrackingRouteLines,
   } = useWarehouseLiveTracking({
     driverLocations,
+    tripPaths,
     scopedOrders,
     scopedTrips,
     trackingDate,
@@ -564,6 +568,7 @@ export function WarehousePortal() {
     routeWarehouseId,
     selectedRouteVehicleId,
     setDriverLocations,
+    setTripPaths,
     setInventory,
     setInventoryTransactions,
     setLoadingBatches,

@@ -50,6 +50,9 @@ export type LiveRouteLine = {
   weight?: number;
   dashArray?: string;
   snapToRoad?: boolean;
+  // The road this truck has taken. On the report maps it ends at the truck's icon
+  // and is drawn above the route still ahead of it.
+  followsTruckId?: string;
   preserveExactEndpoints?: boolean;
   selectable?: boolean;
 };

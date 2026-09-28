@@ -1,3 +1,4 @@
+import { mergeTripPathTails, tripPathsFromTrips, type TripPaths } from '@/lib/trip-path'
 import type {
   DriverLocationItem,
   InventoryItem,
@@ -35,6 +36,7 @@ export type WarehousePortalDataInputs = {
   routeWarehouseId: string
   selectedRouteVehicleId: string
   setDriverLocations: Dispatch<SetStateAction<DriverLocationItem[]>>
+  setTripPaths: Dispatch<SetStateAction<TripPaths>>
   setInventory: Dispatch<SetStateAction<InventoryItem[]>>
   setInventoryTransactions: Dispatch<SetStateAction<InventoryTransactionItem[]>>
   setLoadingBatches: Dispatch<SetStateAction<boolean>>
@@ -79,6 +81,7 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
     routeWarehouseId,
     selectedRouteVehicleId,
     setDriverLocations,
+    setTripPaths,
     setInventory,
     setInventoryTransactions,
     setLoadingBatches,
@@ -382,7 +385,9 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
   const fetchDriverPositions = async () => {
     const result = await safeFetchJson('/api/trips?page=1&pageSize=1&includeTracking=1', { cache: 'no-store' })
     if (!result.ok) return
-    setDriverLocations(Array.isArray(result.data?.driverLocations) ? result.data.driverLocations : [])
+    const locations = Array.isArray(result.data?.driverLocations) ? result.data.driverLocations : []
+    setDriverLocations(locations)
+    setTripPaths((previous) => mergeTripPathTails(previous, locations))
   }
 
   const fetchTripsData = (options?: { showLoading?: boolean }): Promise<WarehouseTripItem[] | null> => {
@@ -404,6 +409,8 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
             pageSize: String(pageSize),
             // Fix: driver positions are page-independent; fetch them only once per refresh.
             includeTracking: page === 1 ? '1' : '0',
+            // Every page's trips carry the road they have taken.
+            includePaths: '1',
             sort: 'scheduled',
           })
           const result = await safeFetchJson(`/api/trips?${query.toString()}`, { cache: 'no-store' })
@@ -423,6 +430,7 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
 
         setTrips(mergedTrips)
         setDriverLocations(latestDriverLocations)
+        setTripPaths((previous) => mergeTripPathTails(tripPathsFromTrips(mergedTrips, previous), latestDriverLocations))
         writePortalCache(tripsCacheKey, mergedTrips, assignedWarehouseIdRef.current)
         tripsCacheAtRef.current = Date.now()
         return mergedTrips
