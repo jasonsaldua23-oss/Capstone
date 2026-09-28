@@ -9,6 +9,7 @@ from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, Subquery
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -132,8 +133,29 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
             if allowed_warehouse_ids is not None and requested_warehouse_id not in allowed_warehouse_ids:
                 return _err("Forbidden", 403)
             qs = qs.filter(warehouse_id=requested_warehouse_id)
+        # Opt-in: only the capacity views need empties, and they cost extra queries.
+        include_empties = str(request.GET.get("includeEmpties") or "").strip().lower() in {"1", "true", "yes"}
+        empties_since = None
+        raw_empties_since = str(request.GET.get("emptiesSince") or "").strip()
+        if include_empties and raw_empties_since:
+            empties_since = parse_datetime(raw_empties_since)
+            if empties_since is None:
+                parsed_date = parse_date(raw_empties_since)
+                if parsed_date is not None:
+                    empties_since = datetime.combine(parsed_date, datetime.min.time())
+            if empties_since is None:
+                return _err("emptiesSince must be an ISO date or date-time")
+            if timezone.is_naive(empties_since):
+                empties_since = timezone.make_aware(empties_since)
         total = qs.count()
         rows = list(qs[off : off + size])
+        empty_balances: dict[str, dict[str, int]] = {}
+        empty_changes: dict[str, list[dict[str, Any]]] = {}
+        if include_empties:
+            from .deposit_lifecycle import get_empty_bottle_changes, get_empty_case_balances
+
+            empty_balances = get_empty_case_balances(rows)
+            empty_changes = get_empty_bottle_changes(rows, since=empties_since)
         # Current container deposits live on ProductPackaging; fetch the page's
         # packagings in one query so the edit form can show what is stored today.
         deposits_by_product = {
@@ -158,6 +180,13 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
             row["sellableBaseUnits"] = available_base_units(item)
             row["sellableCases"] = allocatable_standard_cases(item)
             row["overstockedFlag"] = _is_inventory_overstocked_flagged_by_stockin(item)
+            if include_empties:
+                # Empties occupy crate space, so capacity counts them; the dated
+                # changes let a trend replay them back to any earlier day.
+                balance = empty_balances.get(item.id) or {}
+                row["emptyBottles"] = int(balance.get("availableBottles") or 0)
+                row["emptyContainersPerCase"] = int(balance.get("containersPerCase") or 0)
+                row["emptyBottleChanges"] = empty_changes.get(item.id, [])
             data.append(row)
         return _ok({"success": True, "inventory": data, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
     # Admin inventory access is monitoring-only; stock changes belong to warehouse staff.

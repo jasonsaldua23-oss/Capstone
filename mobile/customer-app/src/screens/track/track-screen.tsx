@@ -1,5 +1,5 @@
 // Mirrors src/components/portals/customer/sections/track/track-view.tsx.
-import { ArrowLeft, CalendarDays, CheckCircle2, MapPin, Phone, ShieldCheck } from "lucide-react-native";
+import { ArrowLeft, CalendarDays, CheckCircle2, MapPin, Phone, ShieldCheck, Truck } from "lucide-react-native";
 import React from "react";
 import { Image, Linking, Pressable, Text, View } from "react-native";
 
@@ -8,7 +8,7 @@ import { CustomerTrackingMap } from "../../components/CustomerTrackingMap";
 import { TimelineSkeleton } from "../../components/ui/skeleton";
 import { formatPeso } from "../../lib/customer-logic";
 import { resolveImageUrl } from "../../lib/format";
-import { formatOrderStatus, getOrderStageIndex, isRescheduledOrder, normalizeDeliveryStatus } from "../../lib/shared";
+import { formatDeliveryEta, formatOrderStatus, getOrderStageIndex, isRescheduledOrder, normalizeDeliveryStatus } from "../../lib/shared";
 import { useCustomerPortal } from "../../portal/portal-context";
 import { styles } from "../../styles/app-styles";
 import { theme } from "../../theme";
@@ -58,6 +58,11 @@ export function TrackScreen() {
   const normalizedStatus = String(normalizeDeliveryStatus(String(order.status || ""), order.paymentStatus));
   const isInTransit = normalizedStatus === "OUT_FOR_DELIVERY" || normalizedStatus === "IN_TRANSIT";
   const scheduleLabel = isDelivered ? "Delivered on" : isInTransit ? "Expected on" : "Scheduled for";
+  // Measured by the server from the driver's latest position: it falls as the van
+  // closes in and rises if it heads away, at every refresh (as on the web).
+  const arrivalLine = isInTransit && hasDriverCoordinates && !isDelivered
+    ? formatDeliveryEta(trackingItem?.etaMinutes, trackingItem?.driverDistanceMeters)
+    : null;
   const scheduleDateSource = isDelivered
     ? order.deliveredAt || order.deliveryDate || order.createdAt
     : order.deliveryDate || order.createdAt;
@@ -123,6 +128,12 @@ export function TrackScreen() {
         </View>
 
         <View style={styles.trackMapCard}>
+          {arrivalLine ? (
+            <View style={styles.trackArrivalRow} accessibilityLiveRegion="polite">
+              <Truck size={16} color={theme.colors.emeraldDark} />
+              <Text style={styles.trackArrivalText}>{arrivalLine}</Text>
+            </View>
+          ) : null}
           {isInTransit && hasDriverCoordinates && trackingItem ? (
             <CustomerTrackingMap tracking={trackingItem} />
           ) : (

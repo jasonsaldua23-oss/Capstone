@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import type { WarehouseInventoryViewProps } from '../shared/types'
 import { formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
 import { getInventoryLooseRemainder } from '@/lib/report-metrics'
@@ -173,8 +174,9 @@ export function WarehouseInventoryView({
                           {status === 'out_of_stock' && <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Out of Stock</Badge>}
                         </td>
                         <td className="p-2.5 text-center">
-                          <Button size="icon" variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => openEditDialog(item)}>
-                            <Pencil className="h-5 w-5" />
+                          <Button size="sm" variant="outline" className={ACTION_INSPECT} onClick={() => openEditDialog(item)}>
+                            <Pencil className="size-3.5" />
+                            Edit
                           </Button>
                         </td>
                       </tr>

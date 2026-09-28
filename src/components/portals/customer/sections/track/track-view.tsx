@@ -10,6 +10,8 @@ import { isRescheduledOrder } from '../orders/order-status'
 import { getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 
 import { CustomerTrackingMap } from './customer-tracking-map'
+import { reportedFixFields } from '@/components/shared/live-tracking/report-fields'
+import { formatDeliveryEta } from '@shared/customer-logic/delivery-eta'
 
 export function CustomerTrackView(props: any) {
   const {
@@ -87,6 +89,11 @@ export function CustomerTrackView(props: any) {
   const normalizedStatus = String(normalizeDeliveryStatus(order.status, order.paymentStatus))
   const isInTransit = normalizedStatus === 'OUT_FOR_DELIVERY' || normalizedStatus === 'IN_TRANSIT'
   const scheduleLabel = isDelivered ? 'Delivered on' : isInTransit ? 'Expected on' : 'Scheduled for'
+  // Both numbers are measured by the server from the driver's latest position, so
+  // they fall as the van closes in and rise if it heads away, at every refresh.
+  const arrivalLine = isInTransit && hasDriverCoordinates && !isDelivered
+    ? formatDeliveryEta(tracking?.etaMinutes, tracking?.driverDistanceMeters)
+    : null
   const scheduleDateSource = isDelivered
     ? (order.deliveredAt || order.deliveryDate || order.updatedAt || order.createdAt)
     : (order.deliveryDate || order.updatedAt || order.createdAt)
@@ -143,6 +150,12 @@ export function CustomerTrackView(props: any) {
 
         <Card className="rounded-xl border-slate-200 shadow-none">
           <CardContent className="p-0">
+            {arrivalLine ? (
+              <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2.5 text-sm font-semibold text-emerald-800" aria-live="polite">
+                <Truck className="h-4 w-4 shrink-0" />
+                <span>{arrivalLine}</span>
+              </div>
+            ) : null}
             {isInTransit && hasDriverCoordinates && mapLat !== null && mapLng !== null ? (
               <CustomerTrackingMap
                 orderId={String(order.id)}
@@ -157,6 +170,12 @@ export function CustomerTrackView(props: any) {
                 vehiclePlate={tracking?.trip?.vehicle?.licensePlate}
                 tripNumber={tracking?.tripNumber}
                 deliveryAddress={order.shippingAddress}
+                driverFix={liveSource === 'driver_gps' ? reportedFixFields({
+                  speed: tracking?.driverSpeedMps,
+                  heading: tracking?.driverHeading,
+                  accuracy: tracking?.driverAccuracyMeters,
+                  recordedAt: tracking?.driverRecordedAt ?? latestRoutePoint?.recordedAt,
+                }) : undefined}
                 className="h-[280px] w-full rounded-xl md:h-[360px]"
               />
             ) : (

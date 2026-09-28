@@ -135,3 +135,6 @@ export {
   getFeedbackOptionsForRating,
   isOtherFeedbackReason,
 } from "../../../../shared/customer-logic/src/feedback-reasons.ts";
+
+// The "arriving in / km away" line, worded once for both apps.
+export { formatDeliveryEta } from "../../../../shared/customer-logic/src/delivery-eta.ts";

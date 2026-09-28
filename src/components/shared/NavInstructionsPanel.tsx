@@ -207,6 +207,9 @@ export interface NavInstructionsPanelProps {
   showUpcomingManeuver?: boolean
   /** Live along-route distance to the shown maneuver; drives the count-down and keeps remaining distance/ETA live. */
   liveManeuverDistanceMeters?: number
+  /** Distance and time from the driver's current position to the next stop. When
+   * given, the panel's distance and ETA show these rather than the route's steps. */
+  liveRemaining?: { meters: number; seconds: number }
   onSpeak?: (message: string) => void
 }
 
@@ -217,13 +220,24 @@ export function NavInstructionsPanel({
   variant = 'default',
   showUpcomingManeuver = false,
   liveManeuverDistanceMeters,
+  liveRemaining,
   onSpeak,
 }: NavInstructionsPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const navState = useMemo(
-    () => buildNavState(steps, currentStepIndex, showUpcomingManeuver, liveManeuverDistanceMeters),
-    [steps, currentStepIndex, showUpcomingManeuver, liveManeuverDistanceMeters]
-  )
+  const liveMeters = liveRemaining?.meters
+  const liveSeconds = liveRemaining?.seconds
+  const navState = useMemo(() => {
+    const state = buildNavState(steps, currentStepIndex, showUpcomingManeuver, liveManeuverDistanceMeters)
+    if (!state || typeof liveMeters !== 'number' || typeof liveSeconds !== 'number') return state
+    if (!Number.isFinite(liveMeters) || !Number.isFinite(liveSeconds)) return state
+    return {
+      ...state,
+      remainingDistance: liveMeters,
+      remainingDuration: liveSeconds,
+      remainingDistanceLabel: formatDistance(liveMeters),
+      remainingDurationLabel: formatDuration(liveSeconds),
+    }
+  }, [steps, currentStepIndex, showUpcomingManeuver, liveManeuverDistanceMeters, liveMeters, liveSeconds])
 
   if (!navState) return null
 

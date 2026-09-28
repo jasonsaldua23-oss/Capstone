@@ -20,6 +20,8 @@ import {
   formatReportProductNameForExport,
   getInventoryAvailableQty,
   getInventoryQuantity,
+  getInventoryLooseCaseSlots,
+  getEmptyCaseSlotsAt,
   getInventoryThreshold,
   summarizeFeedbackKpis,
   summarizeFeedbackParticipation,
@@ -669,7 +671,12 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     const scopedWarehouses = warehouses
     const scopedWarehouseIds = new Set(scopedWarehouses.map((warehouse) => String(warehouse?.id || '')).filter(Boolean))
     const scopedInventoryItems = inventory.filter((item) => scopedWarehouseIds.has(String(item?.warehouse?.id || item?.warehouseId || '')))
-    const currentUsedUnits = scopedInventoryItems.reduce((sum, item) => sum + Math.max(0, Number(getInventoryQuantity(item) || 0)), 0)
+    // Same space rule as the warehouse pages: loose bottles and empties fill case slots too.
+    const currentStockUnits = scopedInventoryItems.reduce(
+      (sum, item) => sum + Math.max(0, Number(getInventoryQuantity(item) || 0)) + getInventoryLooseCaseSlots(item),
+      0,
+    )
+    const currentUsedUnits = currentStockUnits + getEmptyCaseSlotsAt(scopedInventoryItems, new Date())
     const configuredCapacity = scopedWarehouses.reduce((sum, warehouse) => sum + Math.max(0, Number(warehouse?.capacity || 0)), 0)
     const totalCapacity = configuredCapacity > 0 ? configuredCapacity : Math.max(1000, currentUsedUnits + 250)
 
@@ -701,7 +708,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
         if (movement.createdAt.getTime() <= endOfDay.getTime()) return sum
         return sum + (movement.movementType === 'IN' ? movement.quantity : -movement.quantity)
       }, 0)
-      const usedUnits = Math.max(0, currentUsedUnits - netChangeAfterDay)
+      const usedUnits = Math.max(0, currentStockUnits - netChangeAfterDay) + getEmptyCaseSlotsAt(scopedInventoryItems, endOfDay)
       const utilizationPercent = totalCapacity > 0
         ? Math.min(100, Number(((usedUnits / totalCapacity) * 100).toFixed(1)))
         : 0

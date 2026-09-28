@@ -46,6 +46,7 @@ import { toast } from 'sonner'
 import { formatPhilippinePhoneInput, isValidPhilippinePhone } from '@/lib/philippine-phone'
 import { validatePersonName } from '@/lib/person-name'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { getTabAuthToken } from '@/lib/client-auth'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { invalidateInventoryStockCaches } from '@/lib/portal-data-cache'
@@ -1059,9 +1060,9 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                               variant="outline"
                               size="sm"
                               onClick={() => setReceipt(sale)}
-                              className="h-7 text-[11px] rounded-lg border-slate-200 text-sky-700 hover:bg-sky-50"
+                              className={ACTION_INSPECT}
                             >
-                              <Receipt className="mr-1 h-3 w-3" />
+                              <Receipt className="size-3.5" />
                               Receipt
                             </Button>
                           </td>

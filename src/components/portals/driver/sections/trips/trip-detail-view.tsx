@@ -37,7 +37,7 @@ import {
 } from './trip-detail-format'
 import { useDriverTripsSnapshot } from '../layout/portal-state'
 import { uploadPodImage } from './trip-detail-camera'
-import { toRecordedAtMs } from './trip-detail-location'
+import { isFreshRecordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS, toRecordedAtMs } from './trip-detail-location'
 import { useTripNavigation } from './use-trip-navigation'
 import type { DriverRouteOption } from './trip-navigation-config'
 import { DropPointDetailsDialog } from './drop-point-details-dialog'
@@ -763,8 +763,21 @@ export function TripDetailView({
     setActiveDropPoint(nextActionable)
   }, [trip.id, trip.dropPoints])
 
+  // Before the trip starts the van shows where the driver really is but does not
+  // follow the phone: one fresh fix is taken for the trip and held (see
+  // use-trip-navigation). After Start Trip the preview tracks the phone again.
+  const heldPreviewTripIdRef = useRef<string | null>(null)
   useEffect(() => {
-    if (currentLocation?.lat && currentLocation?.lng) {
+    const notStarted = String(trip.status || '').toUpperCase() === 'PLANNED'
+    if (!notStarted) heldPreviewTripIdRef.current = null
+    else if (heldPreviewTripIdRef.current === trip.id) return
+    const holdForTrip = () => {
+      if (notStarted) heldPreviewTripIdRef.current = trip.id
+    }
+    const usableCurrent = Boolean(currentLocation?.lat && currentLocation?.lng) &&
+      (!notStarted || isFreshRecordedAt(currentLocation?.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS))
+    if (usableCurrent && currentLocation) {
+      holdForTrip()
       setPreviewDriverLocation({
         lat: currentLocation.lat,
         lng: currentLocation.lng,
@@ -788,6 +801,7 @@ export function TripDetailView({
         const acc = Number(position.coords.accuracy)
         // Reject inaccurate cell-tower fixes (> 150 m) for the preview marker.
         if (Number.isFinite(lat) && Number.isFinite(lng) && (!Number.isFinite(acc) || acc <= 150)) {
+          holdForTrip()
           setPreviewDriverLocation({
             lat,
             lng,
@@ -810,6 +824,7 @@ export function TripDetailView({
     }
   }, [
     trip.id,
+    trip.status,
     currentLocation?.lat,
     currentLocation?.lng,
     currentLocation?.accuracy,
@@ -826,6 +841,7 @@ export function TripDetailView({
     handleRouteLineSelect,
     handleToggleMapPerspective,
     liveDistanceToManeuverMeters,
+    liveRemainingToNextStop,
     mapCenter,
     mapLocations,
     mapRouteLines,
@@ -1329,6 +1345,7 @@ export function TripDetailView({
                         currentStepIndex={currentStepIndex}
                         showUpcomingManeuver
                         liveManeuverDistanceMeters={liveDistanceToManeuverMeters}
+                        liveRemaining={liveRemainingToNextStop}
                         destinationName={highlightedDropPoint?.locationName}
                         variant="mobile-compact"
                         onSpeak={voiceGuidanceEnabled ? speakNavigationPrompt : undefined}
@@ -1400,6 +1417,7 @@ export function TripDetailView({
                         currentStepIndex={currentStepIndex}
                         showUpcomingManeuver
                         liveManeuverDistanceMeters={liveDistanceToManeuverMeters}
+                        liveRemaining={liveRemainingToNextStop}
                         destinationName={highlightedDropPoint?.locationName}
                         variant="mobile-compact"
                         onSpeak={voiceGuidanceEnabled ? speakNavigationPrompt : undefined}

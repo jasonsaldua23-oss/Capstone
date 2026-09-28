@@ -11,7 +11,6 @@ import {
   Receipt,
   Building2,
   Calendar,
-  Eye,
   Printer,
   Package,
   Recycle,
@@ -23,6 +22,7 @@ import {
 import { toast } from 'sonner'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { safeFetchJson, getCollection } from './shared'
 
 type RetailSaleItem = {
@@ -323,11 +323,11 @@ export function RetailTransactionsView() {
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           <Button
                             size="sm"
-                            variant="ghost"
-                            className="h-8 px-2.5 text-sky-600 hover:text-sky-700 hover:bg-sky-50"
+                            variant="outline"
+                            className={ACTION_INSPECT}
                             onClick={() => setSelectedReceipt(sale)}
                           >
-                            <Eye className="h-3.5 w-3.5 mr-1" />
+                            <Receipt className="size-3.5" />
                             Receipt
                           </Button>
                         </td>

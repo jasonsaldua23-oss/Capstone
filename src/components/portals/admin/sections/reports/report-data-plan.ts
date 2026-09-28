@@ -6,7 +6,9 @@ export const REPORT_DATASETS = {
   // Fix: reporting must use the same real-driver collection as operational pages.
   drivers: { endpoint: '/api/drivers?limit=500', keys: ['drivers'] },
   warehouses: { endpoint: '/api/warehouses?limit=200', keys: ['warehouses'] },
-  inventory: { endpoint: '/api/inventory?limit=1000', keys: ['inventory'] },
+  // Empties count toward warehouse capacity. The report's date range changes without a
+  // refetch, so it takes their whole change history rather than a recent window.
+  inventory: { endpoint: '/api/inventory?limit=1000&includeEmpties=1', keys: ['inventory'] },
   inventoryTransactions: { endpoint: '/api/inventory-transactions?limit=1000', keys: ['transactions'] },
   replacements: { endpoint: '/api/replacements?limit=1000', keys: ['replacements'] },
   feedback: { endpoint: '/api/feedback?limit=1000', keys: ['feedback'] },

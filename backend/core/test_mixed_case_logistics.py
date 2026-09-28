@@ -84,6 +84,17 @@ class MixedCaseLogisticsTests(MixedCaseFixtureMixin, TestCase):
         self._trip_with_drop_point(order, "QUERY-TWO")
         self.assertEqual(query_count(2), first_count)
 
+    def test_request_detail_weight_combines_standard_and_mixed_cases(self):
+        from .api_serializers import _serialize_order
+        from .models import OrderItem
+
+        # Two half-and-half cases weigh 30kg; three 8kg cases add 24kg.
+        order, _ = self.create_mixed_item(case_count=2, number="PR-WEIGHT")
+        OrderItem.objects.create(order=order, product=self.products[2], quantity=3, unit_price=0, total_price=0)
+        payload = _serialize_order(order)
+        self.assertEqual(payload["totalWeight"], 54.0)
+        self.assertNotIn("totalWeight", _serialize_order(order, include_items=False))
+
     def _reserved_order(self, number: str, *, status: str = OrderStatus.APPROVED):
         order, item = self.create_mixed_item(number=number)
         order.status = status

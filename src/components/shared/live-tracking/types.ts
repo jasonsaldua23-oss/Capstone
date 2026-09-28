@@ -24,6 +24,12 @@ export type DriverLocation = {
   // Ground speed in m/s from the GPS fix. The navigation view predicts with it
   // between fixes, and every map uses it to tell a parked vehicle from a moving one.
   speedMps?: number;
+  // When the phone took the fix (epoch ms) and the bearing it reported. The report
+  // maps judge each report against the ones before it with these, so a late or
+  // repeated report cannot move the vehicle back and a Wi-Fi fix cannot pull it
+  // off its road. `markerHeading` is not the GPS bearing on those maps.
+  recordedAtMs?: number;
+  gpsHeading?: number;
   routeProgressMeters?: number;
   // The id of the route line this truck is on, drawn from its position onward. On
   // the maps that learn positions a report at a time it is drawn along that road.

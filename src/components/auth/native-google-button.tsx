@@ -17,7 +17,7 @@ import { canSignInWithGoogleNatively, signInWithGoogleNatively } from '@/lib/nat
 
 function GoogleMark() {
   return (
-    <svg className="h-[18px] w-[18px]" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+    <svg className="h-[18px] w-[18px] shrink-0" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
       <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z" />
       <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18Z" />
       <path fill="#FBBC05" d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33Z" />
@@ -80,12 +80,13 @@ export function NativeGoogleButton({ onCredential, onError, disabled }: NativeGo
     }
   }
 
+  // Added: match the reference outline, rounded corners, and centered logo/label.
   return (
     <button
       type="button"
       onClick={() => void startSignIn()}
       disabled={disabled || isSigningIn}
-      className="inline-flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-[#DDE3EA] bg-white text-[14px] font-semibold text-[#2A2A2A] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
+      className="inline-flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-[#DDE3EA] bg-white text-[16px] font-semibold text-[#243528] transition-colors hover:bg-[#F7F9FC] disabled:opacity-60 motion-reduce:transition-none"
     >
       {isSigningIn ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <GoogleMark />}
       {isSigningIn ? 'Signing in' : 'Continue with Google'}

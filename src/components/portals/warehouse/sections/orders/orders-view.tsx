@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useMemo, useState } from 'react'
-import { Eye, Loader2 } from 'lucide-react'
+import { CalendarClock, Eye, Loader2, PackageOpen, Truck, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { ACTION_ADVANCE, ACTION_INSPECT, ACTION_REFUSE } from '@/components/portals/shared/row-actions'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_CANCELLATION_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { CustomerOrderNotePreview } from '@/components/portals/shared/customer-order-note'
 import type { WarehouseOrdersViewProps } from '../shared/types'
@@ -391,28 +392,27 @@ export function WarehouseOrdersView({
                                     {/* Action labels vary by stage, so `table-actions` gives the column
                                         one width and every control in it the same width. */}
                                     <div className="table-actions">
-                            <Button variant="outline" size="sm" className="w-full" onClick={() => void openOrderDetail(order)}>
-                              <Eye className="mr-2 h-4 w-4" />
+                            <Button variant="outline" size="sm" className={`w-full ${ACTION_INSPECT}`} onClick={() => void openOrderDetail(order)}>
+                              <Eye className="size-3.5" />
                               View Details
                             </Button>
                             {stage === 'APPROVED' || stage === 'RESCHEDULED' ? (
                               <Button
                                 size="sm"
-                                className="w-full bg-violet-600 hover:bg-violet-700"
+                                className={`w-full ${ACTION_ADVANCE}`}
                                 disabled={updatingOrderId === order.id || needsReschedule}
                                 onClick={() => setActionState({ order, action: 'processing' })}
                                 title={needsReschedule ? 'Reschedule the passed delivery date before processing' : undefined}
                               >
                                 {/* Fix: do not present a reschedule request as processing in the background row. */}
-                                {isProcessingOrder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                {isProcessingOrder ? <Loader2 className="size-3.5 animate-spin" /> : <PackageOpen className="size-3.5" />}
                                 Start Processing
                               </Button>
                             ) : null}
                             {needsReschedule && ['APPROVED', 'PROCESSING', 'RESCHEDULED'].includes(stage) ? (
                               <Button
                                 size="sm"
-                                variant="outline"
-                                className="w-full border-amber-300 text-amber-800 hover:bg-amber-50"
+                                className={`w-full ${ACTION_ADVANCE}`}
                                 disabled={updatingOrderId === order.id || isAssignedToDelivery}
                                 onClick={() => {
                                   setRescheduleDate('')
@@ -420,19 +420,20 @@ export function WarehouseOrdersView({
                                 }}
                                 title={isAssignedToDelivery ? 'Remove the order from its delivery trip before rescheduling' : 'Choose a new delivery date'}
                               >
+                                <CalendarClock className="size-3.5" />
                                 Reschedule
                               </Button>
                             ) : null}
                             {stage === 'PROCESSING' ? (
                               <Button
                                 size="sm"
-                                variant="outline"
-                                className="w-full border-blue-200 text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                className={`w-full ${ACTION_ADVANCE}`}
                                 disabled={updatingOrderId === order.id || isAssignedToDelivery}
                                 // Fix: assignment starts in Transportation > Trips, so skip the extra confirmation step.
                                 onClick={onOpenTransportation}
                                 title={isAssignedToDelivery ? 'Order is already assigned to a delivery trip' : undefined}
                               >
+                                <Truck className="size-3.5" />
                                 {isAssignedToDelivery ? 'Assigned' : 'Assign Delivery'}
                               </Button>
                             ) : null}
@@ -441,11 +442,12 @@ export function WarehouseOrdersView({
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="w-full border-rose-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                                className={`w-full ${ACTION_REFUSE}`}
                                 disabled={updatingOrderId === order.id || isAssignedToDelivery || !['APPROVED', 'PROCESSING', 'PREPARING', 'READY_FOR_DELIVERY', 'RESCHEDULED'].includes(stage)}
                                 onClick={() => setActionState({ order, action: 'cancel' })}
                                 title={isAssignedToDelivery ? 'Cannot cancel order because it is already assigned to delivery' : undefined}
                               >
+                                <X className="size-3.5" />
                                 Cancel Order
                               </Button>
                             ) : null}

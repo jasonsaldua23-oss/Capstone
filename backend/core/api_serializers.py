@@ -330,10 +330,15 @@ def _serialize_order(
     )
 
     if include_items:
+        from .inventory_allocation import _calculate_order_item_weight
+
         items = []
+        total_weight = 0.0
         prefetched_items = getattr(order, "_serialized_order_items", None)
         order_items = prefetched_items if prefetched_items is not None else order.items.select_related("product").all()
         for item in order_items:
+            # Share the delivery-load rule so request totals include mixed-case components.
+            total_weight += _calculate_order_item_weight(item)
             row = _serialize_order_item_with_spare_products(
                 item,
                 include_full_product=True,
@@ -348,6 +353,7 @@ def _serialize_order(
                 row["tripAssignments"] = item_trip_assignments.get(item_id, [])
             items.append(row)
         data["items"] = items
+        data["totalWeight"] = round(total_weight, 2)
 
     if fulfillment_legs is not None:
         data["fulfillments"] = fulfillment_legs

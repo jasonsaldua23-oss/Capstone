@@ -113,7 +113,13 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
     if (showLoading) setLoadingInventory(true)
     try {
       const normalizedWarehouseId = String(warehouseId || '').trim()
-      const query = new URLSearchParams({ pageSize: '1000' })
+      // Empties take crate space, so the capacity views count them; eight days of
+      // their changes covers the 7-day utilization trend.
+      const query = new URLSearchParams({
+        pageSize: '1000',
+        includeEmpties: '1',
+        emptiesSince: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+      })
       if (normalizedWarehouseId) {
         query.set('warehouseId', normalizedWarehouseId)
       }

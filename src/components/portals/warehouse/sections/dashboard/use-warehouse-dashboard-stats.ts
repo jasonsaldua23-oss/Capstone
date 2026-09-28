@@ -102,10 +102,11 @@ export function useWarehouseDashboardStats(inputs: WarehouseDashboardStatsInputs
       { name: 'Overstocked', value: stockHealthSummary.overstocked, color: '#3b82f6' },
     ]
     const utilizationTrend = buildUtilizationTrend(
-      capacitySummary.usedUnits,
+      capacitySummary.stockUnits,
       capacitySummary.totalCapacity,
       scopedBatches,
       scopedInventoryTransactions,
+      { inventoryItems: scopedInventory },
     )
 
     const latestBatch = scopedBatches
@@ -176,6 +177,7 @@ export function useWarehouseDashboardStats(inputs: WarehouseDashboardStatsInputs
     return {
       totalCapacity: capacitySummary.totalCapacity,
       usedCapacity: capacitySummary.usedUnits,
+      emptyCapacity: capacitySummary.emptyUnits,
       availableCapacity: capacitySummary.availableCapacity,
       usagePercent: capacitySummary.usagePercent,
       utilizationStatus: capacitySummary.utilizationStatus,

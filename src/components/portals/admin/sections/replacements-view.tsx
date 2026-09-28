@@ -9,13 +9,10 @@ import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import {
-  ACTION_ADVANCE,
-  ACTION_DECIDE,
-  ACTION_INSPECT,
-  ACTION_REFUSE,
   ReplacementDossierHeader,
   ReplacementStatusBadge,
 } from '../../shared/replacement-status'
+import { ACTION_ADVANCE, ACTION_DECIDE, ACTION_INSPECT, ACTION_REFUSE } from '../../shared/row-actions'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -35,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, Check, X, FileSearch } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -1110,14 +1107,17 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                               {rawStatus === 'UNDER_REVIEW' ? (
                                 <>
                                   <Button size="sm" className={ACTION_DECIDE} disabled={Boolean(updatingReplacementId)} onClick={() => setApproveConfirmId(item.id)}>
-                                    {updatingReplacementId === item.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                                    {updatingReplacementId === item.id ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
                                     Approve
                                   </Button>
-                                  <Button size="sm" variant="outline" className={ACTION_REFUSE} disabled={Boolean(updatingReplacementId)} onClick={() => { setRejectTargetId(item.id); setRejectReason(''); setRejectDialogOpen(true) }}>Reject</Button>
+                                  <Button size="sm" variant="outline" className={ACTION_REFUSE} disabled={Boolean(updatingReplacementId)} onClick={() => { setRejectTargetId(item.id); setRejectReason(''); setRejectDialogOpen(true) }}>
+                                    <X className="size-3.5" />
+                                    Reject
+                                  </Button>
                                 </>
                               ) : !hasStrictScheduledFollowUp(item) && !item.isClosed && !isFullyReplaced && !['APPROVED', 'COMPLETED', 'RESOLVED_ON_DELIVERY', 'REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus) ? (
                                 <Button size="sm" className={ACTION_ADVANCE} disabled={Boolean(updatingReplacementId)} onClick={() => void updateIssueStatus(item.id, 'UNDER_REVIEW', { notes: 'Replacement is being evaluated by staff' })}>
-                                  {updatingReplacementId === item.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                                  {updatingReplacementId === item.id ? <Loader2 className="size-3.5 animate-spin" /> : <FileSearch className="size-3.5" />}
                                   {/* The badge names the state ("Under Review"); a button names the
                                       action that gets it there. */}
                                   Start review
@@ -1130,6 +1130,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                             className={ACTION_INSPECT}
                             onClick={() => setSelectedReplacement(item)}
                           >
+                            <Eye className="size-3.5" />
                             View Details
                           </Button>
                           </div>

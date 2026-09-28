@@ -33,6 +33,8 @@ import {
   buildInventoryMovementRows,
   buildInventoryStatusBreakdown,
   buildWarehouseCapacitySummary,
+  buildUtilizationTrend,
+  getEmptyCaseSlotsAt,
   buildWeeklyOrderTrendData,
   countActiveTrips,
   formatOrderReportStatus,
@@ -159,6 +161,51 @@ test('warehouse capacity summary keeps one decimal precision and fallback capaci
   )
   assert.equal(fallbackUsage.totalCapacity, 1000)
   assert.equal(fallbackUsage.usagePercent, 4.8)
+})
+
+test('warehouse capacity counts loose bottles and empties as case slots, in their own slices', () => {
+  const summary = buildWarehouseCapacitySummary(
+    { capacity: 1000 },
+    [
+      // 40 full cases and 30 loose bottles of a 24-bottle case: 2 more slots.
+      { quantity: 40, looseBottles: 30, product: { quantityPerCase: 24 } },
+      // 50 empties of a 24-bottle case fill 3 slots; a part-filled crate is still a crate.
+      { quantity: 10, emptyBottles: 50, emptyContainersPerCase: 24 },
+      // Rows loaded without includeEmpties add no empties.
+      { quantity: 5 },
+    ],
+  )
+  assert.equal(summary.stockUnits, 57)
+  assert.equal(summary.emptyUnits, 3)
+  assert.equal(summary.usedUnits, 60)
+  assert.equal(summary.availableCapacity, 940)
+  assert.equal(summary.usagePercent, 6)
+  assert.deepEqual(summary.capacityBreakdown.map((slice) => [slice.name, slice.value]), [
+    ['Full', 57],
+    ['Empties', 3],
+    ['Free', 940],
+  ])
+
+  const noEmpties = buildWarehouseCapacitySummary({ capacity: 1000 }, [{ quantity: 5 }])
+  assert.deepEqual(noEmpties.capacityBreakdown.map((slice) => slice.name), ['Full', 'Free'])
+})
+
+test('utilization trend replays empties back through their dated changes', () => {
+  const day = 24 * 60 * 60 * 1000
+  const now = Date.now()
+  const items = [{
+    quantity: 0,
+    emptyBottles: 48,
+    emptyContainersPerCase: 24,
+    emptyBottleChanges: [
+      { at: new Date(now - 3 * day).toISOString(), bottles: 72 },
+      { at: new Date(now - 1 * day).toISOString(), bottles: -24 },
+    ],
+  }]
+  const trend = buildUtilizationTrend(0, 100, [], [], { inventoryItems: items })
+  // Before the delivery: none. After it: 72 bottles, 3 slots. After the restock used a case: 2 slots.
+  assert.deepEqual(trend.map((point) => point.utilization), [0, 0, 0, 3, 3, 2, 2])
+  assert.equal(getEmptyCaseSlotsAt(items, new Date(now + day)), 2)
 })
 
 test('inventory movement selectors keep only in and out and chart totals match row totals', () => {

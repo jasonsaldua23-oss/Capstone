@@ -92,6 +92,35 @@ class DriverLocationAccuracyContractTests(TestCase):
         self.assertEqual(latest.longitude, 122.9509)
         self.assertEqual(latest.accuracy, 15)
 
+    def _post_fix(self, *, latitude: float, recorded: datetime, accuracy: float, speed: float | None):
+        body = {'latitude': latitude, 'longitude': 122.95, 'accuracy': accuracy, 'recordedAt': int(recorded.timestamp() * 1000)}
+        if speed is not None:
+            body['speed'] = speed
+        return self.client.post('/api/driver/location', data=body, content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {self.token}')
+
+    def test_network_fix_between_gps_fixes_does_not_replace_the_gps_fix(self) -> None:
+        # The phone uploads Wi-Fi/cell positions too. Between GPS fixes they land tens of
+        # metres off and carry no speed, and every portal showed the van jumping to them.
+        gps_at = timezone.now() - timedelta(seconds=3)
+        self.assertEqual(self._post_fix(latitude=10.68, recorded=gps_at, accuracy=6, speed=9).status_code, 200)
+        response = self._post_fix(latitude=10.6803, recorded=gps_at + timedelta(seconds=1), accuracy=30, speed=None)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json().get('ignored'), 'coarse_fix')
+        self.assertEqual(LocationLog.objects.get(driver=self.driver).latitude, 10.68)
+
+    def test_network_fix_is_taken_once_gps_has_gone_quiet(self) -> None:
+        gps_at = timezone.now() - timedelta(seconds=20)
+        self._post_fix(latitude=10.68, recorded=gps_at, accuracy=6, speed=9)
+        response = self._post_fix(latitude=10.6803, recorded=gps_at + timedelta(seconds=15), accuracy=30, speed=None)
+        self.assertNotIn('ignored', response.json())
+        self.assertEqual(LocationLog.objects.get(driver=self.driver).latitude, 10.6803)
+
+    def test_a_fix_without_speed_is_stored_when_there_is_no_gps_fix_to_keep(self) -> None:
+        response = self._post_fix(latitude=10.68, recorded=timezone.now() - timedelta(seconds=1), accuracy=14, speed=None)
+        self.assertNotIn('ignored', response.json())
+        self.assertEqual(LocationLog.objects.get(driver=self.driver).latitude, 10.68)
+
     def test_degraded_but_usable_gps_sample_updates_the_driver_location(self) -> None:
         # After the client grace period, 100–300m GPS estimates keep the vehicle moving.
         response = self.client.post(

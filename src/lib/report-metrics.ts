@@ -30,12 +30,18 @@ export type InventoryStatusBreakdown = {
 }
 
 export type WarehouseCapacitySummary = {
+  /** Case slots in use: product stock plus empties. */
   usedUnits: number
+  /** Full cases, plus a slot for each part-filled case of loose bottles. */
+  stockUnits: number
+  /** Case slots taken by empties waiting to be reused or sent back. */
+  emptyUnits: number
   totalCapacity: number
   availableCapacity: number
   usagePercent: number
   utilizationStatus: 'Healthy' | 'Moderate' | 'High' | 'Critical'
-  capacityBreakdown: Array<{ name: 'Used' | 'Free'; value: number; color: string }>
+  /** Zero slices are left out so the donut draws no empty gap. */
+  capacityBreakdown: Array<{ name: 'Full' | 'Empties' | 'Free'; value: number; color: string }>
 }
 
 export type InventoryMovementRow = {
@@ -358,11 +364,45 @@ export function buildInventoryStatusBreakdown(items: any[], now = Date.now()): I
   }
 }
 
+/** Case slots a row's loose bottles fill: a part-filled case still takes a whole slot. */
+export function getInventoryLooseCaseSlots(item: any) {
+  const loose = Math.max(0, asNumber(item?.looseBaseUnits ?? item?.loose_base_units ?? item?.looseBottles ?? item?.loose_bottles))
+  const perCase = getInventoryUnitsPerCase(item)
+  return perCase > 0 ? Math.ceil(loose / perCase) : 0
+}
+
+/**
+ * Case slots a row's empties fill, from `/api/inventory?includeEmpties=1` rows.
+ * `bottles` overrides today's count when replaying an earlier day.
+ */
+export function getInventoryEmptyCaseSlots(item: any, bottles = asNumber(item?.emptyBottles)) {
+  const perCase = asNumber(item?.emptyContainersPerCase)
+  return perCase > 0 ? Math.ceil(Math.max(0, bottles) / perCase) : 0
+}
+
+/**
+ * Empty-case slots the rows held at the end of `at`: today's empties minus every
+ * dated change recorded after it.
+ */
+export function getEmptyCaseSlotsAt(items: any[], at: Date) {
+  return items.reduce((sum, item) => {
+    const changes: any[] = Array.isArray(item?.emptyBottleChanges) ? item.emptyBottleChanges : []
+    const changedSince = changes.reduce((acc, change) => {
+      const when = toDate(change?.at)
+      return when && when.getTime() > at.getTime() ? acc + asNumber(change?.bottles) : acc
+    }, 0)
+    return sum + getInventoryEmptyCaseSlots(item, asNumber(item?.emptyBottles) - changedSince)
+  }, 0)
+}
+
 export function buildWarehouseCapacitySummary(
   warehouse: any,
   items: any[],
 ): WarehouseCapacitySummary {
-  const usedUnits = items.reduce((sum, item) => sum + getInventoryQuantity(item), 0)
+  // Capacity is crate space, so loose bottles and empties count alongside full cases.
+  const stockUnits = items.reduce((sum, item) => sum + getInventoryQuantity(item) + getInventoryLooseCaseSlots(item), 0)
+  const emptyUnits = items.reduce((sum, item) => sum + getInventoryEmptyCaseSlots(item), 0)
+  const usedUnits = stockUnits + emptyUnits
   const configuredCapacity = Math.max(0, asNumber(warehouse?.capacity))
   const totalCapacity = configuredCapacity > 0 ? configuredCapacity : Math.max(1000, usedUnits + 250)
   const usagePercent = totalCapacity > 0
@@ -375,26 +415,37 @@ export function buildWarehouseCapacitySummary(
     usagePercent >= 55 ? 'Moderate' :
     'Healthy'
 
+  const capacityBreakdown: WarehouseCapacitySummary['capacityBreakdown'] = [
+    { name: 'Full', value: stockUnits, color: '#3b82f6' },
+    { name: 'Empties', value: emptyUnits, color: '#8b5cf6' },
+    { name: 'Free', value: availableCapacity, color: '#34d399' },
+  ]
   return {
     usedUnits,
+    stockUnits,
+    emptyUnits,
     totalCapacity,
     availableCapacity,
     usagePercent,
     utilizationStatus,
-    capacityBreakdown: [
-      { name: 'Used', value: usedUnits, color: '#3b82f6' },
-      { name: 'Free', value: availableCapacity, color: '#34d399' },
-    ],
+    capacityBreakdown: capacityBreakdown.filter((slice) => slice.value > 0),
   }
 }
 
+/**
+ * Daily utilization for the last `days` days. Stock is replayed from IN/OUT
+ * movements; empties from the dated changes on `inventoryItems`
+ * (`includeEmpties=1` rows), so neither is assumed to have stood still.
+ */
 export function buildUtilizationTrend(
-  usedUnits: number,
+  stockUnits: number,
   totalCapacity: number,
   batches: any[],
   inventoryTransactions: any[] = [],
-  days = 7,
+  options: { days?: number; inventoryItems?: any[] } = {},
 ) {
+  const days = options.days ?? 7
+  const inventoryItems = options.inventoryItems ?? []
   const relevantTransactions = inventoryTransactions
     .map((transaction) => ({
       quantity: Math.max(0, asNumber(transaction?.quantity)),
@@ -430,7 +481,8 @@ export function buildUtilizationTrend(
           .filter((entry) => entry.date.getTime() > endOfDay.getTime())
           .reduce((sum, entry) => sum + entry.quantity, 0)
 
-    const estimatedUsedAtDay = Math.max(0, usedUnits - netChangeAfterDay)
+    const estimatedUsedAtDay =
+      Math.max(0, stockUnits - netChangeAfterDay) + getEmptyCaseSlotsAt(inventoryItems, endOfDay)
     const utilization = totalCapacity > 0
       ? Math.min(100, Number(((estimatedUsedAtDay / totalCapacity) * 100).toFixed(1)))
       : 0

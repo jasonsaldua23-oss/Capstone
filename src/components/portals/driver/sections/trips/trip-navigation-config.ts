@@ -7,6 +7,8 @@ export type DriverRouteOption = {
   activeLegPoints: [number, number][]
   futureLegPoints: [number, number][]
   steps: OsrmStep[]
+  /** How many of `steps` lead to the next stop; the rest belong to the stops after it. */
+  nextStopStepCount: number
 }
 
 // Distance from the active route beyond which turn-by-turn stops advancing and

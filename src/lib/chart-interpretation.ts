@@ -698,19 +698,29 @@ export function describeSeriesMix(series: readonly ComparisonSeries[], options: 
  * Reads a used-versus-free capacity split, and says so when the space is
  * nearly gone, because that is the point at which someone has to act.
  */
-export function describeCapacity(used: number, capacity: number, options: { emptyMessage?: string } = {}): string {
+export function describeCapacity(
+  used: number,
+  capacity: number,
+  options: { emptyMessage?: string; emptyUnits?: number } = {},
+): string {
   if (!(capacity > 0)) return options.emptyMessage || DEFAULT_EMPTY
   const usedUnits = Math.max(0, used)
+  // Empties are part of `used`; naming them tells staff whether sending empties back
+  // or slowing stock-in is what frees space.
+  const empties = Math.min(usedUnits, Math.max(0, options.emptyUnits || 0))
+  const emptiesNote = empties > 0
+    ? ` Full cases take ${formatChartNumber(usedUnits - empties)} of those units and empties take ${formatChartNumber(empties)}.`
+    : ''
   if (usedUnits > capacity) {
-    return `The warehouse is over capacity: it holds ${formatChartNumber(usedUnits)} units in space for ${formatChartNumber(capacity)}.`
+    return `The warehouse is over capacity: it holds ${formatChartNumber(usedUnits)} units in space for ${formatChartNumber(capacity)}.${emptiesNote}`
   }
   if (usedUnits === capacity) {
-    return `The warehouse is full: all ${formatChartNumber(capacity)} units of space are in use.`
+    return `The warehouse is full: all ${formatChartNumber(capacity)} units of space are in use.${emptiesNote}`
   }
   const share = shareOf(usedUnits, capacity)
   // One decimal, like the "Used 87.6%" card printed beside this chart.
   const reading = `${formatChartNumber(usedUnits)} of the ${formatChartNumber(capacity)} units of space are in use (${formatChartNumber(
     Math.min(99.9, roundTo(share, 1))
-  )}%), leaving ${formatChartNumber(capacity - usedUnits)} free.`
+  )}%), leaving ${formatChartNumber(capacity - usedUnits)} free.${emptiesNote}`
   return share >= 90 ? `${reading} The warehouse is almost full, so check space before taking in more stock.` : reading
 }

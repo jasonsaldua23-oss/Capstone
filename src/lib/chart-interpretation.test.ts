@@ -427,6 +427,14 @@ test('describeCapacity matches the one-decimal percentage on the capacity card',
   assert.match(describeCapacity(4380, 5000), /\(87\.6%\)/)
 })
 
+test('describeCapacity names the share taken by empty bottles', () => {
+  assert.equal(
+    describeCapacity(10012, 25000, { emptyUnits: 128 }),
+    '10,012 of the 25,000 units of space are in use (40%), leaving 14,988 free. Full cases take 9,884 of those units and empties take 128.',
+  )
+  assert.doesNotMatch(describeCapacity(8000, 10000, { emptyUnits: 0 }), /empties/)
+})
+
 test('describeCapacity warns when the warehouse is almost full, full or over', () => {
   assert.match(describeCapacity(9500, 10000), /The warehouse is almost full, so check space before taking in more stock\./)
   assert.equal(describeCapacity(10000, 10000), 'The warehouse is full: all 10,000 units of space are in use.')

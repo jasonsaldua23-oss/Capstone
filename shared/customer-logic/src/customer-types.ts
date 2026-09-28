@@ -131,6 +131,8 @@ export interface DriverTrackingItem {
   driverAvatar?: string | null
   etaMinutes?: number | null
   etaArrivalAt?: string | null
+  // Straight-line metres from the driver's latest position to the address.
+  driverDistanceMeters?: number | null
   latitude: number | null
   longitude: number | null
   destinationLatitude?: number | null
@@ -145,6 +147,11 @@ export interface DriverTrackingItem {
     longitude: number
     recordedAt: string
   }>
+  // The latest GPS fix's own readings, for the live map to judge it by.
+  driverSpeedMps?: number | null
+  driverHeading?: number | null
+  driverAccuracyMeters?: number | null
+  driverRecordedAt?: string | null
 }
 
 export interface DeliveryIssueRecord {

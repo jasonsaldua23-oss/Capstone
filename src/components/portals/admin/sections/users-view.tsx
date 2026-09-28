@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,7 +24,9 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  KeyRound,
   Loader2,
+  Pencil,
   XCircle,
   Mail,
   MailCheck,
@@ -682,8 +685,14 @@ export function UsersView() {
                       </td>
                       <td className="p-4">
                         <div className="flex flex-wrap gap-2">
-                          <Button variant="outline" size="sm" onClick={() => openEdit(user)}>Edit</Button>
-                          <Button variant="outline" size="sm" onClick={() => openResetPassword(user)}>Reset Password</Button>
+                          <Button variant="outline" size="sm" className={ACTION_INSPECT} onClick={() => openEdit(user)}>
+                            <Pencil className="size-3.5" />
+                            Edit
+                          </Button>
+                          <Button variant="outline" size="sm" className={ACTION_INSPECT} onClick={() => openResetPassword(user)}>
+                            <KeyRound className="size-3.5" />
+                            Reset Password
+                          </Button>
                         </div>
                       </td>
                     </tr>

@@ -16,6 +16,7 @@ import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeleto
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import { DepositRefundRow, describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -975,12 +976,12 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                               <div className="flex items-center gap-1.5">
                                 <Button
                                   variant="outline"
-                                  size="icon"
-                                  className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  size="sm"
+                                  className={ACTION_INSPECT}
                                   onClick={() => void openOrderDetail(order)}
-                                  title="View Details"
                                 >
-                                  <Eye className="h-4 w-4" />
+                                  <Eye className="size-3.5" />
+                                  View Details
                                 </Button>
                               </div>
                             </td>
@@ -1264,13 +1265,14 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                           <td className="p-4">
                             <div className="flex items-center gap-3">
                               <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                size="sm"
+                                variant="outline"
+                                className={ACTION_INSPECT}
                                 onClick={() => void openOrderDetail(order)}
                                 title="View order progress"
                               >
-                                <Eye className="h-4 w-4" />
+                                <Eye className="size-3.5" />
+                                View Details
                               </Button>
                             </div>
                           </td>
@@ -1516,6 +1518,12 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                       </div>
                     ) : null}
                     <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">Total: <span className="text-emerald-700">{formatPeso(getOrderTotalWithEmpties(selectedOrder))}</span></p>
+                    {/* Use the server's delivery-load total for purchase requests. */}
+                    {mode === 'requests' && (
+                      <p className="text-right text-sm font-semibold text-slate-700">
+                        Total weight: {loadingOrderDetail ? 'Loading...' : selectedOrder.totalWeight == null ? 'Not available' : `${Number(selectedOrder.totalWeight).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`}
+                      </p>
+                    )}
                   </div>
                 </div>
 

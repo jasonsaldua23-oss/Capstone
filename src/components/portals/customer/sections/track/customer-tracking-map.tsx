@@ -22,6 +22,8 @@ type CustomerTrackingMapProps = {
   vehiclePlate?: string | null
   tripNumber?: string | null
   deliveryAddress?: string | null
+  /** When the fix was taken, its speed, bearing and accuracy (from `reportedFixFields`). */
+  driverFix?: Pick<DriverLocation, 'speedMps' | 'gpsHeading' | 'accuracyMeters' | 'recordedAtMs'>
   className?: string
 }
 
@@ -38,8 +40,13 @@ export function CustomerTrackingMap({
   vehiclePlate,
   tripNumber,
   deliveryAddress,
+  driverFix,
   className,
 }: CustomerTrackingMapProps) {
+  const fixSpeed = driverFix?.speedMps
+  const fixHeading = driverFix?.gpsHeading
+  const fixAccuracy = driverFix?.accuracyMeters
+  const fixRecordedAt = driverFix?.recordedAtMs
   const hasDestination = destinationLatitude !== null && destinationLongitude !== null
   const hasWarehouse = warehouseLatitude !== null && warehouseLongitude !== null
 
@@ -54,10 +61,14 @@ export function CustomerTrackingMap({
       markerColor: '#1d4ed8',
       markerLabel: 'Driver current location',
       markerType: 'truck',
-      // Drawn along its remaining route between reports, as on the warehouse and admin maps.
+      // Its route line starts at the icon, as on the warehouse and admin maps.
       roadLineId: `remaining-${orderId}`,
       assignedTripNumber: tripNumber || '',
       destinationCustomer: deliveryAddress || 'N/A',
+      speedMps: fixSpeed,
+      gpsHeading: fixHeading,
+      accuracyMeters: fixAccuracy,
+      recordedAtMs: fixRecordedAt,
     },
     ...(hasDestination
       ? [{
@@ -77,6 +88,7 @@ export function CustomerTrackingMap({
   ], [
     orderId, driverName, vehiclePlate, driverLatitude, driverLongitude, tripNumber, deliveryAddress,
     hasDestination, destinationLatitude, destinationLongitude, delivered,
+    fixSpeed, fixHeading, fixAccuracy, fixRecordedAt,
   ])
 
   const routeLines = useMemo<LiveRouteLine[]>(() => [

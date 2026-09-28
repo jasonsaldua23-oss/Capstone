@@ -31,6 +31,11 @@ export interface InventoryItem {
     category?: { id: string; name: string } | null
   }
   warehouse?: { id: string; name: string; code: string }
+  /** Present when loaded with `includeEmpties=1`: empties on hand, in bottles. */
+  emptyBottles?: number
+  emptyContainersPerCase?: number
+  /** Dated changes to `emptyBottles`, oldest first, for replaying earlier days. */
+  emptyBottleChanges?: Array<{ at: string; bottles: number }>
 }
 
 export interface ProductOption {
@@ -86,6 +91,8 @@ export interface WarehouseOrderItem {
   assignedDriverName?: string | null
   createdAt: string
   totalAmount: number
+  /** Server-calculated request/order weight, including mixed-case components. */
+  totalWeight?: number
   notes?: string | null
   customer?: { name?: string; email?: string; phone?: string }
   shippingName?: string

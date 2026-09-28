@@ -1031,6 +1031,25 @@ def customer_replacement_cancel(request: HttpRequest, replacement_id: str) -> Js
     )
 
 
+# Roads wind: the drive to an address is about this much longer than the straight
+# line to it in town.
+DELIVERY_ROAD_DISTANCE_FACTOR = 1.3
+# A delivery van's average pace across town, stops and junctions included.
+DELIVERY_AVERAGE_SPEED_KPH = 25.0
+
+
+def _delivery_eta_minutes(straight_line_km: float) -> int:
+    """Minutes to the address from where the driver is now.
+
+    Paced by the distance left rather than by the phone's speed at that second: the
+    old reading of the speedometer multiplied the ETA two and a half times at every
+    red light and halved it on a clear stretch, so it jumped about while the van
+    drove steadily on.
+    """
+    road_km = max(0.0, straight_line_km) * DELIVERY_ROAD_DISTANCE_FACTOR
+    return max(1, int(math.ceil(road_km / DELIVERY_AVERAGE_SPEED_KPH * 60)))
+
+
 @require_GET
 def customer_tracking(request: HttpRequest) -> JsonResponse:
     p = _require_auth(request)
@@ -1129,23 +1148,23 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
 
         eta_minutes: int | None = None
         eta_arrival_at: str | None = None
+        driver_distance_meters: int | None = None
         destination_lat = drop_lat if drop_lat is not None else shipping_lat
         destination_lng = drop_lng if drop_lng is not None else shipping_lng
+        # Measured from where the driver is now, so both fall as the van closes in on
+        # the address and rise again if it heads away.
         if (
-            normalized_order_status == OrderStatus.OUT_FOR_DELIVERY
+            normalized_order_status != OrderStatus.DELIVERED
             and driver_lat is not None
             and driver_lng is not None
             and destination_lat is not None
             and destination_lng is not None
         ):
             remaining_distance_km = _haversine_km(float(driver_lat), float(driver_lng), float(destination_lat), float(destination_lng))
-            # Prefer actual GPS speed (m/s → km/h) when available, fall back to 24 km/h.
-            raw_driver_speed = _to_float_or_none(getattr(latest_log, "speed", None)) if latest_log else None
-            speed_kph = (raw_driver_speed * 3.6) if raw_driver_speed is not None and raw_driver_speed > 0 else 24.0
-            speed_kph = min(max(float(speed_kph), 10.0), 70.0)
-            computed_eta = int(math.ceil((remaining_distance_km / speed_kph) * 60)) if remaining_distance_km > 0 else 1
-            eta_minutes = max(1, computed_eta)
-            eta_arrival_at = (timezone.now() + timedelta(minutes=eta_minutes)).isoformat()
+            driver_distance_meters = int(round(remaining_distance_km * 1000))
+            if normalized_order_status == OrderStatus.OUT_FOR_DELIVERY:
+                eta_minutes = _delivery_eta_minutes(remaining_distance_km)
+                eta_arrival_at = (timezone.now() + timedelta(minutes=eta_minutes)).isoformat()
 
         tracking.append(
             {
@@ -1169,10 +1188,19 @@ def customer_tracking(request: HttpRequest) -> JsonResponse:
                 "destinationLongitude": drop_lng if drop_lng is not None else shipping_lng,
                 "etaMinutes": eta_minutes,
                 "etaArrivalAt": eta_arrival_at,
+                "driverDistanceMeters": driver_distance_meters,
                 "recipientName": getattr(drop_point, "recipient_name", None),
                 "deliveryPhoto": getattr(drop_point, "delivery_photo", None),
                 "deliveredMessage": "Your order has been delivered." if normalized_order_status == OrderStatus.DELIVERED else None,
                 "routePoints": route_points,
+                # The customer's map judges each position by these, as the staff maps
+                # do: when it was taken, how fast and which way the van was going, and
+                # how sure the phone was. A late or repeated position cannot move the
+                # van back, and a vague one cannot pull it onto another road.
+                "driverSpeedMps": _to_float_or_none(getattr(latest_log, "speed", None)) if latest_log else None,
+                "driverHeading": _to_float_or_none(getattr(latest_log, "heading", None)) if latest_log else None,
+                "driverAccuracyMeters": _to_float_or_none(getattr(latest_log, "accuracy", None)) if latest_log else None,
+                "driverRecordedAt": latest_log.recorded_at.isoformat() if latest_log and latest_log.recorded_at else None,
                 "trip": _serialize_trip(trip, include_points=False) if trip else None,
             }
         )

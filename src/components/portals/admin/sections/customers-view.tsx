@@ -8,13 +8,15 @@ import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, CheckCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, CheckCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, Percent, Search } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import { resolveClientImageUrl } from '@/lib/client-image'
@@ -33,7 +35,6 @@ import {
   fetchAllPaginatedCollection,
   safeFetchJson,
 } from './shared'
-import { CompactDiscountLine } from '@/components/shared/compact-discount-line'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -226,7 +227,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
 
   const renderStars = (rating: number | null) => {
     if (rating === null || !Number.isFinite(Number(rating))) {
-      return <span className="text-sm text-gray-500">N/A</span>
+      return <span className="text-sm text-gray-500">No ratings yet</span>
     }
 
     const rounded = Math.max(0, Math.min(5, Math.round(Number(rating))))
@@ -259,6 +260,28 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
       return percent > 0 ? `${percent}% Discount` : 'Custom Discount'
     }
     return option.replace(/_/g, ' ')
+  }
+
+  // The discount is data, so it gets its own column and the Action column keeps only
+  // the button. Green matches the "Customers with Discounts" count, which is active-only.
+  const renderDiscount = (row: any) => {
+    if (!customerHasDiscount(row)) return <span className="text-sm text-gray-500">None</span>
+    const isActive = String(row?.discountStatus || '').toUpperCase() === 'ACTIVE'
+    return (
+      <Badge
+        variant="outline"
+        className={isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}
+      >
+        {getDiscountDisplay(row)}{isActive ? '' : ' · Inactive'}
+      </Badge>
+    )
+  }
+
+  const formatJoinedDate = (value: unknown) => {
+    const date = value ? new Date(String(value)) : null
+    return date && !Number.isNaN(date.getTime())
+      ? date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+      : ''
   }
 
   return (
@@ -316,18 +339,23 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
         </Card>
       </div>
 
-      <Card>
+      {/* py-0 here and on the table card: Card's own py-6 left empty bands above the
+          search row and above the table header. */}
+      <Card className="py-0">
         <CardContent className="p-3">
           <div className="flex flex-row flex-wrap items-center gap-2">
-            <Input
-              placeholder="Search by client name or email..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="min-w-[12rem] flex-1"
-            />
+            <div className="relative min-w-[12rem] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                placeholder="Search by client name or email..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
             <select
               title="Customer rating filter"
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               value={ratingFilter}
               onChange={(e) => setRatingFilter(e.target.value)}
             >
@@ -344,10 +372,10 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden py-0">
         <CardContent className="p-0">
           {isLoading ? (
-            <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
+            <PortalTableSkeleton rows={5} columns={7} className="border-0 shadow-none" />
           ) : loadingError && customers.length === 0 ? (
             <div className="text-center py-12 text-gray-500" role="alert">{loadingError}</div>
           ) : filteredRows.length === 0 ? (
@@ -360,16 +388,18 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
                     <th className="text-left p-4 font-medium text-gray-600">Client</th>
                     <th className="text-left p-4 font-medium text-gray-600">Contact</th>
                     <th className="text-left p-4 font-medium text-gray-600">Location</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Successful Deliveries</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Deliveries</th>
                     <th className="text-left p-4 font-medium text-gray-600">Satisfaction</th>
-                    <th className="text-left p-4 font-medium text-gray-600">Action</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Discount</th>
+                    <th className="text-right p-4 font-medium text-gray-600">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredRows.map((row) => (
                     <tr key={row.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="p-4">
-                        <div className="flex items-center gap-3">
+                        {/* Stacked cards right-align every value; the avatar group follows. */}
+                        <div className="flex items-center gap-3 [table[data-stacked]_&]:justify-end">
                           <Avatar className="h-10 w-10 border border-slate-200">
                             {resolveClientImageUrl(row.avatar) ? (
                               <AvatarImage
@@ -387,8 +417,11 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
                                 .join('') || 'CU'}
                             </AvatarFallback>
                           </Avatar>
-                          <div>
+                          <div className="min-w-0">
                             <p className="font-semibold text-gray-900">{row.name || 'N/A'}</p>
+                            {formatJoinedDate(row.createdAt) ? (
+                              <p className="text-xs text-gray-500">Joined {formatJoinedDate(row.createdAt)}</p>
+                            ) : null}
                           </div>
                         </div>
                       </td>
@@ -397,32 +430,37 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
                         <p className="text-sm text-gray-500">{row.phone || 'No phone'}</p>
                       </td>
                       <td className="p-4">
-                        <p className="text-xs text-gray-500">
-                          {typeof row.latitude === 'number' && typeof row.longitude === 'number'
-                            ? `${Number(row.latitude).toFixed(6)} ${Number(row.longitude).toFixed(6)}`
-                            : 'No coordinates'}
-                        </p>
+                        {/* The place reads first; the pin coordinates are reference detail. */}
                         <p className="text-sm text-gray-700">
                           {[row.city, row.province].filter(Boolean).join(', ') || 'No city/province'}
                         </p>
+                        <p className="text-xs text-gray-500 tabular-nums">
+                          {typeof row.latitude === 'number' && typeof row.longitude === 'number'
+                            ? `${Number(row.latitude).toFixed(6)}, ${Number(row.longitude).toFixed(6)}`
+                            : 'No coordinates'}
+                        </p>
                       </td>
                       <td className="p-4">
-                        <p className="font-semibold text-gray-900">{row.orderCount}</p>
-                        <p className="text-sm text-gray-500">{formatPeso(row.totalSpend || 0)}</p>
+                        <p className="font-semibold text-gray-900 tabular-nums">{row.orderCount}</p>
+                        <p className="text-sm text-gray-500 tabular-nums">{formatPeso(row.totalSpend || 0)} spent</p>
                       </td>
                       <td className="p-4">
-                        <div className="flex items-center gap-1 text-sm">
+                        <div className="inline-flex items-center gap-1.5 text-sm">
                           {renderStars(row.rating)}
                           {row.rating === null ? null : (
-                            <span className="font-semibold text-emerald-600">{Number(row.rating).toFixed(1)}</span>
+                            <span className="font-semibold text-gray-900 tabular-nums">{Number(row.rating).toFixed(1)}</span>
                           )}
                         </div>
+                        {row.rating !== null && row.ratingCount > 0 ? (
+                          <p className="text-xs text-gray-500">{row.ratingCount} {row.ratingCount === 1 ? 'rating' : 'ratings'}</p>
+                        ) : null}
                       </td>
+                      <td className="p-4">{renderDiscount(row)}</td>
                       <td className="p-4">
                         {/* Keep every row action in one aligned group in the stacked mobile card. */}
-                        <div className="customer-row-actions">
-                          <CompactDiscountLine value={getDiscountDisplay(row)} className="text-xs" />
-                          <Button size="sm" variant="outline" className="w-full" onClick={() => openDiscountDialog(row)}>
+                        <div className="customer-row-actions ml-auto">
+                          <Button size="sm" variant="outline" className={`w-full ${ACTION_INSPECT}`} onClick={() => openDiscountDialog(row)}>
+                            <Percent className="size-3.5" />
                             {customerHasDiscount(row) ? 'Edit Discount' : 'Apply Discount'}
                           </Button>
                         </div>

@@ -988,6 +988,16 @@ const styles = StyleSheet.create({
   trackRescheduledText: { color: "#fffbeb", fontSize: 10, fontFamily: "Poppins_600SemiBold" },
   trackMapCard: { borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden", backgroundColor: theme.colors.surface },
   trackMapPlaceholder: { height: 280, alignItems: "center", justifyContent: "center", padding: 16 },
+  trackArrivalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  trackArrivalText: { flex: 1, color: theme.colors.emeraldDark, fontSize: 14, fontFamily: "Poppins_600SemiBold" },
   trackMapPlaceholderText: { color: theme.colors.slate500, fontSize: 14, textAlign: "center", fontFamily: "Poppins_400Regular" },
   trackCard: {
     borderRadius: 12,

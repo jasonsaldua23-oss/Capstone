@@ -10,6 +10,7 @@ import { ArrowLeft, History, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
+import { ACTION_INSPECT, ACTION_REFUSE } from '@/components/portals/shared/row-actions'
 import {
   STOCK_BATCH_DAYS_LEFT_CLASSES,
   StockBatchHealthBadge,
@@ -281,21 +282,22 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, openBatchQua
                           <Button
                             size="sm"
                             variant="outline"
-                            className="w-full min-w-0 border-rose-300 px-2 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                            className={`w-full min-w-0 ${ACTION_REFUSE}`}
                             onClick={() => openAction(batch)}
                             title="Dispose stock"
                           >
-                            <Trash2 className="mr-1.5 h-4 w-4 shrink-0" />
+                            <Trash2 className="size-3.5" />
                             Dispose
                           </Button>
                         </div> : <Button
-                          size="icon"
-                          variant="ghost"
-                          className="text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                          size="sm"
+                          variant="outline"
+                          className={ACTION_INSPECT}
                           onClick={() => openBatchQuantityDialog(batch)}
                           title="Edit batch quantity and dates"
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Pencil className="size-3.5" />
+                          Edit
                         </Button>}
                       </td>
                     </tr>

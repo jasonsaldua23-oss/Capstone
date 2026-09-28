@@ -385,6 +385,15 @@ def driver_location(request: HttpRequest) -> JsonResponse:
         )
         if log and recorded_at < log.recorded_at:
             return _ok({"success": True, "ignored": "older_location", "locationLogId": log.id})
+        if log and _is_coarse_fix_amid_gps(accuracy, gps_speed, recorded_at, log):
+            # Every portal reads this one stored position, so a Wi-Fi fix kept out here
+            # is kept off all of their maps at once.
+            return _ok({
+                "success": True,
+                "ignored": "coarse_fix",
+                "locationLogId": log.id,
+                "trackingAllowed": tracking_allowed,
+            })
         now = recorded_at
         if log:
             log.trip_id = trip_id
@@ -432,6 +441,29 @@ def driver_location(request: HttpRequest) -> JsonResponse:
         "tripResolution": trip_resolution,
         "trackingAllowed": tracking_allowed,
     })
+
+
+# How long a GPS fix keeps a coarser, speedless one from replacing it. Matches
+# COARSE_FIX_HOLD_MS in src/lib/driver-gps-quality.ts.
+COARSE_FIX_HOLD_SECONDS = 10
+
+
+def _is_coarse_fix_amid_gps(accuracy: float | None, speed: float | None, recorded_at, stored: LocationLog) -> bool:
+    """A Wi-Fi or cell fix arriving while GPS is still reporting.
+
+    The phone's tracking service listens to the network provider as well as GPS, so
+    that something is sent when GPS drops out. Between GPS fixes those positions land
+    15-40 m off and carry no speed; stored, they moved the van off its road on every
+    map. GPS fixes always carry Doppler speed, so a GPS fix degrading in a street
+    canyon is never dropped here, and once GPS has been quiet for the hold the
+    network fix is the best there is and is taken.
+    """
+    if speed is not None or stored.speed is None:
+        return False
+    if accuracy is None or stored.accuracy is None or accuracy <= stored.accuracy:
+        return False
+    since_gps = (recorded_at - stored.recorded_at).total_seconds()
+    return 0 <= since_gps < COARSE_FIX_HOLD_SECONDS
 
 
 @csrf_exempt

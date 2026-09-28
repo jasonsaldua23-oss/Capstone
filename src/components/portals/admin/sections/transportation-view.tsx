@@ -18,6 +18,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { ACTION_INSPECT, ACTION_REFUSE } from '@/components/portals/shared/row-actions'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1096,12 +1097,12 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                         </td>
                         <td className="px-4 py-3 text-right">
                           {!readOnly ? <div className="flex items-center justify-end gap-2">
-                            <Button size="sm" variant="outline" onClick={() => openEditVehicle(vehicle)}>
-                              <Pencil className="h-3.5 w-3.5 mr-1" />
+                            <Button size="sm" variant="outline" className={ACTION_INSPECT} onClick={() => openEditVehicle(vehicle)}>
+                              <Pencil className="size-3.5" />
                               Edit
                             </Button>
-                            <Button size="sm" variant="destructive" onClick={() => promptDeleteVehicle(vehicle)}>
-                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                            <Button size="sm" variant="outline" className={ACTION_REFUSE} onClick={() => promptDeleteVehicle(vehicle)}>
+                              <Trash2 className="size-3.5" />
                               Delete
                             </Button>
                           </div> : <span className="text-xs text-slate-500">View only</span>}

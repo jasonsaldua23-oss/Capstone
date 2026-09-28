@@ -10,6 +10,7 @@ import { ensureCameraPermission, ensureLocationPermission } from '@/lib/native/p
 import { hasNativeDriverTracking, startNativeDriverTracking } from '@/lib/native/driver-tracking'
 import { createLatestLocationUploader, LocationUploadRejected } from '@/lib/driver-location-upload'
 import { isCoarseFixAmidGps } from '@/lib/driver-gps-quality'
+import { tripTrackingAction } from '@/lib/driver-trip-tracking'
 import { toast } from 'sonner'
 
 // Driver trip payload shape returned by `/api/driver/trips`.
@@ -331,7 +332,8 @@ export function useDriverPortalState() {
   const lastAcceptedFixAtRef = useRef<number>(0)
   const trackingSessionStartedAtRef = useRef<number>(0)
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const autoTrackingTripIdRef = useRef<string | null>(null)
+  // When Start Trip last opened a tracking session; see startLocationTrackingForTrip.
+  const explicitTrackingStartAtRef = useRef(0)
   const trackingLifecycleLockRef = useRef(false)
   const nativeTrackingRef = useRef<Awaited<ReturnType<typeof startNativeDriverTracking>> | null>(null)
   const nativeTrackingRunningRef = useRef(false)
@@ -1043,34 +1045,24 @@ export function useDriverPortalState() {
     }
   }, [])
 
-  // Auto-start tracking when driver opens a specific trip so current location is visible/saved without extra taps.
-  useEffect(() => {
-    const sourceTrips = latestTripsRef.current.length > 0 ? latestTripsRef.current : trips
-    const selectedTrip = selectedTripId
-      ? sourceTrips.find((trip) => String(trip.id || '') === String(selectedTripId || '')) || null
-      : null
-    const normalizedStatus = String(selectedTrip?.status || '').toUpperCase()
-    const isTrackable = normalizedStatus === 'PLANNED' || normalizedStatus === 'IN_PROGRESS' || normalizedStatus === 'IN_TRANSIT' || normalizedStatus === 'OUT_FOR_DELIVERY'
-    if (!selectedTripId || !selectedTrip || !isTrackable) return
-    if (locationPermission === 'denied') return
-    if (watchIdRef.current !== null || nativeTrackingRef.current) return
-    if (autoTrackingTripIdRef.current === selectedTripId) return
-
-    autoTrackingTripIdRef.current = selectedTripId
-    void startLocationTracking()
-  }, [selectedTripId, trips, locationPermission])
-
-  // Keep tracking alive while any trip is in progress; stop only when all active trips are done.
+  // Track the phone only while a trip is underway (see driver-trip-tracking). Opening
+  // a trip that has not started no longer starts tracking: the van moved with the
+  // phone on the trip map, and its position was uploaded, before the trip began.
+  // Start Trip opens the session itself (startLocationTrackingForTrip below).
   useEffect(() => {
     if (trackingLifecycleLockRef.current) return
     const sourceTrips = latestTripsRef.current.length > 0 ? latestTripsRef.current : trips
-    const hasInProgressTrip = sourceTrips.some((trip) => {
-      const status = String(trip?.status || '').toUpperCase()
-      return status === 'IN_PROGRESS' || status === 'IN_TRANSIT' || status === 'OUT_FOR_DELIVERY'
+    const running = watchIdRef.current !== null || nativeTrackingRef.current !== null ||
+      trackingStartRef.current !== null || heartbeatIntervalRef.current !== null || isTracking
+    const action = tripTrackingAction({
+      trips: sourceTrips,
+      selectedTripId,
+      running,
+      explicitStartAtMs: explicitTrackingStartAtRef.current,
+      nowMs: Date.now(),
     })
 
-    const selectedPlannedTrip = sourceTrips.some((trip) => trip.id === selectedTripId && String(trip.status).toUpperCase() === 'PLANNED')
-    if (hasInProgressTrip || selectedPlannedTrip) {
+    if (action === 'ensure-running') {
       if (locationPermission === 'denied') return
       if (watchIdRef.current !== null || nativeTrackingRef.current) {
         // Native service status is authoritative, including permission or authentication failures.
@@ -1083,11 +1075,15 @@ export function useDriverPortalState() {
       })
       return
     }
-
-    if (watchIdRef.current !== null || nativeTrackingRef.current || trackingStartRef.current || heartbeatIntervalRef.current !== null || isTracking) {
-      stopLocationTracking()
-    }
+    if (action === 'stop') stopLocationTracking()
   }, [trips, selectedTripId, locationPermission, isTracking, stopLocationTracking])
+
+  // Start Trip's own session: the trip still reads as not started until the server
+  // confirms it, and the lifecycle above must not stop the session in the meantime.
+  const startLocationTrackingForTrip = (): Promise<boolean> => {
+    explicitTrackingStartAtRef.current = Date.now()
+    return startLocationTracking()
+  }
 
   // Clears geolocation watch on unmount.
   useEffect(() => {
@@ -1122,7 +1118,8 @@ export function useDriverPortalState() {
     fetchTrips,
     applyTripUpdate,
     enforceNativeCameraPermission,
-    startLocationTracking,
+    // Start Trip is the only caller outside this hook.
+    startLocationTracking: startLocationTrackingForTrip,
     openNativeCameraAppSettings,
   }
 }

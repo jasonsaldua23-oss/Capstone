@@ -174,6 +174,103 @@ class EmptyCaseInventoryTests(TestCase):
             self.assertEqual(record["notes"], first.notes)
             self.assertEqual(record["product"]["name"], self.product.name)
 
+    def _dated_delivery(self, *, order_number: str, product: Product, bottles: int, delivered_at, with_timeline: bool = True) -> Order:
+        from .models import OrderTimeline
+
+        order = Order.objects.create(
+            order_number=order_number,
+            status=OrderStatus.DELIVERED,
+            warehouse_id=self.warehouse.id,
+            subtotal=0,
+            total_amount=0,
+        )
+        OrderItem.objects.create(
+            order=order, product=product, quantity=1, unit_price=0, total_price=0,
+            empty_returned_quantity=bottles,
+        )
+        if with_timeline:
+            OrderTimeline.objects.create(order=order, delivered_at=delivered_at)
+        else:
+            # A walk-in sale is delivered when rung up, so its creation time dates it.
+            Order.objects.filter(id=order.id).update(created_at=delivered_at)
+        return order
+
+    def test_bulk_balances_match_the_single_row_balance(self) -> None:
+        from .deposit_lifecycle import get_empty_case_balances
+
+        other_inventory = Inventory.objects.get(warehouse=self.warehouse, product=self.other_product)
+        self._create_order_item(order_number="BULK-A", status=OrderStatus.DELIVERED,
+            warehouse_id=self.warehouse.id, product=self.product, returned_bottles=100)
+        self._create_order_item(order_number="BULK-B", status=OrderStatus.DELIVERED,
+            warehouse_id=self.warehouse.id, product=self.other_product, returned_bottles=30)
+        InventoryTransaction.objects.create(
+            warehouse=self.warehouse, product=self.product, type="CONSUME_EMPTY", quantity=2,
+            reference_type="stock_batch_empty_consumed", reference_id="batch-1",
+        )
+        InventoryTransaction.objects.create(
+            warehouse=self.warehouse, product=self.product, type="CONSUME_EMPTY", quantity=5,
+            quantity_unit="BASE_UNIT", reference_type="manual_empty_return",
+        )
+
+        bulk = get_empty_case_balances([self.inventory, other_inventory])
+
+        self.assertEqual(bulk[self.inventory.id], get_product_empty_case_balance(self.inventory))
+        self.assertEqual(bulk[other_inventory.id], get_product_empty_case_balance(other_inventory))
+        # 100 returned - 2 cases x 24 used for a stock-in - 5 sent back to the supplier.
+        self.assertEqual(bulk[self.inventory.id]["availableBottles"], 47)
+        self.assertEqual(bulk[other_inventory.id]["availableBottles"], 30)
+
+    def test_empty_bottle_changes_are_dated_signed_and_limited_by_since(self) -> None:
+        from datetime import timedelta
+        from .deposit_lifecycle import get_empty_bottle_changes
+
+        now = timezone.now()
+        self._dated_delivery(order_number="OLD", product=self.product, bottles=48, delivered_at=now - timedelta(days=20))
+        self._dated_delivery(order_number="RECENT", product=self.product, bottles=36, delivered_at=now - timedelta(days=2))
+        self._dated_delivery(order_number="WALK-IN", product=self.product, bottles=12,
+            delivered_at=now - timedelta(days=1), with_timeline=False)
+        consumed = InventoryTransaction.objects.create(
+            warehouse=self.warehouse, product=self.product, type="CONSUME_EMPTY", quantity=1,
+            reference_type="stock_batch_empty_consumed", reference_id="batch-2",
+        )
+        InventoryTransaction.objects.filter(id=consumed.id).update(created_at=now - timedelta(hours=5))
+
+        every = get_empty_bottle_changes([self.inventory])[self.inventory.id]
+        self.assertEqual([change["bottles"] for change in every], [48, 36, 12, -24])
+
+        recent = get_empty_bottle_changes([self.inventory], since=now - timedelta(days=7))[self.inventory.id]
+        self.assertEqual([change["bottles"] for change in recent], [36, 12, -24])
+        # Replaying the recent changes backwards from today reaches the balance a week ago.
+        balance = get_product_empty_case_balance(self.inventory)["availableBottles"]
+        self.assertEqual(balance - sum(change["bottles"] for change in recent), 48)
+
+    def test_inventory_list_carries_empties_only_when_asked(self) -> None:
+        import json
+        from unittest.mock import patch
+        from django.test import RequestFactory
+        from .views_inventory import inventory_collection
+
+        self._create_order_item(order_number="LIST", status=OrderStatus.DELIVERED,
+            warehouse_id=self.warehouse.id, product=self.product, returned_bottles=60)
+        with patch("core.views_api._require_staff", return_value=({"role": "ADMIN", "userId": "admin"}, None)):
+            plain = json.loads(inventory_collection(RequestFactory().get("/api/inventory")).content)
+            self.assertNotIn("emptyBottles", plain["inventory"][0])
+
+            response = inventory_collection(RequestFactory().get("/api/inventory", {
+                "includeEmpties": "1", "emptiesSince": "2000-01-01",
+            }))
+            self.assertEqual(response.status_code, 200, response.content)
+            rows = {row["product"]["id"]: row for row in json.loads(response.content)["inventory"]}
+            self.assertEqual(rows[self.product.id]["emptyBottles"], 60)
+            self.assertEqual(rows[self.product.id]["emptyContainersPerCase"], 24)
+            self.assertEqual([change["bottles"] for change in rows[self.product.id]["emptyBottleChanges"]], [60])
+            self.assertEqual(rows[self.other_product.id]["emptyBottles"], 0)
+
+            bad = inventory_collection(RequestFactory().get("/api/inventory", {
+                "includeEmpties": "1", "emptiesSince": "last week",
+            }))
+            self.assertEqual(bad.status_code, 400)
+
     def test_return_history_respects_warehouse_scope(self):
         import json
         from unittest.mock import patch

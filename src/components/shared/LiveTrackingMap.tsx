@@ -1,15 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Tooltip, Polygon } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import MapLibreNavigationMap, { type NavigationMapHandle, type NavigationTruckPose } from './MapLibreNavigationMap';
 import {
-  joinRoadTrack,
   projectPointOntoRoute,
   quantizeRouteSplitMeters,
-  routePoseAtDistance,
   splitRouteAtDistance,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
@@ -62,6 +60,7 @@ import {
   type TruckMotion,
   type TruckMotionContext,
 } from './live-tracking/truck-motion'
+import { useReportMapTrucks } from './live-tracking/use-report-map-trucks'
 
 const MapContainerUnsafe = MapContainer as any;
 
@@ -76,8 +75,6 @@ const CircleMarkerUnsafe = CircleMarker as any;
 const TooltipUnsafe = Tooltip as any;
 
 const PolygonUnsafe = Polygon as any;
-
-const NO_ROUTE: [number, number][] = [];
 
 interface LiveTrackingMapProps {
   locations: DriverLocation[];
@@ -160,10 +157,6 @@ export default function LiveTrackingMap({
   // Motion model per truck. It outlives fixes and effects so the icon's velocity
   // and heading stay continuous from one fix to the next.
   const truckMotionRef = useRef<Map<string, TruckMotion>>(new Map());
-  // The road each truck is drawn along on a map that learns its position a report
-  // at a time, and a version so a redrawn road is told apart from the old one.
-  const truckRoadsRef = useRef(new Map<string, { line: [number, number][]; route: [number, number][]; key: string }>());
-  const truckRoadVersionRef = useRef(0);
   const navigationMapRef = useRef<NavigationMapHandle | null>(null);
 
   useEffect(() => {
@@ -233,6 +226,9 @@ export default function LiveTrackingMap({
   );
 
   useEffect(() => {
+    // The report maps fetch each line on its own (below); only the navigation
+    // map's upcoming route depends on where its completed route ends.
+    if (!navigationPerspective) return;
     const linesNeedingRoadSnap = safeRouteLines
       .filter((line) => line.snapToRoad && line.points.length > 1)
       // Fix: snap the taken route first so its arrival tangent can constrain the
@@ -309,7 +305,7 @@ export default function LiveTrackingMap({
       cancelled = true;
       controller.abort();
     };
-  }, [roadSnapSignature]);
+  }, [roadSnapSignature, navigationPerspective]);
 
   const renderedRouteLines = useMemo(
     () =>
@@ -352,25 +348,6 @@ export default function LiveTrackingMap({
     [renderedRouteLines]
   );
 
-  // The admin and warehouse maps learn where a truck is every few seconds and name
-  // the road it is on - its remaining route, redrawn from each report. Between
-  // reports it is drawn along that road: gliding straight to the next report
-  // instead cut every corner it turned, across whatever stood inside it.
-  const truckRoadLines = useMemo(() => {
-    const lines = new Map<string, [number, number][]>();
-    if (navigationPerspective) return lines;
-    safeLocations.forEach((location) => {
-      if (location.markerType !== 'truck' || !location.roadLineId) return;
-      const line = renderedRouteLines.find((candidate) => candidate.id === location.roadLineId);
-      if (line && line.points.length > 1) lines.set(location.id, line.points);
-    });
-    return lines;
-  }, [navigationPerspective, renderedRouteLines, safeLocations]);
-  const truckRoadLinesKey = useMemo(
-    () => Array.from(truckRoadLines, ([id, points]) => `${id}:${points.length}:${points[0].join(',')}:${points[points.length - 1].join(',')}`).join('|'),
-    [truckRoadLines]
-  );
-
   const routeOriginPoint = useMemo<[number, number] | null>(() => {
     const warehouseOrigin = renderedRouteLines.find((line) => line.id.endsWith('-route-origin'))?.points[0];
     if (warehouseOrigin) return warehouseOrigin;
@@ -409,6 +386,10 @@ export default function LiveTrackingMap({
 
     return safeLocations.flatMap((loc) => {
       if (loc.markerType !== 'truck') return [loc];
+      // The report maps put each vehicle on the road it drove (use-report-map-trucks).
+      // Snapping here pulled it onto the nearest blue line at any distance - another
+      // trip's included - whenever it had left its own.
+      if (!navigationPerspective) return [loc];
       // Fix: never hide the truck while route geometry is briefly unavailable
       // (initial load, reroute in flight, OSRM hiccup) — that read as the
       // vehicle "jumping" when it reappeared moments later at a new spot.
@@ -526,7 +507,65 @@ export default function LiveTrackingMap({
     document.addEventListener('visibilitychange', refresh);
     return () => document.removeEventListener('visibilitychange', refresh);
   }, []);
+  const publishReportLocations = useCallback((next: DriverLocation[]) => {
+    smoothedLocationsRef.current = next;
+    setSmoothedLocations(next);
+  }, []);
+  const { leads: truckLeads, bearingForRoadLine } = useReportMapTrucks({
+    enabled: !navigationPerspective,
+    targets: snappedLocations,
+    targetSignature: truckTargetSignature,
+    visibilityEpoch: mapVisibilityEpoch,
+    publish: publishReportLocations,
+  });
+
+  // Report maps: each road line is fetched on its own, and only again when its own
+  // points change. They used to be fetched one after another, the long path-taken
+  // line first, and every report aborted the lot - so the route ahead of the
+  // vehicle was often a report or more out of date. A vehicle's own route starts
+  // on the side of the road it is driving on, facing the way it is going: planned
+  // from a raw position with no direction, it sometimes began on the cross street
+  // or turning round.
+  const lineRequestsRef = useRef(new Map<string, { signature: string; controller: AbortController }>());
   useEffect(() => {
+    if (navigationPerspective) return;
+    const requests = lineRequestsRef.current;
+    const lines = safeRouteLines.filter((line) => line.snapToRoad && line.points.length > 1);
+    const live = new Set(lines.map((line) => line.id));
+    for (const [id, request] of Array.from(requests)) {
+      if (!live.has(id)) {
+        request.controller.abort();
+        requests.delete(id);
+      }
+    }
+    for (const line of lines) {
+      const signature = line.points.map((point) => `${point[0].toFixed(4)},${point[1].toFixed(4)}`).join('|');
+      if (requests.get(line.id)?.signature === signature) continue;
+      requests.get(line.id)?.controller.abort();
+      const controller = new AbortController();
+      requests.set(line.id, { signature, controller });
+      void fetchRoadSnappedPoints(line.points, controller.signal, bearingForRoadLine(line.id))
+        .then((points) => {
+          if (controller.signal.aborted || points.length < 2) return;
+          roadSnappedRouteCache.set(line.id, points);
+          setSnappedRoutePointsById((previous) => ({ ...previous, [line.id]: points }));
+        })
+        .catch(() => {
+          // Keep the last good geometry through a transient routing error.
+        });
+    }
+  }, [navigationPerspective, roadSnapSignature, safeRouteLines, bearingForRoadLine]);
+  useEffect(() => {
+    const requests = lineRequestsRef.current;
+    return () => {
+      for (const request of requests.values()) request.controller.abort();
+      requests.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Report maps are driven by useReportMapTrucks above.
+    if (!navigationPerspective) return;
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -536,27 +575,10 @@ export default function LiveTrackingMap({
     const observedUpdateInterval = lastTruckTargetAtRef.current === null ? 0 : receivedAt - lastTruckTargetAtRef.current;
     lastTruckTargetAtRef.current = receivedAt;
 
-    // Each truck's road: the navigation route, or on the report maps the road it
-    // was named, redrawn from each report and joined onto the one it was already
-    // travelling along - an icon still on its way to that report is on the old
-    // stretch, behind where the redrawn road starts.
-    const roads = truckRoadsRef.current;
-    for (const id of Array.from(roads.keys())) {
-      if (!truckRoadLines.has(id)) roads.delete(id);
-    }
-    truckRoadLines.forEach((line, id) => {
-      const known = roads.get(id);
-      if (known?.line === line) return;
-      truckRoadVersionRef.current += 1;
-      roads.set(id, { line, route: joinRoadTrack(known?.route, line), key: `${id}#${truckRoadVersionRef.current}` });
-    });
-    const roadFor = (id: string) => navigationPerspective
-      ? { route: navigationRouteGeometry, key: navigationRouteKey }
-      : roads.get(id) ?? { route: NO_ROUTE, key: '' };
+    const road = { route: navigationRouteGeometry, key: navigationRouteKey };
 
     const stabilizedTargets = snappedLocations.map((location) => {
       if (location.markerType !== 'truck') return location;
-      const road = roadFor(location.id);
       if (road.route.length < 2) return location;
 
       const projected = projectPointOntoRoute(
@@ -577,21 +599,14 @@ export default function LiveTrackingMap({
         lat: projected.point[0],
         lng: projected.point[1],
         routeProgressMeters: projected.distanceAlongMeters,
-        // A road a report map names runs from the truck toward where it is going,
-        // so the truck faces along it. The bearing those maps send is only toward
-        // the next stop, and the road there can lead the other way first.
-        ...(navigationPerspective
-          ? {}
-          : { markerHeading: routePoseAtDistance(road.route, projected.distanceAlongMeters)?.heading ?? location.markerHeading }),
       };
     });
 
     // One effect owns one animation loop; React state updaters must not schedule side effects.
     const motionById = truckMotionRef.current;
-    const contextAt = (id: string, nowMs: number): TruckMotionContext => {
-      const road = roadFor(id);
-      return { route: road.route, routeKey: road.key, predict: navigationPerspective, nowMs };
-    };
+    const contextAt = (_id: string, nowMs: number): TruckMotionContext => (
+      { route: road.route, routeKey: road.key, predict: true, nowMs }
+    );
     const liveTruckIds = new Set(
       stabilizedTargets.filter((location) => location.markerType === 'truck').map((location) => location.id)
     );
@@ -688,7 +703,7 @@ export default function LiveTrackingMap({
         animationFrameRef.current = null;
       }
     };
-  }, [navigationPerspective, navigationRouteKey, truckRoadLinesKey, truckTargetSignature, mapVisibilityEpoch]);
+  }, [navigationPerspective, navigationRouteKey, truckTargetSignature, mapVisibilityEpoch]);
 
   // Orders to the same address share a coordinate; fan their pins out about it instead of stacking them.
   const pinTilts = useMemo(() => coincidentPinTilts(smoothedLocations, STATUS_PIN_TILT_STEP_DEG), [smoothedLocations]);
@@ -773,6 +788,32 @@ export default function LiveTrackingMap({
       ...(upcomingLine.points.length > 1 ? [upcomingLine] : []),
     ];
   }, [navTruckSplitDistance, navigationRouteGeometry, renderedRouteLines, traveledRouteSections]);
+
+  // Report maps: a vehicle's own route line starts at its icon. The icon travels a
+  // report behind the newest position (it only drives road it is known to have
+  // driven), so the road from the icon to that position leads into the planned
+  // route from there - which, fetched from an older report, may start behind it.
+  const reportDisplayRouteLines = useMemo(() => {
+    if (navigationPerspective) return renderedRouteLines;
+    const leadByLine = new Map<string, [number, number][]>();
+    smoothedLocations.forEach((location) => {
+      const lead = truckLeads[location.id];
+      if (location.markerType === 'truck' && location.roadLineId && lead && lead.length > 1) {
+        leadByLine.set(location.roadLineId, lead);
+      }
+    });
+    if (leadByLine.size === 0) return renderedRouteLines;
+    return renderedRouteLines.map((line) => {
+      const lead = leadByLine.get(line.id);
+      if (!lead) return line;
+      const leadEnd = lead[lead.length - 1];
+      const meet = projectPointOntoRoute(leadEnd, line.points);
+      const ahead = meet && meet.distanceFromRouteMeters <= 25
+        ? splitRouteAtDistance(line.points, meet.distanceAlongMeters).remaining
+        : line.points;
+      return { ...line, points: dedupeConsecutivePoints([...lead, ...ahead]) };
+    });
+  }, [navigationPerspective, renderedRouteLines, smoothedLocations, truckLeads]);
 
   const strictBounds = restrictToNegrosOccidental
     ? serviceBoundary
@@ -885,7 +926,7 @@ export default function LiveTrackingMap({
             />
           ))
           : null}
-        {navigationDisplayRouteLines.map((line) =>
+        {reportDisplayRouteLines.map((line) =>
           Array.isArray(line.points) && line.points.length > 1 ? (
             <Fragment key={line.id}>
               {(() => {
@@ -1042,6 +1083,11 @@ export default function LiveTrackingMap({
                     <p className="text-gray-600">
                       Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
                     </p>
+                    {typeof loc.recordedAtMs === 'number' && Number.isFinite(loc.recordedAtMs) ? (
+                      <p className="text-gray-500">
+                        Last GPS update: {new Date(loc.recordedAtMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+                      </p>
+                    ) : null}
                   </div>
                 </Popup>
               </MarkerUnsafe>

@@ -70,26 +70,6 @@ export function ReplacementStatusBadge({
 }
 
 /**
- * Decision actions, so weight tracks what the click commits you to.
- *
- * Before this, "Approve" and "Under Review" were both solid saturated buttons of
- * equal weight, though one settles a claim and the other only moves it onto the
- * next desk. Four classes, each meaning one thing:
- */
-/** Settles the claim in the customer's favour. Used only for Approve. */
-export const ACTION_DECIDE =
-  'h-9 bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-700 motion-reduce:transition-none'
-/** Moves the claim to the next stage: start review, start processing, schedule. */
-export const ACTION_ADVANCE =
-  'h-9 bg-[#0e5aa8] text-white hover:bg-[#0d4f92] focus-visible:ring-[#0f3d72] motion-reduce:transition-none'
-/** Refuses the claim. Outlined, because it is the destructive half of a decision. */
-export const ACTION_REFUSE =
-  'h-9 border-rose-300 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800 focus-visible:ring-rose-600 motion-reduce:transition-none'
-/** Opens the dossier. Quietest: it commits to nothing. */
-export const ACTION_INSPECT =
-  'h-9 border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-500 motion-reduce:transition-none'
-
-/**
  * The head of a claim's dossier.
  *
  * Both views used to open with the same ten identical `bg-slate-50` boxes, which

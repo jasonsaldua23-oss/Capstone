@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
+import { ACTION_DECIDE, ACTION_INSPECT, ACTION_REFUSE } from '@/components/portals/shared/row-actions'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { CustomerOrderNotePreview } from '@/components/portals/shared/customer-order-note'
 import type { WarehousePurchaseRequestsViewProps } from '../shared/types'
@@ -279,39 +280,45 @@ export function WarehousePurchaseRequestsView({
                           </Badge>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5">
+                          {/* Approve and Reject only exist while the request is pending, as in the
+                              replacement queue; a settled request keeps just View Details. */}
+                          <div className="table-actions">
                             <Button
                               variant="outline"
-                              size="icon"
-                              className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              size="sm"
+                              className={ACTION_INSPECT}
                               onClick={() => void openOrderDetail(order)}
-                              title="View Details"
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="size-3.5" />
+                              View Details
                             </Button>
-                            <Button
-                              size="icon"
-                              className="h-8 w-8 bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40"
-                              disabled={!isPending || busyId === order.id}
-                              onClick={() => setActionState({ order, action: 'approve' })}
-                              title="Approve Request"
-                            >
-                              {busyId === order.id && actionState?.action === 'approve' ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Check className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-8 w-8 border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-40"
-                              disabled={!isPending || busyId === order.id}
-                              onClick={() => setActionState({ order, action: 'reject' })}
-                              title="Reject Request"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
+                            {isPending ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  className={ACTION_DECIDE}
+                                  disabled={busyId === order.id}
+                                  onClick={() => setActionState({ order, action: 'approve' })}
+                                >
+                                  {busyId === order.id && actionState?.action === 'approve' ? (
+                                    <Loader2 className="size-3.5 animate-spin" />
+                                  ) : (
+                                    <Check className="size-3.5" />
+                                  )}
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className={ACTION_REFUSE}
+                                  disabled={busyId === order.id}
+                                  onClick={() => setActionState({ order, action: 'reject' })}
+                                >
+                                  <X className="size-3.5" />
+                                  Reject
+                                </Button>
+                              </>
+                            ) : null}
                           </div>
                         </td>
                       </tr>

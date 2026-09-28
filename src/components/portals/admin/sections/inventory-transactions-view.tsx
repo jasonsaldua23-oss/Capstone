@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Badge } from '@/components/ui/badge'
 import { formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
 import { safeFetchJson } from './shared'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import {
   ArrowDown,
   ArrowUp,
@@ -398,14 +399,10 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                         </span>
                       </td>
                       <td className="p-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => openDetails(tx)}
-                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
-                          title="View Details"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
+                        <Button size="sm" variant="outline" className={ACTION_INSPECT} onClick={() => openDetails(tx)}>
+                          <Eye className="size-3.5" />
+                          View Details
+                        </Button>
                       </td>
                     </tr>
                   ))}

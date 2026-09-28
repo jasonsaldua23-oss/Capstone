@@ -22,7 +22,10 @@ export function WarehouseWarehousesView({
   const capacityInterpretation = describeCapacity(
     Number(warehouseOverviewStats.usedCapacity || 0),
     Number(warehouseOverviewStats.totalCapacity || 0),
-    { emptyMessage: 'This warehouse has no capacity recorded yet, so the split cannot be read.' }
+    {
+      emptyMessage: 'This warehouse has no capacity recorded yet, so the split cannot be read.',
+      emptyUnits: Number(warehouseOverviewStats.emptyCapacity || 0),
+    }
   )
   const utilizationInterpretation = describeTrend(
     toPoints(warehouseOverviewStats.utilizationTrend, (row: any) => row.day, (row: any) => row.utilization),
@@ -87,9 +90,9 @@ export function WarehouseWarehousesView({
             <CardContent className="space-y-3">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="rounded-xl border bg-gradient-to-br from-slate-50 via-white to-blue-50/40 p-4 shadow-sm">
-                  <p className="mb-2 text-sm font-medium text-gray-600">Used vs Free Capacity</p>
+                  <p className="mb-2 text-sm font-medium text-gray-600">Stock, Empties and Free Capacity</p>
                   <ChartContainer
-                    config={{ used: { label: 'Used', color: '#3b82f6' }, free: { label: 'Free', color: '#34d399' } }}
+                    config={{ full: { label: 'Full', color: '#3b82f6' }, empties: { label: 'Empties', color: '#8b5cf6' }, free: { label: 'Free', color: '#34d399' } }}
                     className="h-[260px] w-full"
                   >
                     <PieChart>
@@ -128,6 +131,15 @@ export function WarehouseWarehousesView({
                       <Tooltip formatter={(value: any, name: any) => [Number(value).toLocaleString(), name]} />
                     </PieChart>
                   </ChartContainer>
+                  {/* Stock and empties free up space in different ways, so the split stays visible. */}
+                  <div className="mb-2 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                    {warehouseOverviewStats.capacityBreakdown.map((entry: any) => (
+                      <span key={entry.name} className="inline-flex items-center gap-1.5">
+                        <span className="size-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                        {entry.name} <span className="font-semibold text-slate-800 tabular-nums">{Number(entry.value).toLocaleString()}</span>
+                      </span>
+                    ))}
+                  </div>
                   <ChartInterpretation text={capacityInterpretation} />
                 </div>
                 <div className="grid grid-cols-1 gap-3 text-sm items-start content-start auto-rows-min self-start sm:grid-cols-3">

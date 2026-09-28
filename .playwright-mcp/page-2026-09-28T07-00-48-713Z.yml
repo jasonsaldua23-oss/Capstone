@@ -1,0 +1,49 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e2]:
+    - table [ref=f2e5]:
+      - rowgroup [ref=f2e6]:
+        - row [ref=f2e7]:
+          - columnheader "Record" [ref=f2e8]
+          - columnheader "Actions" [ref=f2e9]
+      - rowgroup [ref=f2e10]:
+        - row [ref=f2e11]:
+          - cell "Users" [ref=f2e12]
+          - cell [ref=f2e13]:
+            - generic [ref=f2e14]:
+              - button "Edit" [ref=f2e15]
+              - button "Reset Password" [ref=f2e16]
+        - row [ref=f2e17]:
+          - cell "Vehicles" [ref=f2e18]
+          - cell [ref=f2e19]:
+            - generic [ref=f2e20]:
+              - button "Edit" [ref=f2e21]
+              - button "Delete" [ref=f2e22]
+        - row [ref=f2e23]:
+          - cell "Retail sale" [ref=f2e24]
+          - cell [ref=f2e25]:
+            - button "Receipt" [ref=f2e26]
+    - table [ref=f2e29]:
+      - rowgroup [ref=f2e30]:
+        - row [ref=f2e31]:
+          - columnheader "Order" [ref=f2e32]
+          - columnheader "Purchase request" [ref=f2e33]
+          - columnheader "Processing" [ref=f2e34]
+      - rowgroup [ref=f2e35]:
+        - row [ref=f2e36]:
+          - cell [ref=f2e37]:
+            - generic [ref=f2e38]:
+              - button "View Details" [ref=f2e39]
+              - button "Start Processing" [ref=f2e40]
+              - button "Reschedule" [ref=f2e41]
+              - button "Cancel Order" [ref=f2e42]
+          - cell [ref=f2e43]:
+            - generic [ref=f2e44]:
+              - button "View Details" [ref=f2e45]
+              - button "Approve" [ref=f2e46]
+              - button "Reject" [ref=f2e47]
+          - cell [ref=f2e48]:
+            - generic [ref=f2e49]:
+              - button "Assigned" [disabled]
+              - button "Cancel Order" [disabled]
+  - region "Notifications (F8)":
+    - list

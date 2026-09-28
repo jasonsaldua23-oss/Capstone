@@ -5,7 +5,8 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Loader2, PackageCheck, Recycle, Search } from 'lucide-react'
+import { Loader2, PackageCheck, Recycle, Search, Undo2 } from 'lucide-react'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -382,12 +383,13 @@ export function WarehouseEmptyBottlesView({ warehouseId, readOnly = false }: War
                       </td>
                       {!readOnly && (
                         <td className="px-4 py-3 text-right">
-                          <Button size="sm" variant="outline" onClick={() => {
+                          <Button size="sm" variant="outline" className={ACTION_INSPECT} onClick={() => {
                             // Start each product return with a clean form and no stale validation error.
                             setReturnForm({ cases: '', looseBottles: '', remarks: '' })
                             setReturnError('')
                             setReturnTarget(row)
                           }}>
+                            <Undo2 className="size-3.5" />
                             Return
                           </Button>
                         </td>

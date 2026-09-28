@@ -1,15 +1,14 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Boxes, CalendarDays, ClipboardList, Loader2, XCircle } from 'lucide-react'
+import { Boxes, CalendarCheck, CalendarClock, CalendarDays, ClipboardList, Eye, Loader2, PackageOpen, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  ACTION_ADVANCE,
-  ACTION_INSPECT,
   ReplacementDossierHeader,
   ReplacementStatusBadge,
 } from '../../../shared/replacement-status'
+import { ACTION_ADVANCE, ACTION_INSPECT } from '../../../shared/row-actions'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
@@ -654,23 +653,24 @@ export function WarehouseReplacementsView({
                                   disabled={Boolean(updatingReplacementId)}
                                   onChange={(event) => setRowRescheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))}
                                   aria-label={`New delivery date for ${ret.replacementNumber}`}
-                                  className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                                  className="h-8 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                                 />
                                 <Button
                                   size="sm"
-                                  className="h-9 bg-amber-600 text-white transition-colors hover:bg-amber-700 motion-reduce:transition-none"
+                                  className={ACTION_ADVANCE}
                                   disabled={Boolean(updatingReplacementId) || !nextDate || isPastScheduleDate(nextDate)}
                                   onClick={() => {
                                     if (!nextDate || isPastScheduleDate(nextDate)) return
                                     setRescheduleConfirmId(ret.id)
                                   }}
                                 >
-                                  {updatingReplacementId === ret.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                  {updatingReplacementId === ret.id ? <Loader2 className="size-3.5 animate-spin" /> : <CalendarClock className="size-3.5" />}
                                   Reschedule
                                 </Button>
                               </>
                             ) : null}
-                            <Button size="sm" variant="outline" onClick={() => openReplacementDetails(ret)}>
+                            <Button size="sm" variant="outline" className={ACTION_INSPECT} onClick={() => openReplacementDetails(ret)}>
+                              <Eye className="size-3.5" />
                               View Details
                             </Button>
                           </div>
@@ -744,21 +744,21 @@ export function WarehouseReplacementsView({
                               <div key={rawStatus} className="table-actions motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
                                 {rawStatus === 'APPROVED' ? (
                                   <Button size="sm" className={ACTION_ADVANCE} disabled={Boolean(updatingReplacementId)} onClick={() => setProcessConfirmId(ret.id)}>
-                                    {updatingReplacementId === ret.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                                    {updatingReplacementId === ret.id ? <Loader2 className="size-3.5 animate-spin" /> : <PackageOpen className="size-3.5" />}
                                     Start Processing
                                   </Button>
                                 ) : rawStatus === 'IN_PROGRESS' && !hasStrictScheduledFollowUp(ret) ? (
                                   <>
                                     <label className="space-y-1 text-xs font-medium text-slate-600">
                                       <span className="block">Delivery date</span>
-                                      <input type="date" min={todayDateInput} value={rowScheduleDates[ret.id] || ''} disabled={Boolean(updatingReplacementId)} onChange={(event) => setRowScheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
+                                      <input type="date" min={todayDateInput} value={rowScheduleDates[ret.id] || ''} disabled={Boolean(updatingReplacementId)} onChange={(event) => setRowScheduleDates((current) => ({ ...current, [ret.id]: event.target.value }))} className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
                                     </label>
                                     <Button size="sm" className={ACTION_ADVANCE} disabled={Boolean(updatingReplacementId) || !rowScheduleDates[ret.id] || isPastScheduleDate(rowScheduleDates[ret.id])} onClick={() => {
                                       const deliveryDate = rowScheduleDates[ret.id]
                                       if (!deliveryDate || isPastScheduleDate(deliveryDate)) return
                                       setScheduleConfirmId(ret.id)
                                     }}>
-                                      {updatingReplacementId === ret.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                                      {updatingReplacementId === ret.id ? <Loader2 className="size-3.5 animate-spin" /> : <CalendarCheck className="size-3.5" />}
                                       Schedule Delivery
                                     </Button>
                                   </>
@@ -770,6 +770,7 @@ export function WarehouseReplacementsView({
                               className={ACTION_INSPECT}
                               onClick={() => openReplacementDetails(ret)}
                             >
+                              <Eye className="size-3.5" />
                               View Details
                             </Button>
                             </div>

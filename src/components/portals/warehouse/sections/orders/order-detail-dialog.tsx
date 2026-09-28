@@ -310,6 +310,10 @@ export function WarehouseOrderDetailDialog({
                           </p>
                         </>
                       )}
+                      {/* This shared detail dialog also displays purchase requests. */}
+                      <p className="text-right text-sm font-semibold text-slate-700">
+                        Total weight: {loadingOrderDetail ? 'Loading...' : selectedOrder.totalWeight == null ? 'Not available' : `${Number(selectedOrder.totalWeight).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`}
+                      </p>
                     </div>
                   </div>
                 )

@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Archive, ArrowLeft, Loader2, RotateCcw } from 'lucide-react'
+import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { BEVERAGE_CATEGORIES, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
 import { calculateProductWeightKg } from '@/lib/product-weight'
 
@@ -516,8 +517,8 @@ export function WarehouseProductForms({ warehouse, products = [], children }: {
                       <td className="p-3 text-slate-600">{product.category || 'N/A'}</td>
                       <td className="p-3 text-slate-600">{Array.isArray(product.sizes) && product.sizes.length ? product.sizes.join(', ') : 'N/A'}</td>
                       <td className="p-3 text-right">
-                        <Button type="button" variant="outline" onClick={() => void restoreProduct(product)} disabled={restoringProductId === String(product.id)}>
-                          {restoringProductId === String(product.id) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                        <Button type="button" size="sm" variant="outline" className={ACTION_INSPECT} onClick={() => void restoreProduct(product)} disabled={restoringProductId === String(product.id)}>
+                          {restoringProductId === String(product.id) ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
                           Restore
                         </Button>
                       </td>

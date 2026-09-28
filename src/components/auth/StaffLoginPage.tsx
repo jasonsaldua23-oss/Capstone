@@ -336,7 +336,7 @@ export function SystemLoginPage({
           else toast.error('Google authentication failed. Please try again.')
         },
       })
-      // Size, and the reason it is capped under 200px, live in one place now.
+      // Shared styling keeps the centered Google button aligned with the reference.
       renderGoogleIdentityButton(target, window.google.accounts.id)
     } catch (error) {
       console.warn('Unable to render system Google sign-in:', error)
@@ -520,19 +520,20 @@ export function SystemLoginPage({
             </div>
 
             {/* Formal auth layout: keep the recovery link with the related session option. */}
-            <div className="flex flex-wrap items-center justify-between gap-x-4">
-              <label className="flex items-center gap-2 py-2.5 text-sm text-[#445877]">
+            {/* Fix: compact mobile text and spacing keep both options on one row. */}
+            <div className="flex items-center justify-between gap-x-2 sm:gap-x-4">
+              <label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap py-2.5 text-[11px] text-[#445877] sm:gap-2 sm:text-sm">
                 <input
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(event) => setRememberMe(event.target.checked)}
-                  className="h-4 w-4 rounded border-[#ccd6e4] text-[#1f56d8] focus:ring-[#1f56d8]"
+                  className="h-3.5 w-3.5 shrink-0 rounded border-[#ccd6e4] text-[#1f56d8] focus:ring-[#1f56d8] sm:h-4 sm:w-4"
                 />
                 Keep me logged in
               </label>
               <Link
                 href={forgotPasswordPath ? withPrefilledEmail(forgotPasswordPath, email) : forgotPasswordHref(entryPortal, email)}
-                className="inline-flex items-center rounded-sm py-2.5 text-sm font-medium text-[#1f4f9f] underline-offset-4 transition-colors hover:text-[#0f4fd3] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0f4fd3] focus-visible:ring-offset-2"
+                className="inline-flex shrink-0 items-center whitespace-nowrap rounded-sm py-2.5 text-[11px] font-medium text-[#1f4f9f] underline-offset-4 transition-colors hover:text-[#0f4fd3] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0f4fd3] focus-visible:ring-offset-2 sm:text-sm"
               >
                 Forgot your password?
               </Link>

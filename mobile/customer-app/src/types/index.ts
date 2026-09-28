@@ -152,6 +152,8 @@ export interface CustomerTrackingItem {
   driverPhone?: string | null;
   driverAvatar?: string | null;
   etaArrivalAt?: string | null;
+  // Straight-line metres from the driver's latest position to the address.
+  driverDistanceMeters?: number | null;
   destinationLatitude?: number | null;
   destinationLongitude?: number | null;
   recipientName?: string | null;

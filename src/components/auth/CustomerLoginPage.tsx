@@ -22,6 +22,7 @@ import { CheckCircle2, Eye, EyeOff, Leaf, Loader2, Lock, Mail } from 'lucide-rea
 import { toast } from 'sonner'
 import { OtpVerificationPanel } from '@/components/shared/otp-verification-modal'
 import { NativeGoogleButton } from '@/components/auth/native-google-button'
+import { renderGoogleIdentityButton } from './google-button-config'
 
 const poppins = { className: '' }
 // Keep authenticated Customer navigation inside the Customer PWA's manifest scope.
@@ -263,22 +264,8 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
         },
       })
 
-      targetEl.innerHTML = ''
-      const parentWidth = targetEl.parentElement?.clientWidth || targetEl.clientWidth || 300
-      const buttonWidth = Math.max(240, Math.min(340, Math.floor(parentWidth)))
-
-      window.google.accounts.id.renderButton(targetEl, {
-        type: 'standard',
-        theme: 'outline',
-        // Fix: at 'large' Google swaps in its personalized button, which pins the
-        // visitor's own account and email onto the login screen. 'medium' is the
-        // documented size that keeps the plain "Continue with Google" label.
-        size: 'medium',
-        text: 'continue_with',
-        shape: 'pill',
-        logo_alignment: 'left',
-        width: buttonWidth,
-      })
+      // Added: use the same centered, taller Google button as the system login.
+      renderGoogleIdentityButton(targetEl, window.google.accounts.id)
     } catch (err) {
       console.warn('Error rendering Google button:', err)
     }
@@ -708,8 +695,8 @@ export function CustomerLoginPage({ initialAuthMode = 'login', loginHref = '/cus
                   </div>
                 </div>
                 {googleSignInAvailable ? (
-                  <div key="login-google-container" className="my-1.5 flex w-full justify-center">
-                    <div ref={loginGoogleButtonRef} className="flex min-h-[36px] w-full items-center justify-center relative z-10" />
+                  <div key="login-google-container" className="my-1.5 flex h-11 w-full items-center justify-center">
+                    <div ref={loginGoogleButtonRef} className="relative z-10" />
                   </div>
                 ) : isAppShell ? (
                   <div className="my-1.5 flex w-full justify-center">

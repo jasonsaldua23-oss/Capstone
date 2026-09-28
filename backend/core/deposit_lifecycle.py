@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
+from collections.abc import Iterable
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
 from django.db.models import Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .models import (
@@ -223,74 +227,194 @@ def record_stockin_empty_consumption(inventory: Inventory, batch: Any, qty: int)
         )
 
 
-def get_product_empty_case_balance(inventory: Inventory) -> dict[str, int]:
-    """Return delivered, consumed, and currently available empties for one product."""
-    product = inventory.product
-    packaging = (
-        ProductPackaging.objects.filter(product=product, is_active=True, is_returnable=True)
-        .order_by("-is_primary", "created_at")
-        .first()
-    )
-    if not packaging:
-        return {
-            "containersPerCase": 0,
-            "returnedBottles": 0,
-            "consumedCases": 0,
-            "availableBottles": 0,
-            "availableCases": 0,
-            "looseBottles": 0,
-        }
+_EMPTY_CONSUMED_FOR_STOCK_IN = "stock_batch_empty_consumed"  # quantity is in cases
+_EMPTY_RETURNED_TO_SUPPLIER = "manual_empty_return"  # quantity is in bottles
 
-    containers_per_case = max(1, int(packaging.containers_per_case or 1))
+
+def _no_empty_balance() -> dict[str, int]:
+    return {
+        "containersPerCase": 0,
+        "returnedBottles": 0,
+        "consumedCases": 0,
+        "availableBottles": 0,
+        "availableCases": 0,
+        "looseBottles": 0,
+    }
+
+
+def _returnable_containers_per_case(product_ids: set[str]) -> dict[str, int]:
+    """Containers per case of each product's returnable packaging, primary first."""
+    per_case: dict[str, int] = {}
+    packagings = (
+        ProductPackaging.objects.filter(product_id__in=product_ids, is_active=True, is_returnable=True)
+        .order_by("-is_primary", "created_at")
+        .only("product_id", "containers_per_case")
+    )
+    for packaging in packagings:
+        per_case.setdefault(packaging.product_id, max(1, int(packaging.containers_per_case or 1)))
+    return per_case
+
+
+def get_empty_case_balances(inventories: Iterable[Inventory]) -> dict[str, dict[str, int]]:
+    """Empties on hand for many inventory rows, keyed by inventory id.
+
+    Five grouped queries for the whole list instead of four per row, so a warehouse's
+    inventory can carry its empties into the capacity charts.
+    """
+    rows = [inventory for inventory in inventories if inventory.product_id and inventory.warehouse_id]
+    if not rows:
+        return {}
+    warehouse_ids = {inventory.warehouse_id for inventory in rows}
+    product_ids = {inventory.product_id for inventory in rows}
+    per_case = _returnable_containers_per_case(product_ids)
+
     # Checkout reservations remain customer-only; warehouse empties become
     # available only after the associated order is delivered.
+    returned: dict[tuple[str, str], int] = defaultdict(int)
     standard_returned = (
         OrderItem.objects.filter(
             order__status="DELIVERED",
-            order__warehouse_id=inventory.warehouse_id,
-            product_id=product.id,
+            order__warehouse_id__in=warehouse_ids,
+            product_id__in=product_ids,
             empty_returned_quantity__gt=0,
         )
         .exclude(item_type="MIXED_CASE")
-        .aggregate(total=Sum("empty_returned_quantity"))
-        .get("total")
-        or 0
+        .values("order__warehouse_id", "product_id")
+        .annotate(total=Sum("empty_returned_quantity"))
     )
+    for row in standard_returned:
+        returned[(row["order__warehouse_id"], row["product_id"])] += int(row["total"] or 0)
     mixed_returned = (
         MixedCaseComponent.objects.filter(
             order_item__order__status="DELIVERED",
-            order_item__order__warehouse_id=inventory.warehouse_id,
-            product_id=product.id,
+            order_item__order__warehouse_id__in=warehouse_ids,
+            product_id__in=product_ids,
             empty_covered_quantity__gt=0,
         )
-        .aggregate(total=Sum("empty_covered_quantity"))
-        .get("total")
-        or 0
+        .values("order_item__order__warehouse_id", "product_id")
+        .annotate(total=Sum("empty_covered_quantity"))
     )
-    returned_bottles = max(0, int(standard_returned) + int(mixed_returned))
-    consumed_cases = (
-        InventoryTransaction.objects.filter(
-            warehouse_id=inventory.warehouse_id,
-            product_id=product.id,
-            type="CONSUME_EMPTY",
-            reference_type="stock_batch_empty_consumed",
-        )
-        .aggregate(total=Sum("quantity"))
-        .get("total")
-        or 0
-    )
-    consumed_cases = max(0, int(consumed_cases))
+    for row in mixed_returned:
+        returned[(row["order_item__order__warehouse_id"], row["product_id"])] += int(row["total"] or 0)
+
+    consumed_cases: dict[tuple[str, str], int] = defaultdict(int)
     # Fix: outgoing warehouse returns do not change customer return records.
-    manual_returned = InventoryTransaction.objects.filter(
-        warehouse_id=inventory.warehouse_id, product_id=product.id,
-        type="CONSUME_EMPTY", reference_type="manual_empty_return",
-    ).aggregate(total=Sum("quantity")).get("total") or 0
-    available_bottles = max(0, returned_bottles - (consumed_cases * containers_per_case) - int(manual_returned))
-    return {
-        "containersPerCase": containers_per_case,
-        "returnedBottles": returned_bottles,
-        "consumedCases": consumed_cases,
-        "availableBottles": available_bottles,
-        "availableCases": available_bottles // containers_per_case,
-        "looseBottles": available_bottles % containers_per_case,
-    }
+    returned_to_supplier: dict[tuple[str, str], int] = defaultdict(int)
+    consumption = (
+        InventoryTransaction.objects.filter(
+            warehouse_id__in=warehouse_ids,
+            product_id__in=product_ids,
+            type="CONSUME_EMPTY",
+            reference_type__in=[_EMPTY_CONSUMED_FOR_STOCK_IN, _EMPTY_RETURNED_TO_SUPPLIER],
+        )
+        .values("warehouse_id", "product_id", "reference_type")
+        .annotate(total=Sum("quantity"))
+    )
+    for row in consumption:
+        target = consumed_cases if row["reference_type"] == _EMPTY_CONSUMED_FOR_STOCK_IN else returned_to_supplier
+        target[(row["warehouse_id"], row["product_id"])] += int(row["total"] or 0)
+
+    balances: dict[str, dict[str, int]] = {}
+    for inventory in rows:
+        containers_per_case = per_case.get(inventory.product_id)
+        if not containers_per_case:
+            balances[inventory.id] = _no_empty_balance()
+            continue
+        key = (inventory.warehouse_id, inventory.product_id)
+        returned_bottles = max(0, returned[key])
+        consumed = max(0, consumed_cases[key])
+        available_bottles = max(0, returned_bottles - (consumed * containers_per_case) - returned_to_supplier[key])
+        balances[inventory.id] = {
+            "containersPerCase": containers_per_case,
+            "returnedBottles": returned_bottles,
+            "consumedCases": consumed,
+            "availableBottles": available_bottles,
+            "availableCases": available_bottles // containers_per_case,
+            "looseBottles": available_bottles % containers_per_case,
+        }
+    return balances
+
+
+def get_product_empty_case_balance(inventory: Inventory) -> dict[str, int]:
+    """Return delivered, consumed, and currently available empties for one product."""
+    return get_empty_case_balances([inventory]).get(inventory.id) or _no_empty_balance()
+
+
+def get_empty_bottle_changes(
+    inventories: Iterable[Inventory],
+    since: datetime | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Dated changes to each row's empties, oldest first, keyed by inventory id.
+
+    Returned empties arrive when their order is delivered: the timeline's delivery
+    time, or for a walk-in sale (delivered as it is rung up) the sale itself. Empties
+    used for a stock-in or sent back to the supplier leave when that is recorded.
+    Subtracting the changes after a day from today's balance gives that day's empties,
+    which is how the capacity trends stop treating empties as if they never moved.
+    """
+    rows = [inventory for inventory in inventories if inventory.product_id and inventory.warehouse_id]
+    if not rows:
+        return {}
+    warehouse_ids = {inventory.warehouse_id for inventory in rows}
+    product_ids = {inventory.product_id for inventory in rows}
+    per_case = _returnable_containers_per_case(product_ids)
+    changes: dict[tuple[str, str], dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
+
+    standard_returned = (
+        OrderItem.objects.filter(
+            order__status="DELIVERED",
+            order__warehouse_id__in=warehouse_ids,
+            product_id__in=product_ids,
+            empty_returned_quantity__gt=0,
+        )
+        .exclude(item_type="MIXED_CASE")
+        .annotate(arrived_at=Coalesce("order__timeline__delivered_at", "order__pod_submitted_at", "order__created_at"))
+    )
+    mixed_returned = MixedCaseComponent.objects.filter(
+        order_item__order__status="DELIVERED",
+        order_item__order__warehouse_id__in=warehouse_ids,
+        product_id__in=product_ids,
+        empty_covered_quantity__gt=0,
+    ).annotate(
+        arrived_at=Coalesce(
+            "order_item__order__timeline__delivered_at",
+            "order_item__order__pod_submitted_at",
+            "order_item__order__created_at",
+        )
+    )
+    consumption = InventoryTransaction.objects.filter(
+        warehouse_id__in=warehouse_ids,
+        product_id__in=product_ids,
+        type="CONSUME_EMPTY",
+        reference_type__in=[_EMPTY_CONSUMED_FOR_STOCK_IN, _EMPTY_RETURNED_TO_SUPPLIER],
+    )
+    if since is not None:
+        standard_returned = standard_returned.filter(arrived_at__gt=since)
+        mixed_returned = mixed_returned.filter(arrived_at__gt=since)
+        consumption = consumption.filter(created_at__gt=since)
+
+    for warehouse_id, product_id, at, bottles in standard_returned.values_list(
+        "order__warehouse_id", "product_id", "arrived_at", "empty_returned_quantity"
+    ):
+        changes[(warehouse_id, product_id)][at] += int(bottles or 0)
+    for warehouse_id, product_id, at, bottles in mixed_returned.values_list(
+        "order_item__order__warehouse_id", "product_id", "arrived_at", "empty_covered_quantity"
+    ):
+        changes[(warehouse_id, product_id)][at] += int(bottles or 0)
+    for warehouse_id, product_id, at, reference_type, quantity in consumption.values_list(
+        "warehouse_id", "product_id", "created_at", "reference_type", "quantity"
+    ):
+        bottles = int(quantity or 0)
+        if reference_type == _EMPTY_CONSUMED_FOR_STOCK_IN:
+            bottles *= per_case.get(product_id, 1)
+        changes[(warehouse_id, product_id)][at] -= bottles
+
+    result: dict[str, list[dict[str, Any]]] = {}
+    for inventory in rows:
+        dated = changes.get((inventory.warehouse_id, inventory.product_id)) or {}
+        result[inventory.id] = [
+            {"at": at.isoformat(), "bottles": bottles}
+            for at, bottles in sorted(dated.items())
+            if at is not None and bottles
+        ]
+    return result

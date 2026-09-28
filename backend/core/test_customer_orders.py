@@ -16,6 +16,7 @@ from .models import (
     DropPointType,
     Inventory,
     InventoryTransaction,
+    LocationLog,
     MixedCaseComponent,
     Notification,
     Order,
@@ -131,6 +132,74 @@ class CustomerTrackingApiContractTests(TestCase):
         self.assertEqual(item["orderStatus"], OrderStatus.OUT_FOR_DELIVERY)
         self.assertIn("trip", item)
         self.assertIsNotNone(item["trip"])
+
+    def test_customer_tracking_carries_the_fix_details_the_map_judges_reports_by(self) -> None:
+        order = Order.objects.create(
+            order_number="ORD-CONTRACT-FIX-001",
+            customer=self.customer,
+            status=OrderStatus.OUT_FOR_DELIVERY,
+            subtotal=100,
+            total_amount=110,
+        )
+        trip = Trip.objects.create(
+            trip_number="TRIP-CONTRACT-FIX-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            status=TripStatus.IN_PROGRESS,
+        )
+        TripDropPoint.objects.create(
+            trip=trip, order=order, drop_point_type=DropPointType.DELIVERY, sequence=1,
+            location_name="Customer Address", address="123 Main St", city="Bacolod",
+            province="Negros Occidental", zip_code="6100",
+        )
+        recorded = timezone.now() - timedelta(seconds=3)
+        LocationLog.objects.create(
+            driver=self.driver, trip=trip, latitude=10.68, longitude=122.95,
+            heading=87.5, accuracy=6.5, speed=9.2, recorded_at=recorded,
+        )
+        response = self.client.get("/api/customer/tracking", HTTP_AUTHORIZATION=f"Bearer {self.customer_token}")
+        item = response.json()["tracking"][0]
+        self.assertEqual(item["driverSpeedMps"], 9.2)
+        self.assertEqual(item["driverHeading"], 87.5)
+        self.assertEqual(item["driverAccuracyMeters"], 6.5)
+        self.assertEqual(item["driverRecordedAt"], recorded.isoformat())
+
+    def _tracking_with_driver_at(self, *, latitude: float, speed: float) -> dict:
+        LocationLog.objects.filter(driver=self.driver).delete()
+        LocationLog.objects.create(
+            driver=self.driver, trip=self._eta_trip, latitude=latitude, longitude=122.95,
+            accuracy=5, speed=speed, recorded_at=timezone.now() - timedelta(seconds=2),
+        )
+        response = self.client.get("/api/customer/tracking", HTTP_AUTHORIZATION=f"Bearer {self.customer_token}")
+        return next(item for item in response.json()["tracking"] if item["orderId"] == self._eta_order.id)
+
+    def test_distance_and_eta_follow_the_driver_toward_and_away_from_the_address(self) -> None:
+        self._eta_order = Order.objects.create(
+            order_number="ORD-CONTRACT-ETA-001", customer=self.customer, status=OrderStatus.OUT_FOR_DELIVERY,
+            subtotal=100, total_amount=110,
+        )
+        self._eta_trip = Trip.objects.create(
+            trip_number="TRIP-CONTRACT-ETA-001", driver=self.driver, vehicle=self.vehicle, status=TripStatus.IN_PROGRESS,
+        )
+        TripDropPoint.objects.create(
+            trip=self._eta_trip, order=self._eta_order, drop_point_type=DropPointType.DELIVERY, sequence=1,
+            location_name="Customer Address", address="123 Main St", city="Talisay",
+            province="Negros Occidental", zip_code="6115", latitude=10.70, longitude=122.95,
+        )
+        # 2.2 km north of the address, then closer, then back out further.
+        far = self._tracking_with_driver_at(latitude=10.72, speed=9)
+        closer = self._tracking_with_driver_at(latitude=10.71, speed=9)
+        away = self._tracking_with_driver_at(latitude=10.73, speed=9)
+        self.assertAlmostEqual(far["driverDistanceMeters"], 2224, delta=5)
+        self.assertLess(closer["driverDistanceMeters"], far["driverDistanceMeters"])
+        self.assertLess(closer["etaMinutes"], far["etaMinutes"])
+        self.assertGreater(away["driverDistanceMeters"], far["driverDistanceMeters"])
+        self.assertGreater(away["etaMinutes"], far["etaMinutes"])
+
+        # A red light is not a slower journey: the ETA is paced by the distance left,
+        # not by the speed the van happened to be doing at that second.
+        stopped = self._tracking_with_driver_at(latitude=10.72, speed=0.2)
+        self.assertEqual(stopped["etaMinutes"], far["etaMinutes"])
 
     def test_customer_profile_put_persists_first_and_last_names(self) -> None:
         response = self.client.put(

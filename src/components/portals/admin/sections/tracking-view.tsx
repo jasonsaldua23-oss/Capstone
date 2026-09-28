@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
+import { reportedFixFields } from '@/components/shared/live-tracking/report-fields'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
@@ -59,15 +60,6 @@ const AddressMapPicker = dynamic(
 
 const recordedAtMs = (point: any) =>
   new Date(point?.recordedAt || point?.recorded_at || point?.createdAt || point?.created_at || 0).getTime()
-
-// The phone's own ground speed in m/s, forwarded to the map so its motion model
-// can tell a parked vehicle from GPS noise: without it the icon reads the wander
-// of a standing vehicle as movement and drifts around the stop. A missing or
-// negative reading (iOS reports -1 for "unknown") is no reading, not a standstill.
-const reportedSpeedMps = (point: any) => {
-  const speed = Number(point?.speed)
-  return Number.isFinite(speed) && speed >= 0 ? speed : undefined
-}
 
 export function TrackingView() {
   const [trips, setTrips] = useState<any[]>([])
@@ -401,7 +393,8 @@ export function TrackingView() {
           markerLabel: 'Current location',
           markerType: 'truck' as const,
           markerHeading: markerHeading ?? undefined,
-          speedMps: reportedSpeedMps(freshestPoint),
+          // Speed, bearing, accuracy and fix time let the map judge each report.
+          ...reportedFixFields(freshestPoint),
           // Drawn along its remaining route between reports, not in straight lines.
           roadLineId: `remaining-${trip.id}`,
           // Added: provide the assignment details rendered by the shared truck popup.

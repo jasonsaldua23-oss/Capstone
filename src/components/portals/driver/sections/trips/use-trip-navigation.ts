@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import { type DriverRouteOption, NAVIGATION_OFF_ROUTE_METERS, NAVIGATION_MANEUVER_PASSED_MARGIN_METERS } from './trip-navigation-config'
 import { stopDriverNavigationSpeech } from '@/lib/native/driver-speech'
 import { projectPointOntoRoute, shouldRefreshDriverRoute, selectFollowedRoute } from '@/lib/map-navigation'
+import { remainingToNextStop } from '@/lib/navigation-remaining'
 import { toast } from 'sonner'
 import { DriverGpsLocation, DropPoint, stripPhilippinesFromAddress, Trip } from './trip-detail-helpers'
 import { haversineKm } from './trip-route-geometry'
@@ -148,12 +149,26 @@ export function useTripNavigation(inputs: TripNavigationInputs) {
     && isFreshRecordedAt(previewDriverLocation.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
     ? previewDriverLocation
     : null
-  const effectiveDriverLocation = liveDeviceLocation || livePreviewLocation || latestTripLocationAny || null
+  // Before the trip starts the van is shown where the driver really is - the one
+  // fix taken when the trip was opened (trip-detail-view holds it) - and stays
+  // there: the phone's movement does not move it until the trip is underway. It
+  // used to follow the phone from the moment a planned trip was opened. The held
+  // fix is used whatever its age, so it cannot give way to an older position later.
+  const tripNotStarted = normalizedTripStatus === 'PLANNED'
+  const heldPreStartLocation = tripNotStarted && previewDriverLocation
+    && isValidDeviceCoordinate(Number(previewDriverLocation.lat), Number(previewDriverLocation.lng))
+    ? { ...previewDriverLocation, speed: 0 }
+    : null
+  const effectiveDriverLocation = tripNotStarted
+    ? heldPreStartLocation || latestTripLocationAny || null
+    : liveDeviceLocation || livePreviewLocation || latestTripLocationAny || null
   // Fix: the API row is only a last-known fix - it carries no freshness
   // guarantee, so once the device stops reporting the truck used to sit on an
   // hours-old coordinate that looked exactly like a live one.
-  const isLiveDriverLocation = Boolean(liveDeviceLocation || livePreviewLocation)
+  const isLiveDriverLocation = !tripNotStarted && (
+    Boolean(liveDeviceLocation || livePreviewLocation)
     || isFreshRecordedAt(latestTripLocationAny?.recordedAt, MAX_REAL_CURRENT_LOCATION_AGE_MS)
+  )
   const driverLocationAgeMs = (() => {
     if (isLiveDriverLocation) return null
     const ts = toRecordedAtMs(effectiveDriverLocation?.recordedAt)
@@ -245,6 +260,11 @@ export function useTripNavigation(inputs: TripNavigationInputs) {
   const driverLocationMarkerLabel = (() => {
     const accuracy = Number(effectiveDriverLocation?.accuracy)
     const accuracySuffix = Number.isFinite(accuracy) ? ` +- ${Math.round(accuracy)} m` : ''
+    if (tripNotStarted) {
+      return heldPreStartLocation
+        ? `Your location - trip not started${accuracySuffix}`
+        : 'Last known location - trip not started'
+    }
     if (!isLiveDriverLocation) {
       const age = driverLocationAgeMs === null ? '' : ` ${formatLocationAge(driverLocationAgeMs)}`
       return `Last known location${age}${accuracySuffix}`
@@ -265,7 +285,7 @@ export function useTripNavigation(inputs: TripNavigationInputs) {
       vehiclePlate: trip.vehicle?.licensePlate || 'Vehicle',
       lat,
       lng,
-      status: isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
+      status: !tripNotStarted && isTracking ? 'IN_PROGRESS' : (trip.status || 'PLANNED'),
       markerLabel: driverLocationMarkerLabel,
       markerType: 'truck' as const,
       markerHeading: driverMarkerHeading ?? undefined,
@@ -543,8 +563,7 @@ export function useTripNavigation(inputs: TripNavigationInputs) {
             // Color the next drop independently from the later delivery legs.
             const activeLegPoints = legPoints(legs.slice(navigationLegIndex, navigationLegIndex + 1))
             const futureLegPoints = legPoints(legs.slice(navigationLegIndex + 1))
-            const steps: OsrmStep[] = legs.slice(navigationLegIndex)
-              .flatMap((leg: any) => (Array.isArray(leg?.steps) ? leg.steps : []))
+            const legSteps = (leg: any): OsrmStep[] => (Array.isArray(leg?.steps) ? leg.steps : [])
               .map((step: any) => ({
                 maneuver: {
                   type: String(step?.maneuver?.type || '').trim(),
@@ -561,11 +580,14 @@ export function useTripNavigation(inputs: TripNavigationInputs) {
               }))
               .filter(
                 (step: OsrmStep) =>
-                  step.maneuver.type &&
+                  Boolean(step.maneuver.type) &&
                   Number.isFinite(step.maneuver.location[0]) &&
                   Number.isFinite(step.maneuver.location[1])
               )
-            return { id: String(routeIndex), points, originPoints, activeLegPoints, futureLegPoints, steps }
+            const stepsByLeg = legs.slice(navigationLegIndex).map(legSteps)
+            const steps: OsrmStep[] = stepsByLeg.flat()
+            const nextStopStepCount = stepsByLeg[0]?.length ?? 0
+            return { id: String(routeIndex), points, originPoints, activeLegPoints, futureLegPoints, steps, nextStopStepCount }
           })
           .filter((route: DriverRouteOption) => route.points.length > 1)
 
@@ -680,6 +702,19 @@ export function useTripNavigation(inputs: TripNavigationInputs) {
       ? Math.max(0, maneuverCumulativeDistances[upcomingManeuverIndex] - navigationRouteProjection.distanceAlongMeters)
       : undefined
 
+  // Distance and time to the next stop from where the driver is right now: they
+  // fall as the driver closes in and rise as the driver heads away or leaves the
+  // route, at every fix, without waiting for a reroute.
+  const liveRemainingToNextStop =
+    navigationRouteProjection && activeRouteOption && activeRouteOption.steps === routeSteps
+      ? remainingToNextStop({
+        steps: routeSteps,
+        nextStopStepCount: activeRouteOption.nextStopStepCount,
+        alongMeters: navigationRouteProjection.distanceAlongMeters,
+        offRouteMeters: navigationRouteProjection.distanceFromRouteMeters,
+      })
+      : undefined
+
   const handleRouteLineSelect = useCallback((routeLineId: string) => {
     const alternativePrefix = `trip-${trip.id}-route-alternative-`
     if (!routeLineId.startsWith(alternativePrefix)) return
@@ -747,10 +782,11 @@ export function useTripNavigation(inputs: TripNavigationInputs) {
     // button click, without waiting for an optional fresh GPS lookup.
     setMobileMapRecenterSignal((previous) => previous + 1)
 
-    const liveLat = toCoordinate(currentLocation?.lat)
-    const liveLng = toCoordinate(currentLocation?.lng)
-    const previewLat = toCoordinate(previewDriverLocation?.lat)
-    const previewLng = toCoordinate(previewDriverLocation?.lng)
+    // A trip not yet started recentres on the van's held position, not on the moving phone.
+    const liveLat = tripNotStarted ? null : toCoordinate(currentLocation?.lat)
+    const liveLng = tripNotStarted ? null : toCoordinate(currentLocation?.lng)
+    const previewLat = tripNotStarted ? null : toCoordinate(previewDriverLocation?.lat)
+    const previewLng = tripNotStarted ? null : toCoordinate(previewDriverLocation?.lng)
 
     let targetLat = liveLat ?? previewLat ?? driverLocationMarker?.lat ?? null
     let targetLng = liveLng ?? previewLng ?? driverLocationMarker?.lng ?? null
@@ -788,6 +824,7 @@ export function useTripNavigation(inputs: TripNavigationInputs) {
     handleRouteLineSelect,
     handleToggleMapPerspective,
     liveDistanceToManeuverMeters,
+    liveRemainingToNextStop,
     mapCenter,
     mapLocations,
     mapRouteLines,
