@@ -582,7 +582,7 @@ class CustomerOrdersPostApiContractTests(TestCase):
             status="HEALTHY",
         )
 
-    def test_customer_orders_post_reserves_and_cancellation_releases_inventory(self) -> None:
+    def test_customer_orders_post_and_pending_cancellation_do_not_reserve_inventory(self) -> None:
         warehouse_staff = User.objects.create(
             email="order.alert.warehouse@example.com",
             password="hashed",
@@ -640,13 +640,13 @@ class CustomerOrdersPostApiContractTests(TestCase):
 
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 20)
-        self.assertEqual(self.inventory.reserved_quantity, 2)
+        self.assertEqual(self.inventory.reserved_quantity, 0)
 
         reserve_count = InventoryTransaction.objects.filter(
             reference_type="order_item_reserve",
             type="RESERVE",
         ).count()
-        self.assertEqual(reserve_count, 1)
+        self.assertEqual(reserve_count, 0)
 
         cancelled = self.client.patch(
             f"/api/customer/orders/{created_order.id}/cancel",
@@ -707,8 +707,8 @@ class CustomerOrdersPostApiContractTests(TestCase):
         _mock_approval_email,
         _mock_new_order_email,
     ) -> None:
-        # The first submission reserves immediately. A second insufficient request
-        # remains reviewable without reserving beyond physical stock.
+        # Both pending requests leave stock available; only the first approval
+        # can reserve it, and the second approval must fail without overbooking.
         self.inventory.quantity = 10
         self.inventory.reserved_quantity = 0
         self.inventory.save(update_fields=["quantity", "reserved_quantity", "updated_at"])
@@ -765,6 +765,9 @@ class CustomerOrdersPostApiContractTests(TestCase):
         self.assertEqual(second_request.status_code, 201, second_request.content)
         first_order_id = first_request.json()["order"]["id"]
         second_order_id = second_request.json()["order"]["id"]
+        self.inventory.refresh_from_db()
+        self.assertEqual((self.inventory.reserved_quantity, self.inventory.reserved_base_units), (0, 0))
+        self.assertFalse(InventoryTransaction.objects.filter(type="RESERVE").exists())
 
         first_approval = self.client.patch(
             f"/api/orders/{first_order_id}/status",
@@ -1115,14 +1118,15 @@ class PurchaseOrderApprovalStockTests(TestCase):
 
         order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
         self.inventory.refresh_from_db()
-        self.assertEqual((self.inventory.quantity, self.inventory.reserved_quantity), (116, 10))
-        # Fix: cases reserved for a purchase request are no longer sellable to other customers.
-        self.assertEqual(self._catalog_available(), 106)
+        self.assertEqual((self.inventory.quantity, self.inventory.reserved_quantity), (116, 0))
+        # Pending requests leave the catalog unchanged until staff approve them.
+        self.assertEqual(self._catalog_available(), 116)
 
         approval = self._set_status(order_id, "APPROVED")
         self.assertEqual(approval.status_code, 200, approval.content.decode())
         self.inventory.refresh_from_db()
-        # Approval must not reserve the same cases a second time.
+        # Successful approval reserves once; retrying approval must be a no-op.
+        self.assertEqual(self._set_status(order_id, "APPROVED").status_code, 200)
         self.assertEqual((self.inventory.quantity, self.inventory.reserved_quantity), (116, 10))
         self.assertEqual(
             InventoryTransaction.objects.filter(reference_type="order_item_reserve", type="RESERVE").count(),
@@ -1176,10 +1180,10 @@ class PurchaseOrderApprovalStockTests(TestCase):
 
     @patch("core.views_api._email_order_cancelled_to_customer")
     @patch("core.views_api._email_new_order_to_warehouse_staff")
-    def test_customer_cancellation_of_pending_request_releases_reserved_cases(self, *_mocks) -> None:
+    def test_customer_cancellation_of_pending_request_leaves_stock_available(self, *_mocks) -> None:
         self._seed_batch()
         order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
-        self.assertEqual(self._catalog_available(), 106)
+        self.assertEqual(self._catalog_available(), 116)
 
         cancelled = self.client.patch(
             f"/api/customer/orders/{order_id}/cancel",
@@ -1194,10 +1198,10 @@ class PurchaseOrderApprovalStockTests(TestCase):
 
     @patch("core.views_api._email_order_rejected_to_customer")
     @patch("core.views_api._email_new_order_to_warehouse_staff")
-    def test_staff_rejection_of_pending_request_releases_reserved_cases(self, *_mocks) -> None:
+    def test_staff_rejection_of_pending_request_leaves_stock_available(self, *_mocks) -> None:
         self._seed_batch()
         order_id = self._checkout([{"productId": self.product.id, "quantity": 10}])
-        self.assertEqual(self._catalog_available(), 106)
+        self.assertEqual(self._catalog_available(), 116)
 
         rejected = self._set_status(order_id, "REJECTED", reason="Out of delivery area")
         self.assertEqual(rejected.status_code, 200, rejected.content.decode())
@@ -1280,7 +1284,9 @@ class PurchaseOrderApprovalStockTests(TestCase):
         self._seed_batch(12)
         self.inventory.quantity = 12
         self.inventory.save(update_fields=["quantity", "updated_at"])
-        self._checkout([{"productId": self.product.id, "quantity": 8}])
+        first_id = self._checkout([{"productId": self.product.id, "quantity": 8}])
+        self.assertEqual(self._catalog_available(), 12)
+        self.assertEqual(self._set_status(first_id, "APPROVED").status_code, 200)
         self.assertEqual(self._catalog_available(), 4)
         second_id = self._checkout([{"productId": self.product.id, "quantity": 6}])
 

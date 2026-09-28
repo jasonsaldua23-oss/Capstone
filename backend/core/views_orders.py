@@ -545,15 +545,8 @@ def orders_collection(request: HttpRequest) -> JsonResponse:
                     performed_by=(p or {}).get("userId"),
                     discount_breakdown=discount_breakdown,
                 )
-                # Fix: reserve fulfillable requests immediately so Available stock
-                # is accurate. Keep insufficient requests visible for staff review.
-                try:
-                    with transaction.atomic():
-                        _reserve_order_inventory(order, (p or {}).get("userId"))
-                except ValueError as reserve_error:
-                    if "insufficient" not in str(reserve_error).lower():
-                        raise
-                order.save(update_fields=["warehouse_id", "updated_at"])
+                # Pending purchase requests do not hold stock. Approval rechecks
+                # availability and reserves all lines in its atomic transaction.
         except ValueError as e:
             return _err(str(e), 400)
         except IntegrityError:
@@ -1023,8 +1016,8 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             update_fields = ["status", "updated_at"]
 
             if next_status == OrderStatus.APPROVED:
-                # Keep approval idempotent for older requests that may not yet have
-                # submission-time reservations.
+                # Reserve only when approval succeeds; retries and legacy requests
+                # that already hold reservations must not reserve the same stock twice.
                 try:
                     _reserve_order_inventory(o, staff.get("userId"))
                 except ValueError as reserve_error:

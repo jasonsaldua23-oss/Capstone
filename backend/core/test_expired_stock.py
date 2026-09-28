@@ -36,6 +36,49 @@ class ExpiredStockTests(TestCase):
         self.assertIn(self.batch.id, movement.notes)
         self.assertEqual(self.submit(quantity=1).status_code, 409)
 
+    def test_full_batch_disposal_removes_cases_and_loose_units_once(self):
+        # One confirmation must remove both units, retain fresh stock, and be retry-safe.
+        self.product.price = 240
+        self.product.save(update_fields=["price"])
+        self.assertEqual(self.submit(fullBatch=True, quantity=None).status_code, 201)
+        self.assertEqual(self.submit(fullBatch=True, quantity=None).status_code, 200)
+        self.batch.refresh_from_db(); self.inventory.refresh_from_db(); self.fresh.refresh_from_db()
+        self.assertEqual((self.batch.quantity, self.batch.loose_units, self.batch.status), (0, 0, "DEPLETED"))
+        self.assertEqual((self.inventory.quantity, self.inventory.loose_bottles, self.fresh.quantity), (6, 0, 6))
+        movements = InventoryTransaction.objects.filter(reference_id="expiry-request")
+        self.assertEqual(movements.count(), 2)
+        self.assertEqual(movements.get(quantity_unit="CASE").loss_amount, Decimal("960.00"))
+        self.assertEqual(movements.get(quantity_unit="BASE_UNIT").loss_amount, Decimal("30.00"))
+        self.assertEqual(self.submit().status_code, 409)
+        self.assertEqual(self.submit(fullBatch=True, requestId="another-disposal").status_code, 400)
+
+    def test_full_batch_disposal_handles_only_loose_units(self):
+        self.assertEqual(self.submit(quantity=4, requestId="cases-first").status_code, 201)
+        self.assertEqual(self.submit(fullBatch=True, quantity=None).status_code, 201)
+        self.batch.refresh_from_db(); self.inventory.refresh_from_db()
+        self.assertEqual((self.batch.quantity, self.batch.loose_units), (0, 0))
+        self.assertEqual((self.inventory.quantity, self.inventory.loose_bottles), (6, 0))
+
+    def test_full_batch_validates_all_balances_before_removal(self):
+        # An inconsistent loose balance must not commit the case removal first.
+        self.inventory.loose_bottles = 1
+        self.inventory.save(update_fields=["loose_bottles"])
+        self.assertEqual(self.submit(fullBatch=True).status_code, 400)
+        self.batch.refresh_from_db(); self.inventory.refresh_from_db()
+        self.assertEqual((self.batch.quantity, self.batch.loose_units, self.inventory.quantity), (4, 3, 10))
+        self.assertFalse(InventoryTransaction.objects.exists())
+
+    def test_full_batch_keeps_expiry_reservation_and_scope_guards(self):
+        self.assertEqual(self.submit(fullBatch=True, batchId=self.fresh.id).status_code, 400)
+        InventoryReservation.objects.create(inventory=self.inventory, order_item=self.item, product=self.product, stock_batch=self.batch, quantity_base_units=24)
+        self.assertEqual(self.submit(fullBatch=True).status_code, 400)
+        with patch("core.views_api._get_allowed_warehouse_ids_for_staff", return_value=[]):
+            # Use the request directly so submit() does not replace the scope guard.
+            request = RequestFactory().post("/api/stock-batches/expired-stock", data=json.dumps(dict(batchId=self.batch.id, fullBatch=True, action="DISPOSAL", reason="Expired", requestId="scope")), content_type="application/json")
+            with patch("core.views_api._require_warehouse_operator", return_value=({"userId": "staff"}, None)):
+                self.assertEqual(resolve_expired_stock(request).status_code, 403)
+        self.assertFalse(InventoryTransaction.objects.exists())
+
     def test_supplier_return_and_loose_disposal_preserve_batch(self):
         self.assertEqual(self.submit(action="SUPPLIER_RETURN", quantity=4).status_code, 201)
         self.assertEqual(self.submit(unit="BASE_UNIT", quantity=3, requestId="loose").status_code, 201)

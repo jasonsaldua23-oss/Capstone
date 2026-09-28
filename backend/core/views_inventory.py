@@ -640,8 +640,12 @@ def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
     unit = str(body.get("unit") or "CASE").strip()
     reason = str(body.get("reason") or "").strip()
     request_id = str(body.get("requestId") or "").strip()
+    # Full-batch confirmation resolves quantities under the stock locks below.
+    full_batch = body.get("fullBatch") is True
     if action not in {"SUPPLIER_RETURN", "DISPOSAL"}:
         return _err("Invalid expired-stock action", 400)
+    if full_batch and action != "DISPOSAL":
+        return _err("Full-batch removal is only supported for disposal", 400)
     if unit not in {"CASE", "BASE_UNIT"}:
         return _err("Invalid expired-stock unit", 400)
     if not reason:
@@ -651,7 +655,7 @@ def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
     if not request_id or len(request_id) > 100:
         return _err("A valid requestId is required", 400)
     try:
-        quantity = Decimal(str(body.get("quantity")))
+        quantity = Decimal("1") if full_batch else Decimal(str(body.get("quantity")))
         if not quantity.is_finite() or quantity <= 0 or quantity != quantity.to_integral_value():
             raise ValueError()
         # Guard the conversion before an intentionally huge submitted number can
@@ -670,54 +674,63 @@ def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
         # Lock in the same inventory-then-batch order as allocation; serialize retries and removals.
         inventory = Inventory.objects.select_for_update().get(id=source.inventory_id)
         batch = StockBatch.objects.select_for_update().get(id=batch_id)
+        # Mark the request mode in the existing audit notes to distinguish retries
+        # from a partial disposal that happens to share its request ID.
+        notes = f"{action}; Batch={batch.id} ({batch.batch_number}); " + ("Full batch; " if full_batch else "") + reason
         previous = InventoryTransaction.objects.filter(reference_type="expired_stock", reference_id=request_id).first()
         if previous:
-            if previous.product_id != inventory.product_id or previous.warehouse_id != inventory.warehouse_id or previous.notes != f"{action}; Batch={batch.id} ({batch.batch_number}); {reason}" or previous.quantity != quantity or previous.quantity_unit != unit:
+            if previous.product_id != inventory.product_id or previous.warehouse_id != inventory.warehouse_id or previous.notes != notes or (not full_batch and (previous.quantity != quantity or previous.quantity_unit != unit)):
                 return _err("Request ID was already used for another action", 409)
             return _ok({"success": True, "message": "Action already recorded"})
         if not batch.expiry_date or batch.expiry_date > timezone.now():
             return _err("Only expired batches can be returned or disposed through this action", 400)
         if batch.reservations.filter(status=ReservationStatus.RESERVED).exists():
             return _err("Release or reassign this batch's active order reservations before removing stock", 400)
-        batch_field = "quantity" if unit == "CASE" else "loose_units"
-        inventory_field = "quantity" if unit == "CASE" else "loose_bottles"
-        stock_before = int(getattr(inventory, inventory_field) or 0)
-        batch_available = int(getattr(batch, batch_field) or 0)
-        unit_label = "cases" if unit == "CASE" else "loose bottles"
-        if batch_available <= 0:
-            return _err(f"No {unit_label} remain in this batch", 400)
-        if quantity > batch_available:
-            return _err(f"Quantity exceeds the {batch_available} {unit_label} remaining in this batch", 400)
-        if quantity > stock_before:
-            return _err("Quantity exceeds the remaining physical stock", 400)
-        setattr(batch, batch_field, int(getattr(batch, batch_field)) - quantity)
-        setattr(inventory, inventory_field, stock_before - quantity)
+        removals = [(unit, quantity)]
+        if full_batch:
+            removals = [(kind, int(amount or 0)) for kind, amount in (("CASE", batch.quantity), ("BASE_UNIT", batch.loose_units)) if int(amount or 0) > 0]
+            if not removals:
+                return _err("No stock remains in this batch", 400)
+        # Validate both balances before any writes: returning a validation response
+        # inside atomic() must not commit a partially disposed batch.
+        for removal_unit, removal_quantity in removals:
+            batch_field = "quantity" if removal_unit == "CASE" else "loose_units"
+            inventory_field = "quantity" if removal_unit == "CASE" else "loose_bottles"
+            batch_available = int(getattr(batch, batch_field) or 0)
+            unit_label = "cases" if removal_unit == "CASE" else "loose bottles"
+            if batch_available <= 0:
+                return _err(f"No {unit_label} remain in this batch", 400)
+            if removal_quantity > batch_available:
+                return _err(f"Quantity exceeds the {batch_available} {unit_label} remaining in this batch", 400)
+            if removal_quantity > int(getattr(inventory, inventory_field) or 0):
+                return _err("Quantity exceeds the remaining physical stock", 400)
+        for unit, quantity in removals:
+            batch_field = "quantity" if unit == "CASE" else "loose_units"
+            inventory_field = "quantity" if unit == "CASE" else "loose_bottles"
+            stock_before = int(getattr(inventory, inventory_field) or 0)
+            setattr(batch, batch_field, int(getattr(batch, batch_field)) - quantity)
+            setattr(inventory, inventory_field, stock_before - quantity)
+            # Each unit keeps its own movement and listed-price loss snapshot.
+            case_price = Decimal(str(getattr(inventory.product, "case_price", None) or inventory.product.price or 0))
+            per_case = max(1, _int(getattr(inventory.product, "quantity_per_unit", 0), 1))
+            listed_unit_price = case_price if unit == "CASE" else Decimal(str(getattr(inventory.product, "retail_unit_price", None) or (case_price / per_case)))
+            loss_unit_price = listed_unit_price.quantize(Decimal("0.01"))
+            loss_amount = (loss_unit_price * quantity).quantize(Decimal("0.01"))
+            InventoryTransaction.objects.create(
+                warehouse_id=inventory.warehouse_id, product_id=inventory.product_id,
+                type="OUT", quantity=quantity, quantity_unit=unit,
+                stock_unit_label="Case" if unit == "CASE" else "Base unit",
+                previous_stock=stock_before, updated_stock=stock_before - quantity,
+                reference_type="expired_stock", reference_id=request_id,
+                performed_by=str(staff.get("name") or staff.get("userId") or "Warehouse staff"),
+                notes=notes,
+                loss_unit_price=loss_unit_price if action == "DISPOSAL" else Decimal("0.00"),
+                loss_amount=loss_amount if action == "DISPOSAL" else Decimal("0.00"),
+            )
         # Keep the source batch and receipt history even after its final units leave.
         batch.status = "DEPLETED" if batch.quantity == 0 and batch.loose_units == 0 else batch.status
-        batch.save(update_fields=[batch_field, "status", "updated_at"])
-        inventory.save(update_fields=[inventory_field, "updated_at"])
-        # Snapshot the listed value at disposal time. The system has no product
-        # cost field, so this is explicitly a listed-price stock-loss value.
-        case_price = Decimal(str(getattr(inventory.product, "case_price", None) or inventory.product.price or 0))
-        per_case = max(1, _int(getattr(inventory.product, "quantity_per_unit", 0), 1))
-        listed_unit_price = (
-            case_price
-            if unit == "CASE"
-            else Decimal(str(getattr(inventory.product, "retail_unit_price", None) or (case_price / per_case)))
-        )
-        loss_unit_price = listed_unit_price.quantize(Decimal("0.01"))
-        loss_amount = (loss_unit_price * quantity).quantize(Decimal("0.01"))
-        InventoryTransaction.objects.create(
-            warehouse_id=inventory.warehouse_id, product_id=inventory.product_id,
-            type="OUT", quantity=quantity, quantity_unit=unit,
-            stock_unit_label="Case" if unit == "CASE" else "Base unit",
-            previous_stock=stock_before, updated_stock=stock_before - quantity,
-            reference_type="expired_stock", reference_id=request_id,
-            performed_by=str(staff.get("name") or staff.get("userId") or "Warehouse staff"),
-            notes=f"{action}; Batch={batch.id} ({batch.batch_number}); {reason}",
-            loss_unit_price=loss_unit_price if action == "DISPOSAL" else Decimal("0.00"),
-            loss_amount=loss_amount if action == "DISPOSAL" else Decimal("0.00"),
-        )
+        batch.save(update_fields=["quantity", "loose_units", "status", "updated_at"])
+        inventory.save(update_fields=["quantity", "loose_bottles", "updated_at"])
     return _ok({"success": True, "message": "Expired stock action recorded"}, 201)
 
 

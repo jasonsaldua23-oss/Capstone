@@ -575,11 +575,14 @@ class MixedCaseApiTests(MixedCaseFixtureMixin, TestCase):
         self.assertEqual(len(first["order"]["items"][0]["components"]), 2)
         created_order = Order.objects.get(request_id=payload["requestId"])
         self.assertEqual(created_order.status, OrderStatus.PENDING)
-        # Checkout reserves component stock immediately while preserving the
-        # idempotent response for a retried request ID.
-        self.assertTrue(
+        # Pending mixed-case requests and checkout retries leave component stock
+        # untouched until approval, just like standard case requests.
+        self.assertFalse(
             InventoryReservation.objects.filter(order_item__order=created_order).exists()
         )
+        for inventory in Inventory.objects.filter(warehouse=self.warehouse):
+            self.assertEqual((inventory.quantity, inventory.loose_bottles), (2, 0))
+            self.assertEqual((inventory.reserved_quantity, inventory.reserved_base_units), (0, 0))
 
 
 class MixedCaseConcurrencyTests(MixedCaseFixtureMixin, TransactionTestCase):

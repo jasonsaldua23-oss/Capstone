@@ -488,7 +488,7 @@ def _create_order_from_checkout_payload(
                 "net_deposit",
                 "deposit_total",
             ])
-            # Keep the policy on the item so submission-time reservation can
+            # Keep the policy on the item so approval-time reservation can
             # allocate its component stock consistently.
             order_item.notes = f"{order_item.notes or ''}\nAllocationPolicy={allocation_policy}".strip()
             order_item.save(update_fields=["notes"])
@@ -551,7 +551,7 @@ def _create_order_from_checkout_payload(
         )
 
         policy_note = f"AllocationPolicy={allocation_policy}"
-        # Keep the requested allocation policy for submission-time reservation.
+        # Keep the requested allocation policy for approval-time reservation.
         order_item.notes = f"{order_item.notes or ''}\n{policy_note}".strip()
         order_item.save(update_fields=["notes"])
 

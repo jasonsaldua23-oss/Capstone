@@ -38,10 +38,6 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, openBatchQua
   const [batchSearch, setBatchSearch] = useState('')
   const [healthFilter, setHealthFilter] = useState<StockBatchHealthFilter>('all')
   const [target, setTarget] = useState<any>(null)
-  const [action, setAction] = useState('DISPOSAL')
-  const [quantity, setQuantity] = useState('')
-  const [unit, setUnit] = useState('CASE')
-  const [reason, setReason] = useState('')
   const [requestId, setRequestId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -50,38 +46,18 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, openBatchQua
   const [loadingDisposals, setLoadingDisposals] = useState(false)
   const [disposalsError, setDisposalsError] = useState('')
   const [disposalsSearch, setDisposalsSearch] = useState('')
-  const openAction = (batch: any, nextAction: string) => {
-    setTarget(batch); setAction(nextAction); setQuantity(''); setReason(''); setUnit('CASE'); setError('')
+  const openAction = (batch: any) => {
+    setTarget(batch); setError('')
     setRequestId(crypto.randomUUID())
   }
-  const availableDisposalQuantity = Number(unit === 'CASE' ? target?.quantity : target?.looseUnits || 0)
-  const parsedDisposalQuantity = Number(quantity)
-  const quantityError = !target
-    ? ''
-    : !quantity.trim()
-      ? 'Enter the quantity to dispose.'
-      : !Number.isSafeInteger(parsedDisposalQuantity) || parsedDisposalQuantity <= 0
-        ? 'Quantity must be a positive whole number.'
-        : parsedDisposalQuantity > availableDisposalQuantity
-          ? `Only ${availableDisposalQuantity.toLocaleString()} ${unit === 'CASE' ? 'cases' : 'loose bottles'} remain in this batch.`
-          : ''
-  const reasonError = !reason.trim()
-    ? 'Enter the disposal reason or reference.'
-    : reason.trim().length > 500
-      ? 'Disposal reason must be 500 characters or fewer.'
-      : ''
-  const disposalValidationError = quantityError || reasonError
   const submitAction = async () => {
     if (!target || saving) return
-    if (disposalValidationError) {
-      setError(disposalValidationError)
-      return
-    }
     setSaving(true); setError('')
     try {
       const response = await fetch('/api/stock-batches/expired-stock', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId: target.id, action, quantity: Number(quantity), unit, reason, requestId }),
+        // Dispose the current server-side remainder, including cases and loose bottles.
+        body: JSON.stringify({ batchId: target.id, action: 'DISPOSAL', fullBatch: true, reason: 'Expired stock batch', requestId }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Unable to record expired stock action')
@@ -306,7 +282,7 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, openBatchQua
                             size="sm"
                             variant="outline"
                             className="w-full min-w-0 border-rose-300 px-2 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                            onClick={() => openAction(batch, 'DISPOSAL')}
+                            onClick={() => openAction(batch)}
                             title="Dispose stock"
                           >
                             <Trash2 className="mr-1.5 h-4 w-4 shrink-0" />
@@ -333,17 +309,15 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, openBatchQua
       <Dialog open={!!target} onOpenChange={(open) => { if (!open && !saving) setTarget(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Record stock disposal</DialogTitle>
-            <DialogDescription>Confirm only stock physically removed from the warehouse. This reduces inventory and retains the batch history.</DialogDescription>
+            <DialogTitle>Dispose expired batch?</DialogTitle>
+            <DialogDescription>This will dispose of all remaining cases and loose bottles in this expired batch. Confirm only after physically removing the stock. Inventory will be reduced and the batch history retained.</DialogDescription>
           </DialogHeader>
           <p className="text-sm">Batch: {target?.batchNumber} | Remaining: {target?.quantity} cases, {target?.looseUnits || 0} loose units</p>
-          <label className="space-y-1 text-sm">Unit<select className="h-10 w-full rounded-md border px-3" value={unit} disabled={saving} onChange={(event) => { setUnit(event.target.value); setError('') }}><option value="CASE">Cases / packs</option><option value="BASE_UNIT">Loose base units</option></select></label>
-          <label className="space-y-1 text-sm">Quantity<Input type="number" min="1" step="1" max={availableDisposalQuantity} value={quantity} disabled={saving} aria-invalid={!!quantityError} onChange={(event) => { setQuantity(event.target.value); setError('') }} /></label>
-          {quantityError && <p role="alert" className="-mt-2 text-sm text-red-600">{quantityError}</p>}
-          <label className="space-y-1 text-sm">Disposal reason / reference<Input value={reason} maxLength={500} disabled={saving} aria-invalid={!!reasonError} onChange={(event) => { setReason(event.target.value); setError('') }} placeholder="Record the disposal reason and relevant reference" /></label>
-          {reasonError && <p role="alert" className="-mt-2 text-sm text-red-600">{reasonError}</p>}
-          {error && error !== disposalValidationError && <p role="alert" className="text-sm text-red-600">{error}</p>}
-          <Button disabled={saving || !!disposalValidationError} onClick={submitAction}>{saving ? 'Recording...' : 'Confirm physical removal'}</Button>
+          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={saving} onClick={() => setTarget(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={saving} onClick={submitAction}>{saving ? 'Disposing...' : 'Confirm disposal'}</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </Card>
