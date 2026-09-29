@@ -38,6 +38,7 @@ import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import { getWarehouseOrderStatusTextClass, isWarehouseRescheduledOrder, formatScheduledDeliveryDate, formatWarehouseOrderAddress, getOrderItemSizeLabel } from '../../warehouse-order-helpers'
 import type { MutableRefObject } from 'react'
 import type { deriveOrderFulfillmentSummaryImpl } from '../../warehouse-order-helpers'
+import { toDisplayStatus } from '@/lib/status-display'
 
 /**
  * Full order detail with fulfillment legs and the status actions a warehouse can take.
@@ -164,7 +165,7 @@ export function WarehouseOrderDetailDialog({
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
                             <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
-                              {String(leg.status || 'PENDING').replace(/_/g, ' ')}
+                              {toDisplayStatus(leg.status || 'PENDING').replace(/_/g, ' ')}
                             </span>
                           </div>
                           <p className="mt-1 text-xs text-slate-600">
@@ -334,7 +335,7 @@ export function WarehouseOrderDetailDialog({
                       </p>
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
                         {selectedOrder.progress?.dropPoint?.status
-                          ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                          ? toDisplayStatus(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
                           : 'No trip progress yet'}
                         <CircleCheck className="h-3.5 w-3.5" />
                       </span>

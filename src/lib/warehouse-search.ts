@@ -1,3 +1,5 @@
+import { toDisplayStatus } from './status-display.ts'
+
 export type WarehouseSearchResult = {
   id: string
   kind: 'purchaseRequests' | 'orders' | 'inventory'
@@ -24,7 +26,7 @@ export function searchWarehouseRecords(query: string, orders: any[], inventory: 
     results.push({
       id: String(order.id), kind: isPurchaseOrder ? 'orders' : 'purchaseRequests',
       label: String(order.purchaseOrderNumber || order.orderNumber || order.id),
-      description: `${isPurchaseOrder ? 'Purchase order' : 'Request'} · ${order.customer?.name || 'Customer'} · ${String(order.status || '').replace(/_/g, ' ')}`,
+      description: `${isPurchaseOrder ? 'Purchase order' : 'Request'} · ${order.customer?.name || 'Customer'} · ${toDisplayStatus(order.status).replace(/_/g, ' ')}`,
     })
   }
   for (const item of inventory) {

@@ -902,6 +902,29 @@ class TripExecutionApiContractTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, OrderStatus.RESCHEDULED)
 
+    def test_other_date_reschedule_must_be_after_tomorrow(self) -> None:
+        # Tomorrow has its own button, so "Other date" starts the day after it.
+        status_before = self.dp_1.status
+        for days_ahead in (0, 1):
+            target_date = (timezone.localdate() + timedelta(days=days_ahead)).isoformat()
+            response = self.client.patch(
+                f"/api/trips/{self.trip.id}/drop-points/{self.dp_1.id}",
+                data={
+                    "status": "FAILED",
+                    "notes": "Reschedule on custom date",
+                    "releaseInventory": False,
+                    "rescheduleRequested": True,
+                    "rescheduleWindow": "other_date",
+                    "rescheduleDate": target_date,
+                },
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {self.driver_token}",
+            )
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertEqual(response.json()["error"], "Choose a date after tomorrow, or use Tomorrow.")
+        self.dp_1.refresh_from_db()
+        self.assertEqual(self.dp_1.status, status_before)
+
     def test_drop_point_failed_reschedule_keeps_inventory_reserved_while_cancel_releases_it(self) -> None:
         warehouse = Warehouse.objects.create(
             name="Lifecycle Warehouse",

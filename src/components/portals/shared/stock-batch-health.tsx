@@ -6,6 +6,8 @@ import {
   formatStockBatchDaysLeft,
   type StockBatchHealth,
 } from '@/lib/stock-batch-health'
+import { cn } from '@/lib/utils'
+import { FILTER_SELECT_CLASS } from './filter-select'
 
 // Severity climbs green, amber, orange, red, so Critical never reads as Expired.
 const BADGE_CLASSES: Record<StockBatchHealth, string> = {
@@ -46,7 +48,7 @@ export function StockBatchHealthFilterSelect({
   return (
     <select
       aria-label="Filter batches by status"
-      className={`h-10 rounded-md border border-input bg-background px-3 text-sm ${className}`.trim()}
+      className={cn(FILTER_SELECT_CLASS, className)}
       value={value}
       onChange={(event) => onChange(event.target.value as StockBatchHealthFilter)}
     >

@@ -404,7 +404,11 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const mixedAdded = mixedSelectedRows.reduce((sum, row) => sum + row.quantity, 0)
   const mixedRemaining = Math.max(0, mixedCapacity - mixedAdded)
   const mixedExceeds = mixedAdded > mixedCapacity
-  const mixedComplete = mixedCapacity > 0 && mixedAdded === mixedCapacity && mixedSelectedRows.length === 2
+  const mixedQuantityPerProduct = mixedCapacity % 2 === 0 ? mixedCapacity / 2 : 0
+  // A two-product mixed case is always an equal split (for example, 12 + 12 bottles).
+  const mixedComplete = mixedQuantityPerProduct > 0
+    && mixedSelectedRows.length === 2
+    && mixedSelectedRows.every((row) => row.quantity === mixedQuantityPerProduct)
 
   const updateMixedQuantity = (productId: string, nextValue: number) => {
     const currentQuantity = Math.max(0, Number(mixedQuantities[productId] || 0))
@@ -415,21 +419,17 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       return
     }
     setMixedQuantities((current) => {
-      const addedByOthers = mixedProducts.reduce(
-        (sum, p) => (p.id === productId ? sum : sum + Math.max(0, Number(current[p.id] || 0))),
-        0
-      )
-      const availableSlots = Math.max(0, mixedCapacity - addedByOthers)
       const product = mixedProducts.find((p) => p.id === productId)
       const stockLimit = product ? product.availableBaseUnits : 0
-      const safe = Math.max(0, Math.min(stockLimit, availableSlots, Math.floor(Number(nextValue || 0))))
+      // Each selected product is capped at exactly half of the case capacity.
+      const safe = Math.max(0, Math.min(stockLimit, mixedQuantityPerProduct, Math.floor(Number(nextValue || 0))))
       return { ...current, [productId]: safe }
     })
   }
 
   const addMixedCase = () => {
     if (!mixedComplete || mixedExceeds) {
-      toast.error('Fill the full case capacity with exactly two different products')
+      toast.error(`Select exactly two products with ${mixedQuantityPerProduct} bottles each`)
       return
     }
     const nextLine: RetailCartLine = {
@@ -907,7 +907,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 <div className="space-y-2">
                   {mixedProducts.map((product) => {
                     const quantity = Math.max(0, Number(mixedQuantities[product.id] || 0))
-                    const maxAllowed = Math.min(product.availableBaseUnits, quantity + mixedRemaining)
+                    const maxAllowed = Math.min(product.availableBaseUnits, mixedQuantityPerProduct)
                     return (
                       <div
                         key={product.id}
@@ -948,11 +948,16 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                             <Minus className="h-3.5 w-3.5" />
                           </Button>
                           <Input
-                            type="number"
-                            min={0}
-                            max={maxAllowed}
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
                             value={quantity}
-                            onChange={(e) => updateMixedQuantity(product.id, Number(e.target.value))}
+                            aria-label={`${product.name} bottles in mixed case`}
+                            onChange={(e) => {
+                              // Digits only; pasted signs, decimals, and letters are ignored.
+                              const digits = e.target.value.replace(/\D/g, '')
+                              updateMixedQuantity(product.id, digits ? Number(digits) : 0)
+                            }}
                             disabled={quantity === 0 && mixedSelectedRows.length >= 2}
                             className="h-8 w-14 rounded-lg text-center text-xs font-bold"
                           />
@@ -977,10 +982,10 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
               <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/80 p-3">
                 <span className="text-xs text-slate-500">
                   {mixedComplete
-                    ? `${mixedSelectedRows.length} products · ${mixedCapacity} bottles`
+                    ? `${mixedSelectedRows.length} products · ${mixedQuantityPerProduct} bottles each`
                     : mixedAdded > 0
-                      ? `${mixedRemaining} more bottle${mixedRemaining === 1 ? '' : 's'} needed`
-                      : 'Select exactly two products to build a mixed case'}
+                      ? `Each of the two products must have ${mixedQuantityPerProduct} bottles`
+                      : `Select exactly two products (${mixedQuantityPerProduct} bottles each)`}
                 </span>
                 <Button
                   type="button"

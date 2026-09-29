@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getDepositRefundUnitDetails, getMaximumDepositRefundQuantity, getProductDepositBalanceRows } from '@/lib/deposit-refund-units'
+import { toDisplayStatus } from '@/lib/status-display'
 import {
   Clock,
   Loader2,
@@ -301,7 +302,7 @@ export function EmptiesDepositsScreen({
                         </p>
                       </div>
                       <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-100">
-                        {String(order.requestStatus || order.status || 'PENDING').replace(/_/g, ' ')}
+                        {toDisplayStatus(order.requestStatus || order.status || 'PENDING').replace(/_/g, ' ')}
                       </span>
                     </div>
 

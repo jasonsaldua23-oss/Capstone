@@ -255,6 +255,8 @@ export interface VehicleOption {
   licensePlate?: string
   type?: string
   capacity?: number | null
+  status?: string
+  isActive?: boolean
 }
 
 export interface RoutePlanOrderItem {

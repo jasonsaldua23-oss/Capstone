@@ -479,11 +479,15 @@ export function useWarehousePortalData(inputs: WarehousePortalDataInputs) {
 
   const fetchVehiclesData = async () => {
     try {
-      const result = await safeFetchJson('/api/vehicles?status=AVAILABLE')
+      // Fix: an IN_USE vehicle can receive a future planned trip; the start endpoint
+      // remains responsible for preventing two trips from running at the same time.
+      const result = await fetchAllPaginatedCollection<VehicleOption>('/api/vehicles?pageSize=500', 'vehicles')
       if (!result.ok) {
         return
       }
-      const list = getCollection<VehicleOption>(result.data, ['vehicles'])
+      const list = getCollection<VehicleOption>(result.data, ['vehicles']).filter((vehicle) =>
+        vehicle?.isActive !== false && ['AVAILABLE', 'IN_USE'].includes(String(vehicle?.status || '').toUpperCase())
+      )
       setVehicles(list)
       if (list[0]?.id && !selectedRouteVehicleId) {
         setSelectedRouteVehicleId(list[0].id)

@@ -214,7 +214,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
     return `${describeTrend(totals, { noun: 'trips', periodNoun: 'day' })} ${describeSeriesMix(
       [
         { name: 'Completed', points: toPoints(chartData, day, (row: any) => row.completed) },
-        { name: 'In transit', points: toPoints(chartData, day, (row: any) => row.inProgress) },
+        { name: 'In progress', points: toPoints(chartData, day, (row: any) => row.inProgress) },
         { name: 'Planned', points: toPoints(chartData, day, (row: any) => row.planned) },
       ],
       { noun: 'trips', entityNoun: 'status' }
@@ -234,7 +234,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
         return <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Completed</Badge>
       case 'IN_PROGRESS':
       case 'IN_TRANSIT':
-        return <Badge className="bg-purple-50 text-purple-700 border-purple-200">In Transit</Badge>
+        return <Badge className="bg-purple-50 text-purple-700 border-purple-200">In Progress</Badge>
       case 'PLANNED':
         return <Badge className="bg-blue-50 text-blue-700 border-blue-200">Planned</Badge>
       case 'CANCELLED':
@@ -271,7 +271,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       filteredLogistics,
       [
         `Total Trips: ${kpis.totalTrips}`,
-        `Completed: ${kpis.completedTrips} | In Transit: ${kpis.inProgressTrips} | Planned: ${kpis.plannedTrips}`,
+        `Completed: ${kpis.completedTrips} | In Progress: ${kpis.inProgressTrips} | Planned: ${kpis.plannedTrips}`,
         `Drop Point Success: ${kpis.completedDrops} of ${kpis.totalDrops} (${kpis.overallDropRate}%)`,
       ]
     )
@@ -284,7 +284,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
       filteredLogistics,
       [
         `Total Trips: ${kpis.totalTrips}`,
-        `Completed: ${kpis.completedTrips} | In Transit: ${kpis.inProgressTrips} | Planned: ${kpis.plannedTrips}`,
+        `Completed: ${kpis.completedTrips} | In Progress: ${kpis.inProgressTrips} | Planned: ${kpis.plannedTrips}`,
         `Drop Point Success: ${kpis.completedDrops} of ${kpis.totalDrops} (${kpis.overallDropRate}%)`,
       ]
     )
@@ -348,7 +348,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
             hint: kpis.totalTrips > 0 ? `${((kpis.completedTrips / kpis.totalTrips) * 100).toFixed(1)}% of trips` : undefined,
             tone: 'emerald',
           },
-          { label: 'In Transit', value: kpis.inProgressTrips, hint: 'On the road now', tone: 'purple' },
+          { label: 'In Progress', value: kpis.inProgressTrips, hint: 'On the road now', tone: 'purple' },
           { label: 'Planned', value: kpis.plannedTrips, hint: 'Not yet started', tone: 'cyan' },
         ]}
       />
@@ -377,7 +377,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
                       whole message on its own. */}
                   <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
                   <Bar dataKey="completed" name="Completed" fill="#10b981" stackId="a" />
-                  <Bar dataKey="inProgress" name="In Transit" fill="#a855f7" stackId="a" />
+                  <Bar dataKey="inProgress" name="In Progress" fill="#a855f7" stackId="a" />
                   {/* Only the top of the stack is rounded, so the segments below
                       read as one column rather than three stacked pills. */}
                   <Bar dataKey="planned" name="Planned" fill="#3b82f6" radius={[4, 4, 0, 0]} stackId="a" />
@@ -419,7 +419,7 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
             >
               <option value="all">All Delivery Statuses</option>
               <option value="COMPLETED">Completed</option>
-              <option value="IN_PROGRESS">In Progress / In Transit</option>
+              <option value="IN_PROGRESS">In Progress</option>
               <option value="PLANNED">Planned</option>
               <option value="CANCELLED">Cancelled</option>
             </select>

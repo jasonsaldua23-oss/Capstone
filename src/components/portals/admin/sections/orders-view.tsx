@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { toDisplayStatus } from '@/lib/status-display'
 import { useAuth } from '@/app/page'
 import { clearTabAuthToken } from '@/lib/client-auth'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -569,14 +570,31 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
 
       const search = orderSearchQuery.trim().toLowerCase()
       if (search) {
+        // Added: match the same PO, request, customer, and product fields as the other order searches.
+        const productText = toArray<any>(order?.items)
+          .map((item) => [
+            formatProductNameWithSize(item),
+            item?.productSku,
+            item?.product?.sku,
+            ...toArray<any>(item?.components).flatMap((component) => [component?.productName, component?.productSku]),
+          ].join(' '))
+          .join(' ')
         const haystack = [
           order?.orderNumber,
+          order?.purchaseOrderNumber,
+          order?.purchase_order_number,
+          order?.purchaseRequestNumber,
+          order?.purchase_request_number,
           order?.customer?.name,
           order?.customer?.email,
           order?.shippingName,
           order?.shippingCity,
           order?.shippingProvince,
           order?.shippingPhone,
+          order?.warehouseName,
+          order?.warehouseCode,
+          getPurchaseOrderStage(order),
+          productText,
         ]
           .map((value) => String(value || '').toLowerCase())
           .join(' ')
@@ -1066,6 +1084,13 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
             <CardContent className="pt-4">
               {/* Fix: wrap filters before status/date labels become too narrow to read. */}
               <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] gap-2">
+                <Input
+                  value={orderSearchQuery}
+                  onChange={(event) => setOrderSearchQuery(event.target.value)}
+                  placeholder="Search PO, request, customer, product..."
+                  aria-label="Search purchase orders"
+                  className="h-10"
+                />
                 <select
                   aria-label="Filter orders by status"
                   value={orderStatusFilter}
@@ -1126,6 +1151,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                   variant="outline"
                   className="h-10"
                   onClick={() => {
+                    setOrderSearchQuery('')
                     setOrderStatusFilter('all')
                     setOrderDatePreset('all')
                     setOrderCustomDateFilter('')
@@ -1386,7 +1412,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                             <div className="flex items-center justify-between gap-3">
                               <p className="text-sm font-semibold text-slate-900">{leg.warehouseName || 'Unassigned Warehouse'}</p>
                               <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">
-                                {String(leg.status || 'PENDING').replace(/_/g, ' ')}
+                                {toDisplayStatus(leg.status || 'PENDING').replace(/_/g, ' ')}
                               </span>
                             </div>
                             <p className="mt-1 text-xs text-slate-600">
@@ -1542,7 +1568,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                         </p>
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
                           {selectedOrder.progress?.dropPoint?.status
-                            ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                            ? toDisplayStatus(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
                             : 'No trip progress yet'}
                           <CircleCheck className="h-3.5 w-3.5" />
                         </span>
@@ -1553,7 +1579,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                         <p className="flex items-center gap-3"><Car className="h-5 w-5 text-slate-500" />Vehicle: {selectedOrder.progress?.trip?.vehicle?.licensePlate || 'Not assigned yet'}</p>
                         <p>
                           <span className="inline-flex items-center gap-3"><MapPin className="h-5 w-5 text-slate-500" />Drop Point Status: {selectedOrder.progress?.dropPoint?.status
-                            ? String(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
+                            ? toDisplayStatus(selectedOrder.progress.dropPoint.status).replace(/_/g, ' ')
                             : 'Pending'}</span>
                         </p>
                         <p>

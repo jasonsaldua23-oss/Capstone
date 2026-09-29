@@ -45,6 +45,16 @@ const AddressMapPicker = dynamic(
   { ssr: false }
 )
 
+const MAX_CUSTOM_DISCOUNT_PERCENT = 70
+
+// Keep the visible form rule aligned with the API's independent validation.
+const getCustomDiscountError = (value: string): string => {
+  const percent = Number(value)
+  if (!value.trim() || !Number.isFinite(percent) || percent <= 0) return 'Enter a custom discount greater than 0%.'
+  if (percent > MAX_CUSTOM_DISCOUNT_PERCENT) return `Custom discount cannot exceed ${MAX_CUSTOM_DISCOUNT_PERCENT}%.`
+  return ''
+}
+
 export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: string } = {}) {
   const [customers, setCustomers] = useState<any[]>([])
   const [loadingError, setLoadingError] = useState<string | null>(null)
@@ -57,6 +67,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
   const [discountOption, setDiscountOption] = useState('NO_DISCOUNT')
   const [discountStatus, setDiscountStatus] = useState('ACTIVE')
   const [discountPercent, setDiscountPercent] = useState('')
+  const customDiscountError = discountOption === 'OTHER' ? getCustomDiscountError(discountPercent) : ''
 
   useEffect(() => {
     setSearch(String(globalSearchQuery || ''))
@@ -200,6 +211,10 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
 
   const saveDiscount = async () => {
     if (!discountTarget?.id) return
+    if (customDiscountError) {
+      toast.error(customDiscountError)
+      return
+    }
     setIsSavingDiscount(true)
     try {
       const response = await fetch(`/api/customers/${discountTarget.id}`, {
@@ -499,7 +514,19 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
               <div className="grid grid-cols-1 gap-2">
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">Custom %</label>
-                  <Input type="number" min="0" step="0.01" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} />
+                  <Input
+                    type="number"
+                    min="0.01"
+                    max={MAX_CUSTOM_DISCOUNT_PERCENT}
+                    step="0.01"
+                    value={discountPercent}
+                    onChange={(e) => setDiscountPercent(e.target.value)}
+                    aria-invalid={Boolean(customDiscountError)}
+                    aria-describedby="custom-discount-error"
+                  />
+                  {customDiscountError ? (
+                    <p id="custom-discount-error" className="text-xs text-red-600">{customDiscountError}</p>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -513,7 +540,7 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setDiscountDialogOpen(false)}>Cancel</Button>
-            <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" disabled={isSavingDiscount} onClick={saveDiscount}>
+            <Button className="flex-1 bg-blue-600 text-white hover:bg-blue-700" disabled={isSavingDiscount || Boolean(customDiscountError)} onClick={saveDiscount}>
               {isSavingDiscount ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save Discount
             </Button>

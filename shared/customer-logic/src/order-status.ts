@@ -7,8 +7,9 @@ export const normalizeDeliveryStatus = (status: string, paymentStatus?: string |
   if (raw === 'CANCELLED' || raw === 'CANCELED' || raw === 'FAILED_DELIVERY') return 'CANCELLED'
   if (String(paymentStatus || '').toLowerCase() === 'pending_approval') return 'PENDING'
   if (raw === 'PENDING') return 'PENDING'
-  // Preserve tracking for cached orders saved before the approval status rename.
-  if (raw === 'APPROVED' || raw === 'CONFIRMED') return 'PREPARING'
+  // An approved PO waits for the warehouse's "Start Processing"; only PREPARING is
+  // Processing. CONFIRMED is the pre-rename name cached orders may still carry.
+  if (raw === 'APPROVED' || raw === 'CONFIRMED') return 'APPROVED'
   if (raw === 'RESCHEDULED') return 'PENDING'
   if (raw === 'PROCESSING' || raw === 'PACKED' || raw === 'READY_FOR_PICKUP') return 'PREPARING'
   if (raw === 'IN_TRANSIT' || raw === 'DISPATCHED') return 'OUT_FOR_DELIVERY'
@@ -20,7 +21,8 @@ export const isRescheduledOrder = (status: string) => String(status || '').trim(
 
 export const getOrderStageIndex = (status: string, paymentStatus?: string | null) => {
   const normalized = normalizeDeliveryStatus(status, paymentStatus)
-  if (normalized === 'PENDING') return 0
+  // Approved still sits on the first step, "Order Confirmed".
+  if (normalized === 'PENDING' || normalized === 'APPROVED') return 0
   if (normalized === 'PREPARING') return 1
   if (normalized === 'OUT_FOR_DELIVERY') return 2
   if (normalized === 'DELIVERED') return 3
@@ -60,5 +62,5 @@ export const isOrderCancellable = (status: string, paymentStatus?: string | null
 
 export const isOrderTrackable = (status: string) => {
   const normalized = normalizeDeliveryStatus(status)
-  return ['PREPARING', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(normalized)
+  return ['APPROVED', 'PREPARING', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(normalized)
 }

@@ -316,6 +316,14 @@ def _quote_mixed_line(raw: dict[str, Any], products: dict[str, Product]) -> dict
     expected_units = case_capacity * case_count
     if total_units != expected_units:
         raise ValueError(f"Mixed Case components must total exactly {expected_units} bottles; received {total_units}")
+    if case_capacity % 2 != 0:
+        raise ValueError("Mixed Case capacity must be even so two products can be split equally")
+    required_units_per_product = (case_capacity // 2) * case_count
+    # Enforce the same equal split as the POS builder (12 + 12 for a 24-bottle case).
+    if any(component["quantityBaseUnits"] != required_units_per_product for component in components):
+        raise ValueError(
+            f"Each Mixed Case product must contain exactly {case_capacity // 2} bottles per case"
+        )
     if len(compatibility_keys) != 1:
         raise ValueError("These products use different packaging types and cannot be combined in the same case")
     if any(component["quantityPerCase"] <= 0 for component in components):

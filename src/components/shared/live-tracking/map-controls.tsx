@@ -94,6 +94,27 @@ export function ManualRecenter({
   return null;
 }
 
+// Close enough to read the streets around the yard.
+const WAREHOUSE_FOCUS_ZOOM = 14;
+
+/**
+ * Moves the map to the warehouse once, the first time the map has nothing else
+ * to show. The map's `center` only applies when it mounts, and the warehouse
+ * list usually arrives after that.
+ */
+export function WarehouseFocus({ point, bounds }: { point: [number, number] | null; bounds: L.LatLngBounds | null }) {
+  const map = useMap();
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (focusedRef.current || !point) return;
+    focusedRef.current = true;
+    map.setView(clampPointToBounds(point, bounds), Math.max(map.getZoom(), WAREHOUSE_FOCUS_ZOOM), { animate: false });
+  }, [bounds, map, point]);
+
+  return null;
+}
+
 export function MapResizeSync() {
   const map = useMap();
 

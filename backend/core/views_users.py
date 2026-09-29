@@ -1,6 +1,7 @@
 """Staff user, customer account and role directory endpoints."""
 
 import logging
+import math
 from typing import Any
 
 from django.db import transaction
@@ -36,6 +37,8 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_CUSTOM_DISCOUNT_PERCENT = 70.0
 
 # Helpers owned by sibling modules. Routing them through views_api keeps
 # a single resolution point, so tests that patch there still apply.
@@ -522,7 +525,6 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
     if p.get("type") == "staff" and any(key in body for key in discount_keys):
         option = str(body.get("discountOption") or getattr(c, "discount_option", DISCOUNT_NO)).strip().upper()
         status = str(body.get("discountStatus") or getattr(c, "discount_status", DISCOUNT_REMOVED)).strip().upper()
-        percent = float(body.get("discountPercent") if body.get("discountPercent") is not None else getattr(c, "discount_percent", 0) or 0)
 
         if option not in set(DISCOUNT_PRESET_PERCENT.keys()) | {DISCOUNT_OTHER}:
             return _err("Invalid discount option", 400)
@@ -532,9 +534,15 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         if option in DISCOUNT_PRESET_PERCENT:
             percent = float(DISCOUNT_PRESET_PERCENT[option])
         elif option == DISCOUNT_OTHER:
-            percent = max(0.0, percent)
-            if percent <= 0:
-                return _err("For Other discount, set a custom percent", 400)
+            try:
+                percent = float(body.get("discountPercent") if body.get("discountPercent") is not None else getattr(c, "discount_percent", 0) or 0)
+            except (TypeError, ValueError):
+                return _err("Custom discount percent must be a number", 400)
+            # The API enforces the cap even when a client bypasses the form controls.
+            if not math.isfinite(percent) or percent <= 0:
+                return _err("For Other discount, set a custom percent greater than 0", 400)
+            if percent > MAX_CUSTOM_DISCOUNT_PERCENT:
+                return _err("Custom discount cannot exceed 70%", 400)
 
         c.discount_option = option
         c.discount_status = status

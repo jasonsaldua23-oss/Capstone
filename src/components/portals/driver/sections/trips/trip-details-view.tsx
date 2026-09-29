@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { DepositRefundRow, EmptiesChargeRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { resolveClientImageUrl } from '@/lib/client-image'
+import { toDisplayStatus } from '@/lib/status-display'
 import { ArrowLeft, ChevronRight, Package, Phone, Search } from 'lucide-react'
 import { DropPoint, Trip, stripPhilippinesFromAddress } from './trip-detail-helpers'
 import {
@@ -31,12 +32,13 @@ const CLOSED_STATUSES = new Set(['COMPLETED', 'DELIVERED', 'FAILED', 'CANCELLED'
 const describeStopStatus = (status?: string | null) => {
   const raw = String(status || '').toUpperCase()
   if (DELIVERED_STATUSES.has(raw)) return 'Delivered'
-  if (raw === 'IN_TRANSIT') return 'In transit'
+  if (raw === 'IN_TRANSIT') return 'In progress'
   if (raw === 'ARRIVED') return 'Arrived'
   if (raw === 'FAILED') return 'Failed'
   if (raw === 'SKIPPED' || raw === 'CANCELLED' || raw === 'CANCELED') return 'Cancelled'
   if (raw === 'PENDING') return 'Pending'
-  return raw ? raw.replace(/_/g, ' ') : 'Pending'
+  // A stop with no status of its own shows its order's, whose PREPARING reads Processing.
+  return raw ? toDisplayStatus(raw).replace(/_/g, ' ') : 'Pending'
 }
 
 // PREPARING is retained as the API value; drivers see the shared Processing label.
@@ -318,7 +320,7 @@ export function TripDetailsView({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="min-w-0 break-words text-xl font-black tracking-[-0.02em] text-slate-900">{trip.tripNumber}</h2>
           <span className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${tripStatusBadgeColors[trip.status] || 'bg-slate-100 text-slate-700'}`}>
-            {String(trip.status || '').replace(/_/g, ' ')}
+            {toDisplayStatus(trip.status).replace(/_/g, ' ')}
           </span>
         </div>
         <p className="mt-1 break-words text-sm text-slate-600">

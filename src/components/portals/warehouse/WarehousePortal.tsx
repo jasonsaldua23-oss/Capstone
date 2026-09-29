@@ -1525,6 +1525,7 @@ export function WarehousePortal() {
               liveTrackingActiveTrips={liveTrackingActiveTrips}
               liveTrackingDeliveredTransactions={liveTrackingDeliveredTransactions}
               liveTrackingRecentLocations={liveTrackingRecentLocations}
+              warehouses={warehouses}
             />
           )}
 

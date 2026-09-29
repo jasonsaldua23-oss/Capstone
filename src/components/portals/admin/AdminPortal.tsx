@@ -51,6 +51,7 @@ import { DashboardView } from './sections/dashboard-view'
 const TransportationView = dynamic(() => import('./sections/transportation-view').then((mod) => mod.TransportationView))
 const WarehousesView = dynamic(() => import('./sections/warehouses-view').then((mod) => mod.WarehousesView))
 import { parseWarehouseSetup } from '@/lib/warehouse-setup'
+import { toDisplayStatus } from '@/lib/status-display'
 import { safeFetchJson as fetchWarehouseJson } from './sections/shared'
 const ReplacementsView = dynamic(() => import('./sections/replacements-view').then((mod) => mod.ReplacementsView))
 const TrackingView = dynamic(() => import('./sections/tracking-view').then((mod) => mod.TrackingView))
@@ -573,7 +574,7 @@ export function AdminPortal() {
           nextResults.push({
             view: isApproved ? 'orders' : 'purchaseRequests',
             label: `${isApproved ? 'Purchase Order' : 'Purchase Request'} ${String(row?.purchaseOrderNumber || row?.purchaseRequestNumber || row?.orderNumber || row?.id || '').trim() || 'N/A'}`,
-            sublabel: `${String(row?.customer?.name || row?.shippingName || 'N/A')} | ${String(row?.status || row?.requestStatus || 'N/A')}`,
+            sublabel: `${String(row?.customer?.name || row?.shippingName || 'N/A')} | ${toDisplayStatus(row?.status || row?.requestStatus || 'N/A')}`,
           })
         })
       }

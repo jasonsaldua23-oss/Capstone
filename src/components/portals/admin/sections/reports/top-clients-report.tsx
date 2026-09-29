@@ -36,7 +36,7 @@ import { describeRanking, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { isCancelledReportStatus, isRevenueRecognized, summarizeCustomerMix } from '@/lib/report-metrics'
+import { formatPesoAxisTick, isCancelledReportStatus, isRevenueRecognized, summarizeCustomerMix } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 // Blue is the tab's existing series hue; amber pairs with it at CVD delta-E 37,
@@ -589,7 +589,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
                     tick={{ fontSize: 11, fill: '#64748b' }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(val) => `₱${(val / 1000).toFixed(0)}k`}
+                    tickFormatter={formatPesoAxisTick}
                   />
                   <Tooltip
                     formatter={(value: any) => [formatPeso(Number(value)), 'Total Purchases']}

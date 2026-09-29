@@ -187,6 +187,60 @@ class RetailPosApiTests(TestCase):
                 self.assertEqual(product["caseQuantity"], 12)
                 self.assertEqual(product["casePrice"], "300.00")
 
+    def test_mixed_case_requires_equal_whole_bottle_split(self):
+        # A 24-bottle case made from two products must be 12 + 12, never 13 + 11.
+        self.product.quantity_per_unit = 24
+        self.product.save(update_fields=["quantity_per_unit"])
+        self.product.packaging_options.update(containers_per_case=24)
+        second = Product.objects.create(
+            sku="POS-LEMON-24",
+            name="POS Lemon",
+            unit="case",
+            price=300,
+            retail_unit_price=Decimal("30.00"),
+            case_price=Decimal("600.00"),
+            category="Carbonated (Glass)",
+            sizes=["330ml"],
+            quantity_per_unit=24,
+            packaging_type="RETURNABLE",
+        )
+        ProductPackaging.objects.create(
+            product=second,
+            container_type=self.container,
+            containers_per_case=24,
+            is_primary=True,
+            is_returnable=True,
+            deposit_amount=Decimal("2.00"),
+            case_deposit_amount=Decimal("24.00"),
+        )
+        products = {self.product.id: self.product, second.id: second}
+
+        valid = _quote_mixed_line(
+            {
+                "quantity": 1,
+                "caseCapacity": 24,
+                "components": [
+                    {"productId": self.product.id, "quantityBaseUnits": 12},
+                    {"productId": second.id, "quantityBaseUnits": 12},
+                ],
+            },
+            products,
+        )
+        self.assertEqual([row["quantityPerCase"] for row in valid["components"]], [12, 12])
+
+        with self.assertRaisesMessage(ValueError, "exactly 12 bottles per case"):
+            _quote_mixed_line(
+                {
+                    "quantity": 1,
+                    "caseCapacity": 24,
+                    "components": [
+                        {"productId": self.product.id, "quantityBaseUnits": 13},
+                        {"productId": second.id, "quantityBaseUnits": 11},
+                    ],
+                },
+                products,
+            )
+
     def test_immediate_sale_is_idempotent_and_hidden_from_regular_orders(self):
         payload = {
             "warehouseId": self.warehouse.id,

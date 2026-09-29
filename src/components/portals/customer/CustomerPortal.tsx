@@ -1013,8 +1013,6 @@ export function CustomerPortal() {
     canPlaceOrder,
     cartCount,
     checkoutDiscountBreakdown,
-    depositCreditAmount,
-    depositRefundOptions,
     discountCasesAffected,
     getAvailableQty,
     getCartItemAvailable,
@@ -1268,10 +1266,6 @@ export function CustomerPortal() {
                     selectedSubtotal={selectedSubtotal}
                     selectedDepositCharged={selectedDepositCharged}
                     selectedDepositRefunded={selectedDepositRefunded}
-                    depositCreditAmount={depositCreditAmount}
-                    depositRefundLines={depositRefundLines}
-                    setDepositRefundLines={setDepositRefundLines}
-                    depositRefundOptions={depositRefundOptions}
                     discountName={checkoutDiscountBreakdown.name}
                     discountType={checkoutDiscountBreakdown.discountType}
                     discountPercent={checkoutDiscountBreakdown.discountPercent}
@@ -1828,7 +1822,9 @@ export function CustomerPortal() {
                   >
                     <option value="ALL">All statuses</option>
                     <option value="PENDING">Pending</option>
-                    <option value="PROCESSING">Processing</option>
+                    {/* Values are normalizeDeliveryStatus results; Processing is stored as PREPARING. */}
+                    <option value="APPROVED">Approved</option>
+                    <option value="PREPARING">Processing</option>
                     <option value="OUT_FOR_DELIVERY">Out for delivery</option>
                     <option value="DELIVERED">Delivered</option>
                     <option value="CANCELLED">Cancelled</option>

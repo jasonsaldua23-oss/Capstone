@@ -340,6 +340,21 @@ class OrderStatusTransitionApiContractTests(TestCase):
         timeline = OrderTimeline.objects.get(order=order)
         self.assertIsNotNone(timeline.processed_at)
 
+    def test_staff_see_processing_not_the_stored_preparing_status(self) -> None:
+        # PREPARING stays the stored value; staff-facing text says Processing, as every portal does.
+        order = self._create_order(status=OrderStatus.PENDING)
+        with patch("core.views_api._create_staff_notifications") as notify:
+            response = self._patch_status(order.id, {"status": "PREPARING"})
+        self.assertEqual(response.status_code, 200, response.content)
+        message = notify.call_args.kwargs["message"]
+        self.assertIn("status to PROCESSING.", message)
+        self.assertNotIn("PREPARING", message)
+
+        processing = self._create_order(status=OrderStatus.PREPARING)
+        response = self._patch_status(processing.id, {"status": "PENDING"})
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["error"], "Invalid transition from PROCESSING to PENDING")
+
     def test_overdue_approved_order_requires_reschedule_before_processing(self) -> None:
         order = self._create_order(
             status=OrderStatus.APPROVED,

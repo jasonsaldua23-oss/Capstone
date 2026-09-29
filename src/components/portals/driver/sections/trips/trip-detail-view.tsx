@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { emitDataSync } from '@/lib/data-sync'
+import { toDisplayStatus } from '@/lib/status-display'
 import { stopDriverNavigationSpeech } from '@/lib/native/driver-speech'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -1729,7 +1730,7 @@ export function TripDetailView({
                                       ) : null}
                                     </div>
                                     <Badge className={dropPointStatusColors[dropPoint.status] || 'bg-gray-100'}>
-                                      {dropPoint.status}
+                                      {toDisplayStatus(dropPoint.status)}
                                     </Badge>
                                   </div>
                                   <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -1929,7 +1930,7 @@ export function TripDetailView({
                             )}
                           </div>
                           <Badge className={dropPointStatusColors[dropPoint.status] || 'bg-gray-100'}>
-                            {dropPoint.status}
+                            {toDisplayStatus(dropPoint.status)}
                           </Badge>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-3">

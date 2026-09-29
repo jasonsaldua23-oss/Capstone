@@ -156,6 +156,26 @@ function getBucketMeta(date: Date, granularity: 'day' | 'week' | 'month') {
   }
 }
 
+/** The day, week or month a report chart files `date` under, with the key chartBucketNoun reads. */
+export function getReportChartBucket(date: Date, granularity: 'day' | 'week' | 'month') {
+  return getBucketMeta(date, granularity)
+}
+
+/** Retail's trend draws one point per day for today and short ranges, per month for long ones. */
+export function retailTrendGranularity(periodMode: string): 'day' | 'month' {
+  return ['today', '7', '30', 'custom'].includes(periodMode) ? 'day' : 'month'
+}
+
+/** A peso axis tick: small amounts in full, larger ones shortened to k or M. */
+export function formatPesoAxisTick(value: number) {
+  const amount = Number(value) || 0
+  const shortened = (divisor: number, suffix: string) =>
+    `₱${Number((amount / divisor).toFixed(1)).toLocaleString('en-US')}${suffix}`
+  if (Math.abs(amount) >= 1_000_000) return shortened(1_000_000, 'M')
+  if (Math.abs(amount) >= 1_000) return shortened(1_000, 'k')
+  return `₱${Math.round(amount).toLocaleString('en-US')}`
+}
+
 function getRangeGranularity(rangeDays: string) {
   if (rangeDays === '7') return 'day'
   if (rangeDays === '30') return 'week'

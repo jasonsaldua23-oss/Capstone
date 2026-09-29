@@ -80,6 +80,9 @@ function formatWarehouseCodeSequence(sequence: number): string {
 export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (ready: boolean) => void } = {}) {
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [warehouseStaffUsers, setWarehouseStaffUsers] = useState<any[]>([])
+  const [operationalDrivers, setOperationalDrivers] = useState<any[]>([])
+  const [operationalVehicles, setOperationalVehicles] = useState<any[]>([])
+  const [operationalHealthAvailable, setOperationalHealthAvailable] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingInsights, setIsLoadingInsights] = useState(false)
   const [insightsError, setInsightsError] = useState('')
@@ -163,10 +166,20 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
     setIsLoading(true)
     setLoadError('')
     try {
-      // Fix: retry transient failures and bypass cached reads before changing setup status.
-      const result = await safeFetchJson('/api/warehouses?page=1&pageSize=100')
+      // Load the fleet with the warehouse so Operational Health reflects drivers and vehicles.
+      const [result, driversResult, vehiclesResult] = await Promise.all([
+        safeFetchJson('/api/warehouses?page=1&pageSize=100'),
+        fetchAllPaginatedCollection('/api/drivers', 'drivers', { cache: 'no-store' }, { pageSize: 500 }),
+        fetchAllPaginatedCollection('/api/vehicles', 'vehicles', { cache: 'no-store' }, { pageSize: 500 }),
+      ])
       if (!result.ok || result.data?.success === false) {
         throw new Error(result.data?.error || 'Failed to load warehouse profile')
+      }
+      const fleetAvailable = driversResult.ok && vehiclesResult.ok
+      setOperationalHealthAvailable(fleetAvailable)
+      if (fleetAvailable) {
+        setOperationalDrivers(toArray<any>(driversResult.data?.drivers))
+        setOperationalVehicles(toArray<any>(vehiclesResult.data?.vehicles))
       }
       const rows = parseWarehouseSetup(result.data)
       setWarehouses(rows)
@@ -548,8 +561,18 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
 
   const totalWarehouses = warehouses.length
   const totalWarehouseCapacity = warehouses.reduce((sum, warehouse: any) => sum + Number(warehouse?.capacity || 0), 0)
-  const avgEfficiency = totalWarehouses > 0
-    ? Math.round((warehouses.filter((warehouse: any) => warehouse?.isActive !== false).length / totalWarehouses) * 100)
+  const activeDriverCount = operationalDrivers.filter((driver) => {
+    const status = String(driver?.status || driver?.driverStatus || 'ACTIVE').trim().toUpperCase().replace(/[\s-]+/g, '_')
+    return driver?.isActive !== false && status === 'ACTIVE'
+  }).length
+  const operationalVehicleCount = operationalVehicles.filter((vehicle) => {
+    const status = String(vehicle?.status || 'AVAILABLE').trim().toUpperCase()
+    return vehicle?.isActive !== false && ['AVAILABLE', 'IN_USE'].includes(status)
+  }).length
+  const totalOperationalResources = operationalDrivers.length + operationalVehicles.length
+  // Operational Health covers fleet readiness, not the single warehouse record.
+  const operationalHealthPercent = totalOperationalResources > 0
+    ? Math.round(((activeDriverCount + operationalVehicleCount) / totalOperationalResources) * 100)
     : 0
 
   if (isLoading) {
@@ -658,7 +681,9 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500">Operational Health</p>
-                <p className="text-xl font-bold text-slate-900">{avgEfficiency}% Active</p>
+                <p className="text-xl font-bold text-slate-900">
+                  {operationalHealthAvailable ? `${operationalHealthPercent}% Active` : 'Unavailable'}
+                </p>
               </div>
             </div>
           </CardContent>

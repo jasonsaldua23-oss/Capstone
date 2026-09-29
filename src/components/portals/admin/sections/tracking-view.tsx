@@ -49,6 +49,7 @@ import {
 } from './shared'
 import { buildDeliveredTransactions, deliveredTransactionPin } from '@/lib/delivered-transactions'
 import { LiveTrackingPage } from '@/components/portals/shared/live-tracking-page'
+import { toMapWarehouses } from '@/components/shared/live-tracking/warehouse-markers'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -70,6 +71,8 @@ export function TrackingView() {
   const [ordersForMap, setOrdersForMap] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [trackingDate, setTrackingDate] = useState(formatDayKey(new Date()))
+  const [warehouseRows, setWarehouseRows] = useState<any[]>([])
+  const mapWarehouses = useMemo(() => toMapWarehouses(warehouseRows), [warehouseRows])
 
   const isDropPointCompleted = (status: unknown) => {
     const value = String(status || '').toUpperCase()
@@ -178,6 +181,24 @@ export function TrackingView() {
   useEffect(() => {
     fetchTrackingTrips()
   }, [trackingDate])
+
+  // Warehouses are where trips start, so they stay on the map with no trip running.
+  // They rarely change, so they load once and again only when a warehouse is edited.
+  useEffect(() => {
+    let cancelled = false
+    const loadWarehouses = async () => {
+      const response = await safeFetchJson('/api/warehouses?limit=200', { cache: 'no-store' })
+      if (!cancelled && response.ok) setWarehouseRows(getCollection<any>(response.data, ['warehouses']))
+    }
+    void loadWarehouses()
+    const unsubscribe = subscribeDataSync((message) => {
+      if ((message.scopes || []).includes('warehouses')) void loadWarehouses()
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     const refreshLive = () => {
@@ -622,6 +643,7 @@ export function TrackingView() {
           className="h-full w-full"
           restrictToNegrosOccidental
           showDriverSelfBadge={false}
+          warehouses={mapWarehouses}
         />
       }
     />

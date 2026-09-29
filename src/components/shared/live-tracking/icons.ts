@@ -119,3 +119,45 @@ export function getTruckIcon(options: { direction?: TruckIconDirection; heading?
   truckIconCache.set(cacheKey, icon);
   return icon;
 }
+
+// lucide-react's Warehouse glyph (roof over a three-line door), drawn in the pin's
+// head: 24 units scaled to 18px about the head's centre at (20, 20).
+const WAREHOUSE_GLYPH = `<g transform="translate(11 11) scale(0.75)" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M18 21V10a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v11"/>
+  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 1.132-1.803l7.95-3.974a2 2 0 0 1 1.837 0l7.948 3.974A2 2 0 0 1 22 8z"/>
+  <path d="M6 13h12"/>
+  <path d="M6 17h12"/>
+</g>`;
+
+// A teardrop pin: an 18px-radius head at (20, 20) whose sides run tangent to it
+// down to the tip at (20, 48).
+const WAREHOUSE_PIN_PATH = 'M20 48 L6.25 31.6 A18 18 0 1 1 33.75 31.6 Z';
+
+let warehouseIcon: L.DivIcon | null = null;
+
+/** Navy-to-blue map pin with a white outline, standing on its tip at the warehouse. */
+export function getWarehouseIcon() {
+  if (warehouseIcon) return warehouseIcon;
+  warehouseIcon = L.divIcon({
+    className: 'warehouse-marker-icon',
+    html: `<div style="position:relative;width:40px;height:52px;">
+      <div style="position:absolute;left:10px;top:45px;width:20px;height:7px;border-radius:50%;background:rgba(15,23,42,0.32);filter:blur(2px);"></div>
+      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="52" viewBox="0 0 40 52" aria-hidden="true" style="position:relative;display:block;overflow:visible;filter:drop-shadow(0 1px 2px rgba(15,23,42,0.35));">
+        <defs>
+          <linearGradient id="warehouse-pin-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#0b2a66"/>
+            <stop offset="0.55" stop-color="#103c8a"/>
+            <stop offset="1" stop-color="#1f7bff"/>
+          </linearGradient>
+        </defs>
+        <path d="${WAREHOUSE_PIN_PATH}" fill="url(#warehouse-pin-fill)" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+        ${WAREHOUSE_GLYPH}
+      </svg>
+    </div>`,
+    iconSize: [40, 52],
+    // The tip marks the warehouse, like the stop pins.
+    iconAnchor: [20, 49],
+    popupAnchor: [0, -46],
+  });
+  return warehouseIcon;
+}

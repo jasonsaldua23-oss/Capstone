@@ -36,7 +36,7 @@ import {
   roadSnappedRouteCache,
   shortestAngleDelta,
 } from './live-tracking/geometry'
-import { DefaultIcon, getStatusPinIcon, getTruckIcon, STATUS_PIN_TILT_STEP_DEG } from './live-tracking/icons'
+import { DefaultIcon, getStatusPinIcon, getTruckIcon, getWarehouseIcon, STATUS_PIN_TILT_STEP_DEG } from './live-tracking/icons'
 import { coincidentPinTilts } from './live-tracking/pin-spread'
 import {
   TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS,
@@ -50,6 +50,7 @@ import {
   MapResizeSync,
   NavigationCamera,
   NegrosMaskPane,
+  WarehouseFocus,
   ZoomTracker,
 } from './live-tracking/map-controls'
 import {
@@ -62,6 +63,8 @@ import {
   type TruckMotionContext,
 } from './live-tracking/truck-motion'
 import { useReportMapTrucks } from './live-tracking/use-report-map-trucks'
+import { isAtWarehouse, warehouseFocusPoint, type MapWarehouse } from './live-tracking/warehouse-markers'
+import { toDisplayStatus } from '@/lib/status-display'
 
 const MapContainerUnsafe = MapContainer as any;
 
@@ -76,6 +79,8 @@ const CircleMarkerUnsafe = CircleMarker as any;
 const TooltipUnsafe = Tooltip as any;
 
 const PolygonUnsafe = Polygon as any;
+
+const NO_WAREHOUSES: MapWarehouse[] = [];
 
 interface LiveTrackingMapProps {
   locations: DriverLocation[];
@@ -92,6 +97,8 @@ interface LiveTrackingMapProps {
   showZoomControls?: boolean;
   showDriverSelfBadge?: boolean;
   onRouteLineSelect?: (routeLineId: string) => void;
+  /** Where trips start. Drawn even with no trip on the map; see toMapWarehouses. */
+  warehouses?: MapWarehouse[];
   className?: string;
 }
 
@@ -110,6 +117,7 @@ export default function LiveTrackingMap({
   showZoomControls = true,
   showDriverSelfBadge = false,
   onRouteLineSelect,
+  warehouses = NO_WAREHOUSES,
   className = "w-full h-[350px] rounded-xl overflow-hidden border shadow-sm",
 }: LiveTrackingMapProps) {
   const rawSafeLocations = useMemo(
@@ -896,6 +904,7 @@ export default function LiveTrackingMap({
         <ZoomTracker onZoomChange={setCurrentZoom} />
         <MapBoundsGuard enabled={restrictToNegrosOccidental} bounds={activeBounds} />
         <ManualRecenter center={center} recenterSignal={recenterSignal} bounds={activeBounds} />
+        <WarehouseFocus point={warehouseFocusPoint(rawSafeLocations.length, warehouses)} bounds={activeBounds} />
         <NavigationCamera
           enabled={Boolean(navTruck)}
           truckPosition={navTruck ? [navTruck.lat, navTruck.lng] : null}
@@ -1010,13 +1019,33 @@ export default function LiveTrackingMap({
           ) : null
         )}
 
-        {routeOriginPoint ? (
+        {/* A route that starts in the yard already starts at the warehouse icon. */}
+        {routeOriginPoint && !isAtWarehouse(routeOriginPoint, warehouses) ? (
           <CircleMarkerUnsafe
             center={routeOriginPoint}
             radius={7}
             pathOptions={{ color: '#111827', fillColor: '#9ca3af', fillOpacity: 0.95 }}
           />
         ) : null}
+
+        {warehouses.map((warehouse) => (
+          <MarkerUnsafe
+            key={`warehouse-${warehouse.id}`}
+            position={[warehouse.lat, warehouse.lng]}
+            icon={getWarehouseIcon()}
+            // Below the stop pins and trucks, so a van leaving the yard stays visible.
+            zIndexOffset={-1000}
+            title={warehouse.name}
+          >
+            <Popup>
+              <div className="text-sm" style={{ minWidth: 180, maxWidth: 260 }}>
+                <p className="font-bold text-base mb-1">{warehouse.name}</p>
+                {warehouse.address ? <p className="text-gray-600">{warehouse.address}</p> : null}
+                <p className="text-gray-500">Warehouse · trips start here</p>
+              </div>
+            </Popup>
+          </MarkerUnsafe>
+        ))}
 
         {smoothedLocations.map((loc) =>
           loc.markerType === 'pin' ? (
@@ -1058,7 +1087,7 @@ export default function LiveTrackingMap({
                       <p className="font-bold text-base mb-1">{loc.popupCustomerName || loc.driverName}</p>
                       <p className="text-gray-600">{loc.popupAddress || loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
                       <p className="text-gray-600">
-                        Status: <span className="capitalize">{loc.status.replace(/_/g, ' ').toLowerCase()}</span>
+                        Status: <span className="capitalize">{toDisplayStatus(loc.status).replace(/_/g, ' ').toLowerCase()}</span>
                       </p>
                       {Array.isArray(loc.popupOrderItems) && loc.popupOrderItems.length > 0 ? (
                         <div style={{ marginTop: 8, borderTop: '1px solid #e5e7eb', paddingTop: 6 }}>
@@ -1097,7 +1126,7 @@ export default function LiveTrackingMap({
                     <p className="text-gray-600">Destination Customer: {loc.destinationCustomer || 'N/A'}</p>
                     {loc.markerLabel ? <p className="text-gray-600">{loc.markerLabel}</p> : null}
                     <p className="text-gray-600">
-                      Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
+                      Status: <span className="capitalize">{toDisplayStatus(loc.status).toLowerCase()}</span>
                     </p>
                     {typeof loc.recordedAtMs === 'number' && Number.isFinite(loc.recordedAtMs) ? (
                       <p className="text-gray-500">
@@ -1120,7 +1149,7 @@ export default function LiveTrackingMap({
                   <p className="font-bold text-base mb-1">{loc.driverName}</p>
                   <p className="text-gray-600">{loc.markerLabel || `Vehicle: ${loc.vehiclePlate}`}</p>
                   <p className="text-gray-600">
-                    Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
+                    Status: <span className="capitalize">{toDisplayStatus(loc.status).toLowerCase()}</span>
                   </p>
                 </div>
               </Popup>
@@ -1132,7 +1161,7 @@ export default function LiveTrackingMap({
                   <p className="font-bold text-base mb-1">{loc.driverName}</p>
                   <p className="text-gray-600">Vehicle: {loc.vehiclePlate}</p>
                   <p className="text-gray-600">
-                    Status: <span className="capitalize">{loc.status.toLowerCase()}</span>
+                    Status: <span className="capitalize">{toDisplayStatus(loc.status).toLowerCase()}</span>
                   </p>
                 </div>
               </Popup>

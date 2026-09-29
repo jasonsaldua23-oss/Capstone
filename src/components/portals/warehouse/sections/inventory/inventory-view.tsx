@@ -11,6 +11,7 @@ import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import type { WarehouseInventoryViewProps } from '../shared/types'
 import { formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
 import { describeInventoryOverstock, getInventoryLooseRemainder } from '@/lib/report-metrics'
+import { FILTER_SELECT_CLASS } from '@/components/portals/shared/filter-select'
 
 export function WarehouseInventoryView({
   openAddStockDialog,
@@ -36,13 +37,16 @@ export function WarehouseInventoryView({
   const categoryOptions = Array.from(new Set(scopedInventory.map(categoryFor).filter(Boolean)))
 
   const query = inventorySearch.trim().toLowerCase()
-  // Added: search and all filters apply together without sorting or altering stock data.
-  const filteredInventory = scopedInventory.filter((item) =>
+  const matchingInventory = scopedInventory.filter((item) =>
     [item.id, item.product?.name, item.product?.sku, sizesFor(item).join(' ')].some((value) => String(value || '').toLowerCase().includes(query))
     && (!statusFilter || getStockStatus(item) === statusFilter)
     && (!sizeFilter || sizesFor(item).includes(sizeFilter))
     && (!categoryFilter || categoryFor(item) === categoryFilter)
   )
+  // All statuses is the inventory directory view, so keep its product names alphabetical.
+  const filteredInventory = statusFilter
+    ? matchingInventory
+    : [...matchingInventory].sort((a, b) => String(a.product?.name || '').localeCompare(String(b.product?.name || ''), undefined, { numeric: true, sensitivity: 'base' }))
 
   const getThresholdValue = (item: any) =>
     Math.max(0, Number(item?.minStock ?? item?.threshold ?? item?.min_stock ?? 0) || 0)
@@ -73,21 +77,19 @@ export function WarehouseInventoryView({
             </div>
           </div>
         </CardHeader>
-        {/* Toolbar: Search and Filters */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-6 pb-4">
-          <Input aria-label="Search inventory" placeholder="Search inventory…" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} className="h-10 w-full sm:max-w-[280px] text-sm" />
-          <div className="flex flex-wrap items-center gap-2">
-            <select aria-label="Filter by stock status" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="">All statuses</option><option value="healthy">Healthy</option><option value="overstocked">Overstocked</option><option value="restock">Needs Restocking</option><option value="out_of_stock">Out of Stock</option>
-            </select>
-            <select aria-label="Filter by size" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={sizeFilter} onChange={(event) => setSizeFilter(event.target.value)}>
-              <option value="">All sizes</option>{sizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
-            </select>
-            <select aria-label="Filter by category" className="h-10 max-w-full rounded-md border border-input bg-background px-3 text-sm" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-              <option value="">All categories</option>{categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
-            </select>
-            {(statusFilter || sizeFilter || categoryFilter) && <Button type="button" variant="ghost" onClick={() => { setStatusFilter(''); setSizeFilter(''); setCategoryFilter('') }}>Clear filters</Button>}
-          </div>
+        {/* Toolbar: search and filters in equal columns across the card. */}
+        <div className="grid grid-cols-1 gap-3 px-6 pb-4 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto] lg:items-center">
+          <Input aria-label="Search inventory" placeholder="Search inventory…" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} className="h-10 w-full text-sm" />
+          <select aria-label="Filter by stock status" className={FILTER_SELECT_CLASS} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="">All statuses</option><option value="healthy">Healthy</option><option value="overstocked">Overstocked</option><option value="restock">Needs Restocking</option><option value="out_of_stock">Out of Stock</option>
+          </select>
+          <select aria-label="Filter by size" className={FILTER_SELECT_CLASS} value={sizeFilter} onChange={(event) => setSizeFilter(event.target.value)}>
+            <option value="">All sizes</option>{sizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+          <select aria-label="Filter by category" className={FILTER_SELECT_CLASS} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+            <option value="">All categories</option>{categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+          {(statusFilter || sizeFilter || categoryFilter) && <Button type="button" variant="ghost" onClick={() => { setStatusFilter(''); setSizeFilter(''); setCategoryFilter('') }}>Clear filters</Button>}
         </div>
         <CardContent className="p-0">
         {loadingInventory ? (

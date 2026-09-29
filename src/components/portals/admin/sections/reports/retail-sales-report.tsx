@@ -36,10 +36,18 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeTrend, toPoints } from '@/lib/chart-interpretation'
-import { formatPeso, formatDayKey } from '../shared'
+import { formatPeso } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { formatOrderItemsForExport, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
+import {
+  chartBucketNoun,
+  formatOrderItemsForExport,
+  formatPesoAxisTick,
+  getReportChartBucket,
+  isCancelledReportStatus,
+  isRevenueRecognized,
+  retailTrendGranularity,
+} from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 function getItemSize(item: any): string {
@@ -244,24 +252,18 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
 
   // Sales Trend Chart Data
   const trendChartData = useMemo(() => {
-    const map: Record<string, { label: string; sales: number; count: number; dateSort: number }> = {}
+    const map: Record<string, { key: string; label: string; sales: number; count: number; dateSort: number }> = {}
+    // Today used to fall into the monthly branch, so one day's sales were drawn as
+    // "Sep 26" (September 2026) and read back as "the only month with sales".
+    const granularity = retailTrendGranularity(periodMode)
 
     currentPeriodItems.filter((item) => isRevenueRecognized(item)).forEach((item) => {
       const d = new Date(item.date)
-      let key = ''
-      let label = ''
-
-      if (['7', '30', 'custom'].includes(periodMode)) {
-        key = formatDayKey(d)
-        label = `${d.getMonth() + 1}/${d.getDate()}`
-      } else {
-        // Longer ranges are grouped by month to keep the chart readable.
-        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-        label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-      }
+      const { key, label } = getReportChartBucket(d, granularity)
 
       if (!map[key]) {
         map[key] = {
+          key,
           label,
           sales: 0,
           count: 0,
@@ -275,9 +277,9 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
     return Object.values(map).sort((a, b) => a.dateSort - b.dateSort)
   }, [currentPeriodItems, periodMode])
 
-  // Revenue is read in pesos; the bucket is a day for short ranges and a month for long ones.
+  // Revenue is read in pesos, per the day or month the chart was drawn in.
   const chartInterpretation = useMemo(() => {
-    const bucket = ['7', '30', 'custom'].includes(periodMode) ? 'day' : 'month'
+    const bucket = chartBucketNoun(trendChartData)
     const transactions = trendChartData.reduce((sum: number, row: any) => sum + Number(row.count || 0), 0)
     return `${describeTrend(toPoints(trendChartData, (row: any) => row.label, (row: any) => row.sales), {
       noun: 'retail sales',
@@ -286,8 +288,8 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       // The chart only draws days (or months) that had a sale, so the reading says so.
       periodScope: 'with sales',
       format: (value) => formatPeso(value),
-    })} That came from ${transactions.toLocaleString('en-US')} transactions in the period.`
-  }, [trendChartData, periodMode])
+    })} That came from ${transactions.toLocaleString('en-US')} ${transactions === 1 ? 'transaction' : 'transactions'} in the period.`
+  }, [trendChartData])
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredCurrentItems.length / pageSize))
@@ -479,7 +481,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
                     tick={{ fontSize: 11, fill: '#64748b' }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(val) => `₱${(val / 1000).toFixed(0)}k`}
+                    tickFormatter={formatPesoAxisTick}
                   />
                   <Tooltip
                     formatter={(value: any) => [formatPeso(Number(value)), 'Retail Sales']}

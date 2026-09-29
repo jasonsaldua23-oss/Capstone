@@ -106,6 +106,8 @@ export type WarehouseLiveTrackingViewProps = {
   liveTrackingActiveTrips: any[]
   liveTrackingDeliveredTransactions: DeliveredTransaction[]
   liveTrackingRecentLocations: any[]
+  /** The staff member's warehouses, drawn as the trips' starting point. */
+  warehouses: any[]
 }
 
 export type WarehouseWarehousesViewProps = {

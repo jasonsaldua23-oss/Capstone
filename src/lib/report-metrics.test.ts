@@ -52,6 +52,9 @@ import {
   summarizeInventoryMovementTrend,
   summarizeStockHealth,
   summarizeWarehouseDashboardOrders,
+  formatPesoAxisTick,
+  getReportChartBucket,
+  retailTrendGranularity,
 } from './report-metrics.ts'
 import {
   FEEDBACK_OVERALL_REASONS,
@@ -910,4 +913,33 @@ test('describeStockHealth adds no restock hint when every SKU is fine', () => {
     { name: 'Overstocked', value: 1 },
   ])
   assert.doesNotMatch(text, /restock/)
+})
+
+test('formatPesoAxisTick shows amounts under a thousand in full', () => {
+  // Dividing everything by 1000 read ₱330 of sales as "₱0k".
+  assert.equal(formatPesoAxisTick(0), '₱0')
+  assert.equal(formatPesoAxisTick(330), '₱330')
+  assert.equal(formatPesoAxisTick(999), '₱999')
+  assert.equal(formatPesoAxisTick(1000), '₱1k')
+  assert.equal(formatPesoAxisTick(1500), '₱1.5k')
+  assert.equal(formatPesoAxisTick(12000), '₱12k')
+  assert.equal(formatPesoAxisTick(2500000), '₱2.5M')
+})
+
+test('report chart buckets label a day and a month unambiguously', () => {
+  const sale = new Date(2026, 8, 29, 15, 30)
+  assert.deepEqual(
+    { key: getReportChartBucket(sale, 'day').key, label: getReportChartBucket(sale, 'day').label },
+    { key: '2026-09-29', label: 'Sep 29' },
+  )
+  // A two-digit year made September 2026 read "Sep 26", like a date.
+  assert.deepEqual(
+    { key: getReportChartBucket(sale, 'month').key, label: getReportChartBucket(sale, 'month').label },
+    { key: '2026-09', label: 'Sep 2026' },
+  )
+})
+
+test('retail sales trends draw days for today and short ranges, months for long ones', () => {
+  for (const mode of ['today', '7', '30', 'custom']) assert.equal(retailTrendGranularity(mode), 'day')
+  for (const mode of ['all', '90', '365']) assert.equal(retailTrendGranularity(mode), 'month')
 })

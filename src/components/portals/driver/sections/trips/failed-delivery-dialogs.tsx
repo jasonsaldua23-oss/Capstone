@@ -10,6 +10,11 @@ import { toast } from 'sonner'
 import { Trip } from './trip-detail-helpers'
 import { Loader2 } from 'lucide-react'
 import { buildOrderActionReason, DRIVER_ORDER_REASONS, OrderReasonCheckboxes } from '@/components/portals/shared/order-reason-checkboxes'
+import { localDateInputValue } from '@/lib/local-date'
+
+// Tomorrow has its own button, so "Other date" starts the day after it (the API checks too).
+const OTHER_DATE_MIN_DAYS_AHEAD = 2
+const OTHER_DATE_TOO_SOON = 'Choose a date after tomorrow, or use Tomorrow.'
 
 /**
  * The failed-delivery flow: choose reschedule or cancel, confirm the consequence, and pick the new delivery window.
@@ -71,6 +76,7 @@ export function FailedDeliveryDialogs({
   setSelectedDriverCancelReasons,
   trip,
 }: FailedDeliveryDialogsProps) {
+  const earliestOtherDate = localDateInputValue(OTHER_DATE_MIN_DAYS_AHEAD)
   return (
     <>
       <Dialog
@@ -171,7 +177,8 @@ export function FailedDeliveryDialogs({
               </Button>
               <Button
                 type="button"
-                className={`h-11 rounded-xl font-semibold text-white ${failedDeliveryPendingAction === 'cancel' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+                // Half-width on a phone: "Confirm Reschedule" wraps instead of being cut off.
+                className={`h-11 min-w-0 whitespace-normal rounded-xl px-2 font-semibold leading-tight text-white ${failedDeliveryPendingAction === 'cancel' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}`}
                 onClick={async () => {
                   if (!failedDeliveryDropPointId || !failedDeliveryPendingAction) return
                   const action = failedDeliveryPendingAction
@@ -261,7 +268,7 @@ export function FailedDeliveryDialogs({
                   type="date"
                   className="mt-2"
                   value={failedDeliveryOtherDate}
-                  min={new Date().toISOString().slice(0, 10)}
+                  min={earliestOtherDate}
                   onChange={(event) => setFailedDeliveryOtherDate(event.target.value)}
                   disabled={isUpdating || isFailedDeliverySubmitting}
                 />
@@ -285,11 +292,17 @@ export function FailedDeliveryDialogs({
               </Button>
               <Button
                 type="button"
-                className="h-11 rounded-xl bg-amber-600 font-semibold text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-amber-700"
+                // Half-width on a phone: "Confirm Reschedule" wraps instead of being cut off.
+                className="h-11 min-w-0 whitespace-normal rounded-xl bg-amber-600 px-2 font-semibold leading-tight text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-amber-700"
                 onClick={async () => {
                   if (!failedDeliveryRescheduleDropPointId) return
                   if (failedDeliveryReceiveAgain === 'other_date' && !failedDeliveryOtherDate) {
                     toast.error('Select a date for reschedule')
+                    return
+                  }
+                  // Some phones let a date be typed past the picker's minimum.
+                  if (failedDeliveryReceiveAgain === 'other_date' && failedDeliveryOtherDate < earliestOtherDate) {
+                    toast.error(OTHER_DATE_TOO_SOON)
                     return
                   }
                   const selectedOtherDateIso = failedDeliveryReceiveAgain === 'other_date'

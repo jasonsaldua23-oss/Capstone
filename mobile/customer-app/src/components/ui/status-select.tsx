@@ -9,7 +9,9 @@ import { theme } from "../../theme";
 const OPTIONS: Array<{ value: string; label: string }> = [
   { value: "ALL", label: "All statuses" },
   { value: "PENDING", label: "Pending" },
-  { value: "PROCESSING", label: "Processing" },
+  // Values are normalizeDeliveryStatus results; Processing is stored as PREPARING.
+  { value: "APPROVED", label: "Approved" },
+  { value: "PREPARING", label: "Processing" },
   { value: "OUT_FOR_DELIVERY", label: "Out for delivery" },
   { value: "DELIVERED", label: "Delivered" },
   { value: "CANCELLED", label: "Cancelled" },

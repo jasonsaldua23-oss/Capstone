@@ -915,6 +915,38 @@ class TripsPostCreationContractTests(TestCase):
             ).exists()
         )
 
+    def test_trips_post_allows_planned_assignment_while_driver_has_active_trip(self) -> None:
+        # Assignment is allowed in advance; the start endpoint separately prevents
+        # this planned trip from running until the driver's active trip is closed.
+        active_trip = Trip.objects.create(
+            trip_number="TRP-ACTIVE-ASSIGNMENT-001",
+            driver=self.driver,
+            vehicle=self.vehicle,
+            warehouse_id=self.warehouse.id,
+            status=TripStatus.IN_PROGRESS,
+            actual_start_at=timezone.now(),
+        )
+        self.vehicle.status = "IN_USE"
+        self.vehicle.save(update_fields=["status", "updated_at"])
+
+        response = self.client.post(
+            "/api/trips",
+            data={
+                "driverId": self.driver.id,
+                "vehicleId": self.vehicle.id,
+                "warehouseId": self.warehouse.id,
+                "orderIds": [self.order_1.id, self.order_2.id],
+                "status": "PLANNED",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content.decode())
+        self.assertEqual(response.json()["trip"]["status"], TripStatus.PLANNED)
+        active_trip.refresh_from_db()
+        self.assertEqual(active_trip.status, TripStatus.IN_PROGRESS)
+
     def test_trips_post_replays_same_request_without_creating_a_duplicate(self) -> None:
         payload = {
             "requestId": "trip-create-retry-1",

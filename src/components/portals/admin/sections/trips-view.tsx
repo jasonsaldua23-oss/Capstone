@@ -9,6 +9,7 @@ import {
   summarizeDriverAvailability,
 } from '@/lib/driver-eligibility'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { toDisplayStatus } from '@/lib/status-display'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -946,7 +947,7 @@ export function TripsView() {
                         {Array.isArray(selectedTrip.dropPoints) && selectedTrip.dropPoints.length > 0 ? (
                           <div className="space-y-3">
                             {selectedTrip.dropPoints.map((point: any, index: number) => {
-                              const statusLabelPoint = String(point.status || 'PENDING').replace(/_/g, ' ')
+                              const statusLabelPoint = toDisplayStatus(point.status || 'PENDING').replace(/_/g, ' ')
                               const statusClass =
                                 ['COMPLETED', 'DELIVERED', 'ARRIVED'].includes(String(point.status || ''))
                                   ? 'bg-blue-100 text-blue-700 border-blue-200'

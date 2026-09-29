@@ -694,6 +694,9 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
             if parsed_delivery_dt is not None:
                 if timezone.is_naive(parsed_delivery_dt):
                     parsed_delivery_dt = timezone.make_aware(parsed_delivery_dt, timezone.get_current_timezone())
+                # Tomorrow has its own choice, so "Other date" starts the day after it.
+                if reschedule_window == "other_date" and timezone.localtime(parsed_delivery_dt).date() < timezone.localdate() + timedelta(days=2):
+                    return _err("Choose a date after tomorrow, or use Tomorrow.", 400)
                 rescheduled_delivery_at = parsed_delivery_dt
         elif reschedule_window == "today":
             rescheduled_delivery_at = timezone.now()

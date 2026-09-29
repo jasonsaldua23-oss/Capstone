@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { toDisplayStatus } from '@/lib/status-display'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -113,7 +114,7 @@ export function TripsListView({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="min-w-0 flex-1 break-words text-base font-bold tracking-tight text-slate-900">{trip.tripNumber}</p>
                   <Badge className={`${statusColors[trip.status] || 'bg-gray-100'} shrink-0 px-2 py-0.5 text-xs`}>
-                    {trip.status.replace(/_/g, ' ')}
+                    {toDisplayStatus(trip.status).replace(/_/g, ' ')}
                   </Badge>
                 </div>
                 <div className="mt-3 min-w-0 space-y-1">

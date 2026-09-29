@@ -34,7 +34,7 @@ import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { buildDailyChartSeries, formatOrderItemsForExport, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
+import { buildDailyChartSeries, formatOrderItemsForExport, formatPesoAxisTick, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 interface TransactionsReportProps {
@@ -394,7 +394,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
                     tick={{ fontSize: 11, fill: '#64748b' }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(val) => `₱${(val / 1000).toFixed(0)}k`}
+                    tickFormatter={formatPesoAxisTick}
                   />
                   <Tooltip
                     formatter={(value: any) => [formatPeso(Number(value)), 'Revenue']}

@@ -10,6 +10,7 @@ import {
   shortestMapAngleDelta,
   type NavigationViewportInsets,
 } from '@/lib/map-navigation';
+import { toDisplayStatus } from '@/lib/status-display';
 import type { DriverLocation, LiveRouteLine } from './live-tracking/types';
 import { coincidentPinTilts, rotateScreenOffset } from './live-tracking/pin-spread';
 
@@ -92,7 +93,7 @@ function escapeHtml(value: unknown) {
 function popupHtml(location: DriverLocation) {
   const customerName = escapeHtml(location.popupCustomerName || location.driverName);
   const address = escapeHtml(location.popupAddress || location.markerLabel || `Vehicle: ${location.vehiclePlate}`);
-  const status = escapeHtml(String(location.status || '').replace(/_/g, ' ').toLowerCase());
+  const status = escapeHtml(toDisplayStatus(location.status).replace(/_/g, ' ').toLowerCase());
 
   // Added: navigation truck popups mirror the assignment details shown on the tracking map.
   if (location.markerType === 'truck') {

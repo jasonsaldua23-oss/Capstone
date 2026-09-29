@@ -39,6 +39,11 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def _order_status_display(status: Any) -> str:
+    """PREPARING is the stored value; every portal shows it as PROCESSING (its OrderStatus label)."""
+    return "PROCESSING" if status == OrderStatus.PREPARING else str(status)
+
+
 # Resolved through views_api so tests and runtime overrides that rebind
 # these names on views_api keep applying here.
 
@@ -956,7 +961,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
         OrderStatus.CANCELLED: set(),
     }
     if current_status != next_status and next_status not in allowed_transitions.get(current_status, set()):
-        return _err(f"Invalid transition from {current_status} to {next_status}", 400)
+        return _err(f"Invalid transition from {_order_status_display(current_status)} to {_order_status_display(next_status)}", 400)
 
     staff_role = str(staff.get("role") or "").strip().upper()
     if (is_pending_request or current_status == OrderStatus.PENDING) and next_status == OrderStatus.APPROVED:
@@ -1001,7 +1006,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             if current_status == next_status and not (next_status == OrderStatus.APPROVED and (is_pending_request or not o.purchase_order_number)) and next_status != OrderStatus.RESCHEDULED:
                 return _ok({"success": True, "order": _serialize_order(o, include_items=False)})
             if current_status != next_status and next_status not in allowed_transitions.get(current_status, set()):
-                return _err(f"Invalid transition from {current_status} to {next_status}", 409)
+                return _err(f"Invalid transition from {_order_status_display(current_status)} to {_order_status_display(next_status)}", 409)
             now = timezone.now()
             actor_id = str(staff.get("userId") or "").strip()
             actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
@@ -1125,7 +1130,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
     actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
     _create_staff_notifications(
         title="Order status updated",
-        message=f"{actor_name} changed order {updated.order_number} status to {next_status}.",
+        message=f"{actor_name} changed order {updated.order_number} status to {_order_status_display(next_status)}.",
         notification_type="ORDER",
         reference_type="order",
         reference_id=updated.id,

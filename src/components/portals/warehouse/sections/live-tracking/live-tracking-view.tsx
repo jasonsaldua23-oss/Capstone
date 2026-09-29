@@ -1,6 +1,8 @@
 'use client'
 
+import { useMemo } from 'react'
 import { LiveTrackingPage } from '@/components/portals/shared/live-tracking-page'
+import { toMapWarehouses } from '@/components/shared/live-tracking/warehouse-markers'
 import type { WarehouseLiveTrackingViewProps } from '../shared/types'
 
 export function WarehouseLiveTrackingView({
@@ -17,7 +19,9 @@ export function WarehouseLiveTrackingView({
   liveTrackingActiveTrips,
   liveTrackingDeliveredTransactions,
   liveTrackingRecentLocations,
+  warehouses,
 }: WarehouseLiveTrackingViewProps) {
+  const mapWarehouses = useMemo(() => toMapWarehouses(warehouses), [warehouses])
   const today = new Date()
   const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
@@ -45,6 +49,7 @@ export function WarehouseLiveTrackingView({
           restrictToNegrosOccidental
           showDriverSelfBadge={false}
           className="h-full w-full"
+          warehouses={mapWarehouses}
         />
       }
     />
