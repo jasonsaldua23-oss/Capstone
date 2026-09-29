@@ -277,37 +277,39 @@ export function getInventoryThreshold(item: any) {
   return Math.max(0, asNumber(item?.minStock ?? item?.threshold ?? item?.min_stock))
 }
 
-export function isInventoryOverstocked(item: any, now = Date.now()) {
-  if (typeof item?.overstockedFlag === 'boolean') return item.overstockedFlag
-  const threshold = getInventoryThreshold(item)
-  if (threshold <= 0) return false
-  if (getInventoryAvailableQty(item) < threshold * 3) return false
-
-  const lastRestockedRaw =
-    item?.lastRestockedAt ??
-    item?.last_restocked_at ??
-    item?.updatedAt ??
-    item?.updated_at
-  const lastRestockedAt = toDate(lastRestockedRaw)
-  if (!lastRestockedAt) return false
-
-  return (now - lastRestockedAt.getTime()) >= (7 * 24 * 60 * 60 * 1000)
+/**
+ * Overstock needs the product's sales history, so only the server judges it
+ * (see backend/core/inventory_overstock.py); rows without its verdict are not overstocked.
+ */
+export function isInventoryOverstocked(item: any) {
+  return item?.overstockedFlag === true
 }
 
-export function getInventoryAlertLevel(item: any, now = Date.now()): InventoryAlertLevel {
+/** Why the server flagged a row, in words staff can act on; null when it is not overstocked. */
+export function describeInventoryOverstock(item: any): string | null {
+  if (!isInventoryOverstocked(item)) return null
+  const coverDays = asNumber(item?.stockCoverDays)
+  if (item?.overstockReason === 'EXPIRY') return 'Some of this stock will expire before it sells at the current sales rate.'
+  // The backend judges no-sales stock over its 30-day sales window.
+  if (item?.overstockReason === 'NO_SALES') return 'None of this product sold in the last 30 days.'
+  if (coverDays > 0) return `Current stock lasts about ${coverDays.toLocaleString('en-US')} days at the current sales rate.`
+  return 'More stock than recent sales will clear in time.'
+}
+
+export function getInventoryAlertLevel(item: any): InventoryAlertLevel {
   const available = getInventoryAvailableQty(item)
   const threshold = getInventoryThreshold(item)
 
   if (available === 0) return 'out_of_stock'
   if (threshold > 0 && available <= threshold) return 'critical'
   if (threshold > 0 && available <= threshold * 1.2) return 'low'
-  if (isInventoryOverstocked(item, now)) return 'overstocked'
+  if (isInventoryOverstocked(item)) return 'overstocked'
   return 'healthy'
 }
 
-export function summarizeStockHealth(items: any[], now = Date.now()): StockHealthSummary {
+export function summarizeStockHealth(items: any[]): StockHealthSummary {
   return items.reduce<StockHealthSummary>((acc, item) => {
-    const level = getInventoryAlertLevel(item, now)
+    const level = getInventoryAlertLevel(item)
     const threshold = getInventoryThreshold(item)
     const available = getInventoryAvailableQty(item)
 
@@ -354,8 +356,8 @@ export function describeStockHealth(
   } for restocking.`
 }
 
-export function buildInventoryStatusBreakdown(items: any[], now = Date.now()): InventoryStatusBreakdown {
-  const summary = summarizeStockHealth(items, now)
+export function buildInventoryStatusBreakdown(items: any[]): InventoryStatusBreakdown {
+  const summary = summarizeStockHealth(items)
   return {
     healthy: summary.healthy,
     lowStock: summary.low,

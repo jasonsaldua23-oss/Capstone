@@ -1,4 +1,4 @@
-"""Inventory report reads must stay accurate without one stock-in query per row."""
+"""Inventory report reads must stay accurate without one sales query per row."""
 
 import json
 from datetime import timedelta
@@ -22,22 +22,24 @@ class InventoryReportLoadingTests(TestCase):
             city="Talisay", province="Negros Occidental", zip_code="6115", capacity=10000,
         )
 
-    def make_inventory(self, index, *, quantity=100, reserved=0, threshold=5, stockin=100):
+    def make_inventory(self, index, *, quantity=100, reserved=0, threshold=5, sold=10):
         product = Product.objects.create(
             name=f"Report Beverage {index}", sku=f"REPORT-{index}", price=10, quantity_per_unit=24,
         )
         inventory = Inventory.objects.create(
             warehouse=self.warehouse, product=product, quantity=quantity,
-            reserved_quantity=reserved, threshold=threshold,
+            reserved_quantity=reserved, reserved_base_units=reserved * 24, threshold=threshold,
+            created_at=timezone.now() - timedelta(days=90),
         )
         StockBatch.objects.create(
             inventory=inventory, batch_number=f"REPORT-BATCH-{index}", quantity=quantity,
-            receipt_date=timezone.now(), expiry_date=timezone.now() + timedelta(days=30),
+            receipt_date=timezone.now(), expiry_date=timezone.now() + timedelta(days=365),
         )
-        if stockin is not None:
+        # Cases sold to customers in the last 30 days; 10 leaves 100 cases lasting 300 days.
+        if sold:
             InventoryTransaction.objects.create(
-                warehouse=self.warehouse, product=product, type="IN", quantity=stockin,
-                reference_type="stock_batch",
+                warehouse=self.warehouse, product=product, type="OUT", quantity=sold,
+                reference_type="order_item",
             )
         return inventory
 
@@ -57,31 +59,32 @@ class InventoryReportLoadingTests(TestCase):
         self.assertEqual(one_row["total"], 8)
         self.assertEqual(len(all_rows["inventory"]), 8)
         self.assertTrue(all(row["overstockedFlag"] for row in all_rows["inventory"]))
-        self.assertEqual(all_count, one_count, "Loading more inventory rows must not add individual stock-in queries")
+        self.assertEqual(all_count, one_count, "Loading more inventory rows must not add individual sales queries")
 
-    def test_batched_stock_in_lookup_preserves_latest_movement_and_available_stock(self):
+    def test_batched_sales_lookup_keeps_each_rows_own_sales_and_available_stock(self):
         overstocked = self.make_inventory("overstocked")
-        reserved = self.make_inventory("reserved", reserved=60)
-        latest_small = self.make_inventory("latest-small")
-        no_stockin = self.make_inventory("no-stockin", stockin=None)
-        no_threshold = self.make_inventory("no-threshold", threshold=0)
+        fast_selling = self.make_inventory("fast-selling", sold=100)
+        reserved = self.make_inventory("reserved", reserved=90)
+        # Disposals are not sales, so they cannot make slow stock look fast.
+        disposed = self.make_inventory("disposed")
         InventoryTransaction.objects.create(
-            warehouse=self.warehouse, product=latest_small.product, type="IN", quantity=1,
-            reference_type="stock_batch",
-        )
-        # Unrelated returns and stock-outs do not replace the latest batch stock-in.
-        InventoryTransaction.objects.create(
-            warehouse=self.warehouse, product=overstocked.product, type="OUT", quantity=1,
-            reference_type="stock_batch",
+            warehouse=self.warehouse, product=disposed.product, type="OUT", quantity=500,
+            reference_type="expired_stock",
         )
         payload, _ = self.read_inventory(100)
         rows = {row["id"]: row for row in payload["inventory"]}
         self.assertTrue(rows[overstocked.id]["overstockedFlag"])
-        for inventory in (reserved, latest_small, no_stockin, no_threshold):
-            self.assertFalse(rows[inventory.id]["overstockedFlag"])
+        self.assertEqual(rows[overstocked.id]["overstockReason"], "SLOW_SALES")
+        self.assertEqual(rows[overstocked.id]["stockCoverDays"], 300)
+        self.assertFalse(rows[fast_selling.id]["overstockedFlag"])
+        self.assertEqual(rows[fast_selling.id]["stockCoverDays"], 30)
+        # Only the 10 unreserved cases count: they last 30 days.
+        self.assertFalse(rows[reserved.id]["overstockedFlag"])
+        self.assertEqual(rows[reserved.id]["stockCoverDays"], 30)
+        self.assertTrue(rows[disposed.id]["overstockedFlag"])
         self.assertEqual(rows[overstocked.id]["sellableCases"], 100)
         self.assertEqual(rows[overstocked.id]["sellableBaseUnits"], 2400)
-        self.assertEqual(rows[reserved.id]["sellableCases"], 40)
+        self.assertEqual(rows[reserved.id]["sellableCases"], 10)
 
     def test_warehouse_batch_filter_applies_before_pagination_and_keeps_staff_scope(self):
         inventory = self.make_inventory("scoped")

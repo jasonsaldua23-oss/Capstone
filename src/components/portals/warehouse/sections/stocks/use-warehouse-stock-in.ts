@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { emitDataSync } from '@/lib/data-sync'
 import type { InventoryItem, ProductOption, StockBatchItem, StockRow, WarehouseItem } from '../../warehouse-portal-types'
 import { getLocalDateInputValue } from '../../warehouse-portal-utils'
-import { getInventoryAlertLevel, getInventoryAvailableQty, getInventoryThreshold, isInventoryOverstocked } from '@/lib/report-metrics'
+import { describeInventoryOverstock, getInventoryAlertLevel, getInventoryAvailableQty, isInventoryOverstocked } from '@/lib/report-metrics'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 
 /**
@@ -40,8 +40,6 @@ export function useWarehouseStockIn(inputs: WarehouseStockInInputs) {
   const [stockRows, setStockRows] = useState<StockRow[]>([
     { id: `row-${Date.now()}-0`, productId: '', quantity: '', manufacturedDate: '', expiryDate: '', validationErrors: {} }
   ])
-  const getItemThreshold = (item: InventoryItem | null | undefined) => getInventoryThreshold(item)
-  const isOverstockedInventoryItem = (item: InventoryItem | null | undefined) => isInventoryOverstocked(item)
   const stockInSubmissionRef = useRef(false)
   const stockInRequestIdRef = useRef('')
   const availableExistingProducts = useMemo(() => {
@@ -56,16 +54,6 @@ export function useWarehouseStockIn(inputs: WarehouseStockInInputs) {
       const productId = String(item?.product?.id || '').trim()
       if (!productId || seen.has(productId)) continue
       seen.add(productId)
-      const threshold = getItemThreshold(item)
-      const qty = Number((item as any)?.quantity ?? 0) || 0
-      const reserved = Number((item as any)?.reservedQuantity ?? (item as any)?.reserved_quantity ?? 0) || 0
-      const available = Math.max(0, qty - reserved)
-      const lastRestockedRaw = (item as any)?.lastRestockedAt ?? (item as any)?.last_restocked_at ?? (item as any)?.updatedAt ?? (item as any)?.updated_at
-      const lastRestockedAt = lastRestockedRaw ? new Date(lastRestockedRaw) : null
-      const daysSinceRestock = lastRestockedAt && !Number.isNaN(lastRestockedAt.getTime())
-        ? Math.max(0, Math.floor((Date.now() - lastRestockedAt.getTime()) / (24 * 60 * 60 * 1000)))
-        : 0
-      const isOverstocked = isOverstockedInventoryItem(item)
       const inventoryStatus = getInventoryAlertLevel(item)
       fromInventory.push({
         id: productId,
@@ -76,14 +64,8 @@ export function useWarehouseStockIn(inputs: WarehouseStockInInputs) {
         sizes: Array.isArray(item?.product?.sizes) ? item.product.sizes : [],
         category: String((item?.product as any)?.category?.name || (item?.product as any)?.category || '').trim(),
         inventoryStatus,
-        isOverstocked,
-        overstockInfo: isOverstocked
-          ? {
-              available,
-              threshold,
-              daysSinceRestock,
-            }
-          : null,
+        isOverstocked: isInventoryOverstocked(item),
+        overstockWarning: describeInventoryOverstock(item),
       })
     }
 
@@ -208,15 +190,7 @@ export function useWarehouseStockIn(inputs: WarehouseStockInInputs) {
   const validateStockRow = (row: StockRow) => {
     const errors: StockRow['validationErrors'] = {}
     if (!row.productId.trim()) errors.productId = 'Product is required'
-    const selectedProduct = availableExistingProducts.find((p) => p.id === row.productId.trim())
-    if (selectedProduct?.isOverstocked) {
-      const info = selectedProduct.overstockInfo
-      if (info) {
-        errors.productId = `Overstocked: available ${info.available}, threshold ${info.threshold}, ${info.daysSinceRestock} days since restock`
-      } else {
-        errors.productId = 'Product is overstocked and cannot be restocked right now'
-      }
-    }
+    // Overstock is a warning shown beside the product, never a reason to refuse a delivery.
     if (!row.quantity.trim()) errors.quantity = 'Quantity is required'
     else if (isNaN(Number(row.quantity)) || Number(row.quantity) <= 0) errors.quantity = 'Quantity must be > 0'
     if (!row.expiryDate.trim()) errors.expiryDate = 'Expiry date is required'

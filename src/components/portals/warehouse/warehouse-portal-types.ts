@@ -31,6 +31,11 @@ export interface InventoryItem {
     category?: { id: string; name: string } | null
   }
   warehouse?: { id: string; name: string; code: string }
+  /** The server's overstock verdict from recent sales (backend/core/inventory_overstock.py). */
+  overstockedFlag?: boolean
+  overstockReason?: 'SLOW_SALES' | 'EXPIRY' | 'NO_SALES' | null
+  /** Days sellable stock lasts at recent sales; null without enough sales history. */
+  stockCoverDays?: number | null
   /** Present when loaded with `includeEmpties=1`: empties on hand, in bottles. */
   emptyBottles?: number
   emptyContainersPerCase?: number
@@ -49,7 +54,8 @@ export interface ProductOption {
   category?: string
   inventoryStatus?: 'healthy' | 'low' | 'critical' | 'out_of_stock' | 'overstocked'
   isOverstocked?: boolean
-  overstockInfo?: { available: number; threshold: number; daysSinceRestock: number } | null
+  /** Why it is overstocked, shown as a warning: stock-in stays allowed. */
+  overstockWarning?: string | null
 }
 
 export interface StockBatchItem {

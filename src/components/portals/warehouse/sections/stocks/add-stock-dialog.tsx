@@ -140,9 +140,9 @@ export function WarehouseAddStockDialog({
                           : ''
                         const categoryLabel = String((product as any)?.category?.name || (product as any)?.category || '').trim()
                         return (
-                          <option key={product.id} value={product.id} disabled={selectedInAnotherRow || Boolean(product.isOverstocked)}>
+                          <option key={product.id} value={product.id} disabled={selectedInAnotherRow}>
                             {/* Added: place the SKU before the name so products are easier to identify while adding stock. */}
-                            {product.sku ? `${product.sku} - ` : ''}{product.name}{sizeString}{categoryLabel ? ` - ${categoryLabel}` : ''}{product.isOverstocked ? ' (Overstocked - blocked)' : ''}
+                            {product.sku ? `${product.sku} - ` : ''}{product.name}{sizeString}{categoryLabel ? ` - ${categoryLabel}` : ''}{product.isOverstocked ? ' (Overstocked)' : ''}
                           </option>
                         )
                       })}
@@ -152,16 +152,16 @@ export function WarehouseAddStockDialog({
                         {statusLabel}
                       </p>
                     ) : null}
+                    {selectedProductMeta?.overstockWarning ? (
+                      <p className="px-0.5 text-xs text-amber-700">
+                        {selectedProductMeta.overstockWarning} You can still add this delivery.
+                      </p>
+                    ) : null}
                     </>
                       )
                     })()}
                     {row.validationErrors.productId && (
                       <p className="text-xs text-red-600">{row.validationErrors.productId}</p>
-                    )}
-                    {!row.validationErrors.productId && availableExistingProducts.some((p) => p.isOverstocked) && (
-                      <p className="text-xs text-amber-700">
-                        Some products are blocked: overstocked (latest stock-in reached at least 10x threshold).
-                      </p>
                     )}
                   </div>
 

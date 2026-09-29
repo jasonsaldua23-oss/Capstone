@@ -41,10 +41,6 @@ def _has_duplicate_product_identity(*, name: Any, sizes: Any, category: Any, exc
     return legacy._has_duplicate_product_identity(name=name, sizes=sizes, category=category, exclude_product_id=exclude_product_id)
 
 
-def _is_inventory_overstocked_for_restock_block(inventory: Inventory, incoming_restock_qty: int=0) -> bool:
-    return legacy._is_inventory_overstocked_for_restock_block(inventory, incoming_restock_qty)
-
-
 def _normalize_product_unit(raw: Any) -> str:
     return legacy._normalize_product_unit(raw)
 
@@ -79,10 +75,6 @@ def _require_warehouse_operator(request: HttpRequest) -> tuple[dict[str, Any] | 
 
 def _serialize_model(obj: Any, include: dict[str, Any] | None=None, exclude: set[str] | None=None) -> dict[str, Any]:
     return legacy._serialize_model(obj, include, exclude)
-
-
-def _stockin_would_flag_overstock(inventory: Inventory, stockin_qty: int) -> bool:
-    return legacy._stockin_would_flag_overstock(inventory, stockin_qty)
 
 
 def _validate_stock_expiry(value: Any) -> tuple[datetime | None, str | None]:
@@ -200,9 +192,6 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 }
             )
 
-        if delta > 0 and _is_inventory_overstocked_for_restock_block(inv, delta):
-            return _err("Cannot increase stock batch quantity: product is overstocked.", 400)
-
         with transaction.atomic():
             if delta > 0:
                 # Added: serialize warehouse-wide capacity checks with stock changes.
@@ -234,7 +223,7 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                 inv.quantity = max(0, _int(recalculated_total, 0))
                 # Fix: reducing a batch is a stock deduction and must preserve the
                 # threshold established by the latest accepted restock.
-                should_update_threshold = delta > 0 and not _stockin_would_flag_overstock(inv, next_qty)
+                should_update_threshold = delta > 0
                 if should_update_threshold:
                     inv.threshold = max(1, int(inv.quantity * 0.15))
                 update_fields = ["quantity", "updated_at"]
@@ -381,8 +370,6 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
                         "last_restocked_at": timezone.now(),
                     },
                 )
-                if not created and _is_inventory_overstocked_for_restock_block(inv, qty):
-                    return _err("Cannot add stock: product is currently flagged as overstocked (latest stock-in is >= 10x threshold).", 400)
 
             locked_warehouse = Warehouse.objects.select_for_update().get(id=inv.warehouse_id)
             capacity_error = _warehouse_capacity_error(locked_warehouse, incoming_cases=qty)
@@ -404,14 +391,9 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
 
             previous_stock = max(0, _int(inv.quantity, 0))
             inv.quantity += qty
-            should_update_threshold = not _stockin_would_flag_overstock(inv, qty)
-            if should_update_threshold:
-                inv.threshold = max(1, int(inv.quantity * 0.15))
+            inv.threshold = max(1, int(inv.quantity * 0.15))
             inv.last_restocked_at = timezone.now()
-            update_fields = ["quantity", "last_restocked_at", "updated_at"]
-            if should_update_threshold:
-                update_fields.insert(1, "threshold")
-            inv.save(update_fields=update_fields)
+            inv.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
 
             InventoryTransaction.objects.create(
                 warehouse=inv.warehouse,
@@ -558,12 +540,6 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                     reused_count += 1
                     continue
 
-                if _is_inventory_overstocked_for_restock_block(inv, qty):
-                    return _err(
-                        f"Batch {batch_data['index']}: cannot add stock for product currently flagged as overstocked (latest stock-in is >= 10x threshold).",
-                        400,
-                    )
-
                 capacity_error = _warehouse_capacity_error(warehouse, incoming_cases=qty)
                 if capacity_error:
                     raise ValueError(f"Batch {batch_data['index']}: {capacity_error}")
@@ -584,14 +560,9 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
                 # Update inventory quantity
                 previous_stock = max(0, _int(inv.quantity, 0))
                 inv.quantity += qty
-                should_update_threshold = not _stockin_would_flag_overstock(inv, qty)
-                if should_update_threshold:
-                    inv.threshold = max(1, int(inv.quantity * 0.15))
+                inv.threshold = max(1, int(inv.quantity * 0.15))
                 inv.last_restocked_at = timezone.now()
-                update_fields = ["quantity", "last_restocked_at", "updated_at"]
-                if should_update_threshold:
-                    update_fields.insert(1, "threshold")
-                inv.save(update_fields=update_fields)
+                inv.save(update_fields=["quantity", "threshold", "last_restocked_at", "updated_at"])
 
                 # Create inventory transaction
                 InventoryTransaction.objects.create(

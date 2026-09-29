@@ -5,7 +5,6 @@ from django.utils import timezone
 
 from .auth import create_token, hash_password
 from .models import Inventory, InventoryTransaction, Product, RoleType, StockBatch, User, Warehouse
-from .views_api import _is_inventory_overstocked_flagged_by_stockin
 
 
 class StockBatchTransactionSyncTests(TestCase):
@@ -112,14 +111,6 @@ class StockBatchTransactionSyncTests(TestCase):
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 0)
         self.assertEqual(self.inventory.threshold, 4)
-
-    def test_fully_reserved_inventory_is_not_overstocked(self):
-        self.assertTrue(_is_inventory_overstocked_flagged_by_stockin(self.inventory))
-
-        self.inventory.reserved_quantity = 10
-        self.inventory.save(update_fields=["reserved_quantity", "updated_at"])
-
-        self.assertFalse(_is_inventory_overstocked_flagged_by_stockin(self.inventory))
 
     def test_batch_increase_cannot_exceed_warehouse_capacity(self):
         self.inventory.threshold = 20

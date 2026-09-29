@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
-from django.db.models import OuterRef, Prefetch, Q, Subquery
+from django.db.models import Prefetch, Q
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -17,6 +17,7 @@ from . import views_api as legacy
 from .api_constants import _PHYSICAL_STOCK_IN_TYPES, _PHYSICAL_STOCK_OUT_TYPES
 from .api_utils import error as _err, json_body as _json_body, ok as _ok, to_int as _int
 from .beverage_categories import category_spec
+from .inventory_overstock import _attach_recent_sales_units, _inventory_overstock_status
 from .mixed_case import serialize_mixed_component
 from .models import (
     Customer,
@@ -40,14 +41,6 @@ from .models import (
 
 def _get_allowed_warehouse_ids_for_staff(user_id: str) -> set[str]:
     return legacy._get_allowed_warehouse_ids_for_staff(user_id)
-
-
-def _is_inventory_overstocked_flagged_by_stockin(inventory: Inventory) -> bool:
-    return legacy._is_inventory_overstocked_flagged_by_stockin(inventory)
-
-
-def _is_inventory_overstocked_for_restock_block(inventory: Inventory, incoming_restock_qty: int=0) -> bool:
-    return legacy._is_inventory_overstocked_for_restock_block(inventory, incoming_restock_qty)
 
 
 def _pagination(request: HttpRequest) -> tuple[int, int, int]:
@@ -74,10 +67,6 @@ def _serialize_model(obj: Any, include: dict[str, Any] | None=None, exclude: set
     return legacy._serialize_model(obj, include, exclude)
 
 
-def _stockin_would_flag_overstock(inventory: Inventory, stockin_qty: int) -> bool:
-    return legacy._stockin_would_flag_overstock(inventory, stockin_qty)
-
-
 def _warehouse_capacity_error(warehouse: Warehouse, *, incoming_cases: int=0, proposed_capacity: int | None=None) -> str | None:
     return legacy._warehouse_capacity_error(warehouse, incoming_cases=incoming_cases, proposed_capacity=proposed_capacity)
 
@@ -90,18 +79,11 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         return err
     if request.method == "GET":
         page, size, off = _pagination(request)
-        # Fix: load each row's latest stock-in in the page query instead of a
-        # separate database round trip per product when reports load all stock.
-        latest_stockin = InventoryTransaction.objects.filter(
-            warehouse_id=OuterRef("warehouse_id"), product_id=OuterRef("product_id"),
-            type="IN", reference_type="stock_batch",
-        ).order_by("-created_at").values("quantity")[:1]
         qs = (
             Inventory.objects.select_related("warehouse", "product").prefetch_related(
                 Prefetch("batches", to_attr="_availability_batches"),
                 Prefetch("reservations", queryset=InventoryReservation.objects.filter(status=ReservationStatus.RESERVED), to_attr="_active_reservations"),
             )
-            .annotate(_latest_stockin_quantity=Subquery(latest_stockin))
             .filter(product__in=_real_products(Product.objects.all()))
             .filter(product__is_active=True)
             .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
@@ -149,6 +131,8 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
                 empties_since = timezone.make_aware(empties_since)
         total = qs.count()
         rows = list(qs[off : off + size])
+        # One sales query for the page, not one per product, when reports load all stock.
+        _attach_recent_sales_units(rows)
         empty_balances: dict[str, dict[str, int]] = {}
         empty_changes: dict[str, list[dict[str, Any]]] = {}
         if include_empties:
@@ -179,7 +163,10 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
             from .mixed_case import available_base_units, allocatable_standard_cases
             row["sellableBaseUnits"] = available_base_units(item)
             row["sellableCases"] = allocatable_standard_cases(item)
-            row["overstockedFlag"] = _is_inventory_overstocked_flagged_by_stockin(item)
+            overstock = _inventory_overstock_status(item)
+            row["overstockedFlag"] = overstock["overstocked"]
+            row["overstockReason"] = overstock["reason"]
+            row["stockCoverDays"] = overstock["coverDays"]
             if include_empties:
                 # Empties occupy crate space, so capacity counts them; the dated
                 # changes let a trend replay them back to any earlier day.
@@ -214,21 +201,14 @@ def inventory_collection(request: HttpRequest) -> JsonResponse:
         defaults={"quantity": qty, "reserved_quantity": 0, "threshold": max(1, int(qty * 0.15)), "last_restocked_at": timezone.now()},
     )
     previous_stock = 0 if created else max(0, _int(item.quantity, 0))
-    if not created and _is_inventory_overstocked_for_restock_block(item, qty):
-        return _err("Cannot add stock: product is currently flagged as overstocked (latest stock-in is >= 10x threshold).", 400)
     if not created:
         item.quantity += qty
         item.loose_bottles = max(0, _int(getattr(item, "loose_bottles", 0), 0) + loose_bottles)
     else:
         item.loose_bottles = loose_bottles
-    should_update_threshold = not _stockin_would_flag_overstock(item, qty)
-    if should_update_threshold:
-        item.threshold = max(1, int(item.quantity * 0.15))
+    item.threshold = max(1, int(item.quantity * 0.15))
     item.last_restocked_at = timezone.now()
-    update_fields = ["quantity", "loose_bottles", "last_restocked_at", "updated_at"]
-    if should_update_threshold:
-        update_fields.insert(2, "threshold")
-    item.save(update_fields=update_fields)
+    item.save(update_fields=["quantity", "loose_bottles", "threshold", "last_restocked_at", "updated_at"])
     InventoryTransaction.objects.create(
         warehouse=warehouse,
         product=product,

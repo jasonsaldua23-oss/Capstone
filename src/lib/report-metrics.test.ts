@@ -21,6 +21,7 @@ import {
   buildDailyChartSeries,
   buildSkuVelocityData,
   chartBucketNoun,
+  describeInventoryOverstock,
   describeSkuDemand,
   describeStockHealth,
   isCancelledReportStatus,
@@ -40,6 +41,7 @@ import {
   formatOrderReportStatus,
   formatOrderItemsForExport,
   formatReportProductNameForExport,
+  getInventoryAlertLevel,
   getInventoryAvailableQty,
   getInventoryLooseRemainder,
   getInventoryThreshold,
@@ -112,7 +114,7 @@ test('inventory availability and stock health use reserved quantities', () => {
   const items = [
     { quantity: 50, reservedQuantity: 45, minStock: 15 },
     { quantity: 0, reservedQuantity: 0, minStock: 10 },
-    { quantity: 61, reservedQuantity: 0, minStock: 20, updatedAt: '2026-05-01T00:00:00Z' },
+    { quantity: 61, reservedQuantity: 0, minStock: 20, overstockedFlag: true },
     { quantity: 18, reservedQuantity: 0, minStock: 15 },
   ]
 
@@ -126,7 +128,7 @@ test('inventory availability and stock health use reserved quantities', () => {
   }), 1)
   assert.equal(getInventoryThreshold(items[0]), 15)
 
-  const summary = summarizeStockHealth(items, Date.parse('2026-05-23T12:00:00Z'))
+  const summary = summarizeStockHealth(items)
   assert.deepEqual(summary, {
     healthy: 0,
     low: 1,
@@ -137,12 +139,36 @@ test('inventory availability and stock health use reserved quantities', () => {
     belowThreshold: 2,
   })
 
-  assert.deepEqual(buildInventoryStatusBreakdown(items, Date.parse('2026-05-23T12:00:00Z')), {
+  assert.deepEqual(buildInventoryStatusBreakdown(items), {
     healthy: 0,
     lowStock: 1,
     critical: 1,
     outOfStock: 1,
   })
+})
+
+test('overstock is only the server verdict, since it needs sales history', () => {
+  // Far above any threshold multiple and untouched for months, but the server did not flag it.
+  const unflagged = { quantity: 500, reservedQuantity: 0, minStock: 4, updatedAt: '2026-01-01T00:00:00Z' }
+  assert.equal(getInventoryAlertLevel(unflagged), 'healthy')
+  assert.equal(getInventoryAlertLevel({ ...unflagged, overstockedFlag: false }), 'healthy')
+  assert.equal(getInventoryAlertLevel({ ...unflagged, overstockedFlag: true }), 'overstocked')
+})
+
+test('describeInventoryOverstock explains each server reason', () => {
+  assert.equal(describeInventoryOverstock({ overstockedFlag: false, overstockReason: 'SLOW_SALES', stockCoverDays: 90 }), null)
+  assert.equal(
+    describeInventoryOverstock({ overstockedFlag: true, overstockReason: 'SLOW_SALES', stockCoverDays: 1250 }),
+    'Current stock lasts about 1,250 days at the current sales rate.'
+  )
+  assert.equal(
+    describeInventoryOverstock({ overstockedFlag: true, overstockReason: 'EXPIRY', stockCoverDays: 25 }),
+    'Some of this stock will expire before it sells at the current sales rate.'
+  )
+  assert.equal(
+    describeInventoryOverstock({ overstockedFlag: true, overstockReason: 'NO_SALES', stockCoverDays: null }),
+    'None of this product sold in the last 30 days.'
+  )
 })
 
 test('warehouse capacity summary keeps one decimal precision and fallback capacity', () => {

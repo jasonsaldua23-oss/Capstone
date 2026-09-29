@@ -11,6 +11,7 @@ import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeleto
 import { Archive, ArrowLeft, Download, Loader2 } from 'lucide-react'
 import { getCollection, getWarehouseIdFromRow, formatPeso, safeFetchJson } from './shared'
 import {
+  describeInventoryOverstock,
   getInventoryAlertLevel,
   getInventoryAvailableQty,
   getInventoryLooseRemainder,
@@ -519,7 +520,7 @@ export function InventoryView() {
                         </td>
                         <td className="p-2.5 text-center">
                           {status === 'healthy' && <Badge className="whitespace-nowrap bg-green-100 text-green-800 hover:bg-green-100">Healthy</Badge>}
-                          {status === 'overstocked' && <Badge className="whitespace-nowrap bg-blue-100 text-blue-800 hover:bg-blue-100">Overstocked</Badge>}
+                          {status === 'overstocked' && <Badge title={describeInventoryOverstock(item) ?? undefined} className="whitespace-nowrap bg-blue-100 text-blue-800 hover:bg-blue-100">Overstocked</Badge>}
                           {status === 'restock' && <Badge className="whitespace-nowrap bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Needs Restocking</Badge>}
                           {status === 'out_of_stock' && <Badge className="whitespace-nowrap bg-red-100 text-red-800 hover:bg-red-100">Out of Stock</Badge>}
                         </td>
