@@ -68,6 +68,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 local-*
+# Keep the application date utility and its test; the broad local-* rule is for local-only files.
+!src/lib/local-date.ts
+!src/lib/local-date.test.ts
 .claude
 .z-ai-config
 dev.log
