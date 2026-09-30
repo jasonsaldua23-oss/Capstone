@@ -4,7 +4,7 @@ import { type Dispatch, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
+import { buildOrderActionReason, OrderReasonCheckboxes, PURCHASE_REQUEST_REJECTION_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import type { WarehouseOrderItem } from '../../warehouse-portal-types'
 
 /**
@@ -48,7 +48,7 @@ export function WarehouseRejectOrderDialog({
             </DialogHeader>
             <div className="space-y-3">
               <OrderReasonCheckboxes
-                options={WAREHOUSE_ORDER_REASONS}
+                options={PURCHASE_REQUEST_REJECTION_REASONS}
                 selectedReasons={selectedRejectReasons}
                 otherReason={otherRejectReason}
                 onSelectedReasonsChange={setSelectedRejectReasons}

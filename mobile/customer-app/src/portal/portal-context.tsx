@@ -57,6 +57,7 @@ import {
 import {
   CUSTOMER_ORDER_REASONS,
   REPLACEMENT_REASONS,
+  buildOrderActionReason,
   formatPeso,
   getAvailableQuantity,
   getOrderStageIndex,
@@ -1178,15 +1179,14 @@ function useCustomerPortalState() {
 
   function confirmPendingCancellation() {
     if (!pendingCancellationOrder) return;
-    const reasons = selectedCancellationReasons
-      .filter((reason) => reason !== "Other")
-      .concat(selectedCancellationReasons.includes("Other") && otherCancellationReason.trim() ? [otherCancellationReason.trim()] : []);
-    if (reasons.length === 0) {
+    // Same composer as the web portal, so "Other reason" sends the typed text.
+    const reason = buildOrderActionReason(selectedCancellationReasons, otherCancellationReason);
+    if (!reason) {
       setError("Select or enter a cancellation reason.");
       return;
     }
     // Added: submit the same explicit, human-readable cancellation reason required by the web flow and backend.
-    void handleCancelOrder(pendingCancellationOrder.id, reasons.join("; "));
+    void handleCancelOrder(pendingCancellationOrder.id, reason);
   }
 
   function handleBuyAgain(order: CustomerOrder) {

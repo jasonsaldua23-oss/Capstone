@@ -18,7 +18,7 @@ import { PodImagePreview } from '@/components/shared/pod-image-preview'
 import { DepositRefundRow, EmptiesExchangeRow, describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
-import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
+import { buildOrderActionReason, OrderReasonCheckboxes, PURCHASE_REQUEST_REJECTION_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -1039,7 +1039,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
               </AlertDialogHeader>
               {actionState?.action !== 'approve' ? (
                 <OrderReasonCheckboxes
-                  options={WAREHOUSE_ORDER_REASONS}
+                  options={PURCHASE_REQUEST_REJECTION_REASONS}
                   selectedReasons={selectedActionReasons}
                   otherReason={otherActionReason}
                   onSelectedReasonsChange={setSelectedActionReasons}
@@ -1660,7 +1660,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
               </DialogHeader>
               <div className="space-y-3">
                 <OrderReasonCheckboxes
-                  options={WAREHOUSE_ORDER_REASONS}
+                  options={PURCHASE_REQUEST_REJECTION_REASONS}
                   selectedReasons={selectedRejectReasons}
                   otherReason={otherRejectReason}
                   onSelectedReasonsChange={setSelectedRejectReasons}

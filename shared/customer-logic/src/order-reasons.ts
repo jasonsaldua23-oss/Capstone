@@ -5,12 +5,15 @@
 
 export const OTHER_ORDER_REASON = 'Other reason'
 
+// Customers can only cancel a request that is still pending approval, and they
+// cannot edit it, so cancelling is how they fix a wrong product, address or date.
+// Payment is cash to the driver on delivery; nothing is paid before that.
 export const CUSTOMER_ORDER_REASONS = [
-  'Changed mind',
+  'Changed my mind',
   'Wrong product or quantity ordered',
   'Duplicate order',
   'Unable to receive delivery',
-  'Unable to complete payment',
+  'Unable to pay on delivery',
   'Incorrect delivery address',
   OTHER_ORDER_REASON,
 ] as const

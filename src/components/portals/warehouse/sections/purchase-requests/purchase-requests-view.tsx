@@ -10,7 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { ACTION_DECIDE, ACTION_INSPECT, ACTION_REFUSE } from '@/components/portals/shared/row-actions'
-import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
+import { buildOrderActionReason, OrderReasonCheckboxes, PURCHASE_REQUEST_REJECTION_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
 import { CustomerOrderNotePreview } from '@/components/portals/shared/customer-order-note'
 import type { WarehousePurchaseRequestsViewProps } from '../shared/types'
 import {
@@ -357,7 +357,7 @@ export function WarehousePurchaseRequestsView({
           </AlertDialogHeader>
           {actionState?.action !== 'approve' ? (
             <OrderReasonCheckboxes
-              options={WAREHOUSE_ORDER_REASONS}
+              options={PURCHASE_REQUEST_REJECTION_REASONS}
               selectedReasons={selectedReasons}
               otherReason={otherReason}
               onSelectedReasonsChange={setSelectedReasons}

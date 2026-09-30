@@ -10,30 +10,35 @@ export {
 
 import { OTHER_ORDER_REASON } from '@shared/customer-logic/order-reasons'
 
-// Driver cancellation is intentionally limited to customer refusal or payment failure.
+// Driver cancellation is intentionally limited to customer refusal or the customer
+// being unable to pay the driver in cash. Anything else is a reschedule.
 export const DRIVER_ORDER_REASONS = [
   'Customer refused the order',
-  'Payment failure',
+  'Customer unable to pay',
 ] as const
 
-export const WAREHOUSE_ORDER_REASONS = [
+// Rejection only happens while a purchase request is pending approval: no stock
+// is reserved, nothing is picked and no vehicle is assigned yet. Expired or
+// quarantined batches are already excluded from sellable stock, so they surface
+// as out of stock or insufficient stock. The chosen text is shown to the customer.
+export const PURCHASE_REQUEST_REJECTION_REASONS = [
   'Product out of stock',
   'Insufficient stock',
-  'Product damaged or expired',
-  'Incorrect product/quantity prepared',
-  'Order cannot be fulfilled',
-  'Order cannot be fulfilled today',
-  'Inventory discrepancy',
-  'Vehicle unavailable or insufficient capacity',
+  'Unable to deliver on the requested date',
+  'No delivery vehicle or truck capacity available',
+  'Duplicate purchase request',
+  'Incomplete or incorrect delivery details',
   OTHER_ORDER_REASON,
 ] as const
 
 // Cancellation reasons are limited to issues that permanently stop the order.
+// Staff cancel approved orders that are not on a trip yet. Their stock is already
+// reserved, so a shortfall means that reserved stock went bad or is not on the shelf.
 export const WAREHOUSE_CANCELLATION_REASONS = [
   'Customer requested cancellation',
   'Duplicate order',
   'Incorrect products or quantities ordered',
-  'Unable to fulfill the requested quantity',
+  'Stock found damaged, expired or missing',
   'Order no longer needed after rescheduling',
   OTHER_ORDER_REASON,
 ] as const

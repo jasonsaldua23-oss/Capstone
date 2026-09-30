@@ -403,25 +403,8 @@ export function WarehouseTripsSection({
   ])
 
   function getEffectiveTripStatus(trip: TripItem) {
-    const normalizedTripStatus = normalizeTripStatus(trip.status)
-    const dropPoints = Array.isArray(trip.dropPoints) ? trip.dropPoints : []
-
-    if (dropPoints.length === 0) {
-      return normalizedTripStatus
-    }
-
-    const normalizedDropPointStatuses = dropPoints.map((point) => normalizeDropPointStatus(point.status))
-    const completedCount = normalizedDropPointStatuses.filter((status) => terminalDropPointStatuses.has(status)).length
-
-    if (completedCount === 0) {
-      return normalizedTripStatus
-    }
-
-    if (completedCount >= dropPoints.length) {
-      return 'COMPLETED'
-    }
-
-    return normalizedTripStatus === 'PLANNED' ? 'IN_PROGRESS' : normalizedTripStatus
+    // Fix: resolved stops do not close a trip; use the saved status until the driver completes it.
+    return normalizeTripStatus(trip.status)
   }
 
   const getEffectiveCompletedDropPoints = (trip: TripItem) => {
