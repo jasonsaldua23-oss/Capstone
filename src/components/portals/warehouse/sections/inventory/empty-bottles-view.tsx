@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Loader2, PackageCheck, Recycle, Search, Undo2 } from 'lucide-react'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
+import { ExistingEmptiesReview } from '@/components/portals/shared/existing-empties-review'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -27,6 +28,9 @@ interface EmptyCaseInventoryRow {
 interface WarehouseEmptyBottlesViewProps {
   warehouseId?: string
   readOnly?: boolean
+  /** Set when an "Existing empties declared" notification is opened. */
+  openEmptiesReview?: number
+  onEmptiesReviewOpened?: () => void
 }
 
 interface EmptyReturnHistoryRow {
@@ -143,7 +147,7 @@ function ReturnedEmptiesHistory({ warehouseId }: { warehouseId?: string }) {
   )
 }
 
-export function WarehouseEmptyBottlesView({ warehouseId, readOnly = false }: WarehouseEmptyBottlesViewProps) {
+export function WarehouseEmptyBottlesView({ warehouseId, readOnly = false, openEmptiesReview, onEmptiesReviewOpened }: WarehouseEmptyBottlesViewProps) {
   const [rows, setRows] = useState<EmptyCaseInventoryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -261,16 +265,20 @@ export function WarehouseEmptyBottlesView({ warehouseId, readOnly = false }: War
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="flex items-center gap-2 text-xl font-bold text-slate-900">
-          <Recycle className="h-5 w-5 text-emerald-600" />
-          Empty Bottles &amp; Cases Management
-        </h2>
-        <p className="mt-0.5 text-sm text-slate-500">
-          {readOnly
-            ? 'Monitor the physical empty-container stock across warehouses.'
-            : 'Return warehouse empties manually. Restocking does not deduct empty stock.'}
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+            <Recycle className="h-5 w-5 text-emerald-600" />
+            Empty Bottles &amp; Cases Management
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {readOnly
+              ? 'Monitor the physical empty-container stock across warehouses.'
+              : 'Return warehouse empties manually. Restocking does not deduct empty stock.'}
+          </p>
+        </div>
+        {/* Added: review customer opening balances separately from physical warehouse stock. */}
+        {!readOnly && <ExistingEmptiesReview openRequest={openEmptiesReview} onOpenRequestHandled={onEmptiesReviewOpened} />}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

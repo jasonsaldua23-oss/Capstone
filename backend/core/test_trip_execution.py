@@ -685,7 +685,7 @@ class TripExecutionApiContractTests(TestCase):
         notified_order_ids = set(
             Notification.objects.filter(
                 customer=self.customer,
-                type="ORDER",
+                type="DELIVERY",  # Delivery notifications follow the independent delivery preference.
                 title="Order delivered",
                 reference_id__in=delivered_order_ids,
             ).values_list("reference_id", flat=True)

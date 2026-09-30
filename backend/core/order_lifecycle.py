@@ -10,6 +10,7 @@ from . import views_api as legacy
 from .api_constants import (
     DEFAULT_COUNTRY,
     DISCOUNT_CANCELLED,
+    DISCOUNT_MIN_CASES,
     DISCOUNT_NO,
     DISCOUNT_OTHER,
     DISCOUNT_PRESET_LABEL,
@@ -130,7 +131,7 @@ def _build_discount_breakdown_for_customer(*, customer: Customer, subtotal: floa
 
     per_case_discount = 0.0
     # The customer portal and the backend share a 50-case eligibility threshold.
-    is_eligible = total_cases >= 50
+    is_eligible = total_cases >= DISCOUNT_MIN_CASES
     if option != DISCOUNT_NO and not is_eligible:
         option = DISCOUNT_NO
     if option != DISCOUNT_NO and is_eligible:
@@ -244,10 +245,12 @@ def _create_deposit_refund_claims(
             raise ValueError("Each deposit refund requires at least one case or bottle")
 
         requested_for_product = requested_by_product_container.get(pair, 0) + quantity
-        available_quantity = max(0, _int(available_row.get("bottlesAvailable"), 0))
+        # Added: opening empties cover new deposits but are not evidence that a
+        # refundable deposit was paid before this system existed.
+        available_quantity = max(0, _int(available_row.get("refundableBottlesAvailable"), 0))
         deposit_per_container = Decimal(str(packaging.deposit_amount or packaging.container_type.deposit_amount or 0))
         case_deposit_amount = Decimal(str(packaging.case_deposit_amount or 0))
-        remaining_balance = Decimal(str(available_row.get("depositAvailable") or 0))
+        remaining_balance = Decimal(str(available_row.get("refundableDepositAvailable") or 0))
         # Preserve the selected units so a full returned case credits its bottle
         # deposits plus the configured physical-case deposit.
         line_amount = (

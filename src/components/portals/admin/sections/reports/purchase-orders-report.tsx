@@ -35,7 +35,7 @@ import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpre
 import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
-import { buildDailyChartSeries, formatOrderItemsForExport } from '@/lib/report-metrics'
+import { buildDailyChartSeries, describeDailyChartWindow, formatOrderItemsForExport } from '@/lib/report-metrics'
 import {
   getPurchaseDocumentAmount,
   getPurchaseOrderDate,
@@ -351,7 +351,9 @@ export function PurchaseOrdersReport({ orders }: PurchaseOrdersReportProps) {
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-base font-semibold text-slate-800">Daily Purchase Order Trend</CardTitle>
-            <CardDescription className="text-xs text-slate-500">Total purchase order volume and stage movement over time</CardDescription>
+            <CardDescription className="text-xs text-slate-500">
+              Daily totals split by current stage · {describeDailyChartWindow(chartData, 'purchase order')}
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-56 w-full">

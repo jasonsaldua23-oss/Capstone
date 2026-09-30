@@ -45,6 +45,9 @@ DISCOUNT_CANCELLED = "CANCELLED"
 
 DISCOUNT_REMOVED = "REMOVED"
 
+# A customer's discount applies once an order totals this many cases, packs or mixed cases.
+DISCOUNT_MIN_CASES = 50
+
 DISCOUNT_PRESET_PERCENT: dict[str, float] = {
     DISCOUNT_NO: 0.0,
     "DISCOUNT_5": 5.0,

@@ -24,7 +24,8 @@ import { SecuritySettingsScreen } from './security-settings-screen'
 import { AccountSecurityScreen } from './account-security-screen'
 import { EditProfileScreen } from './edit-profile-screen'
 import { NotificationsScreen } from './notifications-screen'
-import { CUSTOMER_NOTIFICATION_PREFS_KEY, type NotificationPrefs, NotificationRow, formatFullName } from './profile-shared'
+import { NotificationRow, formatFullName } from './profile-shared'
+import { useNotificationPreferences } from '@/hooks/use-notification-preferences'
 
 type CustomerProfileViewProps = {
   avatarPreviewUrl: string | null
@@ -149,6 +150,7 @@ export function CustomerProfileView({
     isSubmittingRefund,
     recordCases,
     recordLooseBottles,
+    refreshCustomerBalances,
     refundEmptyOptions,
     refundQuantityByProduct,
     refundableOrders,
@@ -262,23 +264,9 @@ export function CustomerProfileView({
     return () => clearInterval(interval)
   }, [otpSent])
 
-  const [notifications, setNotifications] = useState<NotificationPrefs>(() => {
-    if (typeof window === 'undefined') {
-      return { orderUpdates: true, deliveryUpdates: true, systemAlerts: true }
-    }
-    try {
-      const raw = window.localStorage.getItem(CUSTOMER_NOTIFICATION_PREFS_KEY)
-      if (!raw) return { orderUpdates: true, deliveryUpdates: true, systemAlerts: true }
-      const parsed = JSON.parse(raw)
-      return {
-        orderUpdates: parsed?.orderUpdates ?? true,
-        deliveryUpdates: parsed?.deliveryUpdates ?? true,
-        systemAlerts: parsed?.systemAlerts ?? true,
-      }
-    } catch {
-      return { orderUpdates: true, deliveryUpdates: true, systemAlerts: true }
-    }
-  })
+  // Settings now control account notification delivery, not just this browser's switch appearance.
+  const { preferences: notifications, save: persistNotifications, disabled: notificationSettingsDisabled,
+    error: notificationSettingsError, reload: reloadNotificationSettings } = useNotificationPreferences(user?.id || user?.userId, 'customer')
 
   const initials = useMemo(() => {
     const source = String(profileName || user?.name || '').trim()
@@ -290,11 +278,6 @@ export function CustomerProfileView({
       .map((part) => part.charAt(0).toUpperCase())
       .join('')
   }, [profileName, user?.name])
-
-  const persistNotifications = (nextValue: NotificationPrefs) => {
-    setNotifications(nextValue)
-    window.localStorage.setItem(CUSTOMER_NOTIFICATION_PREFS_KEY, JSON.stringify(nextValue))
-  }
 
   const formatTime = formatOtpCountdown
 
@@ -547,7 +530,14 @@ export function CustomerProfileView({
         isLoadingNotifications={isLoadingNotifications}
         markAllAsRead={markAllAsRead}
         notifications={notifications}
-        onNavigateNotification={onNavigateNotification}
+        onNavigateNotification={(notification) => {
+          // Existing-empties updates open the screen that lists the declaration.
+          if (String(notification?.referenceType || notification?.reference_type || '').toLowerCase() === 'opening_empties') {
+            setSubView('empties-deposits')
+            return
+          }
+          onNavigateNotification?.(notification)
+        }}
         onUnreadCountChange={onUnreadCountChange}
         realNotifications={realNotifications}
         setRealNotifications={setRealNotifications}
@@ -684,6 +674,7 @@ export function CustomerProfileView({
         isSubmittingRefund={isSubmittingRefund}
         recordCases={recordCases}
         recordLooseBottles={recordLooseBottles}
+        refreshCustomerBalances={refreshCustomerBalances}
         refundEmptyOptions={refundEmptyOptions}
         refundQuantityByProduct={refundQuantityByProduct}
         refundableOrders={refundableOrders}
@@ -719,25 +710,23 @@ export function CustomerProfileView({
           </Button>
           <h2 className="text-xl font-bold tracking-tight text-slate-900">Notification Settings</h2>
         </div>
+        {notificationSettingsError && <p role="alert" className="px-4 text-sm text-red-600">{notificationSettingsError} <button type="button" className="underline" onClick={() => void reloadNotificationSettings()}>Retry</button></p>}
         <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
           <NotificationRow
             title="Order Updates"
             description="Receive changes to request and order status."
             checked={notifications.orderUpdates}
+            disabled={notificationSettingsDisabled}
             onToggle={() => persistNotifications({ ...notifications, orderUpdates: !notifications.orderUpdates })}
           />
           <NotificationRow
             title="Delivery Updates"
             description="Receive delivery and live tracking updates."
             checked={notifications.deliveryUpdates}
+            disabled={notificationSettingsDisabled}
             onToggle={() => persistNotifications({ ...notifications, deliveryUpdates: !notifications.deliveryUpdates })}
           />
-          <NotificationRow
-            title="System Alerts"
-            description="Receive important customer announcements."
-            checked={notifications.systemAlerts}
-            onToggle={() => persistNotifications({ ...notifications, systemAlerts: !notifications.systemAlerts })}
-          />
+          {/* Customer notification settings now include only order and delivery updates. */}
         </div>
       </div>
     )

@@ -104,7 +104,8 @@ export function OrdersReportTab({
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.5fr_1fr]">
         <Card className={chartCardClassName}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg text-blue-700">Orders by Day</CardTitle>
+            {/* 90-day and all-time ranges draw weekly bars. */}
+            <CardTitle className="text-lg text-blue-700">Orders by {chartBucketNoun(orderOutcomeTrendChart) === 'week' ? 'Week' : 'Day'}</CardTitle>
             <CardDescription>Filtered order volume over time</CardDescription>
           </CardHeader>
           <CardContent>

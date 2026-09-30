@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
-import { DepositRefundRow, EmptiesChargeRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, EmptiesExchangeRow, EmptiesChargeRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { resolveClientImageUrl } from '@/lib/client-image'
 import { toDisplayStatus } from '@/lib/status-display'
 import { ArrowLeft, ChevronRight, Package, Phone, Search } from 'lucide-react'
@@ -296,6 +296,7 @@ export function TripDetailsView({
                   <span className="font-medium">{formatCurrency(depositCharged)}</span>
                 </div>
               ) : null}
+              <EmptiesExchangeRow order={order} className="text-sm" />
               <DepositRefundRow order={order} className="text-sm" />
               <EmptiesChargeRow order={order} className="text-sm" />
               <div className="flex items-center justify-between border-t border-slate-100 pt-2">

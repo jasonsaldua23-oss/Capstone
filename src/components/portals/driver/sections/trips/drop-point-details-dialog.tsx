@@ -3,7 +3,7 @@
 import { type Dispatch, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { DepositRefundRow } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, EmptiesExchangeRow } from '@/components/shared/empties-charge-note'
 import { DropPoint, stripPhilippinesFromAddress } from './trip-detail-helpers'
 import { Phone } from 'lucide-react'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
@@ -67,6 +67,7 @@ export function DropPointDetailsDialog({
                   return formatCurrency(getDisplayOrderTotal(selectedDropPointForDetails?.order))
                 })()}
               </p>
+              <EmptiesExchangeRow order={selectedDropPointForDetails?.order} className="pt-1 text-xs" />
               <DepositRefundRow order={selectedDropPointForDetails?.order} className="pt-1 text-xs" />
             </div>
 

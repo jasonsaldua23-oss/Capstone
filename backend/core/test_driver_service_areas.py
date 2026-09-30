@@ -101,6 +101,15 @@ class ServiceAreaMigrationTests(TransactionTestCase):
                 ).Migration('0139_remove_customer_registration_approval', 'core')
                 with connection.schema_editor() as editor:
                     approval_migration.apply(approval_before, editor)
+                # The same rebuilds (0131 and 0132 on User, 0134 on Customer) drop columns
+                # added after them. Reapply those too; a later migration that adds a User
+                # or Customer column must be added here as well.
+                preferences_before = loader.project_state([('core', '0150_opening_empties_evidence_photo')])
+                preferences_migration = import_module(
+                    'core.migrations.0151_notification_preferences'
+                ).Migration('0151_notification_preferences', 'core')
+                with connection.schema_editor() as editor:
+                    preferences_migration.apply(preferences_before, editor)
 
         self.addCleanup(restore_current_redundant_fields_schema)
         license_photo_before = loader.project_state([('core', '0131_remove_user_driver_profile_fields')])
@@ -149,8 +158,9 @@ class ServiceAreaMigrationTests(TransactionTestCase):
             {'city': city, 'assigned_by': 'original-admin', 'assigned_at': assigned_at.isoformat()}
             for city in ['silay', 'talisay']
         ]
-        self.assertEqual(User.objects.get(pk=driver.pk).service_areas, expected)
-        self.assertEqual(User.objects.get(pk=unassigned.pk).service_areas, [])
+        # Read only this column: SQLite rebuilt User from the 0128 state, without later columns.
+        self.assertEqual(User.objects.only('service_areas').get(pk=driver.pk).service_areas, expected)
+        self.assertEqual(User.objects.only('service_areas').get(pk=unassigned.pk).service_areas, [])
         self.assertNotIn('core_driverservicearea', connection.introspection.table_names())
         with connection.schema_editor() as editor:
             migration.unapply(before, editor)

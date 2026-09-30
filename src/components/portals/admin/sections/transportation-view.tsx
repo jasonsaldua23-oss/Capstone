@@ -52,7 +52,7 @@ import { getRequiredLicenseCodeForVehicle } from '@/lib/driver-license-restricti
 import { formatFullName, splitFullName, validatePersonName } from '@/lib/person-name'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
-import { DepositRefundRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, EmptiesExchangeRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import {
   toArray,
   getCollection,
@@ -1665,6 +1665,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                       : 'N/A'}
                   </span>
                 </div>
+                <EmptiesExchangeRow order={selectedDropPointDetail.order} className="pt-1 text-xs" />
                 <DepositRefundRow order={selectedDropPointDetail.order} className="pt-1 text-xs" />
               </div>
 

@@ -116,7 +116,7 @@ def _mark_order_delivered(order: Order, performed_by: str | None, delivered_at: 
         customer=order.customer,
         title="Order delivered",
         message=f"Your order {order.order_number} has been delivered successfully.",
-        notification_type="ORDER",
+        notification_type="DELIVERY",  # Delivery Updates is separate from Order Updates.
         reference_type="order",
         reference_id=order.id,
     )

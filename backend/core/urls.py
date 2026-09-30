@@ -11,6 +11,7 @@ from . import views_inventory as inventory_v
 from . import views_media as media_v
 from . import views_notifications as notification_v
 from . import views_orders as order_v
+from . import views_opening_empties as opening_empties_v
 from . import views_products as product_v
 from . import views_retail as retail_v
 from . import views_stock as stock_v
@@ -73,6 +74,7 @@ urlpatterns = [
     path("dashboard/stats", dashboard_v.dashboard_stats),
     path("feedback", feedback_v.feedback_collection),
     path("notifications", notification_v.notifications_collection),
+    path("notifications/preferences", notification_v.notification_preferences),
     path("push-subscriptions", notification_v.push_subscriptions_collection),
     # Retail POS is a separate domain module; legacy views_api wrappers remain import-compatible.
     path("retail/products", retail_v.retail_products),
@@ -102,6 +104,12 @@ urlpatterns = [
     # Returnable-container workflows are isolated from the general API controller.
     path("customer/empty-bottles/eligible", bottle_v.customer_empty_bottles_eligible),
     path("customer/empty-bottles/record", bottle_v.customer_record_empty_bottles),
+    # Existing stock is declared separately so staff approval cannot imply a past deposit payment.
+    path("customer/empty-bottles/opening", opening_empties_v.customer_opening_empties),
+    path("customer/empty-bottles/opening/evidence", opening_empties_v.customer_opening_empties_evidence),
+    path("staff/empty-bottles/opening", opening_empties_v.staff_opening_empties),
+    path("staff/empty-bottles/opening/<str:declaration_id>/review", opening_empties_v.review_opening_empties),
+    path("staff/empty-bottles/opening/submissions/<str:submission_id>/review", opening_empties_v.review_opening_empties_submission),
     path("bottle-returns", bottle_v.bottle_returns_collection),
     path("driver/location", driver_v.driver_location),
     path("driver/profile", driver_v.driver_profile),

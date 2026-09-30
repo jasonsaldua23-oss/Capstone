@@ -522,6 +522,16 @@ export async function fetchNotifications(): Promise<{ notifications: CustomerNot
   return apiRequest("/api/notifications?limit=100", { method: "GET", token });
 }
 
+// Save preferences on the account so native push and web notifications share the choice.
+export async function notificationPreferences(changes?: Record<string, boolean>) {
+  const token = await getToken();
+  const data = await apiRequest<{ preferences: { orderUpdates: boolean; deliveryUpdates: boolean } }>("/api/notifications/preferences", {
+    method: changes ? "PATCH" : "GET", token, cacheTtlMs: 0,
+    ...(changes ? { body: JSON.stringify(changes) } : {}),
+  });
+  return data.preferences;
+}
+
 export async function markNotificationsRead(ids?: string[]): Promise<number> {
   const token = await getToken();
   const data = await apiRequest<{ unreadCount: number }>("/api/notifications", {

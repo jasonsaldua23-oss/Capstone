@@ -30,6 +30,7 @@ import {
   fetchCustomerTracking,
   fetchEligibleEmptyItems,
   fetchNotifications,
+  notificationPreferences,
   fetchProducts,
   getStoredUser,
   login,
@@ -297,6 +298,9 @@ function useCustomerPortalState() {
   const [orderConfirmationVisible, setOrderConfirmationVisible] = useState(false);
   const [lastPlacedOrderNumber, setLastPlacedOrderNumber] = useState("");
   const [notificationPrefs, setNotificationPrefs] = useState<CustomerNotificationPreferences>(defaultNotificationPrefs);
+  const [notificationSettingsBusy, setNotificationSettingsBusy] = useState(true);
+  const [notificationSettingsError, setNotificationSettingsError] = useState("");
+  const notificationSavingRef = useRef(false);
   const [securityForm, setSecurityForm] = useState(initialSecurityForm);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [loginAlertsEnabled, setLoginAlertsEnabled] = useState(false);
@@ -437,26 +441,32 @@ function useCustomerPortalState() {
   }
 
   async function loadNotificationPreferences() {
+    setNotificationSettingsBusy(true);
+    setNotificationSettingsError("");
     try {
-      const raw = await AsyncStorage.getItem(CUSTOMER_NOTIFICATION_PREFS_KEY);
-      if (!raw) {
-        setNotificationPrefs(defaultNotificationPrefs);
-        return;
-      }
-      const parsed = JSON.parse(raw) as Partial<CustomerNotificationPreferences>;
-      setNotificationPrefs({
-        orderUpdates: parsed.orderUpdates ?? true,
-        deliveryUpdates: parsed.deliveryUpdates ?? true,
-        systemAlerts: parsed.systemAlerts ?? true,
-      });
+      setNotificationPrefs({ ...defaultNotificationPrefs, ...await notificationPreferences() });
     } catch {
-      setNotificationPrefs(defaultNotificationPrefs);
+      setNotificationSettingsError("Unable to load notification settings. Please retry.");
+    } finally {
+      setNotificationSettingsBusy(false);
     }
   }
 
   async function persistNotificationPreferences(nextPrefs: CustomerNotificationPreferences) {
-    setNotificationPrefs(nextPrefs);
-    await AsyncStorage.setItem(CUSTOMER_NOTIFICATION_PREFS_KEY, JSON.stringify(nextPrefs));
+    if (notificationSettingsBusy || notificationSettingsError || notificationSavingRef.current) return;
+    notificationSavingRef.current = true;
+    setNotificationSettingsBusy(true);
+    try {
+      // Submit only changed keys and retain the old switch position if saving fails.
+      const changes = Object.fromEntries((["orderUpdates", "deliveryUpdates"] as const)
+        .filter((key) => nextPrefs[key] !== notificationPrefs[key]).map((key) => [key, nextPrefs[key]]));
+      setNotificationPrefs({ ...defaultNotificationPrefs, ...await notificationPreferences(changes) });
+    } catch {
+      Alert.alert("Notification settings", "Unable to save your choice. Please try again.");
+    } finally {
+      notificationSavingRef.current = false;
+      setNotificationSettingsBusy(false);
+    }
   }
 
   // /api/auth/me sat in front of the whole batch as a single point of failure: on
@@ -1378,8 +1388,19 @@ function useCustomerPortalState() {
     }
     const referenceType = String(notification.referenceType || "").toLowerCase();
     const referenceId = String(notification.referenceId || "");
-    const matchedOrder = orders.find((order) => order.id === referenceId || order.orderNumber === referenceId || order.purchaseRequestNumber === referenceId || order.purchaseOrderNumber === referenceId);
+    // Existing-empties updates open the screen that lists the declaration.
+    if (referenceType === "opening_empties") {
+      setActiveTab("profile");
+      openProfileModal("empties");
+      return;
+    }
     closeProfileModal();
+    // A discount is used by ordering, so it opens the shop.
+    if (referenceType === "discount") {
+      setActiveTab("home");
+      return;
+    }
+    const matchedOrder = orders.find((order) => order.id === referenceId || order.orderNumber === referenceId || order.purchaseRequestNumber === referenceId || order.purchaseOrderNumber === referenceId);
     if (matchedOrder) setSelectedOrderId(matchedOrder.id);
     if (referenceType.includes("purchase")) setActiveTab("requests");
     else if (referenceType === "trip") setActiveTab("track");
@@ -1956,6 +1977,8 @@ function useCustomerPortalState() {
     welcomeMode,
     setWelcomeMode,
     notificationPrefs,
+    notificationSettingsBusy,
+    notificationSettingsError,
     setNotificationPrefs,
     securityForm,
     setSecurityForm,

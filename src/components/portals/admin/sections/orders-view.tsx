@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { PodImagePreview } from '@/components/shared/pod-image-preview'
-import { DepositRefundRow, describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, EmptiesExchangeRow, describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { buildOrderActionReason, OrderReasonCheckboxes, WAREHOUSE_ORDER_REASONS } from '@/components/portals/shared/order-reason-checkboxes'
@@ -1534,6 +1534,7 @@ export function OrdersView({ mode, onOpenTransportation, globalSearchQuery = '',
                       }
                       return null
                     })()}
+                    <EmptiesExchangeRow order={selectedOrder} className="text-xs" />
                     <DepositRefundRow order={selectedOrder} className="text-xs" />
                     {getEmptiesAdjustment(selectedOrder) ? (
                       <div className="text-right text-[12px] leading-4 text-[#8a7135]">

@@ -1493,6 +1493,13 @@ export function CustomerPortal() {
                       const title = String(n?.title || '').toLowerCase()
                       const message = String(n?.message || '').toLowerCase()
 
+                      // A discount is used by ordering, so it opens the shop. Checked first:
+                      // its message mentions orders and would otherwise open the Orders list.
+                      if (refType === 'discount' || notifType === 'DISCOUNT') {
+                        setActiveView('home')
+                        return
+                      }
+
                       if (
                         title.includes('purchase request') ||
                         title.includes('request approved') ||

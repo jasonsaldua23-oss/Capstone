@@ -332,6 +332,8 @@ def queue_web_push(
     }
 
     def deliver() -> None:
+        from .notification_preferences import notification_allowed
+
         subscriptions = PushSubscription.objects.filter(is_active=True)
         if normalized_user_ids and normalized_customer_ids:
             from django.db.models import Q
@@ -343,6 +345,9 @@ def queue_web_push(
             subscriptions = subscriptions.filter(user_id__in=normalized_user_ids)
         else:
             subscriptions = subscriptions.filter(customer_id__in=normalized_customer_ids)
+        # A queued push must also respect a preference switched off before delivery.
+        subscriptions = [subscription for subscription in subscriptions.select_related("customer", "user")
+                         if notification_allowed(subscription.customer or subscription.user, notification_type)]
         _send_to_subscriptions(subscriptions, payload)
 
     transaction.on_commit(lambda: _start_web_push_delivery(deliver))

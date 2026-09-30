@@ -16,7 +16,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from . import object_storage
 from . import views_api as legacy
 from .image_compression import optimize_image_upload
-from .models import Customer, Order, Replacement, RoleType, Trip, TripDropPoint, User
+from .models import Customer, OpeningEmptiesDeclaration, Order, Replacement, RoleType, Trip, TripDropPoint, User
 from .pod_overlay import build_driver_full_name, burn_pod_overlay, parse_pod_overlay_metadata
 
 logger = logging.getLogger(__name__)
@@ -282,6 +282,8 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
             delivery_photo__in=media_urls,
         ).exists():
             return True
+        if OpeningEmptiesDeclaration.objects.filter(customer_id=account_id, evidence_photo_url__in=media_urls).exists():
+            return True
         return _matching_replacements(media_urls).filter(customer_id=account_id).exists()
 
     if account_type != "staff":
@@ -293,6 +295,7 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
             Order.objects.filter(pod_photo_url__in=media_urls).exists()
             or TripDropPoint.objects.filter(delivery_photo__in=media_urls).exists()
             or _matching_replacements(media_urls).exists()
+            or OpeningEmptiesDeclaration.objects.filter(evidence_photo_url__in=media_urls).exists()
             or Customer.objects.filter(avatar__in=media_urls).exists()
             or User.objects.filter(avatar__in=media_urls).exists()
         )
@@ -309,9 +312,14 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
             drop_points__trip_id__in=assigned_trip_ids,
         ).exists():
             return True
-        return _matching_replacements(media_urls).filter(trip_id__in=assigned_trip_ids).exists()
+        # Replacement has no trip column; it reaches the trip through its order's drop points.
+        return _matching_replacements(media_urls).filter(order__drop_points__trip_id__in=assigned_trip_ids).exists()
 
     if role == RoleType.WAREHOUSE_STAFF:
+        # Any warehouse staff may review existing-empties declarations (they belong to a
+        # customer, not a warehouse), so the photo follows the review permission.
+        if OpeningEmptiesDeclaration.objects.filter(evidence_photo_url__in=media_urls).exists():
+            return True
         allowed_warehouse_ids = _get_allowed_warehouse_ids_for_staff(account_id)
         if not allowed_warehouse_ids:
             return False
@@ -327,7 +335,7 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
             return True
         return _matching_replacements(media_urls).filter(
             Q(order__warehouse_id__in=allowed_warehouse_ids)
-            | Q(trip_id__in=Trip.objects.filter(warehouse_id__in=allowed_warehouse_ids).values("id"))
+            | Q(order__drop_points__trip__warehouse_id__in=allowed_warehouse_ids)
         ).exists()
 
     return False

@@ -40,10 +40,10 @@ import { formatPeso } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 import {
+  buildRetailSalesTrend,
   chartBucketNoun,
   formatOrderItemsForExport,
   formatPesoAxisTick,
-  getReportChartBucket,
   isCancelledReportStatus,
   isRevenueRecognized,
   retailTrendGranularity,
@@ -151,7 +151,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
   }, [orders, retailSales])
 
   // Split the selected date window from its immediately preceding comparison period.
-  const { currentPeriodItems, prevPeriodItems, periodLabel, prevPeriodLabel } = useMemo(() => {
+  const { currentPeriodItems, prevPeriodItems, periodLabel, prevPeriodLabel, periodWindow } = useMemo(() => {
     const now = new Date()
     // Fix: retail uses the same inclusive and open-ended range as the other reports.
     const window = buildReportDateWindow(periodMode, dateFrom, dateTo, now)
@@ -188,7 +188,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       return t >= prevStartTime && t < prevEndTime
     })
 
-    return { currentPeriodItems, prevPeriodItems, periodLabel: label, prevPeriodLabel: prevLabel }
+    return { currentPeriodItems, prevPeriodItems, periodLabel: label, prevPeriodLabel: prevLabel, periodWindow: window }
   }, [retailTransactions, periodMode, dateFrom, dateTo])
 
   // Filtered current period list for table
@@ -252,30 +252,16 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
 
   // Sales Trend Chart Data
   const trendChartData = useMemo(() => {
-    const map: Record<string, { key: string; label: string; sales: number; count: number; dateSort: number }> = {}
     // Today used to fall into the monthly branch, so one day's sales were drawn as
     // "Sep 26" (September 2026) and read back as "the only month with sales".
-    const granularity = retailTrendGranularity(periodMode)
-
-    currentPeriodItems.filter((item) => isRevenueRecognized(item)).forEach((item) => {
-      const d = new Date(item.date)
-      const { key, label } = getReportChartBucket(d, granularity)
-
-      if (!map[key]) {
-        map[key] = {
-          key,
-          label,
-          sales: 0,
-          count: 0,
-          dateSort: d.getTime(),
-        }
-      }
-      map[key].sales += item.amount
-      map[key].count += 1
+    // Quiet days and months stay on the axis as zero; skipping them drew the area
+    // straight across days when nothing sold.
+    return buildRetailSalesTrend(currentPeriodItems.filter((item) => isRevenueRecognized(item)), {
+      granularity: retailTrendGranularity(periodMode),
+      start: periodWindow.start,
+      end: periodWindow.end,
     })
-
-    return Object.values(map).sort((a, b) => a.dateSort - b.dateSort)
-  }, [currentPeriodItems, periodMode])
+  }, [currentPeriodItems, periodMode, periodWindow])
 
   // Revenue is read in pesos, per the day or month the chart was drawn in.
   const chartInterpretation = useMemo(() => {
@@ -285,8 +271,6 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       noun: 'retail sales',
       nounIsPlural: false,
       periodNoun: bucket,
-      // The chart only draws days (or months) that had a sale, so the reading says so.
-      periodScope: 'with sales',
       format: (value) => formatPeso(value),
     })} That came from ${transactions.toLocaleString('en-US')} ${transactions === 1 ? 'transaction' : 'transactions'} in the period.`
   }, [trendChartData])
@@ -463,7 +447,9 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
             <CardTitle className="text-base font-semibold text-slate-800">
               Retail Sales Velocity ({periodLabel})
             </CardTitle>
-            <CardDescription className="text-xs text-slate-500">Periodic revenue and transaction volume trends</CardDescription>
+            <CardDescription className="text-xs text-slate-500">
+              Revenue per {chartBucketNoun(trendChartData)}, including {chartBucketNoun(trendChartData)}s with no sales
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-64 w-full">

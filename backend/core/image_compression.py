@@ -20,6 +20,7 @@ IMAGE_COMPRESSION_PROFILES = {
     "pods": ImageCompressionProfile(max_dimension=2000, max_bytes=800 * 1024),
     "damages": ImageCompressionProfile(max_dimension=2000, max_bytes=800 * 1024),
     "replacement-evidence": ImageCompressionProfile(max_dimension=2000, max_bytes=800 * 1024),
+    "opening-empties-evidence": ImageCompressionProfile(max_dimension=2000, max_bytes=800 * 1024),
 }
 DEFAULT_IMAGE_PROFILE = ImageCompressionProfile(max_dimension=1600, max_bytes=500 * 1024)
 

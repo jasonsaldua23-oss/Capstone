@@ -87,13 +87,14 @@ export function ProfileSections() {
     resettingPassword,
     twoFactorEnabled,
     loginAlertsEnabled,
-    rememberDeviceEnabled,
     savingSecurity,
     saveSecuritySetting,
-    persistRememberDevice,
     notifications,
     unreadNotifications,
     notificationPrefs,
+    notificationSettingsBusy,
+    notificationSettingsError,
+    loadNotificationPreferences,
     persistNotificationPreferences,
     handleMarkAllNotificationsRead,
     handleClearNotifications,
@@ -402,21 +403,7 @@ export function ProfileSections() {
             thumbColor={theme.colors.white}
           />
         </View>
-        <View style={styles.securityToggleRow}>
-          <View style={styles.flex}>
-            <Text style={styles.securityToggleLabel}>Remember Device Sessions</Text>
-            <Text style={styles.securityToggleHint}>
-              Keep trusted sessions active on your browser for faster access.
-            </Text>
-          </View>
-          <Switch
-            value={rememberDeviceEnabled}
-            disabled={!editingSecurity}
-            onValueChange={(value) => void persistRememberDevice(value)}
-            trackColor={{ true: "#14532d", false: theme.colors.slate200 }}
-            thumbColor={theme.colors.white}
-          />
-        </View>
+        {/* Customer security settings now show only 2FA and login alerts. */}
         <Pressable
           style={[styles.primaryButton, !editingSecurity && styles.securityEditIdle]}
           onPress={() => setEditingSecurity((current) => !current)}
@@ -478,10 +465,12 @@ export function ProfileSections() {
   if (activeProfileModal === "notifications") {
     return (
       <ProfileSectionPage title="Notification Settings" onBack={closeProfileModal}>
+        {notificationSettingsError ? <Pressable accessibilityRole="button" onPress={() => void loadNotificationPreferences()}><Text>{notificationSettingsError} Retry</Text></Pressable> : null}
         <ToggleRow
           label="Order Updates"
           description="Receive changes to request and order status."
           value={notificationPrefs.orderUpdates}
+          disabled={notificationSettingsBusy || Boolean(notificationSettingsError)}
           onValueChange={(value) =>
             void persistNotificationPreferences({
               ...notificationPrefs,
@@ -493,6 +482,7 @@ export function ProfileSections() {
           label="Delivery Updates"
           description="Receive delivery and live tracking updates."
           value={notificationPrefs.deliveryUpdates}
+          disabled={notificationSettingsBusy || Boolean(notificationSettingsError)}
           onValueChange={(value) =>
             void persistNotificationPreferences({
               ...notificationPrefs,
@@ -500,17 +490,7 @@ export function ProfileSections() {
             })
           }
         />
-        <ToggleRow
-          label="System Alerts"
-          description="Receive important customer announcements."
-          value={notificationPrefs.systemAlerts}
-          onValueChange={(value) =>
-            void persistNotificationPreferences({
-              ...notificationPrefs,
-              systemAlerts: value,
-            })
-          }
-        />
+        {/* Customer notification settings now include only order and delivery updates. */}
       </ProfileSectionPage>
     );
   }

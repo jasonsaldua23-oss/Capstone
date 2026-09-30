@@ -1154,7 +1154,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             customer=updated.customer,
             title="Order delivered",
             message=f"Your order {updated.order_number} has been delivered successfully.",
-            notification_type="ORDER",
+            notification_type="DELIVERY",  # Respect the delivery-specific notification toggle.
             reference_type="order",
             reference_id=updated.id,
         )
@@ -1163,7 +1163,7 @@ def order_status_update(request: HttpRequest, order_id: str) -> JsonResponse:
             customer=updated.customer,
             title="Order rescheduled",
             message=f"Your order {updated.order_number} was rescheduled to {timezone.localtime(rescheduled_delivery_at).date().isoformat()}.",
-            notification_type="ORDER",
+            notification_type="DELIVERY",
             reference_type="order",
             reference_id=updated.id,
         )

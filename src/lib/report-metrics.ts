@@ -166,6 +166,43 @@ export function retailTrendGranularity(periodMode: string): 'day' | 'month' {
   return ['today', '7', '30', 'custom'].includes(periodMode) ? 'day' : 'month'
 }
 
+/**
+ * Retail revenue per day or month across the selected window, quiet buckets
+ * included as zero so the area never bridges a day nothing sold. An open start
+ * begins at the first sale; an open end runs to now.
+ */
+export function buildRetailSalesTrend(
+  items: ReadonlyArray<{ date: unknown; amount: unknown }>,
+  options: { granularity: 'day' | 'month'; start?: Date | null; end?: Date | null; now?: Date },
+) {
+  const grouped = new Map<string, { key: string; label: string; sortDate: Date; sales: number; count: number }>()
+  let earliest: Date | null = null
+  for (const item of items) {
+    const date = toDate(item.date)
+    if (!date) continue
+    if (!earliest || date < earliest) earliest = date
+    const meta = getBucketMeta(date, options.granularity)
+    const current = grouped.get(meta.key) || { ...meta, sales: 0, count: 0 }
+    current.sales += asNumber(item.amount)
+    current.count += 1
+    grouped.set(meta.key, current)
+  }
+  if (!earliest) return []
+
+  const first = getBucketMeta(options.start ?? earliest, options.granularity).sortDate
+  const last = getBucketMeta(options.end ?? options.now ?? new Date(), options.granularity).sortDate
+  const points: Array<{ key: string; label: string; sortDate: Date; sales: number; count: number }> = []
+  const cursor = new Date(first)
+  // A runaway custom range would allocate forever, so cap the walk like the daily series.
+  for (let guard = 0; cursor.getTime() <= last.getTime() && guard < 1500; guard += 1) {
+    const meta = getBucketMeta(cursor, options.granularity)
+    points.push(grouped.get(meta.key) || { ...meta, sales: 0, count: 0 })
+    if (options.granularity === 'day') cursor.setDate(cursor.getDate() + 1)
+    else cursor.setMonth(cursor.getMonth() + 1)
+  }
+  return points
+}
+
 /** A peso axis tick: small amounts in full, larger ones shortened to k or M. */
 export function formatPesoAxisTick(value: number) {
   const amount = Number(value) || 0
@@ -1219,10 +1256,11 @@ export function buildWarehouseCapacityVsUsedChart(
       const warehouseId = String(warehouse?.id || '')
       const inventoryItems = inventory.filter((item) => options.getWarehouseIdFromRow(item) === warehouseId)
       const capacitySummary = buildWarehouseCapacitySummary(warehouse, inventoryItems)
+      // Used and free stack to 100%, so each column reads as the whole warehouse.
       return {
         name: String(warehouse?.code || warehouse?.name || warehouseId || 'Warehouse'),
-        capacityPercent: 100,
         usedPercent: capacitySummary.usagePercent,
+        freePercent: Number((100 - capacitySummary.usagePercent).toFixed(1)),
         usedUnits: capacitySummary.usedUnits,
         totalCapacity: capacitySummary.totalCapacity,
       }
@@ -1859,4 +1897,15 @@ export function buildDailyChartSeries<T>(
 
   const days = options.days
   return days && days > 0 ? filled.slice(-days) : filled
+}
+
+/**
+ * Caption for a buildDailyChartSeries chart. The series ends at the newest
+ * record, not at today or the end of the selected range, so the caption says so.
+ */
+export function describeDailyChartWindow(points: ReadonlyArray<{ date: string }>, noun: string) {
+  if (points.length === 0) return ''
+  const first = points[0].date
+  if (points.length === 1) return `${first} only`
+  return `${points.length} days, ${first} – ${points[points.length - 1].date}, ending at the latest ${noun}`
 }

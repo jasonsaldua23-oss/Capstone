@@ -36,7 +36,7 @@ import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpre
 import { formatDayKey, formatPeso, normalizeTripStatus, toArray } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { buildDailyChartSeries } from '@/lib/report-metrics'
+import { buildDailyChartSeries, describeDailyChartWindow } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 interface LogisticsReportProps {
@@ -358,7 +358,9 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-base font-semibold text-slate-800">Dispatch & Delivery Volume</CardTitle>
-            <CardDescription className="text-xs text-slate-500">Daily logistics trip completion status</CardDescription>
+            <CardDescription className="text-xs text-slate-500">
+              Daily trips split by current status · {describeDailyChartWindow(chartData, 'trip')}
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-56 w-full">
@@ -421,7 +423,6 @@ export function LogisticsReport({ trips, drivers = [], warehouses = [] }: Logist
               <option value="COMPLETED">Completed</option>
               <option value="IN_PROGRESS">In Progress</option>
               <option value="PLANNED">Planned</option>
-              <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
 

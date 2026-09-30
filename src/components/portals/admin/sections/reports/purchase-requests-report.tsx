@@ -38,7 +38,7 @@ import { formatPeso, formatDayKey, toIsoDateTime } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { buildDailyChartSeries, formatOrderItemsForExport } from '@/lib/report-metrics'
+import { buildDailyChartSeries, describeDailyChartWindow, formatOrderItemsForExport } from '@/lib/report-metrics'
 import {
   getPurchaseDocumentAmount,
   getPurchaseRequestDate,
@@ -344,7 +344,7 @@ export function PurchaseRequestsReport({ orders }: PurchaseRequestsReportProps) 
           <CardHeader className="p-4 pb-4">
             <CardTitle className="text-base font-semibold text-slate-800">Daily Purchase Request Trend</CardTitle>
             <CardDescription className="text-xs text-slate-500">
-              Daily totals split by current status · Latest {chartData.length} {chartData.length === 1 ? 'day' : 'days'} with requests
+              Daily totals split by current status · {describeDailyChartWindow(chartData, 'request')}
             </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">

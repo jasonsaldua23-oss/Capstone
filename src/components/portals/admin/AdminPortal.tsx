@@ -821,6 +821,8 @@ export function AdminPortal() {
       return
     }
     if (referenceType === 'user') setActiveView('users')
+    // Existing-empties declarations are reviewed from the Customers toolbar.
+    if (referenceType === 'opening_empties') setActiveView('customers')
   }
 
   useEffect(() => {
@@ -1178,7 +1180,13 @@ export function AdminPortal() {
       case 'reports':
         return <ReportsView />
       case 'customers':
-        return <CustomersView globalSearchQuery={globalSearchQuery} />
+        return (
+          <CustomersView
+            globalSearchQuery={globalSearchQuery}
+            openEmptiesReview={notificationTarget?.referenceType === 'opening_empties' ? notificationTarget.focusKey : undefined}
+            onEmptiesReviewOpened={() => setNotificationTarget((target) => (target?.referenceType === 'opening_empties' ? null : target))}
+          />
+        )
       case 'users':
         return <UsersView />
       case 'settings':

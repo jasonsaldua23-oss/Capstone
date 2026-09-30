@@ -23,6 +23,7 @@ from ..models import (
     InventoryQuantityUnit,
     InventoryTransaction,
     MixedCaseComponent,
+    OpeningEmptiesDeclaration,
     Order,
     OrderDepositRefundClaim,
     OrderItem,
@@ -117,6 +118,9 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
                 product_key = (ct_key, str(mc.product_id))
                 reserved_by_product_container[product_key] = reserved_by_product_container.get(product_key, 0) + reserved_quantity
 
+    # Added: exchanges reserve opening stock first; invoice refunds can reserve
+    # only the separately recorded deposit-backed stock.
+    exchange_reserved_by_product_container = dict(reserved_by_product_container)
     # Pending order refund claims reserve the promised empties until the driver
     # records the actual collection or the order leaves the active workflow.
     active_refund_claims = (
@@ -137,11 +141,19 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
 
     balances = list(CustomerBottleBalance.objects.filter(customer=customer).select_related("container_type"))
     balance_container_ids = [str(balance.container_type_id) for balance in balances]
+    opening_by_product_container = {
+        (str(row["container_type_id"]), str(row["product_id"])): max(0, int(row["total"] or 0))
+        for row in OpeningEmptiesDeclaration.objects.filter(
+            customer=customer, status="APPROVED", remaining_bottles__gt=0,
+        ).values("container_type_id", "product_id").annotate(total=Sum("remaining_bottles"))
+    }
 
     # Fix: balances are grouped by reusable container, but declarations are made
     # for a specific product. Recover that product instead of listing every item
     # in the catalog that happens to use the same bottle type.
     declared_product_ids_by_container: dict[str, list[str]] = {}
+    for container_key, product_id in opening_by_product_container:
+        declared_product_ids_by_container.setdefault(container_key, []).append(product_id)
     legacy_product_names_by_container: dict[str, list[str]] = {}
     declaration_transactions = list(DepositTransaction.objects.filter(
         customer=customer,
@@ -297,13 +309,23 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
         # The database balance remains container-level. Reconcile historical
         # deductions against product declarations while keeping every product row
         # separate and ensuring their totals never exceed the shared balance.
-        excess = max(0, sum(declared_by_product.values()) - total_bottles)
+        # Added: verified opening quantities have their own remaining count and
+        # never become paid deposits through the legacy balance reconciliation.
+        opening_by_product = {
+            product_id: quantity
+            for (opening_container_id, product_id), quantity in opening_by_product_container.items()
+            if opening_container_id == container_key
+        }
+        opening_total = sum(opening_by_product.values())
+        excess = max(0, sum(declared_by_product.values()) - max(0, total_bottles - opening_total))
         for product_id in list(declared_by_product):
             removed = min(excess, declared_by_product[product_id])
             declared_by_product[product_id] -= removed
             excess -= removed
             if excess <= 0:
                 break
+        for product_id, quantity in opening_by_product.items():
+            declared_by_product[product_id] = declared_by_product.get(product_id, 0) + quantity
         unattributed = max(0, total_bottles - sum(declared_by_product.values()))
         # Fix: never guess which brand owns a legacy shared balance. It is only
         # safe to attribute the remainder when one product uses the container.
@@ -327,6 +349,13 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
                 product_reserved += additional_reserved
                 remaining_unattributed_reservation -= additional_reserved
             product_available = max(0, product_total - product_reserved)
+            opening_product_total = min(product_total, opening_by_product.get(product_id, 0))
+            opening_reserved = min(
+                opening_product_total,
+                exchange_reserved_by_product_container.get((container_key, product_id), 0),
+            )
+            opening_available = min(product_available, max(0, opening_product_total - opening_reserved))
+            refundable_available = max(0, product_available - opening_available)
             product_containers_per_case = max(1, int(option["containersPerCase"] or 1))
             product_is_case = str(option["unit"] or "").strip().lower() == "case"
             product_available_units = product_available // product_containers_per_case if product_is_case else product_available
@@ -349,6 +378,14 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
                 "depositPerUnit": product_deposit_per_unit,
                 "depositAvailable": float(product_available_units * product_deposit_per_unit),
                 "depositReserved": float(product_reserved_units * product_deposit_per_unit),
+                # Existing bottles remain usable against a new purchase's deposit,
+                # but only deposit-backed quantities may reduce an invoice total.
+                "openingBottlesAvailable": opening_available,
+                "refundableBottlesAvailable": refundable_available,
+                "refundableDepositAvailable": float(
+                    (refundable_available // product_containers_per_case if product_is_case else refundable_available)
+                    * product_deposit_per_unit
+                ),
             })
 
         serialized.append({
@@ -360,6 +397,9 @@ def get_customer_bottle_balances(customer: Customer) -> list[dict[str, Any]]:
             "productIds": [str(product.id) for product in exact_products],
             "productOptions": product_options,
             "productBalances": product_balances,
+            "openingBottlesAvailable": sum(row["openingBottlesAvailable"] for row in product_balances),
+            "refundableBottlesAvailable": sum(row["refundableBottlesAvailable"] for row in product_balances),
+            "refundableDepositAvailable": sum(row["refundableDepositAvailable"] for row in product_balances),
             # Exact stored product names and sizes for the customer portal.
             "productLabel": " · ".join(product_labels) if product_labels else None,
             "productLabels": product_labels,
@@ -771,6 +811,17 @@ def process_bottle_return(
         if quantity_graded_reusable + quantity_graded_damaged + quantity_rejected > quantity_claimed:
             raise ValueError("Graded quantities cannot exceed claimed quantity")
 
+        # Added: unallocated returns cannot turn exchange-only opening stock into
+        # money. The verified delivery flow consumes its exact opening rows first.
+        bottle_balance = get_or_create_bottle_balance(customer, container_type)
+        opening_remaining = int(OpeningEmptiesDeclaration.objects.filter(
+            customer=customer, container_type=container_type, status="APPROVED",
+        ).aggregate(total=Sum("remaining_bottles"))["total"] or 0)
+        if opening_remaining and quantity_graded_reusable + quantity_graded_damaged > max(
+            0, bottle_balance.bottles_outstanding - opening_remaining,
+        ):
+            raise ValueError("Existing empties must be collected with their matching product exchange")
+
         # Calculate refund for reusable containers. A caller that knows what the
         # customer was actually charged for this container passes that rate in;
         # refunding the container type's standing deposit instead would credit a
@@ -795,7 +846,6 @@ def process_bottle_return(
         )
 
         # Update bottle balance
-        bottle_balance = get_or_create_bottle_balance(customer, container_type)
         bottle_balance.bottles_outstanding = max(
             0,
             bottle_balance.bottles_outstanding - quantity_graded_reusable - quantity_graded_damaged,

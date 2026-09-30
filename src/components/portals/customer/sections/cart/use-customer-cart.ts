@@ -485,9 +485,9 @@ export function useCustomerCart(inputs: CustomerCartInputs) {
       )
       const isProductBalance = Array.isArray(balance?.productBalances) && balance.productBalances.length > 0
       const refundableBalance = Math.max(0, Number(
-        isProductBalance
+        balance?.refundableDepositAvailable ?? (isProductBalance
           ? balance?.depositAvailable
-          : balance?.depositBalanceTotal ?? balance?.depositAvailable ?? balance?.depositBalance ?? 0
+          : balance?.depositBalanceTotal ?? balance?.depositAvailable ?? balance?.depositBalance ?? 0)
       ))
       // Every product option shares this container balance; checkout enforces the
       // combined limit while letting the customer identify the exact product.
@@ -504,7 +504,11 @@ export function useCustomerCart(inputs: CustomerCartInputs) {
           used += additionalUsed
           unmatchedUsedByContainer.set(containerTypeId, unmatchedUsed - additionalUsed)
         }
-        const remainingAfterOrderDeposit = Math.max(0, availableBottles - used)
+        // Added: checkout uses opening stock first; only remaining paid-deposit stock can refund the bill.
+        const remainingAfterOrderDeposit = Math.max(0, Math.min(
+          availableBottles - used,
+          Number(balance?.refundableBottlesAvailable ?? availableBottles)
+        ))
         const unitDetails = getDepositRefundUnitDetails(productOption, balance)
         if (unitDetails.depositPerUnit <= 0) return []
         const maxQuantity = getMaximumDepositRefundQuantity(

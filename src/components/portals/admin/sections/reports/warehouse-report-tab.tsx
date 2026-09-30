@@ -109,30 +109,43 @@ export function WarehouseReportTab({
       <Card className={chartCardClassName}>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Warehouse Capacity vs Used</CardTitle>
-          <CardDescription>Utilization percentage per warehouse</CardDescription>
+          <CardDescription>Share of each warehouse&apos;s capacity in use and still free</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-72 w-full">
             {warehouseCapacityVsUsedChart.length === 0 ? (
               <p className="py-8 text-center text-gray-500">No warehouse capacity data available</p>
             ) : (
+              // Each column is the whole warehouse: used and free stack to 100%.
+              // A separate "Capacity" bar was always 100% and said nothing.
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={warehouseCapacityVsUsedChart} margin={{ top: 15, right: 20, left: 0, bottom: 40 }}>
+                <BarChart data={warehouseCapacityVsUsedChart} margin={{ top: 15, right: 20, left: 0, bottom: 40 }} maxBarSize={56}>
                   <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                  <YAxis allowDecimals={false} domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    allowDecimals={false}
+                    domain={[0, 100]}
+                    tickFormatter={(value: any) => `${value}%`}
+                    tick={{ fontSize: 11, fill: '#6b7280' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <Tooltip
                     contentStyle={chartTooltipStyle}
                     labelStyle={chartTooltipLabelStyle}
                     itemStyle={chartTooltipItemStyle}
-                    formatter={(value: any, name: any) => [
-                      `${Number(value).toLocaleString()}%`,
-                      String(name || ''),
-                    ]}
+                    formatter={(value: any, name: any, entry: any) => {
+                      const row = entry?.payload || {}
+                      const totalCapacity = Number(row.totalCapacity || 0)
+                      const usedUnits = Number(row.usedUnits || 0)
+                      const units = name === 'Used' ? usedUnits : Math.max(0, totalCapacity - usedUnits)
+                      return [`${formatPercentValue(Number(value || 0))} · ${units.toLocaleString()} units`, String(name || '')]
+                    }}
                   />
                   <Legend wrapperStyle={{ paddingTop: '14px', color: '#475569' }} />
-                  <Bar dataKey="capacityPercent" name="Capacity" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="usedPercent" name="Used" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  {/* Same colours as the Warehouses page capacity donut: occupied blue, free green. */}
+                  <Bar dataKey="usedPercent" name="Used" stackId="capacity" fill="#3b82f6" />
+                  <Bar dataKey="freePercent" name="Free" stackId="capacity" fill="#34d399" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}

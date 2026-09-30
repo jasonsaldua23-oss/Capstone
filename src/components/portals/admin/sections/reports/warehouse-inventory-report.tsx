@@ -576,6 +576,14 @@ export function WarehouseInventoryReport({
     }))
   }, [productMovements, inventoryStockMap, periodDays, categoryFilter, searchTerm, sortField, sortOrder])
 
+  // The table's sort control reorders rankedProducts, so anything labelled "top"
+  // or "#1" reads this copy instead. Sorting the table ascending used to chart the
+  // slowest products as "Top Fast-Moving" and crown the slowest one.
+  const productsByVolume = useMemo(
+    () => [...rankedProducts].sort((a, b) => b.totalComparableUnits - a.totalComparableUnits),
+    [rankedProducts]
+  )
+
   // KPIs
   const kpis = useMemo(() => {
     const totalMovingSkus = rankedProducts.length
@@ -583,7 +591,7 @@ export function WarehouseInventoryReport({
     const totalComparableUnits = rankedProducts.reduce((sum, p) => sum + p.totalComparableUnits, 0)
     const totalOutflowRevenue = rankedProducts.reduce((sum, p) => sum + p.totalRevenue, 0)
     const avgDailyTurnover = Number((totalComparableUnits / Math.max(1, periodDays)).toFixed(1))
-    const topFastestProduct = rankedProducts[0] || null
+    const topFastestProduct = productsByVolume[0] || null
 
     return {
       totalMovingSkus,
@@ -592,20 +600,20 @@ export function WarehouseInventoryReport({
       avgDailyTurnover,
       topFastestProduct,
     }
-  }, [rankedProducts, periodDays])
+  }, [rankedProducts, productsByVolume, periodDays])
 
   // Top 10 Chart Data
   const top10ChartData = useMemo(() => {
-    return rankedProducts.slice(0, 8).map((p) => ({
+    return productsByVolume.slice(0, 8).map((p, index) => ({
       name: p.productName.length > 18 ? `${p.productName.slice(0, 16)}...` : p.productName,
       fullName: p.productName,
       // The chart uses the same normalized quantity as the ranking and velocity calculation.
       units: Number(p.totalComparableUnits.toFixed(1)),
       velocity: p.dailyVelocity,
       revenue: p.totalRevenue,
-      rank: p.rank,
+      rank: index + 1,
     }))
-  }, [rankedProducts])
+  }, [productsByVolume])
 
   // Units here are the normalized comparable quantity the ranking itself uses.
   const chartInterpretation = useMemo(() => {

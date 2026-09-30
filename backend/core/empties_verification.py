@@ -17,6 +17,7 @@ import logging
 from decimal import Decimal
 from typing import Any
 
+from django.db import transaction
 from django.utils import timezone
 
 from .models import (
@@ -26,6 +27,7 @@ from .models import (
     CustomerBottleBalance,
     DepositTransaction,
     MixedCaseComponent,
+    OpeningEmptiesDeclaration,
     Order,
     OrderCharge,
     OrderDepositRefundClaim,
@@ -134,6 +136,7 @@ def declared_empties_by_container(
             declaration_id,
             {
                 "declarationId": declaration_id,
+                "productId": product_id,
                 "containerTypeId": container_type_id,
                 "containerTypeName": name,
                 "productNames": [],
@@ -146,6 +149,8 @@ def declared_empties_by_container(
                 "declaredCases": 0,
                 "declaredLooseBottles": 0,
                 "isRefundClaim": is_refund_claim,
+                "exchangeQuantity": 0,
+                "exchangeDepositValue": Decimal("0.00"),
             },
         )
         # Preserve the customer's case/bottle split even though settlement keeps
@@ -161,6 +166,9 @@ def declared_empties_by_container(
         entry["isRefundClaim"] = bool(entry["isRefundClaim"] or is_refund_claim)
         entry["declared"] += quantity
         entry["depositValue"] += deposit_value
+        if not is_refund_claim:
+            entry["exchangeQuantity"] += quantity
+            entry["exchangeDepositValue"] += deposit_value
         if not entry["containerTypeName"] and name:
             entry["containerTypeName"] = name
         if product_name and product_name not in entry["productNames"]:
@@ -452,6 +460,73 @@ def _create_uncollected_return(order: Order, drop_point: TripDropPoint | None, d
     return bottle_return
 
 
+def _consume_opening_exchange_empties(
+    order: Order, submitted_lines: Any, counted: dict[str, int],
+) -> tuple[dict[str, int], dict[str, Decimal]]:
+    """Consume only the matching product's opening empties actually collected."""
+    declarations = declared_empties_by_container(order, group_by_product=True)
+    opening_rows = list(
+        OpeningEmptiesDeclaration.objects.select_for_update().filter(
+            customer=order.customer, status="APPROVED", remaining_bottles__gt=0,
+        ).order_by("created_at", "id")
+    )
+    if not opening_rows:
+        return {}, {}
+    explicit_counts: dict[str, int] = {}
+    for line in submitted_lines or []:
+        if not isinstance(line, dict):
+            continue
+        key = str(line.get("declarationId") or "").strip()
+        if key in declarations and str(line.get("containerTypeId") or "") == declarations[key]["containerTypeId"]:
+            explicit_counts[key] = explicit_counts.get(key, 0) + max(
+                0, _int(line.get("returnedQuantity") or line.get("quantityCollected"), 0),
+            )
+
+    consumed_by_container: dict[str, int] = {}
+    value_by_container: dict[str, Decimal] = {}
+    for key, entry in declarations.items():
+        matching_rows = [row for row in opening_rows if (
+            str(row.container_type_id) == entry["containerTypeId"]
+            and str(row.product_id) == entry["productId"]
+        )]
+        exchange_quantity = max(0, int(entry["exchangeQuantity"]))
+        if not matching_rows or exchange_quantity <= 0:
+            continue
+        container_key = entry["containerTypeId"]
+        same_container = [row for row in declarations.values() if row["containerTypeId"] == container_key]
+        if key in explicit_counts:
+            collected = explicit_counts[key]
+        elif any(row["declarationId"] in explicit_counts for row in same_container):
+            # A per-product submission that omits this product collected none of it.
+            collected = 0
+        elif len(same_container) == 1:
+            collected = counted.get(container_key, 0)
+        elif counted.get(container_key, 0) >= sum(row["declared"] for row in same_container):
+            collected = entry["declared"]
+        elif counted.get(container_key, 0) == 0:
+            collected = 0
+        else:
+            # Old clients send only a container total. A partial mixed-brand
+            # collection cannot prove which product's opening stock was handed in.
+            raise ValueError("Record collected empties separately for each product")
+        remaining = min(max(0, collected), exchange_quantity)
+        consumed = 0
+        for row in matching_rows:
+            used = min(remaining, row.remaining_bottles)
+            if used <= 0:
+                continue
+            row.remaining_bottles -= used
+            row.save(update_fields=["remaining_bottles"])
+            consumed += used
+            remaining -= used
+        consumed_by_container[container_key] = consumed_by_container.get(container_key, 0) + consumed
+        value_by_container[container_key] = value_by_container.get(container_key, Decimal("0.00")) + (
+            entry["exchangeDepositValue"] * Decimal(consumed) / Decimal(exchange_quantity)
+        )
+    return consumed_by_container, value_by_container
+
+
+@transaction.atomic
 def record_collected_empties(
     *,
     order: Order,
@@ -485,6 +560,8 @@ def record_collected_empties(
         logger.warning("Order %s has no customer; empties cannot be settled", getattr(order, "id", ""))
         return None
 
+    # Added: serialize completion retries before consuming opening quantities.
+    Order.objects.select_for_update().get(pk=order.pk)
     # A stop is settled once. Re-completing a drop point must not refund twice.
     existing = BottleReturn.objects.filter(order=order).order_by("created_at").first()
     if existing is not None:
@@ -493,6 +570,8 @@ def record_collected_empties(
             "bottleReturnId": existing.id,
             "returnNumber": existing.return_number,
         }
+
+    opening_collected, opening_exchange_values = _consume_opening_exchange_empties(order, submitted_lines, counted)
 
     receiver = str(received_by or performed_by or "Driver").strip() or "Driver"
     return_lines: list[dict[str, Any]] = []
@@ -542,6 +621,13 @@ def record_collected_empties(
                 line["depositPerContainer"] = deposit_value / Decimal(declared_qty)
             elif deposit_per_container > 0:
                 line["depositPerContainer"] = deposit_per_container
+            if opening_collected.get(container_type_id, 0) > 0:
+                # An opening empty offsets this purchase's deposit, but no prior
+                # deposit exists to refund from the customer's financial ledger.
+                refund_value = Decimal(str(line.get("depositPerContainer", container_type.deposit_amount))) * collected_qty
+                line["depositPerContainer"] = max(
+                    Decimal("0.00"), refund_value - opening_exchange_values[container_type_id],
+                ) / Decimal(collected_qty)
             return_lines.append(line)
 
     if return_lines:
@@ -563,7 +649,9 @@ def record_collected_empties(
     # physical bottle return above updates outstanding quantities; this step moves
     # only the refundable balance that was reserved for this order.
     collected_remaining = {
-        str(line["containerTypeId"]): max(0, _int(line.get("collectedQuantity"), 0))
+        str(line["containerTypeId"]): max(
+            0, _int(line.get("collectedQuantity"), 0) - opening_collected.get(str(line["containerTypeId"]), 0),
+        )
         for line in summary_lines
     }
     claims = list(

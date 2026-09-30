@@ -17,6 +17,13 @@ export type EmptiesAdjustment = {
   lines?: Array<{ containerTypeId?: string; containerTypeName?: string; productNames?: string[]; quantityLabel?: string; shortQuantity?: number; amount?: number }>
 }
 
+/** "7Up 8oz", without repeating a size the name already carries. */
+function productNameWithSize(item: any): string {
+  const name = String(item?.productName || item?.product?.name || '').replace(/[()]/g, '').trim()
+  const size = String(item?.product?.size || item?.product?.sizeLabel || item?.product?.sizes?.join(', ') || '').replace(/[()]/g, '').trim()
+  return size && name && !name.toLowerCase().includes(size.toLowerCase()) ? `${name} ${size}` : name
+}
+
 export function getEmptiesAdjustment(order: any): EmptiesAdjustment | null {
   const adjustment = order?.emptiesAdjustment
   if (!adjustment || !(Number(adjustment.amount) > 0)) return null
@@ -33,13 +40,7 @@ export function getEmptiesAdjustment(order: any): EmptiesAdjustment | null {
           ? item.containerTypeId === line.containerTypeId
           : Boolean(line.containerTypeName) && item.containerTypeName === line.containerTypeName)
       // Added: include each product's stored size directly in the deposit explanation.
-      const productNames = matchingProducts
-        .map((item: any) => {
-          const name = String(item.productName || item.product?.name || '').replace(/[()]/g, '').trim()
-          const size = String(item.product?.size || item.product?.sizeLabel || item.product?.sizes?.join(', ') || '').replace(/[()]/g, '').trim()
-          return size && name && !name.toLowerCase().includes(size.toLowerCase()) ? `${name} ${size}` : name
-        })
-        .filter(Boolean)
+      const productNames = matchingProducts.map(productNameWithSize).filter(Boolean)
       // Shortfalls are stored as bottles; convert only when all matched products share a case size.
       const caseSizes = matchingProducts.map((item: any) =>
         String(item.productUnit || item.product?.unit || '').toLowerCase() === 'case'
@@ -79,20 +80,27 @@ export function getDepositRefundClaims(order: any): DepositRefundClaimSummary[] 
   )
 }
 
-type CheckoutEmptyRefundSummary = {
+type CheckoutEmptiesExchange = {
   label: string
   amount: number
 }
 
-function getCheckoutEmptyRefunds(order: any): CheckoutEmptyRefundSummary[] {
+/**
+ * Empties the customer exchanged at checkout for the products they ordered.
+ *
+ * This is an exchange, not a refund: those containers simply are not charged a new
+ * deposit, so the item's net deposit already leaves them out. Declared existing
+ * empties are used this way too, and were never a paid deposit to refund.
+ */
+function getCheckoutEmptiesExchanged(order: any): CheckoutEmptiesExchange[] {
   return (Array.isArray(order?.items) ? order.items : []).flatMap((item: any) => {
     if (String(item?.itemType || '').toUpperCase() === 'MIXED_CASE') {
       return (Array.isArray(item?.components) ? item.components : []).flatMap((component: any) => {
         const bottles = Math.max(0, Number(component?.emptyCoveredQuantity || 0))
         const amount = bottles * Math.max(0, Number(component?.depositPerUnit || 0))
         if (bottles <= 0 || amount <= 0) return []
-        const name = component?.productName || component?.product?.name || component?.containerTypeName || 'Returnable container'
-        return [{ label: `Checkout — ${name}: ${bottles} bottle${bottles === 1 ? '' : 's'}`, amount }]
+        const name = productNameWithSize(component) || component?.containerTypeName || 'Returnable container'
+        return [{ label: `${name}: ${bottles} bottle${bottles === 1 ? '' : 's'}`, amount }]
       })
     }
 
@@ -107,18 +115,17 @@ function getCheckoutEmptyRefunds(order: any): CheckoutEmptyRefundSummary[] {
       cases > 0 ? `${cases} case${cases === 1 ? '' : 's'}` : '',
       bottles > 0 ? `${bottles} bottle${bottles === 1 ? '' : 's'}` : '',
     ].filter(Boolean).join(' + ')
-    const name = item?.productName || item?.product?.name || item?.containerTypeName || 'Returnable container'
-    return [{ label: `Checkout — ${name}: ${quantityLabel}`, amount }]
+    const name = productNameWithSize(item) || item?.containerTypeName || 'Returnable container'
+    return [{ label: `${name}: ${quantityLabel}`, amount }]
   })
 }
 
+/** Deposit refunded as credit against this order; unlike an exchange, it lowers the total. */
 export function getDepositRefundAmount(order: any): number {
-  const claimAmount = getDepositRefundClaims(order).reduce(
+  return getDepositRefundClaims(order).reduce(
     (sum, claim) => sum + Math.max(0, Number(claim.requestedAmount || 0)),
     0,
   )
-  const checkoutAmount = getCheckoutEmptyRefunds(order).reduce((sum, refund) => sum + refund.amount, 0)
-  return claimAmount + checkoutAmount
 }
 
 function describeDepositRefundClaim(claim: DepositRefundClaimSummary): string {
@@ -165,21 +172,38 @@ export function EmptiesChargeRow({ order, className = '' }: { order: any; classN
   )
 }
 
-/** One negative totals row for empty deposits applied to this order. */
+/**
+ * The empties exchanged at checkout. The container deposit shown beside it is already
+ * net of them, so the row says what they cover instead of subtracting them a second time.
+ */
+export function EmptiesExchangeRow({ order, className = '' }: { order: any; className?: string }) {
+  const exchanges = getCheckoutEmptiesExchanged(order)
+  if (!exchanges.length) return null
+  const amount = exchanges.reduce((sum, exchange) => sum + exchange.amount, 0)
+  return (
+    <div className={`flex items-start justify-between gap-3 text-emerald-700 ${className}`}>
+      <span className="min-w-0">
+        Empties used at checkout
+        <span className="block text-[10px] leading-4 text-emerald-600 md:text-[11px]">
+          {exchanges.map((exchange) => exchange.label).join('; ')}
+        </span>
+      </span>
+      <span className="shrink-0 font-semibold">Covers {formatAmount(amount)}</span>
+    </div>
+  )
+}
+
+/** One negative totals row for empties refunded as credit against this order. */
 export function DepositRefundRow({ order, className = '' }: { order: any; className?: string }) {
   const claims = getDepositRefundClaims(order)
-  const checkoutRefunds = getCheckoutEmptyRefunds(order)
   const amount = getDepositRefundAmount(order)
-  if ((!claims.length && !checkoutRefunds.length) || amount <= 0) return null
+  if (!claims.length || amount <= 0) return null
   return (
     <div className={`flex items-start justify-between gap-3 text-emerald-700 ${className}`}>
       <span className="min-w-0">
         Empty deposit refund
         <span className="block text-[10px] leading-4 text-emerald-600 md:text-[11px]">
-          {[
-            ...checkoutRefunds.map((refund) => refund.label),
-            ...claims.map(describeDepositRefundClaim),
-          ].join('; ')}
+          {claims.map(describeDepositRefundClaim).join('; ')}
         </span>
       </span>
       <span className="shrink-0 font-semibold">-{formatAmount(amount)}</span>

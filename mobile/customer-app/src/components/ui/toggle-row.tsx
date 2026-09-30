@@ -10,11 +10,13 @@ export function ToggleRow({
   description,
   value,
   onValueChange,
+  disabled = false,
 }: {
   label: string;
   description: string;
   value: boolean;
   onValueChange: (value: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <View style={styles.toggleRow}>
@@ -22,7 +24,7 @@ export function ToggleRow({
         <Text style={styles.listTitle}>{label}</Text>
         <Text style={styles.subtle}>{description}</Text>
       </View>
-      <Switch value={value} onValueChange={onValueChange} trackColor={{ false: "#cbd5e1", true: theme.colors.emerald }} thumbColor="#ffffff" />
+      <Switch accessibilityLabel={label} disabled={disabled} value={value} onValueChange={onValueChange} trackColor={{ false: "#cbd5e1", true: theme.colors.emerald }} thumbColor="#ffffff" />
     </View>
   );
 }

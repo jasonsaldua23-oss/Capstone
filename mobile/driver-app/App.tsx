@@ -36,6 +36,7 @@ import {
   fetchDriverProfile,
   fetchDriverTrips,
   fetchNotifications,
+  notificationPreferences,
   clearNotifications,
   markAllNotificationsRead,
   getStoredUser,
@@ -201,6 +202,9 @@ export default function App() {
   const [activeProfileModal, setActiveProfileModal] = useState<DriverProfileModal>(null);
   const [confirmLogoutVisible, setConfirmLogoutVisible] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState<DriverNotificationPreferences>(defaultNotificationPrefs);
+  const [notificationSettingsBusy, setNotificationSettingsBusy] = useState(true);
+  const [notificationSettingsError, setNotificationSettingsError] = useState("");
+  const notificationSavingRef = useRef(false);
   const [securityPrefs, setSecurityPrefs] = useState<DriverSecurityPreferences>(defaultSecurityPrefs);
   const [securityForm, setSecurityForm] = useState(initialSecurityForm);
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -463,26 +467,32 @@ export default function App() {
   }
 
   async function loadNotificationPreferences() {
+    setNotificationSettingsBusy(true);
+    setNotificationSettingsError("");
     try {
-      const raw = await AsyncStorage.getItem(DRIVER_NOTIFICATION_PREFS_KEY);
-      if (!raw) {
-        setNotificationPrefs(defaultNotificationPrefs);
-        return;
-      }
-      const parsed = JSON.parse(raw) as Partial<DriverNotificationPreferences>;
-      setNotificationPrefs({
-        tripNotifications: parsed.tripNotifications ?? true,
-        deliveryUpdates: parsed.deliveryUpdates ?? true,
-        systemAlerts: parsed.systemAlerts ?? true,
-      });
+      setNotificationPrefs({ ...defaultNotificationPrefs, ...await notificationPreferences() });
     } catch {
-      setNotificationPrefs(defaultNotificationPrefs);
+      setNotificationSettingsError("Unable to load notification settings. Please retry.");
+    } finally {
+      setNotificationSettingsBusy(false);
     }
   }
 
   async function persistNotificationPreferences(nextPrefs: DriverNotificationPreferences) {
-    setNotificationPrefs(nextPrefs);
-    await AsyncStorage.setItem(DRIVER_NOTIFICATION_PREFS_KEY, JSON.stringify(nextPrefs));
+    if (notificationSettingsBusy || notificationSettingsError || notificationSavingRef.current) return;
+    notificationSavingRef.current = true;
+    setNotificationSettingsBusy(true);
+    try {
+      // Account persistence makes driver switches affect real delivery, not only their appearance.
+      const changes = Object.fromEntries((["tripNotifications", "deliveryUpdates"] as const)
+        .filter((key) => nextPrefs[key] !== notificationPrefs[key]).map((key) => [key, nextPrefs[key]]));
+      setNotificationPrefs({ ...defaultNotificationPrefs, ...await notificationPreferences(changes) });
+    } catch {
+      Alert.alert("Notification settings", "Unable to save your choice. Please try again.");
+    } finally {
+      notificationSavingRef.current = false;
+      setNotificationSettingsBusy(false);
+    }
   }
 
   async function loadSecurityPreferences() {
@@ -2026,20 +2036,17 @@ export default function App() {
                 label="Trip Notifications"
                 description="Receive updates for new or reassigned trips."
                 value={notificationPrefs.tripNotifications}
+                disabled={notificationSettingsBusy || Boolean(notificationSettingsError)}
                 onValueChange={(value) => void persistNotificationPreferences({ ...notificationPrefs, tripNotifications: value })}
               />
               <ToggleRow
                 label="Delivery Updates"
                 description="Receive route progress and stop completion alerts."
                 value={notificationPrefs.deliveryUpdates}
+                disabled={notificationSettingsBusy || Boolean(notificationSettingsError)}
                 onValueChange={(value) => void persistNotificationPreferences({ ...notificationPrefs, deliveryUpdates: value })}
               />
-              <ToggleRow
-                label="System Alerts"
-                description="Receive important driver announcements."
-                value={notificationPrefs.systemAlerts}
-                onValueChange={(value) => void persistNotificationPreferences({ ...notificationPrefs, systemAlerts: value })}
-              />
+              {notificationSettingsError ? <Pressable accessibilityRole="button" onPress={() => void loadNotificationPreferences()}><Text>{notificationSettingsError} Retry</Text></Pressable> : null}
             </View>
           </ModalShell>
 
@@ -3064,11 +3071,13 @@ function ToggleRow({
   description,
   value,
   onValueChange,
+  disabled = false,
 }: {
   label: string;
   description: string;
   value: boolean;
   onValueChange: (value: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <View style={styles.toggleRow}>
@@ -3076,7 +3085,7 @@ function ToggleRow({
         <Text style={styles.listTitle}>{label}</Text>
         <Text style={styles.subtle}>{description}</Text>
       </View>
-      <Switch value={value} onValueChange={onValueChange} trackColor={{ false: "#cbd5e1", true: "#0f766e" }} thumbColor="#ffffff" />
+      <Switch accessibilityLabel={label} disabled={disabled} value={value} onValueChange={onValueChange} trackColor={{ false: "#cbd5e1", true: "#0f766e" }} thumbColor="#ffffff" />
     </View>
   );
 }

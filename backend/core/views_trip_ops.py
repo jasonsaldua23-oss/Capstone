@@ -22,6 +22,7 @@ from .api_utils import (
     to_int as _int,
 )
 from .empties_verification import record_collected_empties
+from .notification_services import _create_user_notification
 from .fleet_sync import MANUAL_VEHICLE_STATUSES, sync_vehicle_status_for_trip, trip_scheduled_date
 from .mixed_case import serialize_mixed_component
 from .models import (
@@ -540,6 +541,10 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
         reference_type="trip",
         reference_id=t.id,
     )
+    # Route progress belongs to Delivery Updates, separate from trip assignments.
+    _create_user_notification(user=t.driver, title="Deliveries started",
+        message=f"Deliveries for trip {t.trip_number} have started.", notification_type="DELIVERY",
+        reference_type="trip", reference_id=t.id)
     return _ok({"success": True, "trip": _serialize_model(t)})
 
 
@@ -624,6 +629,10 @@ def trip_complete(request: HttpRequest, trip_id: str) -> JsonResponse:
         reference_type="trip",
         reference_id=completed_trip.id,
     )
+    # Delivery milestones honor the driver's Delivery Updates preference.
+    _create_user_notification(user=completed_trip.driver, title="Deliveries completed",
+        message=f"Deliveries for trip {completed_trip.trip_number} are complete.", notification_type="DELIVERY",
+        reference_type="trip", reference_id=completed_trip.id)
     return _ok({
         "success": True,
         "alreadyCompleted": False,

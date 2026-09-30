@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
 
 const poppins = { className: '' }
+const REMEMBERED_EMAIL_KEY = 'system-login-remembered-email'
 
 type LoginMethod = 'password' | 'google'
 
@@ -179,6 +180,16 @@ export function SystemLoginPage({
 
     persistWelcomeState(portal, user)
     if (typeof token === 'string' && token) setTabAuthToken(token, { persistent })
+    // Added: keep the successful login email separate from credentials removed on logout.
+    try {
+      if (persistent) {
+        window.localStorage.setItem(REMEMBERED_EMAIL_KEY, user.email)
+      } else {
+        window.localStorage.removeItem(REMEMBERED_EMAIL_KEY)
+      }
+    } catch {
+      // Unavailable browser storage must not prevent sign-in.
+    }
     setLoginSucceeded(true)
     window.sessionStorage.setItem('login-success-pending', portal)
     router.replace(homePathForPortal(portal))
@@ -190,6 +201,17 @@ export function SystemLoginPage({
     const controller = new AbortController()
 
     async function checkSession() {
+      // Added: restore the remembered email and checkbox after logout; never store a password.
+      try {
+        const rememberedEmail = window.localStorage.getItem(REMEMBERED_EMAIL_KEY)
+        if (rememberedEmail) {
+          setEmail(rememberedEmail)
+          setRememberMe(true)
+          rememberMeRef.current = true
+        }
+      } catch {
+        // The login form remains usable when browser storage is unavailable.
+      }
       try {
         // Fix: a tab opened from another tab can inherit a copy of sessionStorage.
         // The neutral login must still allow a different account without revoking

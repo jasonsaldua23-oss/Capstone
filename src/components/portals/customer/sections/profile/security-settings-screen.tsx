@@ -4,10 +4,9 @@ import { type NotificationPrefs } from './profile-shared'
 import { type Dispatch, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
-import { toast } from 'sonner'
 
 /**
- * Two-factor, login alert and remembered-device switches.
+ * Customer security controls for two-factor authentication and login alerts.
  */
 export type SecuritySettingsScreenProps = {
   isEditingSecurity: boolean
@@ -27,10 +26,8 @@ export function SecuritySettingsScreen({
   isSavingSecurity,
   loginAlertsEnabled,
   notifications,
-  rememberDeviceEnabled,
   saveSecuritySetting,
   setIsEditingSecurity,
-  setRememberDeviceEnabled,
   setSubView,
   twoFactorEnabled,
 }: SecuritySettingsScreenProps) {
@@ -88,29 +85,6 @@ export function SecuritySettingsScreen({
           </button>
         </div>
 
-        <div className="flex items-center justify-between p-4">
-          <div className="space-y-0.5 pr-4">
-            <p className="text-sm font-semibold text-slate-900">Remember Device Sessions</p>
-            <p className="text-xs text-slate-500 max-w-sm">Keep trusted sessions active on your browser for faster access.</p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={rememberDeviceEnabled}
-            disabled={!isEditingSecurity}
-            onClick={() => {
-              const next = !rememberDeviceEnabled
-              setRememberDeviceEnabled(next)
-              if (typeof window !== 'undefined') localStorage.setItem('customer_remember_device_enabled', String(next))
-              toast.success(next ? 'Device remembering enabled' : 'Device remembering disabled')
-            }}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-              rememberDeviceEnabled ? 'bg-[#14532d]' : 'bg-slate-200'
-            } ${!isEditingSecurity ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${rememberDeviceEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-          </button>
-        </div>
       </div>
       <div className="px-4 pt-2">
         <Button

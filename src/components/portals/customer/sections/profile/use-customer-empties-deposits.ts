@@ -40,14 +40,15 @@ export function useCustomerEmptiesDeposits(inputs: CustomerEmptiesDepositsInputs
       .flatMap(getProductDepositBalanceRows)
       .flatMap((balance: any) => {
       const containerTypeId = String(balance?.containerTypeId || '').trim()
-      const bottlesAvailable = Math.max(0, Math.floor(Number(balance?.bottlesAvailable ?? balance?.bottlesOutstanding ?? 0)))
+      // Added: opening empties are exchange-only, so invoice refunds use verified deposit quantities.
+      const bottlesAvailable = Math.max(0, Math.floor(Number(balance?.refundableBottlesAvailable ?? balance?.bottlesAvailable ?? balance?.bottlesOutstanding ?? 0)))
       const isProductBalance = Array.isArray(balance?.productBalances) && balance.productBalances.length > 0
       // Product rows must use their own refundable value; the parent total may
       // include another brand that shares the same physical bottle type.
       const refundableBalance = Math.max(0, Number(
-        isProductBalance
+        balance?.refundableDepositAvailable ?? (isProductBalance
           ? balance?.depositAvailable
-          : balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0
+          : balance?.depositBalanceTotal ?? balance?.depositAvailable ?? 0)
       ))
       const productOptions = Array.isArray(balance?.productOptions) ? balance.productOptions : []
       if (!containerTypeId || bottlesAvailable <= 0 || refundableBalance <= 0) return []
@@ -312,6 +313,8 @@ export function useCustomerEmptiesDeposits(inputs: CustomerEmptiesDepositsInputs
     isSubmittingRefund,
     recordCases,
     recordLooseBottles,
+    // Added: declaration reviews refresh the same customer state used by checkout and refunds.
+    refreshCustomerBalances,
     refundEmptyOptions,
     refundQuantityByProduct,
     refundableOrders,

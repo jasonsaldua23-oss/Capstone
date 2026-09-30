@@ -4,6 +4,7 @@ from collections.abc import Iterable
 
 from . import views_api as legacy
 from .models import Customer, Notification, RoleType, User
+from .notification_preferences import notification_allowed
 
 
 # Resolved through views_api so tests and runtime overrides that rebind
@@ -63,6 +64,8 @@ def _notify_staff_roles(
     reference_id: str | None,
 ) -> None:
     recipients = list(User.objects.filter(role__in=roles, is_active=True).only("id"))
+    # Apply each account's choices before creating a record or queuing its push.
+    recipients = [user for user in recipients if notification_allowed(user, notification_type)]
     if not recipients:
         return
 
@@ -100,7 +103,7 @@ def _create_customer_notification(
     reference_type: str | None = None,
     reference_id: str | None = None,
 ) -> None:
-    if not customer:
+    if not customer or not notification_allowed(customer, notification_type):
         return
     Notification.objects.create(
         customer=customer,
@@ -132,7 +135,7 @@ def _create_user_notification(
     reference_id: str | None = None,
 ) -> None:
     """Create a notification for one staff user, such as an assigned driver."""
-    if not user:
+    if not user or not notification_allowed(user, notification_type):
         return
     Notification.objects.create(
         user=user,

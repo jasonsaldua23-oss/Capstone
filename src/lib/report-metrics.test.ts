@@ -55,6 +55,9 @@ import {
   formatPesoAxisTick,
   getReportChartBucket,
   retailTrendGranularity,
+  buildRetailSalesTrend,
+  buildWarehouseCapacityVsUsedChart,
+  describeDailyChartWindow,
 } from './report-metrics.ts'
 import {
   FEEDBACK_OVERALL_REASONS,
@@ -942,4 +945,59 @@ test('report chart buckets label a day and a month unambiguously', () => {
 test('retail sales trends draw days for today and short ranges, months for long ones', () => {
   for (const mode of ['today', '7', '30', 'custom']) assert.equal(retailTrendGranularity(mode), 'day')
   for (const mode of ['all', '90', '365']) assert.equal(retailTrendGranularity(mode), 'month')
+})
+
+// Regression: only days with a sale were drawn, so the area ran straight from
+// Sep 3 to Sep 5 as if Sep 4 had sold something.
+test('retail sales trend keeps quiet days and months on the axis as zero', () => {
+  const sales = [
+    { date: new Date(2026, 8, 5, 14).toISOString(), amount: 50 },
+    { date: new Date(2026, 8, 3, 9).toISOString(), amount: 100 },
+    { date: new Date(2026, 8, 3, 16).toISOString(), amount: 25 },
+  ]
+  const daily = buildRetailSalesTrend(sales, {
+    granularity: 'day',
+    start: new Date(2026, 8, 1),
+    end: new Date(2026, 8, 6, 23, 59, 59, 999),
+  })
+  assert.deepEqual(daily.map((point) => point.key), [
+    '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06',
+  ])
+  assert.deepEqual(daily.map((point) => point.sales), [0, 0, 125, 0, 50, 0])
+  assert.deepEqual(daily.map((point) => point.count), [0, 0, 2, 0, 1, 0])
+
+  // An open start (All Time) begins at the first sale; an open end runs to now.
+  const monthly = buildRetailSalesTrend(
+    [
+      { date: new Date(2026, 6, 10).toISOString(), amount: 300 },
+      { date: new Date(2026, 8, 2).toISOString(), amount: 200 },
+    ],
+    { granularity: 'month', start: null, end: null, now: new Date(2026, 9, 1) },
+  )
+  assert.deepEqual(monthly.map((point) => point.label), ['Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026'])
+  assert.deepEqual(monthly.map((point) => point.sales), [300, 0, 200, 0])
+
+  assert.deepEqual(buildRetailSalesTrend([], { granularity: 'day', start: null, end: null }), [])
+})
+
+// Regression: every warehouse drew an identical 100% "Capacity" bar beside its usage.
+test('warehouse capacity chart splits each warehouse into used and free space', () => {
+  const rows = buildWarehouseCapacityVsUsedChart(
+    [{ id: 'w1', code: 'WH1', capacity: 1000 }, { id: 'w2', code: 'WH2', capacity: 10000 }],
+    [{ warehouseId: 'w1', quantity: 250 }, { warehouseId: 'w2', quantity: 48 }],
+    { getWarehouseIdFromRow: (row: any) => row.warehouseId },
+  )
+  assert.deepEqual(rows, [
+    { name: 'WH1', usedPercent: 25, freePercent: 75, usedUnits: 250, totalCapacity: 1000 },
+    { name: 'WH2', usedPercent: 0.5, freePercent: 99.5, usedUnits: 48, totalCapacity: 10000 },
+  ])
+})
+
+// Regression: the daily trends show only the 14 days up to the newest record,
+// while their captions implied the whole selected range.
+test('describeDailyChartWindow names the span a daily trend actually draws', () => {
+  const fortnight = Array.from({ length: 14 }, (_, index) => ({ date: `9/${16 + index}` }))
+  assert.equal(describeDailyChartWindow(fortnight, 'request'), '14 days, 9/16 – 9/29, ending at the latest request')
+  assert.equal(describeDailyChartWindow([{ date: '9/29' }], 'trip'), '9/29 only')
+  assert.equal(describeDailyChartWindow([], 'trip'), '')
 })

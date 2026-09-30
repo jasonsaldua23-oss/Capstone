@@ -904,11 +904,12 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   }, [transportDriverRows])
 
   const transportCompletionBandChart = useMemo(() => {
+    // Worst to best, red to green. 70-89% used to be blue, which broke the scale.
     const bands = [
       { name: '0-39%', key: '0_39', count: 0, color: '#ef4444' },
       { name: '40-69%', key: '40_69', count: 0, color: '#f59e0b' },
-      { name: '70-89%', key: '70_89', count: 0, color: '#3b82f6' },
-      { name: '90-100%', key: '90_100', count: 0, color: '#22c55e' },
+      { name: '70-89%', key: '70_89', count: 0, color: '#4ade80' },
+      { name: '90-100%', key: '90_100', count: 0, color: '#16a34a' },
     ]
 
     transportDriverRows.forEach((row) => {

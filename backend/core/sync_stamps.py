@@ -133,6 +133,8 @@ _PATH_SCOPES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("/api/customer/orders", ("orders", "inventory", "stocks")),
     ("/api/customer/replacements", ("replacements", "orders")),
     ("/api/customer/empty-bottles", ("orders", "customers")),
+    # Staff review changes exchange availability across devices.
+    ("/api/staff/empty-bottles", ("orders", "customers")),
     ("/api/bottle-returns", ("orders", "customers", "inventory", "stocks")),
     ("/api/replacements", ("replacements", "orders")),
     ("/api/trips", ("trips", "orders", "inventory", "stocks")),

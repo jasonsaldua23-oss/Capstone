@@ -11,9 +11,6 @@ import {
   BarChart,
   Bar,
   ResponsiveContainer,
-  Legend,
-  PieChart,
-  Pie,
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComposition, describeRanking, toPoints } from '@/lib/chart-interpretation'
@@ -122,30 +119,35 @@ export function TransportReportTab({
               {transportCompletionBandChart.every((band) => Number(band.count) === 0) ? (
                 <p className="py-8 text-center text-gray-500">No completion data for selected filters</p>
               ) : (
+                // The bands are an ordered scale, so they stand in order along an
+                // axis; a donut lost that order.
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={transportCompletionBandChart}
-                      dataKey="count"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={56}
-                      outerRadius={94}
-                      paddingAngle={2}
-                    >
-                      {transportCompletionBandChart.map((entry) => (
-                        <Cell key={entry.key} fill={entry.color} />
-                      ))}
-                    </Pie>
+                  <BarChart data={transportCompletionBandChart} margin={{ top: 12, right: 20, left: 0, bottom: 16 }}>
+                    <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 11, fill: '#64748b' }}
+                      axisLine={false}
+                      tickLine={false}
+                      label={{ value: 'Completion rate', position: 'insideBottom', offset: -10, style: { fontSize: 12, fill: '#64748b' } }}
+                    />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                     <Tooltip
+                      cursor={false}
                       contentStyle={chartTooltipStyle}
                       labelStyle={chartTooltipLabelStyle}
                       itemStyle={chartTooltipItemStyle}
-                      formatter={(value: any) => [`${Number(value || 0)} drivers`, 'Count']}
+                      formatter={(value: any) => {
+                        const count = Number(value || 0)
+                        return [`${count} ${count === 1 ? 'driver' : 'drivers'}`, 'Drivers']
+                      }}
                     />
-                    <Legend verticalAlign="bottom" wrapperStyle={{ color: '#64748b', fontSize: '12px' }} />
-                  </PieChart>
+                    <Bar dataKey="count" name="Drivers" radius={[6, 6, 0, 0]} maxBarSize={56}>
+                      {transportCompletionBandChart.map((entry) => (
+                        <Cell key={entry.key} fill={entry.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
                 </ResponsiveContainer>
               )}
             </div>
@@ -155,27 +157,38 @@ export function TransportReportTab({
         <Card className={chartCardClassName}>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Top Drivers by Completion</CardTitle>
-            <CardDescription>Ranking by completion rate, tie-broken by trip volume</CardDescription>
+            <CardDescription>Completion rate per driver, tie-broken by trip volume · trip counts in the tooltip</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-72 w-full">
               {transportTopDrivers.length === 0 ? (
                 <p className="py-8 text-center text-gray-500">No ranked driver data for selected filters</p>
               ) : (
+                // Only the percentage is plotted. Trip counts used to share this
+                // 0-100% axis, so a driver with 5 trips drew a sliver beside a full
+                // bar, and anyone past 100 trips stretched the percentage scale.
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={transportTopDrivers} margin={{ top: 12, right: 20, left: 0, bottom: 36 }}>
                     <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} domain={[0, 100]} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                    <YAxis
+                      allowDecimals={false}
+                      domain={[0, 100]}
+                      tickFormatter={(value: any) => `${value}%`}
+                      tick={{ fontSize: 11, fill: '#64748b' }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
                     <Tooltip
                       contentStyle={chartTooltipStyle}
                       labelStyle={chartTooltipLabelStyle}
                       itemStyle={chartTooltipItemStyle}
-                      formatter={(value: any, key: any) => [key === 'completionRate' ? `${Number(value || 0)}%` : Number(value || 0).toLocaleString(), key === 'completionRate' ? 'Completion' : 'Trips']}
+                      formatter={(value: any, _name: any, entry: any) => {
+                        const trips = Number(entry?.payload?.totalTrips || 0)
+                        return [`${Number(value || 0)}% · ${trips.toLocaleString()} ${trips === 1 ? 'trip' : 'trips'}`, 'Completion']
+                      }}
                     />
-                    <Legend verticalAlign="top" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
-                    <Bar dataKey="completionRate" name="Completion %" fill="#2563eb" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="totalTrips" name="Trips" fill="#22c55e" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="completionRate" name="Completion %" fill="#2563eb" radius={[6, 6, 0, 0]} maxBarSize={48} />
                   </BarChart>
                 </ResponsiveContainer>
               )}

@@ -1,6 +1,6 @@
 'use client'
 
-import { type Dispatch, type SetStateAction } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,7 @@ import {
   WalletCards,
 } from 'lucide-react'
 import type { CustomerEmptiesDeposits } from './use-customer-empties-deposits'
+import { ExistingEmptiesDialog } from './existing-empties-dialog'
 
 /**
  * Empty bottles and glass deposits: balances, recording returns, reserved orders, and applying refunds.
@@ -36,6 +37,7 @@ export type EmptiesDepositsScreenProps = {
   isSubmittingRefund: CustomerEmptiesDeposits['isSubmittingRefund']
   recordCases: CustomerEmptiesDeposits['recordCases']
   recordLooseBottles: CustomerEmptiesDeposits['recordLooseBottles']
+  refreshCustomerBalances: CustomerEmptiesDeposits['refreshCustomerBalances']
   refundEmptyOptions: CustomerEmptiesDeposits['refundEmptyOptions']
   refundQuantityByProduct: CustomerEmptiesDeposits['refundQuantityByProduct']
   refundableOrders: CustomerEmptiesDeposits['refundableOrders']
@@ -67,6 +69,7 @@ export function EmptiesDepositsScreen({
   isSubmittingRefund,
   recordCases,
   recordLooseBottles,
+  refreshCustomerBalances,
   refundEmptyOptions,
   refundQuantityByProduct,
   refundableOrders,
@@ -84,6 +87,7 @@ export function EmptiesDepositsScreen({
   setSubView,
   user,
 }: EmptiesDepositsScreenProps) {
+  const [isExistingEmptiesOpen, setIsExistingEmptiesOpen] = useState(false)
   const bottleBalances = (Array.isArray(user?.bottleBalances) ? user.bottleBalances : [])
     .flatMap(getProductDepositBalanceRows)
   const formatDeposit = (amount: unknown) => new Intl.NumberFormat('en-PH', {
@@ -189,6 +193,7 @@ export function EmptiesDepositsScreen({
                   ? Math.max(0, Math.floor(Number(balance.bottlesAvailable)))
                   : Math.max(0, Math.floor(Number(balance.bottlesOutstanding || 0)))
                 const reservedBottles = Math.max(0, Math.floor(Number(balance.bottlesReserved || 0)))
+                const openingBottles = Math.max(0, Math.floor(Number(balance.openingBottlesAvailable || 0)))
                 const productOptions = Array.isArray(balance.productOptions) ? balance.productOptions : []
                 const productUnits = productOptions.map((product: any) => String(product?.unit || '').trim().toLowerCase())
                 const isCaseFormat = productUnits.length > 0
@@ -201,8 +206,16 @@ export function EmptiesDepositsScreen({
                 const availableQuantity = Math.floor(bottlesAvailable / unitDetails.containersPerUnit)
                 const reservedQuantity = Math.floor(reservedBottles / unitDetails.containersPerUnit)
                 const hasReserved = reservedQuantity > 0
+                // Count exchange-only stock in the row's own unit, so a case row never says "0 cases ... 24 bottles".
+                const openingCases = isCaseFormat ? Math.floor(openingBottles / unitDetails.containersPerUnit) : 0
+                const openingLooseBottles = openingBottles - openingCases * unitDetails.containersPerUnit
+                const openingLabel = [
+                  openingCases > 0 ? `${openingCases} case${openingCases === 1 ? '' : 's'}` : '',
+                  openingLooseBottles > 0 ? `${openingLooseBottles} bottle${openingLooseBottles === 1 ? '' : 's'}` : '',
+                ].filter(Boolean).join(' + ')
+                // Added: starting empties waive exchange deposits without proving a refundable payment.
                 const depositAvailable = Math.min(
-                  Math.max(0, Number(balance.depositBalanceTotal ?? balance.depositBalance ?? 0)),
+                  Math.max(0, Number(balance.refundableDepositAvailable ?? balance.depositBalanceTotal ?? balance.depositBalance ?? 0)),
                   availableQuantity * unitDetails.depositPerUnit
                 )
 
@@ -228,6 +241,11 @@ export function EmptiesDepositsScreen({
                         <p className={`mt-0.5 text-xs font-semibold ${depositAvailable > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
                           {formatDeposit(depositAvailable)} credit
                         </p>
+                        {openingLabel ? (
+                          <p className="mt-1 max-w-[11rem] text-[11px] text-slate-500">
+                            Includes {openingLabel} for exchange only
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
@@ -254,7 +272,7 @@ export function EmptiesDepositsScreen({
               </div>
               <p className="text-sm font-semibold text-slate-700">No Empty Bottles Recorded</p>
               <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto">
-                Have empty cases at home from past purchases? Click <strong>"Record Empties"</strong> to declare them in cases and waive container deposits on your next order.
+                Use <strong>Record Empties</strong> for purchases in this system, or <strong>Declare existing empties</strong> below for containers you already had before joining.
               </p>
             </div>
           )}
@@ -537,6 +555,14 @@ export function EmptiesDepositsScreen({
         </div>
       )}
 
+      {/* Added: new accounts can declare starting quantities for staff verification. */}
+      <ExistingEmptiesDialog
+        open={isExistingEmptiesOpen}
+        onOpenChange={setIsExistingEmptiesOpen}
+        refreshCustomerBalances={refreshCustomerBalances}
+        showSummary={emptiesTab === 'available'}
+      />
+
       {/* Record Empty Bottles Dialog */}
       <Dialog open={isRecordModalOpen} onOpenChange={setIsRecordModalOpen}>
         <DialogContent className="sm:max-w-md rounded-3xl p-6">
@@ -562,9 +588,19 @@ export function EmptiesDepositsScreen({
               </div>
               <p className="text-sm font-semibold text-slate-800">No Eligible Returnable History</p>
               <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-                You have no unreturned glass case purchases on record. Empty bottles can only be declared for returnable glass products previously purchased from our store.
+                You have no unreturned glass case purchases on record. If you already had empties before using this system, declare your existing empties for staff verification.
               </p>
-              <div className="pt-2">
+              <div className="flex flex-wrap justify-center gap-2 pt-2">
+                <Button
+                  type="button"
+                  className="rounded-xl bg-emerald-600 text-xs text-white hover:bg-emerald-500"
+                  onClick={() => {
+                    setIsRecordModalOpen(false)
+                    setIsExistingEmptiesOpen(true)
+                  }}
+                >
+                  Declare existing empties
+                </Button>
                 <Button
                   variant="outline"
                   className="rounded-xl text-xs"

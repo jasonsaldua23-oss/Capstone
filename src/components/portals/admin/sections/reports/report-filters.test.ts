@@ -102,6 +102,18 @@ test('replacement filters and historical chart use the same selected records', (
   assert.equal(derive('replacement-records-report', 'ReplacementRecordsReport', { replacements }, state, 4).length, 0)
 })
 
+// Regression: rejected and cancelled replacements were drawn as "Open / In-Progress".
+// Admins reject requests and a cancelled replacement delivery cancels the request.
+test('replacement trend keeps rejected and cancelled replacements out of open', () => {
+  const statuses = ['RESOLVED_ON_DELIVERY', 'COMPLETED', 'REJECTED', 'CANCELLED', 'UNDER_REVIEW', 'APPROVED', 'IN_PROGRESS']
+  const replacements = statuses.map((status, index) => ({ ...orders[0], id: `rep-${index}`, status, reason: 'Broken bottle' }))
+  const [day] = derive('replacement-records-report', 'ReplacementRecordsReport', { replacements }, ['', 'all', 'all', 'all', '', '', 'asc', 1], 6)
+  assert.deepEqual(
+    { total: day.total, resolved: day.resolved, rejected: day.rejected, pending: day.pending },
+    { total: 7, resolved: 2, rejected: 2, pending: 3 },
+  )
+})
+
 test('top clients combines its custom range and client search', () => {
   const state = ['custom', '2026-09-10', '2026-09-12', 'alice', 'amount', 1]
   const rows = derive('top-clients-report', 'TopClientsReport', { orders }, state, 3)

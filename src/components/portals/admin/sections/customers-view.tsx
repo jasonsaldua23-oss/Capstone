@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
+import { ExistingEmptiesReview } from '@/components/portals/shared/existing-empties-review'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -55,7 +56,12 @@ const getCustomDiscountError = (value: string): string => {
   return ''
 }
 
-export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: string } = {}) {
+export function CustomersView({ globalSearchQuery = '', openEmptiesReview, onEmptiesReviewOpened }: {
+  globalSearchQuery?: string
+  /** Set when an "Existing empties declared" notification is opened. */
+  openEmptiesReview?: number
+  onEmptiesReviewOpened?: () => void
+} = {}) {
   const [customers, setCustomers] = useState<any[]>([])
   const [loadingError, setLoadingError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -383,6 +389,8 @@ export function CustomersView({ globalSearchQuery = '' }: { globalSearchQuery?: 
               <Download className="h-4 w-4" />
               Export
             </Button>
+            {/* Added: staff can verify customers' opening empties without changing their deposits. */}
+            <ExistingEmptiesReview openRequest={openEmptiesReview} onOpenRequestHandled={onEmptiesReviewOpened} />
           </div>
         </CardContent>
       </Card>

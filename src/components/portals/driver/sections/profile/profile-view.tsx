@@ -2,6 +2,7 @@
 
 import { DriverLicenseSelect } from '@/components/portals/shared/driver-license-select'
 import { useNativeBack } from '@/hooks/use-native-back'
+import { useNotificationPreferences } from '@/hooks/use-notification-preferences'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
@@ -202,11 +203,9 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     setOtpError(null)
   }, [subView])
 
-  const [notifications, setNotifications] = useState<NotificationPrefs>({
-    tripNotifications: true,
-    deliveryUpdates: true,
-    systemAlerts: true,
-  })
+  // Persist and enforce the same account preferences used by customer notification settings.
+  const { preferences: notifications, save: persistNotifications, disabled: notificationSettingsDisabled,
+    error: notificationSettingsError, reload: reloadNotificationSettings } = useNotificationPreferences(user?.id || user?.userId, 'driver')
   const [form, setForm] = useState({
     name: '',
     avatar: '',
@@ -247,21 +246,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
     const day = String(date.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
   }
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(DRIVER_NOTIFICATION_PREFS_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw)
-      setNotifications({
-        tripNotifications: parsed?.tripNotifications ?? true,
-        deliveryUpdates: parsed?.deliveryUpdates ?? true,
-        systemAlerts: parsed?.systemAlerts ?? true,
-      })
-    } catch {
-      // ignore corrupt local state
-    }
-  }, [])
 
   useEffect(() => {
     async function fetchProfile() {
@@ -327,11 +311,6 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
 
   const onChange = (key: string, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const persistNotifications = (nextValue: NotificationPrefs) => {
-    setNotifications(nextValue)
-    window.localStorage.setItem(DRIVER_NOTIFICATION_PREFS_KEY, JSON.stringify(nextValue))
   }
 
   const formatTime = (seconds: number) => {
@@ -1496,26 +1475,24 @@ export function ProfileView({ user, onLogout, initialSubView, onUnreadCountChang
           </Button>
           <h2 className="text-xl font-bold tracking-tight text-slate-900">Notification Settings</h2>
         </div>
+        {notificationSettingsError && <p role="alert" className="px-4 text-sm text-red-600">{notificationSettingsError} <button type="button" className="underline" onClick={() => void reloadNotificationSettings()}>Retry</button></p>}
 
         <div className="mx-4 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.015)]">
           <NotificationRow
             title="Trip Notifications"
             description="Receive updates for new or reassigned trips."
             checked={notifications.tripNotifications}
+            disabled={notificationSettingsDisabled}
             onToggle={() => persistNotifications({ ...notifications, tripNotifications: !notifications.tripNotifications })}
           />
           <NotificationRow
             title="Delivery Updates"
             description="Receive route progress and stop completion alerts."
             checked={notifications.deliveryUpdates}
+            disabled={notificationSettingsDisabled}
             onToggle={() => persistNotifications({ ...notifications, deliveryUpdates: !notifications.deliveryUpdates })}
           />
-          <NotificationRow
-            title="System Alerts"
-            description="Receive important driver announcements."
-            checked={notifications.systemAlerts}
-            onToggle={() => persistNotifications({ ...notifications, systemAlerts: !notifications.systemAlerts })}
-          />
+          {/* Driver notification settings now include only trip and delivery updates. */}
         </div>
       </div>
     )
@@ -1642,11 +1619,13 @@ function NotificationRow({
   description,
   checked,
   onToggle,
+  disabled = false,
 }: {
   title: string
   description: string
   checked: boolean
   onToggle: () => void
+  disabled?: boolean
 }) {
   return (
     <div className="flex items-center gap-3 rounded-none border-b border-slate-100 bg-white px-4 py-3.5 last:border-b-0 hover:bg-slate-50/30">
@@ -1657,6 +1636,8 @@ function NotificationRow({
       <button
         type="button"
         onClick={onToggle}
+        disabled={disabled}
+        aria-label={title}
         className={`relative h-6 w-11 rounded-full transition ${checked ? 'bg-[#0d61ad]' : 'bg-slate-200'}`}
         aria-pressed={checked}
       >

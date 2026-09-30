@@ -16,6 +16,7 @@ from .api_constants import (
     DEFAULT_COUNTRY,
     DISCOUNT_ACTIVE,
     DISCOUNT_CANCELLED,
+    DISCOUNT_MIN_CASES,
     DISCOUNT_NO,
     DISCOUNT_OTHER,
     DISCOUNT_PRESET_PERCENT,
@@ -48,8 +49,41 @@ def _create_staff_notifications(*, title: str, message: str, notification_type: 
     return legacy._create_staff_notifications(title=title, message=message, notification_type=notification_type, reference_type=reference_type, reference_id=reference_id)
 
 
+def _create_customer_notification(*, customer: Customer, title: str, message: str, notification_type: str, reference_type: str | None=None, reference_id: str | None=None) -> None:
+    return legacy._create_customer_notification(customer=customer, title=title, message=message, notification_type=notification_type, reference_type=reference_type, reference_id=reference_id)
+
+
 def _email_new_staff_credentials(user: User, plain_password: str) -> None:
     return legacy._email_new_staff_credentials(user, plain_password)
+
+
+def _discount_state(customer: Customer) -> tuple[str, str, float]:
+    return (
+        str(customer.discount_option or DISCOUNT_NO),
+        str(customer.discount_status or DISCOUNT_REMOVED),
+        float(customer.discount_percent or 0),
+    )
+
+
+def _notify_discount_granted(customer: Customer, previous: tuple[str, str, float]) -> None:
+    """Tell the customer about a discount they can now use, and what an order needs to qualify."""
+    option, status, percent = _discount_state(customer)
+    if status != DISCOUNT_ACTIVE or option == DISCOUNT_NO or percent <= 0 or previous == (option, status, percent):
+        return
+    shown = f"{percent:g}%"
+    was_active = previous[1] == DISCOUNT_ACTIVE and previous[0] != DISCOUNT_NO and previous[2] > 0
+    _create_customer_notification(
+        customer=customer,
+        title=f"Your discount is now {shown}" if was_active else f"You received a {shown} discount",
+        message=(
+            f"You have a {shown} discount on your orders. To use it, place an order totaling at least "
+            f"{DISCOUNT_MIN_CASES} cases or packs (mixed cases count; single bottles do not). "
+            "The discount is applied automatically at checkout."
+        ),
+        notification_type="DISCOUNT",
+        reference_type="discount",
+        reference_id=customer.id,
+    )
 
 
 def _ensure_negros_occidental_address(*, latitude: Any, longitude: Any, city: Any=None, province: Any, require_coordinates: bool=False) -> str | None:
@@ -522,7 +556,9 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         "discountStatus",
         "discountPercent",
     }
-    if p.get("type") == "staff" and any(key in body for key in discount_keys):
+    previous_discount = _discount_state(c)
+    discount_submitted = p.get("type") == "staff" and any(key in body for key in discount_keys)
+    if discount_submitted:
         option = str(body.get("discountOption") or getattr(c, "discount_option", DISCOUNT_NO)).strip().upper()
         status = str(body.get("discountStatus") or getattr(c, "discount_status", DISCOUNT_REMOVED)).strip().upper()
 
@@ -600,6 +636,8 @@ def customer_detail(request: HttpRequest, customer_id: str) -> JsonResponse:
         # Advance the existing order delta feed when live customer details change.
         # Shipping snapshots and original order dates remain untouched.
         Order.objects.filter(customer=c).update(updated_at=timezone.now())
+    if discount_submitted:
+        _notify_discount_granted(c, previous_discount)
     return _ok({"success": True, "customer": _serialize_model(c, exclude={"password"})})
 
 

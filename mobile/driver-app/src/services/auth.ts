@@ -344,6 +344,16 @@ export async function fetchNotifications(): Promise<NotificationsResponse> {
   return apiRequest<NotificationsResponse>("/api/notifications?limit=100", { method: "GET", token });
 }
 
+// Native and web use the same account-level notification choices.
+export async function notificationPreferences(changes?: Record<string, boolean>) {
+  const token = await getToken();
+  const data = await apiRequest<{ preferences: { tripNotifications: boolean; deliveryUpdates: boolean } }>("/api/notifications/preferences", {
+    method: changes ? "PATCH" : "GET", token, cacheTtlMs: 0,
+    ...(changes ? { body: JSON.stringify(changes) } : {}),
+  });
+  return data.preferences;
+}
+
 export async function markAllNotificationsRead(): Promise<void> {
   const token = await getToken();
   await apiRequest("/api/notifications", {

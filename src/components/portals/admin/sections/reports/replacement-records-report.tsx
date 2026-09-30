@@ -22,9 +22,7 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer,
-  ComposedChart,
-  Area,
-  Line,
+  BarChart,
   Bar,
   XAxis,
   YAxis,
@@ -38,7 +36,7 @@ import { formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { buildDailyChartSeries, formatReportProductNameForExport } from '@/lib/report-metrics'
+import { buildDailyChartSeries, describeDailyChartWindow, formatReportProductNameForExport } from '@/lib/report-metrics'
 
 interface ReplacementRecordsReportProps {
   replacements: any[]
@@ -344,7 +342,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
   // Trend Chart Data (Chronological daily breakdown with full continuous date range)
   const chartData = useMemo(() => {
     // Fix: build the trend from the filtered dates, including historical custom ranges.
-    const map: Record<string, { dateKey: string; date: string; total: number; resolved: number; pending: number }> = {}
+    const map: Record<string, { dateKey: string; date: string; total: number; resolved: number; rejected: number; pending: number }> = {}
 
     filteredReplacements.forEach((item) => {
       const d = new Date(item.date)
@@ -355,12 +353,18 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
           date: `${d.getMonth() + 1}/${d.getDate()}`,
           total: 0,
           resolved: 0,
+          rejected: 0,
           pending: 0,
         }
       }
       map[key].total += 1
       if (item.status === 'RESOLVED' || item.status === 'CLOSED') {
         map[key].resolved += 1
+      } else if (item.status === 'REJECTED' || item.status === 'CANCELLED') {
+        // Closed without a replacement: an admin rejected the request, the
+        // customer cancelled it, or its delivery was cancelled. These used to
+        // be drawn as still open.
+        map[key].rejected += 1
       } else {
         map[key].pending += 1
       }
@@ -370,7 +374,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
       days: 14,
       fillEmpty: (dateKey) => {
         const [, month, day] = dateKey.split('-')
-        return { dateKey, date: `${Number(month)}/${Number(day)}`, total: 0, resolved: 0, pending: 0 }
+        return { dateKey, date: `${Number(month)}/${Number(day)}`, total: 0, resolved: 0, rejected: 0, pending: 0 }
       },
     })
   }, [filteredReplacements])
@@ -380,11 +384,15 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     const day = (row: any) => row.date
     const reported = chartData.reduce((sum: number, row: any) => sum + Number(row.total || 0), 0)
     const resolved = chartData.reduce((sum: number, row: any) => sum + Number(row.resolved || 0), 0)
+    const rejected = chartData.reduce((sum: number, row: any) => sum + Number(row.rejected || 0), 0)
     const resolutionRate = reported > 0 ? ((resolved / reported) * 100).toFixed(1) : '0.0'
+    const rejectedReading = rejected === 0
+      ? ''
+      : ` ${rejected.toLocaleString('en-US')} ${rejected === 1 ? 'was' : 'were'} rejected or cancelled without a replacement.`
     return `${describeTrend(toPoints(chartData, day, (row: any) => row.total), {
       noun: 'replacement reports',
       periodNoun: 'day',
-    })} ${resolved.toLocaleString('en-US')} of the ${reported.toLocaleString('en-US')} reported cases are resolved, a ${resolutionRate}% resolution rate.`
+    })} ${resolved.toLocaleString('en-US')} of the ${reported.toLocaleString('en-US')} reported cases are resolved, a ${resolutionRate}% resolution rate.${rejectedReading}`
   }, [chartData])
 
   // Pagination
@@ -550,23 +558,33 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-base font-semibold text-slate-800">Replacement Request & Resolution Trend</CardTitle>
-            <CardDescription className="text-xs text-slate-500">Daily breakdown of total reported vs resolved replacements over time</CardDescription>
+            <CardDescription className="text-xs text-slate-500">
+              Daily reports split by current status · {describeDailyChartWindow(chartData, 'report')}
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-56 w-full">
+              {/* Resolved, rejected/cancelled and open add up to the day's total, so
+                  they stack, as on the Purchase Request trend. A total area under two
+                  smoothed lines drew the same counts twice and implied values between days. */}
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart data={chartData} accessibilityLayer barCategoryGap="30%" maxBarSize={36} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} tickMargin={10} minTickGap={24} />
                   <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip
+                    cursor={{ fill: '#f1f5f9' }}
                     contentStyle={{ borderRadius: '12px', borderColor: '#e2e8f0', fontSize: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    labelStyle={{ color: '#0f172a', fontWeight: 600, marginBottom: 8 }}
+                    itemStyle={{ color: '#475569', padding: '3px 0' }}
+                    labelFormatter={(label, payload) => `${label} · ${payload[0]?.payload.total ?? 0} reported`}
                   />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', color: '#64748b', paddingTop: '4px' }} />
-                  <Area type="monotone" dataKey="total" name="Total Reported" stroke="#6366f1" strokeWidth={2} fill="#e0e7ff" fillOpacity={0.35} />
-                  <Line type="monotone" dataKey="resolved" name="Resolved / Replaced" stroke="#10b981" strokeWidth={2.5} dot={{ r: 3.5, fill: '#10b981' }} activeDot={{ r: 6 }} />
-                  <Line type="monotone" dataKey="pending" name="Open / In-Progress" stroke="#f59e0b" strokeWidth={2.5} strokeDasharray="4 4" dot={{ r: 3.5, fill: '#f59e0b' }} activeDot={{ r: 6 }} />
-                </ComposedChart>
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: '11px', color: '#64748b' }} />
+                  <Bar dataKey="resolved" name="Resolved / Replaced" stackId="replacements" fill="#10b981" />
+                  {/* Same label and colour as the Purchase Request trend's closed-without-approval segment. */}
+                  <Bar dataKey="rejected" name="Rejected / Cancelled" stackId="replacements" fill="#f43f5e" />
+                  <Bar dataKey="pending" name="Open / In-Progress" stackId="replacements" fill="#f59e0b" />
+                </BarChart>
               </ResponsiveContainer>
             </div>
             <ChartInterpretation text={chartInterpretation} />

@@ -164,6 +164,8 @@ class User(models.Model):
     is_active = models.BooleanField(default=True)
     two_factor_enabled = models.BooleanField(default=False)
     login_alerts_enabled = models.BooleanField(default=True)
+    # Account-level choices govern both in-app and device notifications.
+    notification_preferences = models.JSONField(default=dict, blank=True)
     session_timeout_minutes = models.IntegerField(default=30)
     last_login_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -219,6 +221,8 @@ class Customer(models.Model):
     is_active = models.BooleanField(default=True)
     two_factor_enabled = models.BooleanField(default=False)
     login_alerts_enabled = models.BooleanField(default=True)
+    # Empty preferences preserve existing opt-in behavior for current accounts.
+    notification_preferences = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -978,6 +982,44 @@ class CustomerBottleBalance(models.Model):
         verbose_name_plural = "Customer Bottle Balances"
         constraints = [
             models.UniqueConstraint(fields=["customer", "container_type"], name="unique_customer_container_balance")
+        ]
+
+
+class OpeningEmptiesDeclaration(models.Model):
+    """Pre-system empties awaiting staff verification; approval grants exchange quantities only."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending review"
+        APPROVED = "APPROVED", "Approved"
+        REJECTED = "REJECTED", "Rejected"
+
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    request_id = models.CharField(max_length=120)
+    # Products submitted together form one declaration: shown and reviewed as a unit.
+    submission_id = models.CharField(max_length=25, blank=True, default="", db_index=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="opening_empties")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="opening_empties")
+    container_type = models.ForeignKey(ContainerType, on_delete=models.PROTECT, related_name="opening_empties")
+    cases = models.PositiveIntegerField(default=0)
+    bottles = models.PositiveIntegerField(default=0)
+    containers_per_case = models.PositiveIntegerField(default=1)
+    # Added: track exchange-only stock separately from deposits actually paid.
+    remaining_bottles = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    notes = models.TextField(blank=True, default="")
+    # One photo of this product's empties, served only through the authorized /api/media route.
+    evidence_photo_url = models.CharField(max_length=500, blank=True, default="")
+    review_notes = models.TextField(blank=True, default="")
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, related_name="reviewed_opening_empties")
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "OpeningEmptiesDeclaration"
+        constraints = [
+            models.UniqueConstraint(fields=["customer", "request_id"], name="unique_opening_empties_request"),
+            # A rejected declaration may be corrected; approved opening stock cannot be added again.
+            models.UniqueConstraint(fields=["customer", "product"], condition=models.Q(status__in=["PENDING", "APPROVED"]), name="unique_active_opening_empties"),
         ]
 
 

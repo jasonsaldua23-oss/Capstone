@@ -3,7 +3,7 @@
 import { type Dispatch, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { DepositRefundRow, describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, EmptiesExchangeRow, describeEmptiesShortfall, getEmptiesAdjustment, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import type { WarehouseItem, WarehouseOrderItem } from '../../warehouse-portal-types'
 import { formatPeso } from '../../warehouse-portal-utils'
@@ -291,6 +291,7 @@ export function WarehouseOrderDetailDialog({
                         )
                       })}
                       <div className="h-px bg-slate-200" />
+                      <EmptiesExchangeRow order={selectedOrder} className="text-xs" />
                       <DepositRefundRow order={selectedOrder} className="text-xs" />
                       {isMultiWarehouse ? (
                         <p className="text-right text-[1.08rem] font-bold leading-tight text-slate-900 sm:text-[1.35rem]">

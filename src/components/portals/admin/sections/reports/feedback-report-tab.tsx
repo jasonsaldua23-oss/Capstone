@@ -175,12 +175,15 @@ export function FeedbackReportTab({
                   />
                   <Bar dataKey="count" radius={[8, 8, 0, 0]} animationDuration={800} maxBarSize={42}>
                     {feedbackRatingChart.map((entry) => {
+                      // Red for 1-2 (negative), amber for 3 (neutral), green for 4-5
+                      // (positive), the same split and colours as the cards above and
+                      // the dimension chart below. 4 stars used to be blue.
                       const rating = Number(entry.rating)
-                      let color = '#ef4444'
-                      if (rating === 5) color = '#22c55e'
-                      else if (rating === 4) color = '#3b82f6'
-                      else if (rating === 3) color = '#fbbf24'
-                      else if (rating === 2) color = '#f97316'
+                      let color = '#dc2626'
+                      if (rating === 5) color = '#16a34a'
+                      else if (rating === 4) color = '#4ade80'
+                      else if (rating === 3) color = '#f59e0b'
+                      else if (rating === 2) color = '#f87171'
                       return <Cell key={entry.rating} fill={color} />
                     })}
                     <LabelList
@@ -237,8 +240,9 @@ export function FeedbackReportTab({
                     stroke="#10b981"
                     strokeWidth={2.5}
                     dot={{ r: 4, strokeWidth: 2, fill: '#ffffff' }}
-                    // A month with no feedback is a gap in the record, not a zero score.
-                    connectNulls
+                    // A month with no feedback is a gap in the record, not a zero
+                    // score, so the line breaks there instead of bridging it.
+                    connectNulls={false}
                   />
                 </LineChart>
               </ResponsiveContainer>

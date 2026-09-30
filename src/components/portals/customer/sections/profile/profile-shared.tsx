@@ -61,11 +61,13 @@ export function NotificationRow({
   description,
   checked,
   onToggle,
+  disabled = false,
 }: {
   title: string
   description: string
   checked: boolean
   onToggle: () => void
+  disabled?: boolean
 }) {
   return (
     <div className="flex items-center gap-3 rounded-none border-b border-slate-100 bg-white px-4 py-3.5 last:border-b-0 hover:bg-slate-50/30">
@@ -73,7 +75,8 @@ export function NotificationRow({
         <p className="text-sm font-semibold text-slate-800">{title}</p>
         <p className="text-xs text-slate-400 mt-0.5">{description}</p>
       </div>
-      <button type="button" onClick={onToggle} className={`relative h-6 w-11 rounded-full transition ${checked ? 'bg-[#14532d]' : 'bg-slate-200'}`} aria-pressed={checked}>
+      {/* Disable until the saved account choice is known and while saving it. */}
+      <button type="button" onClick={onToggle} disabled={disabled} aria-label={title} className={`relative h-6 w-11 rounded-full transition ${checked ? 'bg-[#14532d]' : 'bg-slate-200'}`} aria-pressed={checked}>
         <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition ${checked ? 'left-5.5' : 'left-0.5'}`} />
       </button>
     </div>

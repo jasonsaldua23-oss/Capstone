@@ -183,6 +183,8 @@ export function WarehousePortal() {
   const [createTripOpen, setCreateTripOpen] = useState(false)
   const [editingTripState, setEditingTripState] = useState<TripEditorState | null>(null)
   const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties'>('inventory')
+  // Bumped when an existing-empties notification is opened, so the review dialog opens.
+  const [emptiesReviewRequest, setEmptiesReviewRequest] = useState<number | undefined>(undefined)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const [searchInventoryId, setSearchInventoryId] = useState('')
   const [loadingInventory, setLoadingInventory] = useState(true)
@@ -1045,6 +1047,12 @@ export function WarehousePortal() {
     }
     if (['driver', 'vehicle', 'transport'].includes(referenceType)) {
       setActiveView('trips')
+      return
+    }
+    if (referenceType === 'opening_empties') {
+      setActiveView('inventory')
+      setInventorySubView('empties')
+      setEmptiesReviewRequest(Date.now())
     }
   }
 
@@ -1589,7 +1597,7 @@ export function WarehousePortal() {
               </TabsContent>
 
               <TabsContent value="empties" className="mt-0">
-                <WarehouseEmptyBottlesView warehouseId={assignedWarehouse?.id} />
+                <WarehouseEmptyBottlesView warehouseId={assignedWarehouse?.id} openEmptiesReview={emptiesReviewRequest} onEmptiesReviewOpened={() => setEmptiesReviewRequest(undefined)} />
               </TabsContent>
             </Tabs>
           )}

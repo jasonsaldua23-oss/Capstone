@@ -9,7 +9,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
-import { DepositRefundRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
+import { DepositRefundRow, EmptiesExchangeRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { TRIP_LIST_SORT_OPTIONS, sortTripsForList, type TripListSort } from '@/components/portals/shared/trip-list-sort'
 
 type TripDropPointItem = {
@@ -1001,6 +1001,7 @@ export function WarehouseTripsSection({
                       : 'N/A'}
                   </span>
                 </div>
+                <EmptiesExchangeRow order={selectedDropPointDetail.order} className="pt-1 text-xs" />
                 <DepositRefundRow order={selectedDropPointDetail.order} className="pt-1 text-xs" />
               </div>
 

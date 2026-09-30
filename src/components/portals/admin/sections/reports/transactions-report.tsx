@@ -34,7 +34,7 @@ import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { buildDailyChartSeries, formatOrderItemsForExport, formatPesoAxisTick, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
+import { buildDailyChartSeries, describeDailyChartWindow, formatOrderItemsForExport, formatPesoAxisTick, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 interface TransactionsReportProps {
@@ -376,7 +376,9 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-base font-semibold text-slate-800">Transaction Revenue Trend</CardTitle>
-            <CardDescription className="text-xs text-slate-500">Daily gross value over time</CardDescription>
+            <CardDescription className="text-xs text-slate-500">
+              Daily revenue, delivered only · {describeDailyChartWindow(chartData, 'delivered transaction')}
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="h-56 w-full">

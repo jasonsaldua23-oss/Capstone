@@ -10,7 +10,8 @@ from django.views.decorators.http import require_http_methods
 
 from . import views_api as legacy
 from .api_utils import error as _err, json_body as _json_body, ok as _ok, to_int as _int
-from .models import Notification, PushSubscription
+from .models import Customer, Notification, PushSubscription, User
+from .notification_preferences import preference_defaults, preferences_for
 
 
 # Authentication and model serialization retain the existing API-wide contracts.
@@ -28,6 +29,30 @@ def get_web_push_public_key() -> str:
 
 def native_push_is_configured() -> bool:
     return legacy.native_push_is_configured()
+
+
+@csrf_exempt
+@require_http_methods(["GET", "PATCH"])
+def notification_preferences(request: HttpRequest) -> JsonResponse:
+    payload = _require_auth(request)
+    if not payload:
+        return _err("Unauthorized", 401)
+    model = Customer if payload.get("type") == "customer" else User
+    with transaction.atomic():
+        account = model.objects.select_for_update().filter(id=payload.get("userId"), is_active=True).first()
+        if account is None:
+            return _err("Account not found", 404)
+        allowed = preference_defaults(account)
+        if not allowed:
+            return _err("Notification preferences are available to customers and drivers", 403)
+        if request.method == "PATCH":
+            body = _json_body(request)
+            if not isinstance(body, dict) or not body or any(key not in allowed or type(value) is not bool for key, value in body.items()):
+                return _err("Provide supported notification preferences with boolean values", 400)
+            # Merge submitted choices under a lock so devices cannot overwrite unrelated settings.
+            account.notification_preferences = {**preferences_for(account), **body}
+            account.save(update_fields=["notification_preferences", "updated_at"])
+        return _ok({"success": True, "preferences": preferences_for(account)})
 
 
 def web_push_is_configured() -> bool:
