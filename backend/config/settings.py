@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from corsheaders.defaults import default_headers
+
 try:
     import certifi
 except Exception:  # pragma: no cover - fallback when certifi is unavailable
@@ -246,6 +248,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = sorted(set(cors_allowed_origins))
 CORS_ALLOW_CREDENTIALS = True
+# Added: the portals call this host directly (src/lib/direct-api.ts) and stamp every
+# request with these headers, so the browser's preflight must allow them.
+CORS_ALLOW_HEADERS = (*default_headers, "x-portal", "x-session-client")
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [

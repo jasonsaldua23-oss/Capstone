@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from .auth import create_token
@@ -999,3 +999,62 @@ class NativeUploaderRequestOriginTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"], "Untrusted request origin")
         self.assertFalse(LocationLog.objects.filter(driver=self.driver).exists())
+
+
+@override_settings(CORS_ALLOWED_ORIGINS=["https://annannsbeveragestrading.com"])
+class DirectBrowserApiTests(TestCase):
+    """The portals call the API host straight from the browser, not via the website.
+
+    Relayed through the website's server, replies to driver writes were lost on the
+    way back to the phone. A direct call is cross-origin, so the browser first asks
+    whether the portal's own headers are allowed, then sends the Bearer token alone.
+    """
+
+    WEBSITE = "https://annannsbeveragestrading.com"
+
+    def setUp(self) -> None:
+        self.client = Client()
+        self.driver = User.objects.create(
+            email="direct.api.driver@example.com",
+            password="hashed",
+            name="Direct Api Driver",
+            role="DRIVER",
+            is_active=True,
+        )
+        self.token = create_token(
+            {
+                "userId": self.driver.id,
+                "email": self.driver.email,
+                "name": self.driver.name,
+                "role": "DRIVER",
+                "type": "staff",
+            }
+        )
+
+    def test_preflight_allows_the_headers_every_portal_request_carries(self) -> None:
+        response = self.client.options(
+            "/api/driver/location",
+            HTTP_ORIGIN=self.WEBSITE,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="authorization,content-type,x-portal,x-session-client",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Access-Control-Allow-Origin"], self.WEBSITE)
+        allowed = {header.strip().lower() for header in response["Access-Control-Allow-Headers"].split(",")}
+        self.assertTrue({"authorization", "content-type", "x-portal", "x-session-client"} <= allowed, allowed)
+
+    def test_bearer_only_write_from_the_website_origin_is_accepted(self) -> None:
+        response = self.client.post(
+            "/api/driver/location",
+            data={"latitude": 10.6765, "longitude": 122.9509, "accuracy": 15},
+            content_type="application/json",
+            HTTP_ORIGIN=self.WEBSITE,
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+            HTTP_X_PORTAL="driver",
+            HTTP_X_SESSION_CLIENT="web",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response["Access-Control-Allow-Origin"], self.WEBSITE)
+        self.assertEqual(LocationLog.objects.filter(driver=self.driver).count(), 1)

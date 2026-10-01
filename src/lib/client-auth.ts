@@ -2,6 +2,7 @@
 
 import { retryingApiRead } from './retrying-api-read'
 import { apiWrite } from './api-write'
+import { createApiSender } from './direct-api'
 
 const TAB_AUTH_TOKEN_KEY = 'tab-auth-token'
 const PERSISTENT_TAB_AUTH_TOKEN_KEY = 'persistent-tab-auth-token'
@@ -204,6 +205,13 @@ export function installTabAuthFetchInterceptor() {
   const originalFetch = window.fetch.bind(window)
   const interceptorLifetime = new AbortController()
   fetchWindow.__originalFetch__ = originalFetch
+  // Added: Bearer calls skip the website's /api relay, which was losing replies.
+  const sendApi = createApiSender({
+    send: originalFetch,
+    pageOrigin: window.location.origin,
+    // Inlined by Next at build time; guarded for runtimes with no process global.
+    configuredOrigin: typeof process === 'undefined' ? null : process.env.NEXT_PUBLIC_API_ORIGIN,
+  })
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (!isApiRequest(input)) {
@@ -243,6 +251,7 @@ export function installTabAuthFetchInterceptor() {
       ...init,
       headers,
     }
+    const hasBearer = /^bearer\s/i.test(headers.get('Authorization') || '')
     const method = getRequestMethod(input, init)
 
     // Idle-session bookkeeping changes no portal data: never retried, and never a
@@ -261,7 +270,7 @@ export function installTabAuthFetchInterceptor() {
       }
       // Reads made while the write is pending may contain the old server state.
       // Keep every portal action loading while the shared writer retries transient failures.
-      return apiWrite(() => originalFetch(input, requestInit), {
+      return apiWrite(() => sendApi(input, requestInit, hasBearer), {
         signal: requestInit.signal,
       }).finally(clearApiResponseCache)
     }
@@ -276,7 +285,7 @@ export function installTabAuthFetchInterceptor() {
       ...(callerSignal ? [callerSignal] : []),
     ]
     const read = () => retryingApiRead(
-      (attemptSignal) => originalFetch(input, { ...requestInit, signal: attemptSignal }),
+      (attemptSignal) => sendApi(input, { ...requestInit, signal: attemptSignal }, hasBearer),
       readSignals,
     )
     const cacheTtl = apiUrl ? getApiCacheTtl(apiUrl.pathname) : 0

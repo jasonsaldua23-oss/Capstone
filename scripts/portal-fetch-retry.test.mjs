@@ -9,7 +9,9 @@ import ts from 'typescript'
 const portalToken = portal => `header.${Buffer.from(JSON.stringify(portal === 'customer'
   ? { type: 'customer' }
   : { type: 'staff', role: { admin: 'ADMIN', warehouse: 'WAREHOUSE_STAFF', driver: 'DRIVER' }[portal] })).toString('base64url')}.signature`
-function loadPortal(portal, native, fetch) {
+// A page origin with no direct API host (src/lib/direct-api.ts), so each attempt is one fetch.
+const RELAY_ORIGIN = 'https://portal.example'
+function loadPortal(portal, native, fetch, { origin = 'https://annannsbeveragestrading.com' } = {}) {
   const session = new Map([['tab-login-portal', portal], ['tab-auth-token', portalToken(portal)]])
   const storage = (values) => ({
     getItem: (key) => values.get(key) ?? null,
@@ -18,7 +20,7 @@ function loadPortal(portal, native, fetch) {
   })
   const window = {
     fetch, setTimeout, clearTimeout,
-    location: { origin: 'https://annannsbeveragestrading.com', pathname: `/${portal}` },
+    location: { origin, pathname: `/${portal}` },
     ...(native ? { Capacitor: { isNativePlatform: () => true } } : {}),
   }
   const context = {
@@ -75,7 +77,7 @@ for (const portal of ['admin', 'warehouse', 'driver', 'customer']) {
         if (calls === 1) throw new TypeError('Failed to fetch')
         if (calls === 2) return new Response('Unavailable', { status: 503 })
         return Response.json({ replacements: [{ id: 'real-record' }] })
-      })
+      }, { origin: RELAY_ORIGIN })
       const pending = window.fetch('/api/replacements', { cache: 'no-store' }).then(async (response) => {
         const data = await response.json()
         loading = false
@@ -100,7 +102,7 @@ test('web interceptor retries writes and cancellation stops outstanding work', a
   const { window, client, uninstall } = loadPortal('customer', true, async () => {
     calls++
     throw new TypeError('Failed to fetch')
-  })
+  }, { origin: RELAY_ORIGIN })
   const writeController = new AbortController()
   const write = window.fetch('/api/customer/replacements', { method: 'POST', signal: writeController.signal })
   const writeRejected = assert.rejects(write, { name: 'AbortError' })
@@ -108,13 +110,38 @@ test('web interceptor retries writes and cancellation stops outstanding work', a
   assert.equal(calls, 1)
   writeController.abort()
   await writeRejected
-  const pending = window.fetch('https://annannsbeveragestrading.com/api/customer/orders')
+  const pending = window.fetch(`${RELAY_ORIGIN}/api/customer/orders`)
   const rejected = assert.rejects(pending, { name: 'AbortError' })
   await flush()
   client.clearTabAuthToken()
   await rejected
   t.mock.timers.tick(60_000)
   assert.equal(calls, 2)
+  uninstall()
+})
+
+test('production pages send token calls straight to the API host and fall back to the website', async () => {
+  const seen = []
+  let directDown = false
+  const { window, uninstall } = loadPortal('driver', true, async (url, init) => {
+    seen.push({ url: String(url), credentials: init.credentials, portal: init.headers.get('X-Portal') })
+    if (directDown && String(url).startsWith('https://api.annannsbeveragestrading.com/')) throw new TypeError('Failed to fetch')
+    return Response.json({ success: true })
+  })
+
+  await window.fetch('/api/trips/t1/drop-points/d1', { method: 'PATCH' })
+  await window.fetch('/api/auth/me')
+  directDown = true
+  await window.fetch('/api/uploads/pod-image', { method: 'POST' })
+
+  assert.deepEqual(seen.map((entry) => entry.url), [
+    'https://api.annannsbeveragestrading.com/api/trips/t1/drop-points/d1',
+    '/api/auth/me',
+    'https://api.annannsbeveragestrading.com/api/uploads/pod-image',
+    '/api/uploads/pod-image',
+  ])
+  assert.equal(seen[0].credentials, 'omit')
+  assert.equal(seen[0].portal, 'driver')
   uninstall()
 })
 
