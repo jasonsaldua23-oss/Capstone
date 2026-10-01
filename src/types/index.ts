@@ -1,6 +1,7 @@
 // ==================== USER TYPES ====================
 
-export type { Role, User, Customer } from '@prisma/client'
+// Fix: nothing imported Prisma's Role/User/Customer from here, and the Hostinger
+// build never runs `prisma generate`, so re-exporting them failed its type check.
 
 export interface UserWithRole {
   id: string
