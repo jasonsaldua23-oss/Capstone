@@ -117,6 +117,7 @@ urlpatterns = [
     path("trips/upcoming-deliveries", trip_planning_v.trips_upcoming_deliveries),
     path("trips/<str:trip_id>", trip_v.trip_detail),
     path("trips/<str:trip_id>/start", trip_ops_v.trip_start),
+    path("trips/<str:trip_id>/reschedule", trip_v.trip_reschedule),
     path("trips/<str:trip_id>/complete", trip_ops_v.trip_complete),
     path("trips/<str:trip_id>/drop-points/<str:drop_point_id>", trip_ops_v.trip_drop_point_update),
     path("trips/<str:trip_id>/stops/<str:stop_id>", trip_ops_v.trip_stop_update),

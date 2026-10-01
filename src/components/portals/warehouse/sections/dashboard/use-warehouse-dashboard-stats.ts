@@ -12,6 +12,7 @@ import {
   summarizeWarehouseDashboardOrders,
 } from '@/lib/report-metrics'
 import { summarizeReplacementCases } from '@/components/portals/shared/replacement-summary'
+import { isTripOverdue } from '@/lib/trip-schedule'
 import type {
   InventoryItem,
   InventoryTransactionItem,
@@ -57,6 +58,8 @@ export function useWarehouseDashboardStats(inputs: WarehouseDashboardStatsInputs
   const lowStockCount = useMemo(() => stockHealthSummary.belowThreshold, [stockHealthSummary])
 
   const activeTripCount = useMemo(() => countActiveTrips(scopedTrips), [scopedTrips])
+  // Planned trips whose day passed; they cannot start until the warehouse reschedules them.
+  const overdueTripCount = useMemo(() => scopedTrips.filter((trip) => isTripOverdue(trip)).length, [scopedTrips])
 
   const dashboardOrderStats = useMemo(() => summarizeWarehouseDashboardOrders(scopedOrders), [scopedOrders])
 
@@ -212,6 +215,7 @@ export function useWarehouseDashboardStats(inputs: WarehouseDashboardStatsInputs
     dashboardOrderStats,
     inventoryStatusBreakdown,
     lowStockCount,
+    overdueTripCount,
     replacementSummary,
     scopedReplacements,
     tripStatusColors,

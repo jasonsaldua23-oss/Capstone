@@ -7,6 +7,7 @@ import { useNativeBack } from '@/hooks/use-native-back'
 import { NativeOfflineNotice } from '@/components/shared/native-offline-notice'
 import { useNativeOffline } from '@/hooks/use-native-offline'
 import { subscribeDataSync } from '@/lib/data-sync'
+import { isOpenDeliveryTrip } from '@/lib/trip-schedule'
 import { toast } from 'sonner'
 import { HistoryView } from './sections/history/history-view'
 import { HomeView } from './sections/home/home-view'
@@ -75,14 +76,9 @@ export function DriverPortal() {
   // This remembers where the bell was pressed, so Back returns there.
   const [notificationsBackView, setNotificationsBackView] = useState('home')
   const [profileViewKey, setProfileViewKey] = useState(0)
-  // The trips tab carries the driver's one live number: stops still to be run today.
-  const openTripCount = useMemo(
-    () => trips.filter((trip) => {
-      const status = String(trip?.status || '').toUpperCase()
-      return status === 'IN_PROGRESS' || status === 'PLANNED'
-    }).length,
-    [trips],
-  )
+  // Fix: the trips tab counts exactly what My Deliveries lists. An overdue trip can
+  // no longer be started and sits in History, so it must not inflate this number.
+  const openTripCount = useMemo(() => trips.filter((trip) => isOpenDeliveryTrip(trip)).length, [trips])
   const isTripDetailOpen = activeView === 'trips' && Boolean(selectedTripId)
   const hidePortalHeader = isMobileViewport && isTripDetailOpen
   // Fix: leave the trip detail before navigating away from its parent tab.

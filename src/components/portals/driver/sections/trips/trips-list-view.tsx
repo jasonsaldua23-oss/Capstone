@@ -8,7 +8,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { FileText, Navigation, Search, Truck } from 'lucide-react'
-import { formatTripScheduledDay, getTripScheduledDateKey, isTripOverdue, tripStatusBadgeColors } from './trip-detail-format'
+import { isOpenDeliveryTrip } from '@/lib/trip-schedule'
+import { formatTripScheduledDay, getTripScheduledDateKey, tripStatusBadgeColors } from './trip-detail-format'
 
 type Trip = any
 export function TripsListView({
@@ -31,10 +32,7 @@ export function TripsListView({
   // completed ones) are in History. The API orders by last update, so sort here.
   const statusRank = (trip: Trip) => (String(trip?.status || '').toUpperCase() === 'IN_PROGRESS' ? 0 : 1)
   const activeTrips = (trips || [])
-    .filter((trip) => {
-      const status = String(trip?.status || '').toUpperCase()
-      return status === 'IN_PROGRESS' || (status === 'PLANNED' && !isTripOverdue(trip))
-    })
+    .filter((trip) => isOpenDeliveryTrip(trip))
     .sort((a, b) => {
       const rankDiff = statusRank(a) - statusRank(b)
       if (rankDiff !== 0) return rankDiff

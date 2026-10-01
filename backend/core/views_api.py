@@ -326,6 +326,7 @@ _OWNERS = {
     "trip_complete": "views_trip_ops",
     "trip_detail": "views_trips",
     "trip_drop_point_update": "views_trip_ops",
+    "trip_reschedule": "views_trips",
     "trip_start": "views_trip_ops",
     "trip_stop_update": "views_trip_ops",
     "trip_unassign_items": "views_trips",

@@ -11,6 +11,8 @@ export type WarehouseDashboardViewProps = {
   inventoryStatusBreakdown: InventoryStatusBreakdown
   lowStockCount: number
   activeTripCount: number
+  overdueTripCount: number
+  onOpenTransportation: () => void
   pendingReplacementCases: number
   totalReplacementCases: number
   warehouseOrdersChartConfig: ChartConfig

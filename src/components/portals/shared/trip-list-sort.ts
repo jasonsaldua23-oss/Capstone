@@ -1,5 +1,6 @@
 // Ordering for the admin and warehouse trip lists, kept in one place so the two
 // portals cannot drift apart on the delivery-date sequence.
+import { isTripOverdue } from '../../../lib/trip-schedule.ts'
 
 export type TripListSort = 'DELIVERY_DATE' | 'TRIP_ID'
 
@@ -11,6 +12,7 @@ export const TRIP_LIST_SORT_OPTIONS: Array<{ value: TripListSort; label: string 
 type SortableTrip = {
   tripNumber?: string | null
   status?: string | null
+  isOverdue?: boolean | null
   actualEndAt?: string | null
   tripSchedule?: string | null
   createdAt?: string | null
@@ -22,9 +24,12 @@ const toMs = (value: unknown) => {
   return Number.isFinite(ms) ? ms : 0
 }
 
-// Show the latest delivery work first. When dates match, the newest-created
-// trip wins; trips without a valid schedule remain at the end.
+// Show the latest delivery work first, after any planned trip that missed its
+// day: those wait on the warehouse to reschedule them. When dates match, the
+// newest-created trip wins; trips without a valid schedule remain at the end.
 const compareDeliveryDate = (a: SortableTrip, b: SortableTrip) => {
+  const overdueFirst = Number(isTripOverdue(b)) - Number(isTripOverdue(a))
+  if (overdueFirst) return overdueFirst
   const aSchedule = toMs(a.tripSchedule)
   const bSchedule = toMs(b.tripSchedule)
   if (!aSchedule && bSchedule) return 1

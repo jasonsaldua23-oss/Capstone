@@ -737,6 +737,38 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
     }
   }
 
+  // Added: an overdue trip can never be started, so the warehouse moves it, with
+  // every order on it, to a new day instead of taking it apart.
+  const rescheduleTrip = async (trip: WarehouseTripItem, scheduledDate: string) => {
+    try {
+      const result = await safeFetchJson(
+        `/api/trips/${trip.id}/reschedule`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduledDate }),
+        },
+        { retries: 0, timeoutMs: 60000 }
+      )
+      const data = result.data || {}
+      if (!result.ok || data?.success === false) {
+        throw new Error(result.error || data?.error || 'Failed to reschedule trip')
+      }
+      const updatedTrip = data?.trip
+      if (updatedTrip?.id) {
+        setTrips((prev) => prev.map((entry) => (entry.id === updatedTrip.id ? updatedTrip : entry)))
+        setSelectedTrip((current) => (current?.id === updatedTrip.id ? updatedTrip : current))
+      }
+      // The orders' delivery dates moved with the trip.
+      emitDataSync(['trips', 'orders'])
+      toast.success(`Trip ${trip.tripNumber} moved to ${scheduledDate}`)
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to reschedule trip')
+      return false
+    }
+  }
+
   const parseApiErrorMessage = (response: Response, payload: any, fallback: string) => {
     const fromPayload =
       String(payload?.error || '').trim() ||
@@ -1086,6 +1118,7 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
     isSelectedSavedRouteOverloaded,
     isSelectedVehicleCapacityMissing,
     openTripEditorInCreateDialog,
+    rescheduleTrip,
     saveTripEditsFromCurrentRoutePlan,
     selectedDriverAssignedVehicle,
     selectedDriverEligibilityIssue,

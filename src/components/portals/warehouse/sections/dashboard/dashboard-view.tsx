@@ -3,6 +3,7 @@
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { AlertTriangle, Boxes, Warehouse, TrendingUp, Package, ShoppingCart, CircleCheck, Truck } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
@@ -15,6 +16,7 @@ import {
   StockHealthCard,
   averageStockLevel,
 } from '@/components/portals/shared/dashboard-cards'
+import { ACTION_ADVANCE } from '@/components/portals/shared/row-actions'
 import type { WarehouseDashboardViewProps } from '../shared/types'
 
 export function WarehouseDashboardView({
@@ -24,6 +26,8 @@ export function WarehouseDashboardView({
   inventoryStatusBreakdown,
   lowStockCount,
   activeTripCount,
+  overdueTripCount,
+  onOpenTransportation,
   pendingReplacementCases,
   totalReplacementCases,
   warehouseOrdersChartConfig,
@@ -85,6 +89,19 @@ export function WarehouseDashboardView({
         <h1 className="text-2xl font-bold text-gray-900">Warehouse Dashboard</h1>
         <p className="text-gray-500">Warehouse operations and stock health overview.</p>
       </div>
+
+      {overdueTripCount > 0 ? (
+        // Added: a trip that missed its day can never start, so it waits on the warehouse.
+        <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-medium text-amber-900">
+            {overdueTripCount} {overdueTripCount === 1 ? 'trip' : 'trips'} passed {overdueTripCount === 1 ? 'its' : 'their'} scheduled date without starting. Reschedule or delete {overdueTripCount === 1 ? 'it' : 'them'} in Transportation.
+          </p>
+          <Button size="sm" className={ACTION_ADVANCE} onClick={onOpenTransportation}>
+            <Truck className="size-3.5" />
+            View Trips
+          </Button>
+        </div>
+      ) : null}
 
       {/* Order Status Cards */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">

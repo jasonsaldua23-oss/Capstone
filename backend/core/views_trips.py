@@ -2,7 +2,7 @@
 
 import logging
 import math
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from django.db import IntegrityError, transaction
@@ -21,6 +21,7 @@ from .api_utils import (
     ok as _ok,
     to_float_or_none as _to_float_or_none,
 )
+from .fleet_sync import local_date_of, trip_scheduled_date
 from .models import (
     DriverStatus,
     InventoryTransaction,
@@ -130,6 +131,10 @@ def empties_adjustments_for_orders(order_ids: list[str]) -> dict[str, dict[str, 
     return legacy.empties_adjustments_for_orders(order_ids)
 
 
+def _create_customer_notification(*, customer: Any, title: str, message: str, notification_type: str='REPLACEMENT', reference_type: str | None=None, reference_id: str | None=None) -> None:
+    return legacy._create_customer_notification(customer=customer, title=title, message=message, notification_type=notification_type, reference_type=reference_type, reference_id=reference_id)
+
+
 def _create_staff_notifications(*, title: str, message: str, notification_type: str='INVENTORY', reference_type: str | None=None, reference_id: str | None=None) -> None:
     return legacy._create_staff_notifications(title=title, message=message, notification_type=notification_type, reference_type=reference_type, reference_id=reference_id)
 
@@ -170,6 +175,10 @@ def _pagination(request: HttpRequest) -> tuple[int, int, int]:
     return legacy._pagination(request)
 
 
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    return legacy._parse_iso_datetime(value)
+
+
 def _require_staff(request: HttpRequest) -> tuple[dict[str, Any] | None, JsonResponse | None]:
     return legacy._require_staff(request)
 
@@ -188,6 +197,10 @@ def _serialize_trip(trip: Trip, include_points: bool=True, *, ctx: dict=None) ->
 
 def _strip_default_country_suffix(address: Any) -> str:
     return legacy._strip_default_country_suffix(address)
+
+
+def _upsert_replacement_meta(notes: Any, updates: dict[str, Any]) -> str:
+    return legacy._upsert_replacement_meta(notes, updates)
 
 
 def _normalize_order_status(value: Any) -> str:
@@ -1163,6 +1176,126 @@ def trip_detail(request: HttpRequest, trip_id: str) -> JsonResponse:
         reference_id=trip_id,
     )
     return _ok({"success": True, "message": f"Trip {trip_number} deleted"})
+
+
+# Orders that are finished one way or another; a trip reschedule leaves their dates alone.
+CLOSED_ORDER_STATUSES = frozenset({OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REJECTED})
+
+
+def _same_local_time_on(day: date, value: datetime | None) -> datetime:
+    """``value``'s local time of day on ``day``; local midnight when there is none."""
+    clock = timezone.localtime(value).time() if value else time.min
+    return timezone.make_aware(datetime.combine(day, clock))
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_reschedule(request: HttpRequest, trip_id: str) -> JsonResponse:
+    """Move a planned trip, and every open order on it, to a new delivery day.
+
+    A missed day can never be started (trip_start), and the trip's orders cannot
+    be rescheduled or planned again while the trip holds them, so this is how the
+    warehouse recovers an overdue trip without taking it apart.
+    """
+    staff, err = _require_warehouse_operator(request)
+    if err:
+        return err
+    trip = Trip.objects.select_related("driver").filter(id=trip_id).first()
+    if not trip:
+        return _err("Trip not found", 404)
+    staff_user_id = str(staff.get("userId") or "").strip()
+    if str(trip.warehouse_id or "") not in {str(value) for value in _get_allowed_warehouse_ids_for_staff(staff_user_id)}:
+        return _err("Trip is outside your assigned warehouse scope", 403)
+
+    body = _json_body(request)
+    requested_at = _parse_iso_datetime(body.get("scheduledDate"))
+    if requested_at is None:
+        return _err("A valid scheduledDate is required", 400)
+    if _delivery_date_is_past(requested_at):
+        return _err("Delivery date cannot be in the past. Choose today or a future date.", 400)
+    new_day = timezone.localtime(requested_at).date()
+
+    with transaction.atomic():
+        locked_trip = Trip.objects.select_for_update().filter(id=trip.id).first()
+        if locked_trip is None or str(locked_trip.status or "").upper() != TripStatus.PLANNED:
+            return _err("Only planned trips can be rescheduled", 409)
+        if trip_scheduled_date(locked_trip) == new_day:
+            return _err(f"This trip is already scheduled for {new_day.isoformat()}", 409)
+
+        # PostgreSQL cannot lock the nullable side of select_related, so each table
+        # is locked on its own.
+        order_ids = [
+            point.order_id
+            for point in TripDropPoint.objects.select_for_update().filter(trip_id=locked_trip.id, order_id__isnull=False).only("id", "order_id")
+        ]
+        orders = list(Order.objects.select_for_update().filter(id__in=order_ids).order_by("order_number"))
+        timelines = {timeline.order_id: timeline for timeline in OrderTimeline.objects.select_for_update().filter(order_id__in=order_ids)}
+
+        # The earliest delivery date on the trip is its day (fleet_sync.trip_scheduled_date).
+        # A closed order dated before the new day would keep the trip overdue, so name it
+        # rather than report a reschedule that changed nothing.
+        blocking = [
+            str(order.order_number)
+            for order in orders
+            if _normalize_order_status(order.status) in CLOSED_ORDER_STATUSES
+            and (local_date_of(getattr(timelines.get(order.id), "delivery_date", None)) or new_day) < new_day
+        ]
+        if blocking:
+            return _err(
+                "Remove cancelled, rejected or delivered orders from this trip before rescheduling it: " + ", ".join(blocking),
+                409,
+            )
+
+        moved_orders = [order for order in orders if _normalize_order_status(order.status) not in CLOSED_ORDER_STATUSES]
+        for order in moved_orders:
+            timeline = timelines.get(order.id) or OrderTimeline(order=order)
+            timeline.delivery_date = _same_local_time_on(new_day, timeline.delivery_date)
+            timeline.save()
+        # A replacement delivery also keeps its own copy of the day for the replacement desk.
+        for replacement in Replacement.objects.select_for_update().filter(delivery_transaction_id__in=[order.id for order in moved_orders]):
+            replacement.notes = _upsert_replacement_meta(
+                replacement.notes,
+                {
+                    "scheduledDeliveryDate": new_day.isoformat(),
+                    "rescheduledBy": staff_user_id or None,
+                    "rescheduledAt": timezone.now().isoformat(),
+                },
+            )
+            replacement.save(update_fields=["notes", "updated_at"])
+        # planned_start_at is the day of trips that predate order-driven scheduling.
+        if locked_trip.planned_start_at:
+            locked_trip.planned_start_at = _same_local_time_on(new_day, locked_trip.planned_start_at)
+        locked_trip.save(update_fields=["planned_start_at", "updated_at"])
+
+    day_label = new_day.isoformat()
+    actor_name = str(staff.get("name") or "Staff").strip() or "Staff"
+    _create_staff_notifications(
+        title="Trip rescheduled",
+        message=f"{actor_name} moved trip {trip.trip_number} to {day_label}.",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=trip.id,
+    )
+    _create_user_notification(
+        user=trip.driver,
+        title="Trip rescheduled",
+        message=f"Trip {trip.trip_number} was moved to {day_label}.",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=trip.id,
+    )
+    for order in Order.objects.select_related("customer").filter(id__in=[order.id for order in moved_orders]):
+        # The same message the customer gets when one order is rescheduled (views_orders).
+        _create_customer_notification(
+            customer=order.customer,
+            title="Order rescheduled",
+            message=f"Your order {order.order_number} was rescheduled to {day_label}.",
+            notification_type="DELIVERY",
+            reference_type="order",
+            reference_id=order.id,
+        )
+    trip = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
+    return _ok({"success": True, "trip": _serialize_trip(trip)})
 
 
 @require_GET

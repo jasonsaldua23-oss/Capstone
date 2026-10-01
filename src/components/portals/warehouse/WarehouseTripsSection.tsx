@@ -8,9 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
-import { Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
+import { CalendarClock, Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
 import { DepositRefundRow, EmptiesExchangeRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { TRIP_LIST_SORT_OPTIONS, sortTripsForList, type TripListSort } from '@/components/portals/shared/trip-list-sort'
+import { ACTION_ADVANCE } from '@/components/portals/shared/row-actions'
+import { isTripOverdue } from '@/lib/trip-schedule'
+import { WarehouseRescheduleTripDialog } from './sections/trips/reschedule-trip-dialog'
 
 type TripDropPointItem = {
   id: string
@@ -32,6 +35,9 @@ type TripItem = {
   }
   status: string
   tripSchedule?: string | null
+  // The server's due day (YYYY-MM-DD) and whether a planned trip missed it.
+  scheduledDate?: string | null
+  isOverdue?: boolean
   actualEndAt?: string | null
   createdAt?: string | null
   updatedAt?: string | null
@@ -61,6 +67,7 @@ type WarehouseTripsSectionProps = {
   onOpenCreateTripFlow: () => void
   onEditTrip: (trip: TripItem) => void
   onDeleteTrip: (trip: TripItem) => void
+  onRescheduleTrip: (trip: TripItem, scheduledDate: string) => Promise<boolean>
   onUnassignOrderItems?: (tripId: string, orderId: string, warehouseId: string, itemIds: string[]) => void
   availableOrders: Array<{
     id: string
@@ -87,11 +94,13 @@ export function WarehouseTripsSection({
   onOpenCreateTripFlow,
   onEditTrip,
   onDeleteTrip,
+  onRescheduleTrip,
   availableOrders,
   onEditTripDropPoints,
   editingTripId,
 }: WarehouseTripsSectionProps) {
   const [tripPageSelection, setTripPageSelection] = useState({ scope: '', page: 1 })
+  const [reschedulingTrip, setReschedulingTrip] = useState<TripItem | null>(null)
   const [tripStatusFilter, setTripStatusFilter] = useState('ALL')
   const [tripSort, setTripSort] = useState<TripListSort>('DELIVERY_DATE')
   const tripsPageSize = 10
@@ -601,19 +610,27 @@ export function WarehouseTripsSection({
                   const editAllowed = canDeleteTrip(trip)
                   const deleteAllowed = editAllowed
                   const isMultiWarehouseTrip = hasMultiWarehouseDropPoint(trip)
+                  const tripIsOverdue = isTripOverdue(trip)
                   return (
                 <div
                   key={trip.id}
-                  className="rounded-xl border bg-white shadow-sm p-4 hover:shadow-md transition-shadow cursor-pointer"
+                  className="@container rounded-xl border bg-white shadow-sm p-4 hover:shadow-md transition-shadow cursor-pointer"
                   onClick={() => setSelectedTrip(trip)}
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  {/* Fix: a narrow card stacks its actions under the details instead of
+                      squeezing the details into a one-word column beside them. */}
+                  <div className="flex flex-col gap-3 @xl:flex-row @xl:items-start @xl:justify-between">
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xl font-semibold text-gray-900">{trip.tripNumber}</span>
                         <Badge className={`${tripStatusColors[statusKey] || 'bg-gray-100'} text-xs px-2 py-0.5`}>
                           {statusKey.replace(/_/g, ' ')}
                         </Badge>
+                        {tripIsOverdue ? (
+                          <Badge className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5">
+                            Overdue
+                          </Badge>
+                        ) : null}
                         {isMultiWarehouseTrip ? (
                           <Badge className="bg-violet-100 text-violet-800 text-xs px-2 py-0.5">
                             Multi-Warehouse
@@ -626,8 +643,8 @@ export function WarehouseTripsSection({
                       <p className="text-[13px] text-gray-600">
                         Route: {(trip.warehouse?.name || assignedWarehouseName || 'Warehouse')} {'->'} {(trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination')}
                       </p>
-                      <p className="text-[13px] text-gray-600">
-                        Schedule: {formatTripSchedule(trip.tripSchedule)}
+                      <p className={`text-[13px] ${tripIsOverdue ? 'font-medium text-amber-700' : 'text-gray-600'}`}>
+                        Schedule: {formatTripSchedule(trip.tripSchedule)}{tripIsOverdue ? ' (passed without starting)' : ''}
                       </p>
                       {statusKey === 'COMPLETED' ? (
                         <p className="text-[13px] font-semibold text-emerald-700">
@@ -635,7 +652,20 @@ export function WarehouseTripsSection({
                         </p>
                       ) : null}
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {tripIsOverdue ? (
+                        <Button
+                          size="sm"
+                          className={`h-8 px-3 text-xs ${ACTION_ADVANCE}`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setReschedulingTrip(trip)
+                          }}
+                        >
+                          <CalendarClock className="size-3.5" />
+                          Reschedule
+                        </Button>
+                      ) : null}
                       <Button
                         variant="outline"
                         size="sm"
@@ -724,12 +754,17 @@ export function WarehouseTripsSection({
               return (
             <div className="flex-1 overflow-y-auto">
               <div className="border-b border-slate-200 px-5 pb-4 pt-5">
-                <div className="flex items-center gap-3 pr-8">
+                <div className="flex flex-wrap items-center gap-3 pr-8">
                   <h2 className="whitespace-nowrap text-[2.25rem] font-bold leading-none tracking-tight text-[#0f172f]">{selectedTrip.tripNumber}</h2>
                   <div className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5">
                     <Clock3 className="h-4 w-4 text-blue-600" />
                     <span className="text-xs font-semibold leading-none text-blue-600">{statusLabel}</span>
                   </div>
+                  {isTripOverdue(selectedTrip) ? (
+                    <span className="inline-flex items-center rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold leading-none text-amber-800">
+                      Overdue
+                    </span>
+                  ) : null}
                 </div>
               </div>
               <div className="space-y-4 px-5 py-5">
@@ -1245,6 +1280,14 @@ export function WarehouseTripsSection({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Keyed by trip so each opening starts from today's date. */}
+      <WarehouseRescheduleTripDialog
+        key={reschedulingTrip?.id || 'closed'}
+        trip={reschedulingTrip}
+        onClose={() => setReschedulingTrip(null)}
+        onReschedule={(scheduledDate) => (reschedulingTrip ? onRescheduleTrip(reschedulingTrip, scheduledDate) : Promise.resolve(false))}
+      />
     </div>
   )
 }

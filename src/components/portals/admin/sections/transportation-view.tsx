@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { toDisplayStatus } from '@/lib/status-display'
+import { isTripOverdue } from '@/lib/trip-schedule'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -254,10 +255,15 @@ export function TransportationView({ notificationReferenceType = '', notificatio
   const maintenanceCount = vehicles.filter((vehicle) => String(vehicle?.status).toUpperCase().includes('MAINTENANCE')).length
   const totalTripsPages = Math.max(1, Math.ceil(trips.length / tripsPageSize))
   const safeTripsPage = Math.min(tripsPage, totalTripsPages)
+  // Planned trips that missed their day lead the list; the rest keep the API's order.
+  const listedTrips = useMemo(
+    () => [...trips.filter((trip) => isTripOverdue(trip)), ...trips.filter((trip) => !isTripOverdue(trip))],
+    [trips],
+  )
   const paginatedTrips = useMemo(() => {
     const start = (safeTripsPage - 1) * tripsPageSize
-    return trips.slice(start, start + tripsPageSize)
-  }, [trips, safeTripsPage, tripsPageSize])
+    return listedTrips.slice(start, start + tripsPageSize)
+  }, [listedTrips, safeTripsPage, tripsPageSize])
 
   // Added: a driver with an incomplete or invalid license profile cannot be
   // assigned to a truck, so the problem is caught before a delivery is accepted.
@@ -1224,6 +1230,9 @@ export function TransportationView({ notificationReferenceType = '', notificatio
                             >
                               {status.replace(/_/g, ' ')}
                             </Badge>
+                            {isTripOverdue(trip) ? (
+                              <Badge className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5">Overdue</Badge>
+                            ) : null}
                           </div>
                           <p className="text-[13px] text-gray-600">Vehicle: {vehicleName} | Driver: {driverName}</p>
                           <p className="text-[13px] text-gray-600">Route: {origin} {'->'} {destination}</p>

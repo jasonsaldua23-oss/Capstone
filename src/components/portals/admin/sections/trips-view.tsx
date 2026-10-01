@@ -10,6 +10,7 @@ import {
 } from '@/lib/driver-eligibility'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { toDisplayStatus } from '@/lib/status-display'
+import { isTripOverdue } from '@/lib/trip-schedule'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -780,6 +781,7 @@ export function TripsView() {
               {paginatedTrips.map((trip: any) => {
                 const normalizedTripStatus = normalizeTripStatus(trip.status)
                 const deleteAllowed = normalizedTripStatus === 'PLANNED'
+                const tripIsOverdue = isTripOverdue(trip)
 
                 return (
                 <div
@@ -794,6 +796,9 @@ export function TripsView() {
                         <Badge className={`${statusColors[normalizedTripStatus] || 'bg-gray-100'} text-xs px-2 py-0.5`}>
                           {normalizedTripStatus.replace(/_/g, ' ')}
                         </Badge>
+                        {tripIsOverdue ? (
+                          <Badge className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5">Overdue</Badge>
+                        ) : null}
                       </div>
                       <p className="text-[13px] text-gray-700">
                         Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} | Driver: {trip.driver?.user?.name || 'Unassigned'}
@@ -801,8 +806,8 @@ export function TripsView() {
                       <p className="text-[13px] text-gray-600">
                         Route: {(trip.route?.start || trip.origin || 'Warehouse')} {'->'} {(trip.route?.end || trip.destination || trip.destinationCity || 'Destination')}
                       </p>
-                      <p className="text-[13px] text-gray-600">
-                        Schedule: {formatTripScheduleDate(trip.tripSchedule)}
+                      <p className={`text-[13px] ${tripIsOverdue ? 'font-medium text-amber-700' : 'text-gray-600'}`}>
+                        Schedule: {formatTripScheduleDate(trip.tripSchedule)}{tripIsOverdue ? ' (passed without starting)' : ''}
                       </p>
                       {normalizedTripStatus === 'COMPLETED' ? (
                         <p className="text-[13px] font-semibold text-emerald-700">

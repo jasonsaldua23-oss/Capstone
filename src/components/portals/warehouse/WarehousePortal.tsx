@@ -528,6 +528,7 @@ export function WarehousePortal() {
     dashboardOrderStats,
     inventoryStatusBreakdown,
     lowStockCount,
+    overdueTripCount,
     replacementSummary,
     scopedReplacements,
     tripStatusColors,
@@ -622,6 +623,7 @@ export function WarehousePortal() {
     isSelectedSavedRouteOverloaded,
     isSelectedVehicleCapacityMissing,
     openTripEditorInCreateDialog,
+    rescheduleTrip,
     saveTripEditsFromCurrentRoutePlan,
     selectedDriverAssignedVehicle,
     selectedDriverEligibilityIssue,
@@ -1432,6 +1434,8 @@ export function WarehousePortal() {
               inventoryStatusBreakdown={inventoryStatusBreakdown}
               lowStockCount={lowStockCount}
               activeTripCount={activeTripCount}
+              overdueTripCount={overdueTripCount}
+              onOpenTransportation={() => setActiveView('trips')}
               pendingReplacementCases={replacementSummary.needsFollowUp}
               totalReplacementCases={replacementSummary.totalCases}
               warehouseOrdersChartConfig={warehouseOrdersChartConfig}
@@ -1494,6 +1498,7 @@ export function WarehousePortal() {
                   onOpenCreateTripFlow={() => setCreateRouteOpen(true)}
                   onEditTrip={(trip) => { void openTripEditorInCreateDialog(trip as WarehouseTripItem) }}
                   onDeleteTrip={(trip) => { void deleteTrip(trip) }}
+                  onRescheduleTrip={(trip, scheduledDate) => rescheduleTrip(trip as WarehouseTripItem, scheduledDate)}
                   onUnassignOrderItems={(tripId, orderId, warehouseId, itemIds) => { void unassignOrderItemsFromTrip(tripId, orderId, warehouseId, itemIds) }}
                   availableOrders={scopedOrders.filter((order) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(String(order.status || '').toUpperCase())).map((order) => ({ id: order.id, orderNumber: order.orderNumber, shippingName: order.shippingName || order.customer?.name || '', shippingCity: order.shippingCity || '', status: order.status, allocatedQtyForSelectedWarehouse: Number((order as any)?.allocatedQtyForSelectedWarehouse || 0), totalOrderQty: Number((order as any)?.totalOrderQty || 0) }))}
                   onEditTripDropPoints={(trip, changes) => { void editTripDropPoints(trip as WarehouseTripItem, changes) }}
