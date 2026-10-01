@@ -64,6 +64,7 @@ export function WarehouseEditBatchDialog({
               <Input
                 id="edit-batch-manufactured-date"
                 type="date"
+                max={getLocalDateInputValue()}
                 value={editBatchManufacturedDate}
                 onChange={(e) => setEditBatchManufacturedDate(e.target.value)}
               />

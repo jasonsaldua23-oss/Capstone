@@ -185,6 +185,7 @@ export function WarehouseAddStockDialog({
                     <Input
                       id={`mfg-${row.id}`}
                       type="date"
+                      max={getLocalDateInputValue()}
                       className={`h-10 min-w-0 text-sm px-2 ${row.validationErrors.manufacturedDate ? 'border-red-500 bg-red-50' : ''}`}
                       value={row.manufacturedDate}
                       onChange={(e) => updateStockRow(row.id, 'manufacturedDate', e.target.value)}

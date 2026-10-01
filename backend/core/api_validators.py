@@ -115,6 +115,16 @@ def _validate_stock_expiry(value: Any) -> tuple[datetime | None, str | None]:
     return parsed, None
 
 
+def _validate_stock_manufactured_date(value: Any) -> tuple[datetime | None, str | None]:
+    """Parse a stock manufactured date and allow only today or an earlier local date."""
+    parsed = _parse_iso_datetime(value)
+    if not parsed:
+        return None, "Invalid manufacturedDate format"
+    if timezone.localtime(parsed).date() > timezone.localdate():
+        return None, "Manufactured date cannot be in the future. Enter today or an earlier date."
+    return parsed, None
+
+
 def _validate_password_strength(password: str) -> str | None:
     if len(password) < 8:
         return PASSWORD_POLICY_ERROR

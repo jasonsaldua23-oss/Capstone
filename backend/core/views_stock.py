@@ -81,6 +81,10 @@ def _validate_stock_expiry(value: Any) -> tuple[datetime | None, str | None]:
     return legacy._validate_stock_expiry(value)
 
 
+def _validate_stock_manufactured_date(value: Any) -> tuple[datetime | None, str | None]:
+    return legacy._validate_stock_manufactured_date(value)
+
+
 def _warehouse_capacity_error(warehouse: Warehouse, *, incoming_cases: int=0, proposed_capacity: int | None=None) -> str | None:
     return legacy._warehouse_capacity_error(warehouse, incoming_cases=incoming_cases, proposed_capacity=proposed_capacity)
 
@@ -165,12 +169,9 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
             manufactured_raw = str(body.get("manufacturedDate") or body.get("manufactured_date") or "").strip()
             if not manufactured_raw:
                 return _err("manufacturedDate is required", 400)
-            try:
-                manufactured_date = datetime.fromisoformat(manufactured_raw.replace("Z", "+00:00"))
-                if timezone.is_naive(manufactured_date):
-                    manufactured_date = timezone.make_aware(manufactured_date)
-            except ValueError:
-                return _err("Invalid manufacturedDate", 400)
+            manufactured_date, manufactured_error = _validate_stock_manufactured_date(manufactured_raw)
+            if manufactured_error:
+                return _err(manufactured_error, 400)
 
         expiry_date = batch.expiry_date
         if "expiryDate" in body or "expiry_date" in body:
@@ -267,10 +268,9 @@ def stock_batches_collection(request: HttpRequest) -> JsonResponse:
     manufactured_raw = str(body.get("manufacturedDate") or body.get("manufactured_date") or "").strip()
     manufactured_date = None
     if manufactured_raw:
-        try:
-            manufactured_date = datetime.fromisoformat(manufactured_raw.replace("Z", "+00:00"))
-        except ValueError:
-            return _err("Invalid manufacturedDate", 400)
+        manufactured_date, manufactured_error = _validate_stock_manufactured_date(manufactured_raw)
+        if manufactured_error:
+            return _err(manufactured_error, 400)
 
     expiry_raw = str(body.get("expiryDate") or body.get("expiry_date") or "").strip()
     if not expiry_raw:
@@ -457,10 +457,9 @@ def stock_batches_bulk_collection(request: HttpRequest) -> JsonResponse:
         manufactured_raw = str(batch_item.get("manufacturedDate") or "").strip()
         manufactured_date = None
         if manufactured_raw:
-            try:
-                manufactured_date = datetime.fromisoformat(manufactured_raw.replace("Z", "+00:00"))
-            except ValueError:
-                return _err(f"Batch {idx}: Invalid manufacturedDate format", 400)
+            manufactured_date, manufactured_error = _validate_stock_manufactured_date(manufactured_raw)
+            if manufactured_error:
+                return _err(f"Batch {idx}: {manufactured_error}", 400)
 
         expiry_raw = str(batch_item.get("expiryDate") or "").strip()
 

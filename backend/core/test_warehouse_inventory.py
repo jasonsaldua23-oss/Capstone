@@ -199,6 +199,104 @@ class BulkStockInExistingProductContractTests(TestCase):
         batch.refresh_from_db()
         self.assertGreaterEqual(timezone.localtime(batch.expiry_date).date(), timezone.localdate())
 
+    def test_bulk_stock_in_rejects_future_manufactured_date(self) -> None:
+        response = self.client.post(
+            "/api/stock-batches/bulk",
+            data={
+                "warehouseId": self.warehouse.id,
+                "batches": [
+                    {
+                        "productId": self.product.id,
+                        "quantity": 4,
+                        "manufacturedDate": (timezone.localdate() + timedelta(days=1)).isoformat(),
+                        "expiryDate": (timezone.localdate() + timedelta(days=365)).isoformat(),
+                        "batchNumber": "STOCKIN-FUTURE-MFG-001",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"],
+            "Batch 0: Manufactured date cannot be in the future. Enter today or an earlier date.",
+        )
+        self.assertFalse(StockBatch.objects.filter(batch_number="STOCKIN-FUTURE-MFG-001").exists())
+
+    def test_bulk_stock_in_accepts_current_manufactured_date(self) -> None:
+        today = timezone.localdate()
+        response = self.client.post(
+            "/api/stock-batches/bulk",
+            data={
+                "warehouseId": self.warehouse.id,
+                "batches": [
+                    {
+                        "productId": self.product.id,
+                        "quantity": 1,
+                        "manufacturedDate": today.isoformat(),
+                        "expiryDate": (today + timedelta(days=365)).isoformat(),
+                        "batchNumber": "STOCKIN-CURRENT-MFG-001",
+                    }
+                ],
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        batch = StockBatch.objects.get(batch_number="STOCKIN-CURRENT-MFG-001")
+        self.assertEqual(timezone.localtime(batch.receipt_date).date(), today)
+
+    def test_single_stock_in_rejects_future_manufactured_date(self) -> None:
+        response = self.client.post(
+            "/api/stock-batches",
+            data={
+                "inventoryId": self.inventory.id,
+                "quantity": 1,
+                "manufacturedDate": (timezone.localdate() + timedelta(days=1)).isoformat(),
+                "expiryDate": (timezone.localdate() + timedelta(days=365)).isoformat(),
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"],
+            "Manufactured date cannot be in the future. Enter today or an earlier date.",
+        )
+
+    def test_stock_batch_edit_rejects_future_manufactured_date(self) -> None:
+        receipt_date = timezone.now() - timedelta(days=3)
+        batch = StockBatch.objects.create(
+            batch_number="STOCKIN-EDIT-MFG-001",
+            inventory=self.inventory,
+            quantity=1,
+            receipt_date=receipt_date,
+            expiry_date=timezone.now() + timedelta(days=30),
+            status="HEALTHY",
+        )
+        response = self.client.put(
+            "/api/stock-batches",
+            data={
+                "batchId": batch.id,
+                "quantity": 1,
+                "manufacturedDate": (timezone.localdate() + timedelta(days=1)).isoformat(),
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"],
+            "Manufactured date cannot be in the future. Enter today or an earlier date.",
+        )
+        batch.refresh_from_db()
+        self.assertEqual(batch.receipt_date, receipt_date)
+
     def test_returnable_product_stock_in_consumes_available_empties_without_requiring_full_amount(self) -> None:
         self.product.packaging_type = "RETURNABLE"
         self.product.save(update_fields=["packaging_type", "updated_at"])

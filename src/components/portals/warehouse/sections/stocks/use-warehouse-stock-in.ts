@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { emitDataSync } from '@/lib/data-sync'
 import type { InventoryItem, ProductOption, StockBatchItem, StockRow, WarehouseItem } from '../../warehouse-portal-types'
 import { getLocalDateInputValue } from '../../warehouse-portal-utils'
+import { localDateInputValue } from '@/lib/local-date'
 import { describeInventoryOverstock, getInventoryAlertLevel, getInventoryAvailableQty, isInventoryOverstocked } from '@/lib/report-metrics'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 
@@ -100,8 +101,10 @@ export function useWarehouseStockIn(inputs: WarehouseStockInInputs) {
     setEditingBatch(batch)
     setEditBatchQuantity(String(Math.max(0, Number(batch.quantity || 0))))
     // Added: populate the batch dates so warehouse staff can update them with the quantity.
-    setEditBatchManufacturedDate(batch.receiptDate ? new Date(batch.receiptDate).toISOString().slice(0, 10) : '')
-    setEditBatchExpiryDate(batch.expiryDate ? new Date(batch.expiryDate).toISOString().slice(0, 10) : '')
+    // Fix: show local calendar days. toISOString() gave the UTC day, so a manufactured
+    // date stored at Manila midnight showed one day early and saving wrote that back.
+    setEditBatchManufacturedDate(batch.receiptDate ? localDateInputValue(0, new Date(batch.receiptDate)) : '')
+    setEditBatchExpiryDate(batch.expiryDate ? localDateInputValue(0, new Date(batch.expiryDate)) : '')
   }
 
   const saveStockBatchChanges = async () => {
@@ -113,6 +116,10 @@ export function useWarehouseStockIn(inputs: WarehouseStockInInputs) {
     }
     if (!editBatchManufacturedDate) {
       toast.error('Manufactured date is required')
+      return
+    }
+    if (editBatchManufacturedDate > getLocalDateInputValue()) {
+      toast.error('Manufactured date cannot be in the future. Enter today or an earlier date.')
       return
     }
     if (editBatchExpiryDate && editBatchExpiryDate < getLocalDateInputValue()) {
@@ -193,6 +200,10 @@ export function useWarehouseStockIn(inputs: WarehouseStockInInputs) {
     // Overstock is a warning shown beside the product, never a reason to refuse a delivery.
     if (!row.quantity.trim()) errors.quantity = 'Quantity is required'
     else if (isNaN(Number(row.quantity)) || Number(row.quantity) <= 0) errors.quantity = 'Quantity must be > 0'
+    // Optional, but a batch cannot have been manufactured after today.
+    if (row.manufacturedDate && row.manufacturedDate > getLocalDateInputValue()) {
+      errors.manufacturedDate = 'Manufactured date cannot be in the future. Enter today or an earlier date.'
+    }
     if (!row.expiryDate.trim()) errors.expiryDate = 'Expiry date is required'
     else if (row.expiryDate < getLocalDateInputValue()) {
       errors.expiryDate = 'Expiry date cannot be in the past. Enter today or a future date.'

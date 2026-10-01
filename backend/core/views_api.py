@@ -253,6 +253,7 @@ _OWNERS = {
     "_validate_password_strength": "api_validators",
     "_validate_philippine_driver_license": "api_validators",
     "_validate_stock_expiry": "api_validators",
+    "_validate_stock_manufactured_date": "api_validators",
     "_vehicle_overload_message": "inventory_allocation",
     "_verify_google_token": "google_auth",
     "_warehouse_capacity_error": "warehouse_access",
