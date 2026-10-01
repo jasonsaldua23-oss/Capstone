@@ -8,6 +8,7 @@ from .models import (
     InventoryTransaction,
     Order,
     OrderItem,
+    OrderDepositRefundClaim,
     OrderStatus,
     Product,
     ProductPackaging,
@@ -106,6 +107,44 @@ class EmptyCaseInventoryTests(TestCase):
         self.assertEqual(balance["returnedBottles"], 60)
         self.assertEqual(balance["availableCases"], 2)
         self.assertEqual(balance["looseBottles"], 12)
+
+    def test_refund_collections_increase_balance_and_capacity_history(self) -> None:
+        from .deposit_lifecycle import get_empty_bottle_changes
+
+        # Refund collections need no matching purchased order item.
+        for index, (status, collected) in enumerate([
+            ("SETTLED", 24), ("PARTIAL", 12), ("PENDING", 0), ("REJECTED", 0),
+        ]):
+            order = Order.objects.create(
+                order_number=f"REFUND-{index}", status="DELIVERED",
+                warehouse_id=self.warehouse.id, subtotal=0, total_amount=0,
+            )
+            OrderDepositRefundClaim.objects.create(
+                order=order, product=self.product, product_name=self.product.name,
+                container_type=self.product.packaging_options.first().container_type,
+                requested_quantity=24, collected_quantity=collected, status=status,
+                deposit_per_container=1, requested_amount=24,
+            )
+        self.assertEqual(get_product_empty_case_balance(self.inventory)["availableBottles"], 36)
+        changes = get_empty_bottle_changes([self.inventory])[self.inventory.id]
+        self.assertEqual(sum(change["bottles"] for change in changes), 36)
+        self.assertEqual(get_empty_bottle_changes([self.inventory], since=timezone.now())[self.inventory.id], [])
+
+        # Verify the admin's scoped capacity request includes the same refund returns.
+        import json
+        from unittest.mock import patch
+        from django.test import RequestFactory
+        from .views_inventory import inventory_collection
+
+        with patch("core.views_api._require_staff", return_value=({"role": "ADMIN", "userId": "admin"}, None)):
+            response = inventory_collection(RequestFactory().get("/api/inventory", {
+                "warehouseId": self.warehouse.id, "includeEmpties": "1", "emptiesSince": "2000-01-01",
+            }))
+        self.assertEqual(response.status_code, 200)
+        row = next(row for row in json.loads(response.content)["inventory"] if row["product"]["id"] == self.product.id)
+        self.assertEqual(row["emptyBottles"], 36)
+        self.assertEqual(row["emptyContainersPerCase"], 24)
+        self.assertEqual(sum(change["bottles"] for change in row["emptyBottleChanges"]), 36)
 
     def test_stock_in_leaves_customer_returns_available(self) -> None:
         self._create_order_item(order_number="RESTOCK", status=OrderStatus.DELIVERED,

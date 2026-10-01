@@ -23,6 +23,7 @@ from .models import (
     InventoryTransaction,
     MixedCaseComponent,
     Order,
+    OrderDepositRefundClaim,
     OrderItem,
     Product,
     ProductPackaging,
@@ -258,8 +259,7 @@ def _returnable_containers_per_case(product_ids: set[str]) -> dict[str, int]:
 def get_empty_case_balances(inventories: Iterable[Inventory]) -> dict[str, dict[str, int]]:
     """Empties on hand for many inventory rows, keyed by inventory id.
 
-    Five grouped queries for the whole list instead of four per row, so a warehouse's
-    inventory can carry its empties into the capacity charts.
+    Bulk queries let a warehouse's inventory carry its empties into capacity charts.
     """
     rows = [inventory for inventory in inventories if inventory.product_id and inventory.warehouse_id]
     if not rows:
@@ -298,6 +298,15 @@ def get_empty_case_balances(inventories: Iterable[Inventory]) -> dict[str, dict[
         returned[(row["order_item__order__warehouse_id"], row["product_id"])] += int(row["total"] or 0)
 
     consumed_cases: dict[tuple[str, str], int] = defaultdict(int)
+    # Fix: refund collections are separate from checkout exchanges on order items.
+    refund_returns = OrderDepositRefundClaim.objects.filter(
+        order__status="DELIVERED", order__warehouse_id__in=warehouse_ids,
+        product_id__in=product_ids, status__in=["SETTLED", "PARTIAL"],
+        collected_quantity__gt=0,
+    ).values("order__warehouse_id", "product_id").annotate(total=Sum("collected_quantity"))
+    for row in refund_returns:
+        returned[(row["order__warehouse_id"], row["product_id"])] += int(row["total"] or 0)
+
     # Fix: outgoing warehouse returns do not change customer return records.
     returned_to_supplier: dict[tuple[str, str], int] = defaultdict(int)
     consumption = (
@@ -392,6 +401,19 @@ def get_empty_bottle_changes(
         standard_returned = standard_returned.filter(arrived_at__gt=since)
         mixed_returned = mixed_returned.filter(arrived_at__gt=since)
         consumption = consumption.filter(created_at__gt=since)
+
+    # Fix: replay confirmed refund collections in the capacity trend as well.
+    refund_returns = OrderDepositRefundClaim.objects.filter(
+        order__status="DELIVERED", order__warehouse_id__in=warehouse_ids,
+        product_id__in=product_ids, status__in=["SETTLED", "PARTIAL"],
+        collected_quantity__gt=0,
+    ).annotate(arrived_at=Coalesce("order__timeline__delivered_at", "order__pod_submitted_at", "updated_at"))
+    if since is not None:
+        refund_returns = refund_returns.filter(arrived_at__gt=since)
+    for warehouse_id, product_id, at, bottles in refund_returns.values_list(
+        "order__warehouse_id", "product_id", "arrived_at", "collected_quantity"
+    ):
+        changes[(warehouse_id, product_id)][at] += int(bottles or 0)
 
     for warehouse_id, product_id, at, bottles in standard_returned.values_list(
         "order__warehouse_id", "product_id", "arrived_at", "empty_returned_quantity"

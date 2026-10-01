@@ -123,20 +123,20 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
     isActive: true,
   })
 
-  const loadWarehouseInsights = async (warehouse: any) => {
+  const loadWarehouseInsights = async (warehouse: any, background = false) => {
     if (!warehouse?.id) return
     // Fix: superseded reads must not overwrite a newer warehouse refresh.
     insightsRequest.current?.abort()
     const controller = new AbortController()
     insightsRequest.current = controller
-    setIsLoadingInsights(true)
+    if (!background) setIsLoadingInsights(true)
     setInsightsError('')
     setSelectedWarehouse(warehouse)
     try {
       // Fix: the list already contains the warehouse profile. Read only this
       // facility's stock, following every page so large histories stay accurate.
       const scope = `warehouseId=${encodeURIComponent(String(warehouse.id))}`
-      const init = { signal: controller.signal }
+      const init = { signal: controller.signal, cache: 'no-store' as const }
       // Empties take crate space too; eight days of their changes covers the 7-day trend.
       const emptiesSince = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
       const results = await Promise.all([
@@ -227,6 +227,26 @@ export function WarehousesView({ onWarehouseChanged }: { onWarehouseChanged?: (r
     fetchWarehouseStaffUsers()
     return () => insightsRequest.current?.abort()
   }, [])
+
+  useEffect(() => {
+    if (!selectedWarehouse?.id) return
+    // Fix: returns completed in another portal must refresh the capacity counts.
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void loadWarehouseInsights(selectedWarehouse, true)
+    }
+    const unsubscribe = subscribeDataSync(({ scopes }) => {
+      if (scopes.some((scope) => ['inventory', 'orders', 'trips', 'stock-batches', 'inventory-transactions'].includes(scope))) refresh()
+    })
+    const timer = window.setInterval(refresh, 30000)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      unsubscribe()
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [selectedWarehouse])
 
   const resetForm = () => {
     const nextCode = getNextWarehouseCode()
