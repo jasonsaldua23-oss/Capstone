@@ -14,6 +14,8 @@ export const REPORT_DATASETS = {
   feedback: { endpoint: '/api/feedback?limit=1000', keys: ['feedback'] },
   // The endpoint returns stockBatches, not batches; keep the real collection key first.
   stockBatches: { endpoint: '/api/stock-batches?page=1&pageSize=2000', keys: ['stockBatches', 'batches'] },
+  // Disposal history retains the recorded product loss, including emptied batches.
+  stockDisposals: { endpoint: '/api/stock-batches/disposals', keys: ['disposals'] },
   customers: { endpoint: '/api/customers?limit=1000', keys: ['customers', 'users'] },
   retailSales: { endpoint: '/api/retail/sales?limit=1000', keys: ['sales', 'retailSales'] },
 }
@@ -37,6 +39,6 @@ export const REPORT_DEPENDENCIES: Record<string, readonly ReportDataset[]> = {
   retail_sales: ['orders', 'retailSales'],
   top_clients: ['orders', 'customers'],
   warehouse: ['warehouses', 'inventory', 'inventoryTransactions'],
-  inventory: ['inventory', 'inventoryTransactions', 'stockBatches', 'warehouses', 'orders', 'retailSales'],
+  inventory: ['inventory', 'inventoryTransactions', 'stockBatches', 'stockDisposals', 'warehouses', 'orders', 'retailSales'],
   feedback: ['feedback', 'orders', 'trips'],
 }

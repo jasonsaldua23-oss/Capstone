@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, type Dispatch, type SetStateAction } from 'react'
+import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { WarehouseInventoryReport } from '.'
@@ -19,6 +20,7 @@ import {
 } from 'recharts'
 import { ChartInterpretation } from '@/components/ui/chart-interpretation'
 import { describeComparison, describeRanking, toPoints } from '@/lib/chart-interpretation'
+import { formatPeso } from '../shared'
 import { chartBucketNoun } from '@/lib/report-metrics'
 import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, chartTooltipStyle, previewRows } from './chart-styles'
 import type { ReportDatasets } from './use-report-datasets'
@@ -84,6 +86,15 @@ export function InventoryReportTab({
   stockTrendSummary,
   warehouses,
 }: InventoryReportTabProps) {
+  // Keep disposal history separate so expiry actions only describe remaining stock.
+  const [disposalSearch, setDisposalSearch] = useState('')
+  const activeExpiryRows = stockExpiryRows.filter((row) => row.status !== 'DISPOSED')
+  const disposedRows = stockExpiryRows.filter((row) => row.status === 'DISPOSED')
+  const disposalQuery = disposalSearch.trim().toLowerCase()
+  const filteredDisposals = disposedRows.filter((row) =>
+    [row.product, row.sku, row.batchNumber].some((value) => String(value || '').toLowerCase().includes(disposalQuery))
+  )
+
   // Both charts are truncated to the top five, so the readings describe the same slice.
   const topMovementProducts = inventoryMovementByProductChart.slice(0, 5)
   const movementInterpretation = describeComparison(
@@ -155,6 +166,7 @@ export function InventoryReportTab({
     selectedMovementType,
     stockExpiryKpi,
     stockExpiryRows,
+    disposalSearch,
   })
   const header = INVENTORY_REPORT_HEADERS[reportType]
 
@@ -165,9 +177,9 @@ export function InventoryReportTab({
         badge={header.badge}
         description={header.description}
         reportTypeSelect={reportTypeSelect}
-        onExportCsv={() => exportToCsv(`${report.filename}-${today}.csv`, report.columns, report.rows)}
-        onExportPdf={() => void exportReportPdf(`${report.filename}-${today}.pdf`, header.title, report.columns, report.rows, report.summaryLines, report.dateLabel)}
-        onPrint={() => printReportTable(header.title, report.columns, report.rows, report.summaryLines, report.dateLabel)}
+        onExportCsv={() => exportToCsv(`${report.filename}-${today}.csv`, report.columns, report.rows, report.sections)}
+        onExportPdf={() => void exportReportPdf(`${report.filename}-${today}.pdf`, header.title, report.columns, report.rows, report.summaryLines, report.dateLabel, report.sections)}
+        onPrint={() => printReportTable(header.title, report.columns, report.rows, report.summaryLines, report.dateLabel, report.sections)}
       />
 
       {reportType === 'stock-movement' ? (
@@ -320,6 +332,7 @@ export function InventoryReportTab({
             </div>
           </CardContent>
         </Card>
+
         </>
       ) : null}
 
@@ -406,6 +419,7 @@ export function InventoryReportTab({
             </div>
           </CardContent>
         </Card>
+
         </>
       ) : null}
 
@@ -441,12 +455,12 @@ export function InventoryReportTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {previewRows(stockExpiryRows).map((row, index) => (
+                  {activeExpiryRows.map((row, index) => (
                     <tr key={`${row.batchNumber}-${index}`} className="border-b last:border-0">
                       <td className="p-3 font-medium">{String(row.batchNumber || 'N/A')}</td>
                       <td className="p-3">{String(row.product || 'N/A')}</td>
                       <td className="p-3">{String(row.sku || 'N/A')}</td>
-                      <td className="p-3">{String(row.quantity || 0)}</td>
+                      <td className="p-3">{String(row.quantity || 0)} {row.quantityUnit}</td>
                       <td className="p-3">{String(row.manufacturedDate || 'N/A')}</td>
                       <td className="p-3">{String(row.expiryDate || 'N/A')}</td>
                       <td className="p-3">{typeof row.daysUntilExpiry === 'number' ? row.daysUntilExpiry : 'N/A'}</td>
@@ -461,7 +475,52 @@ export function InventoryReportTab({
                   ))}
                 </tbody>
               </table>
-              {stockExpiryRows.length === 0 ? <p className="py-8 text-center text-gray-500">No batch expiry data available</p> : null}
+              {activeExpiryRows.length === 0 ? <p className="py-8 text-center text-gray-500">No batch expiry data available</p> : null}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Disposal quantities and losses come from recorded disposal events. */}
+        <Card className="rounded-2xl border border-slate-200 shadow-sm">
+          <CardHeader>
+            <CardTitle>Disposed Stock</CardTitle>
+            <CardDescription>Disposed products and their recorded loss at listed price.</CardDescription>
+            <Input
+              aria-label="Filter disposed stock"
+              placeholder="Filter by product, SKU, or batch number"
+              value={disposalSearch}
+              onChange={(event) => setDisposalSearch(event.target.value)}
+              className="mt-3 max-w-sm"
+            />
+          </CardHeader>
+          <CardContent>
+            <div className="max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="stack-table w-full min-w-[760px] text-sm">
+                <thead className="border-b bg-gray-50">
+                  <tr>
+                    {['Batch #', 'Product', 'SKU', 'Disposed Quantity', 'Expiry Date', 'Disposed On', 'Loss (listed price)'].map((label) => (
+                      <th key={label} className="p-3 text-left">{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDisposals.map((row, index) => (
+                    <tr key={`${row.batchNumber}-${index}`} className="border-b last:border-0">
+                      <td className="p-3 font-medium">{row.batchNumber}</td>
+                      <td className="p-3">{row.product}</td>
+                      <td className="p-3">{row.sku}</td>
+                      <td className="p-3">{row.quantity} {row.quantityUnit}</td>
+                      <td className="p-3">{row.expiryDate}</td>
+                      <td className="p-3">{row.disposedAt}</td>
+                      {/* Missing historical valuations must not appear as zero loss. */}
+                      <td className="p-3">{row.lossAmount == null ? 'Unavailable' : formatPeso(row.lossAmount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredDisposals.length === 0 ? (
+                <p className="py-8 text-center text-gray-500">{disposalQuery ? 'No disposed stock matches this filter' : 'No disposed stock recorded'}</p>
+              ) : null}
             </div>
           </CardContent>
         </Card>

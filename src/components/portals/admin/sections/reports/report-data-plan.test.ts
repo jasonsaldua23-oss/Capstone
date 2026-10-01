@@ -53,7 +53,7 @@ test('opening Reports avoids unrelated requests, reuses orders, and refreshes in
 test('report dependencies include the sources used by charts and exports', () => {
   assert.deepEqual(REPORT_DEPENDENCIES.warehouse, ['warehouses', 'inventory', 'inventoryTransactions'])
   assert.deepEqual(REPORT_DEPENDENCIES.feedback, ['feedback', 'orders', 'trips'])
-  assert.deepEqual(REPORT_DEPENDENCIES.inventory, ['inventory', 'inventoryTransactions', 'stockBatches', 'warehouses', 'orders', 'retailSales'])
+  assert.deepEqual(REPORT_DEPENDENCIES.inventory, ['inventory', 'inventoryTransactions', 'stockBatches', 'stockDisposals', 'warehouses', 'orders', 'retailSales'])
   for (const dependencies of Object.values(REPORT_DEPENDENCIES)) {
     for (const name of dependencies) assert.ok(name in REPORT_DATASETS)
   }

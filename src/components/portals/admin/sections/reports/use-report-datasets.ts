@@ -59,6 +59,7 @@ export type ReportDatasetsInputs = {
   selectedOrderStatus: string
   selectedReplacementStatus: string
   selectedTripStatus: string
+  stockDisposals?: any[]
   stockBatches: any[]
   trips: any[]
   warehouseDateFrom: string
@@ -86,6 +87,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     selectedReplacementStatus,
     selectedTripStatus,
     stockBatches,
+    stockDisposals = [],
     trips,
     warehouseDateFrom,
     warehouseDatePreset,
@@ -405,7 +407,9 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
   // Batch expiry stays under inventory reporting so stock age is reviewed alongside movement and low-stock risks.
   const stockExpiryRows = useMemo(() => {
     const now = new Date()
-    return stockBatches
+    const activeRows = stockBatches
+      // Empty retained batches are represented by their disposal history below.
+      .filter((batch) => Number(batch.quantity || 0) > 0 || Number(batch.looseBottles ?? batch.loose_bottles ?? 0) > 0)
       .map((batch) => {
         // The backend persists manufactured date in `receipt_date`, so the report exposes it with the correct business label.
         const manufacturedDateValue = batch.manufacturedDate || batch.manufactured_date || batch.receiptDate || batch.receipt_date || batch.createdAt || null
@@ -415,6 +419,9 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
         // Calendar days, as on the Stocks tab: a batch expiring later today has 0 left, not 1.
         const daysUntilExpiry = stockBatchDaysLeft(expiryDateValue, now)
         return {
+          disposedAt: 'N/A',
+          lossAmount: null as number | null,
+          quantityUnit: 'cases',
           batchNumber: batch.batchNumber || batch.batch_number || 'N/A',
           product: formatReportProductName(batch.inventory?.product, 'N/A'),
           sku: batch.inventory?.product?.sku || 'N/A',
@@ -437,7 +444,23 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
         const bDays = typeof b.daysUntilExpiry === 'number' ? b.daysUntilExpiry : Infinity
         return aDays - bDays
       })
-  }, [stockBatches])
+    // Use the immutable disposal valuation; never recalculate from today's price.
+    const disposedRows = stockDisposals.map((row) => ({
+      batchNumber: row.batchNumber || 'N/A',
+      product: formatReportProductName(row.product, 'N/A'),
+      sku: row.product?.sku || 'N/A',
+      warehouse: row.warehouse?.name || 'N/A',
+      quantity: Number(row.quantity || 0),
+      quantityUnit: row.quantityUnit === 'BASE_UNIT' ? 'bottles' : 'cases',
+      manufacturedDate: row.manufacturedDate ? formatReportDateOnly(row.manufacturedDate) : 'N/A',
+      expiryDate: row.expiryDate ? formatReportDateOnly(row.expiryDate) : 'N/A',
+      daysUntilExpiry: 'N/A',
+      status: 'DISPOSED',
+      disposedAt: row.disposedAt ? formatReportDateOnly(row.disposedAt) : 'N/A',
+      lossAmount: row.lossAmount == null ? null : Number(row.lossAmount),
+    }))
+    return [...activeRows, ...disposedRows]
+  }, [stockBatches, stockDisposals])
 
   // Driver Performance Report Rows - tracks driver metrics
   const driverPerformanceRows = useMemo(() => {
@@ -948,7 +971,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     const critical = stockExpiryRows.filter((row) => row.status === 'CRITICAL').length
     const warning = stockExpiryRows.filter((row) => row.status === 'WARNING').length
     const expired = stockExpiryRows.filter((row) => row.status === 'EXPIRED').length
-    return { total: stockExpiryRows.length, critical, warning, expired }
+    return { total: stockExpiryRows.filter((row) => row.status !== 'DISPOSED').length, critical, warning, expired }
   }, [stockExpiryRows])
 
   // Keep exported order columns aligned with the redesigned on-screen table instead of leaking internal helper fields.

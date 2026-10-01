@@ -54,15 +54,23 @@ function summaryToKpis(summaryLines: string[]) {
     .slice(0, 5)
 }
 
+// Optional sections keep independent report tables separate in every export format.
+export interface ExportTableSection<T = any> {
+  title: string
+  columns: ExportColumn<T>[]
+  rows: T[]
+}
+
 /**
  * Export rows to clean CSV file with Excel UTF-8 BOM.
  */
 export function exportToCsv<T>(
   filename: string,
   columns: ExportColumn<T>[],
-  rows: T[]
+  rows: T[],
+  sections?: ExportTableSection<T>[]
 ) {
-  if (!rows || rows.length === 0) {
+  if (!rows?.length && !sections?.some((section) => section.rows.length)) {
     toast.error('No records available to export')
     return
   }
@@ -79,7 +87,14 @@ export function exportToCsv<T>(
       .join(',')
   })
 
-  const csvContent = '\uFEFF' + [headerLine, ...dataLines].join('\r\n')
+  const sectionLines = sections?.flatMap((section) => [
+    `"${section.title.replace(/"/g, '""')}"`,
+    ['#', ...section.columns.map((col) => col.header)].map((value) => `"${value.replace(/"/g, '""')}"`).join(','),
+    ...section.rows.map((row, index) => [String(index + 1), ...section.columns.map((col) => reportCellValue(col, row))]
+      .map((value) => `"${value.replace(/"/g, '""')}"`).join(',')),
+    '',
+  ])
+  const csvContent = '\uFEFF' + (sectionLines || [headerLine, ...dataLines]).join('\r\n')
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -100,9 +115,10 @@ export function printReportTable<T>(
   columns: ExportColumn<T>[],
   rows: T[],
   summaryLines: string[] = [],
-  dateLabel?: string
+  dateLabel?: string,
+  sections?: ExportTableSection<T>[]
 ) {
-  if (!rows || rows.length === 0) {
+  if (!rows?.length && !sections?.some((section) => section.rows.length)) {
     toast.error('No records available to print')
     return
   }
@@ -181,7 +197,10 @@ export function printReportTable<T>(
                 <span class="kpi-value">${escapeHtml(kpi.value)}</span>
               </div>`).join('')}</div>`
           : ''}
-        <table>
+        ${sections ? sections.map((section) => `<h2>${escapeHtml(section.title)}</h2><table>
+          <thead><tr><th>#</th>${section.columns.map((col) => `<th>${escapeHtml(col.header)}</th>`).join('')}</tr></thead>
+          <tbody>${section.rows.map((row, index) => `<tr><td>${index + 1}</td>${section.columns.map((col) => `<td>${escapeHtml(reportCellValue(col, row))}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>`).join('') : `        <table>
           <colgroup>${tableColumns}</colgroup>
           <thead>
             <tr>${tableHeaders}</tr>
@@ -190,6 +209,7 @@ export function printReportTable<T>(
             ${tableRows}
           </tbody>
         </table>
+`}
       </body>
     </html>
   `
@@ -221,9 +241,10 @@ export async function exportReportPdf<T>(
   columns: ExportColumn<T>[],
   rows: T[],
   summaryLines: string[] = [],
-  dateLabel?: string
+  dateLabel?: string,
+  sections?: ExportTableSection<T>[]
 ) {
-  if (!rows || rows.length === 0) {
+  if (!rows?.length && !sections?.some((section) => section.rows.length)) {
     toast.error('No records available to export')
     return
   }
@@ -353,6 +374,14 @@ export async function exportReportPdf<T>(
       y -= kpiHeight + 14
     }
 
+    for (const section of sections || [{ title: '', columns: activeCols, rows }]) {
+    const activeCols = cleanReportPdfColumns(title, section.columns)
+    const rows = section.rows
+    if (section.title) {
+      if (y < margin + 90) nextPage()
+      drawPdfText(section.title, { x: margin, y: y - 14, size: 12, textFont: fontBold })
+      y -= 28
+    }
     const numberedCols: ExportColumn<T>[] = [{ header: '#', accessor: () => '' }, ...activeCols]
     const numberWidth = 28
     const dataColumnWidths = calculateReportColumnWidths(activeCols, contentWidth - numberWidth)
@@ -404,6 +433,8 @@ export async function exportReportPdf<T>(
           drawTableHeader()
         }
       }
+    }
+    y -= 20
     }
     drawPageNumber()
 

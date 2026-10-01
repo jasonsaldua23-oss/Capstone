@@ -36,70 +36,8 @@ import { describeRanking, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { formatPesoAxisTick, isCancelledReportStatus, isRevenueRecognized, summarizeCustomerMix } from '@/lib/report-metrics'
+import { formatPesoAxisTick, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
-
-// Blue is the tab's existing series hue; amber pairs with it at CVD delta-E 37,
-// well clear of the 8 floor. Amber sits under 3:1 against white, so every segment
-// carries a visible label rather than relying on the fill alone.
-const CUSTOMER_MIX_COLORS = { new: '#f59e0b', returning: '#2563eb' } as const
-
-/**
- * One 100% share bar. Labels sit beneath the bar so a thin segment still states
- * its value, and each segment keeps a minimum width so a 1% share stays visible.
- */
-function CustomerShareBar({
-  label,
-  total,
-  newValue,
-  returningValue,
-  newShare,
-  returningShare,
-  formatValue,
-}: {
-  label: string
-  total: string
-  newValue: number
-  returningValue: number
-  newShare: number
-  returningShare: number
-  formatValue: (value: number) => string
-}) {
-  const sum = newValue + returningValue
-  const newPercent = sum > 0 ? (newValue / sum) * 100 : 0
-  const returningPercent = sum > 0 ? 100 - newPercent : 0
-
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="text-sm font-medium text-slate-600">{label}</p>
-        <p className="text-lg font-bold text-slate-900">{total}</p>
-      </div>
-      <div
-        className="mt-2 flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-slate-100"
-        role="img"
-        aria-label={`${label}: ${formatValue(newValue)} new (${newShare}%), ${formatValue(returningValue)} returning (${returningShare}%)`}
-      >
-        {newValue > 0 ? (
-          <span className="h-full rounded-full" style={{ width: `${newPercent}%`, minWidth: 4, background: CUSTOMER_MIX_COLORS.new }} />
-        ) : null}
-        {returningValue > 0 ? (
-          <span className="h-full rounded-full" style={{ width: `${returningPercent}%`, minWidth: 4, background: CUSTOMER_MIX_COLORS.returning }} />
-        ) : null}
-      </div>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-slate-600">
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden className="inline-block size-2 rounded-sm" style={{ background: CUSTOMER_MIX_COLORS.new }} />
-          New {formatValue(newValue)} <span className="text-slate-400">({newShare}%)</span>
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden className="inline-block size-2 rounded-sm" style={{ background: CUSTOMER_MIX_COLORS.returning }} />
-          Returning {formatValue(returningValue)} <span className="text-slate-400">({returningShare}%)</span>
-        </span>
-      </div>
-    </div>
-  )
-}
 
 interface TopClientsReportProps {
   orders: any[]
@@ -272,16 +210,6 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
 
     return { totalClients, totalRevenue, avgPerClient, topClient }
   }, [rankedClients, clientsByRevenue])
-
-  // New vs returning. Deliberately reads `orders`, not `filteredOrders`: a
-  // client's cohort comes from their whole purchase history, so a short range
-  // cannot relabel a long-standing client as new. Only the window's revenue is
-  // split between the two groups.
-  const customerMix = useMemo(() => {
-    // Keep the cohort summary on the same date window as the leaderboard.
-    const { start: windowStart, end: windowEnd } = buildReportDateWindow(periodFilter, dateFrom, dateTo)
-    return summarizeCustomerMix(orders, { windowStart, windowEnd })
-  }, [orders, periodFilter, dateFrom, dateTo])
 
   // Chart Data: Top 8 Clients by Revenue
   const chartData = useMemo(() => {
@@ -474,66 +402,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
         ]}
       />
 
-      {/* New vs returning. Buyers and pesos are different scales, so they get a
-          share bar each rather than sharing one axis. Two categories do not earn
-          a pie. */}
-      <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <CardHeader className="p-4 pb-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <CardTitle className="text-base font-semibold text-slate-800">Customer Mix</CardTitle>
-              <CardDescription className="mt-1 text-xs text-slate-500">
-                First-time against returning buyers. A client counts as returning when they had
-                already bought before this period, however short the period is.
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-3 text-xs font-medium text-slate-600">
-              <span className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="inline-block size-2.5 rounded-sm" style={{ background: CUSTOMER_MIX_COLORS.new }} />
-                New
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="inline-block size-2.5 rounded-sm" style={{ background: CUSTOMER_MIX_COLORS.returning }} />
-                Returning
-              </span>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-5 p-4 pt-0">
-          {customerMix.totalCustomers === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">
-              No delivered orders in this period, so there is no customer mix to show yet.
-            </p>
-          ) : (
-            <>
-              <CustomerShareBar
-                label="Buyers"
-                total={customerMix.totalCustomers.toLocaleString('en-US')}
-                newValue={customerMix.newCustomers}
-                returningValue={customerMix.returningCustomers}
-                newShare={customerMix.newCustomerShare}
-                returningShare={customerMix.returningCustomerShare}
-                formatValue={(value) => value.toLocaleString('en-US')}
-              />
-              <CustomerShareBar
-                label="Revenue"
-                total={formatPeso(customerMix.totalRevenue)}
-                newValue={customerMix.newRevenue}
-                returningValue={customerMix.returningRevenue}
-                newShare={customerMix.newRevenueShare}
-                returningShare={customerMix.returningRevenueShare}
-                formatValue={(value) => formatPeso(value)}
-              />
-              <p className="border-t border-slate-100 pt-3 text-xs text-slate-500">
-                {customerMix.returningCustomers > 0
-                  ? `Returning clients are ${customerMix.returningCustomerShare}% of buyers and bring ${customerMix.returningRevenueShare}% of revenue.`
-                  : 'Every buyer in this period was buying for the first time.'}
-              </p>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
+      {/* Customer Mix removed as requested; client rankings continue below. */}
       {/* Top 3 Podium Cards */}
       {topThree.length > 0 && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

@@ -116,6 +116,7 @@ export function ReportsView() {
   const replacementsData = rows('replacements')
   const feedback = rows('feedback')
   const stockBatches = rows('stockBatches')
+  const stockDisposals = rows('stockDisposals')
   const customers = rows('customers')
   const retailSales = rows('retailSales')
   const reportBranding = {
@@ -202,6 +203,7 @@ export function ReportsView() {
     selectedReplacementStatus,
     selectedTripStatus,
     stockBatches,
+    stockDisposals,
     trips,
     warehouseDateFrom,
     warehouseDatePreset,

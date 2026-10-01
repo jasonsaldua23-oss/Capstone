@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { AlertTriangle, ArrowLeftRight, CalendarClock } from 'lucide-react'
 import { formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import type { ExportColumn } from './export-utils'
+import type { ExportColumn, ExportTableSection } from './export-utils'
 import type { InventoryReportType } from './inventory-report-header'
 import type { ReportDatasets } from './use-report-datasets'
 
@@ -49,10 +49,12 @@ type InventoryReportExportData = {
   movementRangeLabel: string
   selectedMovementType: string
   stockExpiryKpi: ReportDatasets['stockExpiryKpi']
+  disposalSearch?: string
   stockExpiryRows: ReportDatasets['stockExpiryRows']
 }
 
 type InventoryReportExport = {
+  sections?: ExportTableSection<any>[]
   filename: string
   columns: ExportColumn<any>[]
   rows: any[]
@@ -105,19 +107,19 @@ export function buildInventoryReportExport(type: TabReportType, data: InventoryR
     }
   }
 
-  return {
+  const report: InventoryReportExport = {
     filename: 'batch-expiry-report',
     columns: [
       { header: 'Batch #', accessor: (row) => String(row.batchNumber || 'N/A') },
       { header: 'Product', accessor: (row) => String(row.product || 'N/A') },
       { header: 'SKU', accessor: (row) => String(row.sku || 'N/A') },
-      { header: 'Quantity', accessor: (row) => Number(row.quantity || 0) },
+      { header: 'Quantity', accessor: (row) => `${Number(row.quantity || 0)} ${row.quantityUnit || 'cases'}` },
       { header: 'Manufacture Date', accessor: (row) => String(row.manufacturedDate || 'N/A') },
       { header: 'Expiry Date', accessor: (row) => String(row.expiryDate || 'N/A') },
       { header: 'Days Left', accessor: (row) => (typeof row.daysUntilExpiry === 'number' ? row.daysUntilExpiry : 'N/A') },
       { header: 'Status', accessor: (row) => readableStatus(row.status) },
     ],
-    rows: data.stockExpiryRows,
+    rows: data.stockExpiryRows.filter((row) => row.status !== 'DISPOSED'),
     summaryLines: [
       `Tracked Batches: ${data.stockExpiryKpi.total}`,
       `Expired: ${data.stockExpiryKpi.expired}`,
@@ -125,4 +127,23 @@ export function buildInventoryReportExport(type: TabReportType, data: InventoryR
       `Warning: ${data.stockExpiryKpi.warning}`,
     ],
   }
+  // Disposal search applies to the exported history exactly as it does on screen.
+  const query = (data.disposalSearch || '').trim().toLowerCase()
+  report.sections = [
+    { title: 'Batches by Expiry', columns: report.columns, rows: report.rows },
+    {
+      title: 'Disposed Stock',
+      columns: [
+        ...report.columns.slice(0, 3),
+        { header: 'Disposed Quantity', accessor: (row) => `${row.quantity} ${row.quantityUnit}` },
+        { header: 'Expiry Date', accessor: (row) => row.expiryDate },
+        { header: 'Disposed On', accessor: (row) => row.disposedAt },
+        { header: 'Loss (listed price)', accessor: (row) => row.lossAmount == null ? 'Unavailable' : Number(row.lossAmount) },
+      ],
+      rows: data.stockExpiryRows.filter((row) => row.status === 'DISPOSED' &&
+        [row.product, row.sku, row.batchNumber].some((value) => String(value || '').toLowerCase().includes(query))),
+    },
+  ]
+  return report
+
 }

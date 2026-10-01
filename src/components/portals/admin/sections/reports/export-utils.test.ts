@@ -210,3 +210,49 @@ test('CSV and PDF export identical headers, numbering and cell values', async ()
     globalThis.fetch = originalFetch
   }
 })
+
+// Disposal-only reports must still export both independently headed tables.
+test('sectioned CSV and PDF export disposal history when active batches are empty', async () => {
+  const originalDocument = globalThis.document
+  const originalCreateUrl = URL.createObjectURL
+  const originalRevokeUrl = URL.revokeObjectURL
+  const originalDrawText = PDFPage.prototype.drawText
+  const originalFetch = globalThis.fetch
+  let download: Blob | undefined
+  const drawn: string[] = []
+  try {
+    globalThis.fetch = fetchReportLogo
+    globalThis.document = {
+      createElement: () => ({ click() {}, setAttribute() {} }),
+      body: { appendChild() {}, removeChild() {} },
+    } as unknown as Document
+    URL.createObjectURL = (blob) => { download = blob as Blob; return 'blob:sections' }
+    URL.revokeObjectURL = () => {}
+    PDFPage.prototype.drawText = function (text, options) {
+      drawn.push(text)
+      return originalDrawText.call(this, text, options)
+    }
+    const columns = [{ header: 'Product', accessor: (row: any) => row.product }]
+    const sections = [
+      { title: 'Batches by Expiry', columns, rows: [] },
+      { title: 'Disposed Stock', columns: [...columns, { header: 'Loss', accessor: (row: any) => row.loss }], rows: [{ product: 'Disposed product', loss: 125 }] },
+    ]
+    exportToCsv('sections', columns, [], sections)
+    const csv = await download!.text()
+    assert.ok(csv.includes('"Batches by Expiry"'))
+    assert.ok(csv.includes('"Disposed Stock"'))
+    assert.ok(csv.includes('"Disposed product","125"'))
+    download = undefined
+    await exportReportPdf('sections', 'Batch Expiry', columns, [], [], undefined, sections)
+    assert.ok(download)
+    assert.ok(drawn.indexOf('Disposed Stock') > drawn.indexOf('Batches by Expiry'))
+    assert.ok(drawn.includes('Disposed product'))
+    assert.ok(drawn.includes('125'))
+  } finally {
+    globalThis.document = originalDocument
+    URL.createObjectURL = originalCreateUrl
+    URL.revokeObjectURL = originalRevokeUrl
+    PDFPage.prototype.drawText = originalDrawText
+    globalThis.fetch = originalFetch
+  }
+})
