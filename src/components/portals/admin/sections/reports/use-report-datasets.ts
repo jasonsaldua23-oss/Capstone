@@ -985,7 +985,9 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       totalQuantity: row.totalQuantity,
       orderDate: row.orderDateLabel,
       orderStatus: formatOrderReportStatus(row.normalizedReportStatus),
-      totalAmount: formatPesoCompact(Number(row.amount || 0)),
+      // Sales is what revenue counts; the deposit is the rest of the order total.
+      salesAmount: formatPesoCompact(Number(row.amount || 0)),
+      depositAmount: formatPesoCompact(Number(row.deposit || 0)),
     }))
   }, [orderRows])
 
@@ -1042,7 +1044,8 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
     `Pending: ${orderKpi.pendingOrders}`,
     `Cancelled: ${orderKpi.cancelledOrders}`,
     `Total Quantity: ${orderKpi.totalQuantity}`,
-    `Total Revenue: ₱ ${orderKpi.totalRevenue.toLocaleString()} (delivered orders only)`,
+    `Total Revenue: ₱ ${orderKpi.totalRevenue.toLocaleString()} (delivered orders, excluding container deposits)`,
+    `Container Deposits: ₱ ${orderKpi.totalDeposits.toLocaleString()} (delivered orders)`,
   ]), [orderKpi])
 
   const transportSummaryLines = useMemo(() => ([

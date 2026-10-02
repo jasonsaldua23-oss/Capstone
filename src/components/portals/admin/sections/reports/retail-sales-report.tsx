@@ -44,11 +44,14 @@ import {
   chartBucketNoun,
   formatOrderItemsForExport,
   formatPesoAxisTick,
-  isCancelledReportStatus,
+  getOrderDepositAmount,
+  getOrderSalesAmount,
+  getRetailSaleStatus,
   isRevenueRecognized,
   retailTrendGranularity,
 } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
+import { DepositNote } from './deposit-note'
 
 function getItemSize(item: any): string {
   if (Array.isArray(item?.sizes) && item.sizes.length > 0) {
@@ -107,22 +110,21 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       .forEach((o) => {
         const txNumber = o.retailTransactionNumber || o.orderNumber || `POS-${o.id?.slice(-6)}`
         const customer = o.walkInName || o.customer?.name || o.shippingName || 'Walk-in Retail Customer'
-        const amount = Number(o.totalAmount || o.subtotal || 0)
         // Fix: missing timestamps must not appear as records created today.
         const date = o.createdAt || ''
         const items = Array.isArray(o.items) ? o.items : []
 
-        const rawStatus = String(o.retailStatus || o.retail_status || o.status || 'COMPLETED').toUpperCase()
         list.push({
           id: o.id,
           txNumber,
           customer,
-          amount,
+          amount: getOrderSalesAmount(o),
+          deposit: getOrderDepositAmount(o),
           date,
           itemsCount: items.length,
           items,
           channel: String(o.salesChannel || 'RETAIL').toUpperCase(),
-          status: isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus,
+          status: getRetailSaleStatus(o),
         })
       })
 
@@ -131,18 +133,20 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       const txNum = rs.transactionNumber || rs.id
       const exists = list.some((item) => item.txNumber === txNum || item.id === rs.id)
       if (!exists) {
-        const rawStatus = String(rs.retailStatus || rs.retail_status || rs.status || 'COMPLETED').toUpperCase()
         list.push({
           id: rs.id,
           txNumber: txNum,
           customer: rs.customerName || rs.walkInName || 'Walk-in Retail Customer',
-          amount: Number(rs.totalAmount || rs.subtotal || 0),
+          // Takings are the goods; the bottle deposit on the receipt is held against the empties.
+          amount: getOrderSalesAmount(rs),
+          deposit: getOrderDepositAmount(rs),
           // Fix: missing timestamps must not appear as records created today.
           date: rs.createdAt || '',
           itemsCount: Array.isArray(rs.items) ? rs.items.length : 0,
           items: rs.items || [],
           channel: 'RETAIL_POS',
-          status: isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus,
+          // Cancelled sales stay listed but leave the totals, via isRevenueRecognized.
+          status: getRetailSaleStatus(rs),
         })
       }
     })
@@ -230,6 +234,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
     const currentEarning = currentPeriodItems.filter((item) => isRevenueRecognized(item))
     const prevEarning = prevPeriodItems.filter((item) => isRevenueRecognized(item))
     const currentSales = currentEarning.reduce((sum, item) => sum + item.amount, 0)
+    const currentDeposits = currentEarning.reduce((sum, item) => sum + (item.deposit || 0), 0)
     const currentTxCount = currentEarning.length
     const currentAvgValue = currentTxCount > 0 ? currentSales / currentTxCount : 0
 
@@ -241,6 +246,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
 
     return {
       currentSales,
+      currentDeposits,
       currentTxCount,
       currentAvgValue,
       prevSales,
@@ -292,7 +298,8 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       widthWeight: 2.75,
     },
     { header: 'Status', key: 'status', widthWeight: 0.9 },
-    { header: 'Amount (₱)', accessor: (r) => Number(r.amount || 0).toFixed(2), widthWeight: 1 },
+    { header: 'Sales (₱)', accessor: (r) => Number(r.amount || 0).toFixed(2), widthWeight: 1 },
+    { header: 'Deposit (₱)', accessor: (r) => Number(r.deposit || 0).toFixed(2), widthWeight: 0.9 },
     { header: 'Date & Time', accessor: (r) => formatReportTableDateTime(r.date), widthWeight: 1.25 },
   ]
 
@@ -309,6 +316,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       [
         `Total Retail Sales: ${formatPeso(metrics.currentSales)}`,
         `Transactions Count: ${metrics.currentTxCount} | Average Basket: ${formatPeso(metrics.currentAvgValue)}`,
+        `Container Deposits: ${formatPeso(metrics.currentDeposits)} (held against empties, not sales)`,
       ],
       periodLabel
     )
@@ -322,6 +330,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
       [
         `Total Retail Sales: ${formatPeso(metrics.currentSales)}`,
         `Transactions Count: ${metrics.currentTxCount} | Average Basket: ${formatPeso(metrics.currentAvgValue)}`,
+        `Container Deposits: ${formatPeso(metrics.currentDeposits)} (held against empties, not sales)`,
       ],
       periodLabel
     )
@@ -437,6 +446,7 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
           },
           { label: 'Average Basket', value: formatPeso(metrics.currentAvgValue), hint: 'Per transaction', tone: 'purple' },
           { label: 'Prior Period', value: formatPeso(metrics.prevSales), hint: prevPeriodLabel, tone: 'slate' },
+          { label: 'Container Deposits', value: formatPeso(metrics.currentDeposits), hint: 'Held against empties, not sales', tone: 'amber' },
         ]}
       />
 
@@ -583,9 +593,17 @@ export function RetailSalesReport({ orders, retailSales = [] }: RetailSalesRepor
                       )}
                     </td>
                     <td className="p-3.5">
-                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Completed</Badge>
+                      {/* Every row used to read Completed, cancelled sales included. */}
+                      {row.status === 'CANCELLED' ? (
+                        <Badge className="bg-rose-50 text-rose-700 border-rose-200">Cancelled</Badge>
+                      ) : (
+                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Completed</Badge>
+                      )}
                     </td>
-                    <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
+                    <td className="p-3.5 text-right font-semibold text-slate-900">
+                      {formatPeso(row.amount)}
+                      <DepositNote amount={row.deposit} />
+                    </td>
                     <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>
                 ))

@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -23,6 +24,7 @@ import { toast } from 'sonner'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
+import { getOrderDepositAmount, getOrderSalesAmount, getRetailSaleStatus } from '@/lib/report-metrics'
 import { safeFetchJson, getCollection } from './shared'
 
 type RetailSaleItem = {
@@ -65,8 +67,19 @@ type RetailSale = {
   depositTotal: string | number
   depositCreditTotal: string | number
   totalAmount: string | number
+  transactionStatus?: string
   items: RetailSaleItem[]
 }
+
+// Totals the API computes over every sale; the list itself is only the newest page.
+type RetailSalesSummary = {
+  completedCount: number
+  cancelledCount: number
+  salesTotal: number
+  depositTotal: number
+}
+
+const CANCELLED_BADGE_CLASS = 'border border-rose-200 bg-rose-50 text-[10px] font-semibold text-rose-700 hover:bg-rose-50'
 
 const formatPeso = (val: unknown) =>
   new Intl.NumberFormat('en-PH', {
@@ -97,6 +110,8 @@ export function RetailTransactionsView() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedReceipt, setSelectedReceipt] = useState<RetailSale | null>(null)
+  const [summary, setSummary] = useState<RetailSalesSummary | null>(null)
+  const [salesOnServer, setSalesOnServer] = useState(0)
 
   const fetchSales = useCallback(async () => {
     setLoading(true)
@@ -104,6 +119,8 @@ export function RetailTransactionsView() {
       const result = await safeFetchJson('/api/retail/sales?pageSize=50', { cache: 'no-store' })
       if (result.ok) {
         setSales(getCollection<RetailSale>(result.data, ['sales']))
+        setSummary(result.data?.summary || null)
+        setSalesOnServer(Number(result.data?.total || 0))
       } else if (!result.data?.aborted) {
         // A timed-out or truncated response is a transient blip, not a reason to
         // alarm the cashier mid-shift; the retry on next fetch recovers silently.
@@ -139,10 +156,27 @@ export function RetailTransactionsView() {
     })
   }, [sales, searchQuery])
 
-  // Summary Metrics
-  const totalRevenue = useMemo(() => {
-    return sales.reduce((sum, s: any) => sum + Number(s.totalAmount ?? s.grandTotal ?? 0), 0)
-  }, [sales])
+  // Summary Metrics. Cancelled sales stay in the history, but cancelling restocks
+  // the goods and reverses the deposits, so they are not takings. Sales are the
+  // goods; the receipt's container deposit is held against the empties.
+  const totals = useMemo(() => {
+    if (summary) {
+      return {
+        revenue: Number(summary.salesTotal || 0),
+        deposits: Number(summary.depositTotal || 0),
+        completedCount: Number(summary.completedCount || 0),
+        cancelledCount: Number(summary.cancelledCount || 0),
+      }
+    }
+    // An API without the summary: the loaded page is all there is to add up.
+    const completed = sales.filter((s) => getRetailSaleStatus(s) !== 'CANCELLED')
+    return {
+      revenue: completed.reduce((sum, s) => sum + getOrderSalesAmount(s), 0),
+      deposits: completed.reduce((sum, s) => sum + getOrderDepositAmount(s), 0),
+      completedCount: completed.length,
+      cancelledCount: sales.length - completed.length,
+    }
+  }, [sales, summary])
 
   return (
     <div className="space-y-6">
@@ -176,8 +210,12 @@ export function RetailTransactionsView() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Retail Sales</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">{formatPeso(totalRevenue)}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{sales.length} transactions total</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">{formatPeso(totals.revenue)}</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {totals.deposits ? `Excl. ${formatPeso(totals.deposits)} deposits · ` : ''}
+                  {totals.completedCount} completed
+                  {totals.cancelledCount > 0 ? ` · ${totals.cancelledCount} cancelled` : ''}
+                </p>
               </div>
               <div className="rounded-xl p-2.5 bg-sky-100 text-sky-600">
                 <Store className="h-5 w-5" />
@@ -194,7 +232,9 @@ export function RetailTransactionsView() {
             <div>
               <CardTitle className="text-base font-semibold text-slate-900">Retail Sales History</CardTitle>
               <CardDescription className="text-xs text-slate-500">
-                Detailed records of all counter receipts, items sold, and deposit credits.
+                {salesOnServer > sales.length
+                  ? `The latest ${sales.length} of ${salesOnServer} counter receipts, with items sold and deposit credits.`
+                  : 'Detailed records of all counter receipts, items sold, and deposit credits.'}
               </CardDescription>
             </div>
 
@@ -278,6 +318,10 @@ export function RetailTransactionsView() {
                             <Receipt className="h-3.5 w-3.5 text-sky-600" />
                             {sale.transactionNumber || sale.id}
                           </div>
+                          {/* Same marker as the warehouse POS history: cancelled receipts stay listed. */}
+                          {getRetailSaleStatus(sale) === 'CANCELLED' ? (
+                            <Badge className={`mt-1 block w-fit ${CANCELLED_BADGE_CLASS}`}>Cancelled</Badge>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
@@ -378,6 +422,9 @@ export function RetailTransactionsView() {
                         <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2 [overflow-wrap:anywhere]">
                           <Receipt className="h-5 w-5 shrink-0 text-sky-600" />
                           Receipt #{selectedReceipt.transactionNumber}
+                          {getRetailSaleStatus(selectedReceipt) === 'CANCELLED' ? (
+                            <Badge className={CANCELLED_BADGE_CLASS}>Cancelled</Badge>
+                          ) : null}
                         </DialogTitle>
                         <DialogDescription className="text-xs text-slate-500 mt-0.5">
                           {receiptDateFormatted}

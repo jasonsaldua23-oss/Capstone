@@ -43,7 +43,14 @@ import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './
 import { ReportKpiRow } from './report-kpi'
 import { InventoryReportHeader } from './inventory-report-header'
 import { buildReportDateWindow, matchesReportDateWindow } from '@/components/portals/admin/sections/report-date-utils'
-import { formatReportProductNameForExport, isCancelledReportStatus } from '@/lib/report-metrics'
+import { formatReportProductNameForExport } from '@/lib/report-metrics'
+import {
+  buildProductMovements,
+  formatDailyVelocity,
+  getItemSize,
+  resolveVelocityDays,
+  type VelocityPeriodPreset,
+} from '@/lib/product-movement'
 
 interface WarehouseInventoryReportProps {
   inventory: any[]
@@ -56,20 +63,7 @@ interface WarehouseInventoryReportProps {
   reportTypeSelect?: ReactNode
 }
 
-type PeriodPreset = 'today' | '7' | '30' | '90' | '365' | 'all' | 'custom'
-
-function getItemSize(item: any): string {
-  if (Array.isArray(item?.sizes) && item.sizes.length > 0) {
-    return item.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(' ')
-  }
-  if (Array.isArray(item?.product?.sizes) && item.product.sizes.length > 0) {
-    return item.product.sizes.map((s: any) => String(s || '').trim()).filter(Boolean).join(' ')
-  }
-  const explicit = String(item?.sizeLabel || item?.productSize || item?.product?.sizeLabel || item?.product?.size || '').trim()
-  if (explicit) return explicit
-  const unit = String(item?.product?.unit || item?.productUnit || '').trim()
-  return /\d\s*(ml|l|liter|litre|oz|cl|g|kg)\b/i.test(unit) ? unit : ''
-}
+type PeriodPreset = VelocityPeriodPreset
 
 function getProductUnitLabel(item: any, categoryName?: string): string {
   const explicitUnit = String(
@@ -101,38 +95,6 @@ function getProductUnitLabel(item: any, categoryName?: string): string {
   return 'cases'
 }
 
-function getLooseUnitLabel(item: any, categoryName?: string): string {
-  const explicitUnit = String(
-    item?.unitLabel ||
-    item?.unit ||
-    item?.packagingType ||
-    item?.product?.packagingType ||
-    item?.packaging ||
-    ''
-  ).toLowerCase()
-
-  if (explicitUnit.includes('glass')) return 'glass bottles'
-  if (explicitUnit.includes('can')) return 'cans'
-  if (explicitUnit.includes('plastic') || explicitUnit.includes('pet')) return 'plastic bottles'
-  if (explicitUnit.includes('bottle')) return 'bottles'
-
-  const catStr = String(categoryName || item?.category || item?.product?.category?.name || item?.product?.category || '').toLowerCase()
-  if (catStr.includes('glass')) return 'glass bottles'
-  if (catStr.includes('can')) return 'cans'
-  if (catStr.includes('plastic') || catStr.includes('pet') || catStr.includes('water') || catStr.includes('sport')) return 'plastic bottles'
-  if (catStr.includes('alcohol') || catStr.includes('beer')) return 'glass bottles'
-
-  return 'glass bottles'
-}
-
-function formatProductNameWithSize(name: string, size?: string): string {
-  const cleanName = String(name || 'Product').replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
-  const cleanSize = String(size || '').replace(/[()]/g, '').replace(/\s+/g, ' ').trim()
-  return cleanSize && !cleanName.toLowerCase().includes(cleanSize.toLowerCase())
-    ? `${cleanName} ${cleanSize}`
-    : cleanName
-}
-
 export function WarehouseInventoryReport({
   inventory,
   inventoryTransactions = [],
@@ -151,36 +113,19 @@ export function WarehouseInventoryReport({
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 12
 
-  // Number of days in the active period for daily velocity calculation
+  // Number of days in the active period for daily velocity calculation.
+  // All Time and an open-started custom range run from the earliest record.
   const periodDays = useMemo(() => {
-    // All-time velocity uses the actual observed history instead of a 30-day divisor.
-    if (periodPreset === 'all') {
-      const dates = [...inventoryTransactions, ...orders, ...retailSales]
-        .map((item) => new Date(String(item?.createdAt || item?.created_at || '')).getTime())
-        .filter(Number.isFinite)
-      const earliest = dates.reduce((min, time) => Math.min(min, time), Date.now())
-      return Math.max(1, Math.floor((Date.now() - earliest) / 86400000) + 1)
-    }
-    if (periodPreset === 'today') return 1
-    if (periodPreset === '7') return 7
-    if (periodPreset === '30') return 30
-    if (periodPreset === '90') return 90
-    if (periodPreset === '365') return 365
-    if (periodPreset === 'custom' && dateFrom && dateTo) {
-      const start = new Date(dateFrom).getTime()
-      const end = new Date(dateTo).getTime()
-      const diff = Math.ceil((end - start) / (1000 * 60 * 60 * 24))
-      // Fix: both selected dates count toward the daily sales average.
-      return Math.max(1, diff + 1)
-    }
-    return 30
+    const recordDates = [...inventoryTransactions, ...orders, ...retailSales]
+      .map((item) => item?.createdAt || item?.created_at)
+    return resolveVelocityDays(periodPreset, dateFrom, dateTo, recordDates)
   }, [periodPreset, dateFrom, dateTo, inventoryTransactions, orders, retailSales])
 
   // Date filtering helper
   const isDateInPeriod = useMemo(() => {
     // Fix: invalid timestamps cannot pass a custom range, and presets end today.
     const window = buildReportDateWindow(periodPreset, dateFrom, dateTo)
-    return (dateStr: string) => matchesReportDateWindow(dateStr, window)
+    return (dateStr: unknown) => matchesReportDateWindow(dateStr, window)
   }, [periodPreset, dateFrom, dateTo])
 
   // Aggregate current inventory by product & warehouse
@@ -247,224 +192,18 @@ export function WarehouseInventoryReport({
     return Array.from(set)
   }, [inventory])
 
-  // Consolidate dispatches/sales across Orders, Retail Sales, and Inventory Transactions
+  // Delivered orders and completed counter sales, in case-equivalents for ranking.
+  // Whole units are labelled in each product's current order format, as the stock column is.
   const productMovements = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        productId: string
-        productName: string
-        rawName: string
-        size: string
-        sku: string
-        category: string
-        imageUrl: string
-        unitPrice: number
-        totalUnitsSold: number
-        totalComparableUnits: number
-        totalRevenue: number
-        orderCount: number
-        warehouseId: string
-        warehouseName: string
-        unitLabel: string
-        unitsMap: Map<string, number>
-      }
-    >()
-
-    const registerMovement = (
-      pId: string,
-      pName: string,
-      pSize: string,
-      pSku: string,
-      pCat: string,
-      pImg: string,
-      pPrice: number,
-      qty: number,
-      revenue: number,
-      wId: string,
-      wName: string,
-      uLabel?: string,
-      comparableQty: number = qty
-    ) => {
-      const rawName = String(pName || 'Product').trim()
-      const key = (pId || rawName).toLowerCase().trim()
-      if (!key) return
-
-      const formattedName = formatProductNameWithSize(rawName, pSize)
-      const unit = uLabel || 'cases'
-      const existing = map.get(key)
-      if (existing) {
-        existing.totalUnitsSold += qty
-        existing.totalComparableUnits += comparableQty
-        existing.totalRevenue += revenue
-        existing.orderCount += 1
-        existing.unitsMap.set(unit, (existing.unitsMap.get(unit) || 0) + qty)
-      } else {
-        const unitsMap = new Map<string, number>()
-        unitsMap.set(unit, qty)
-        map.set(key, {
-          productId: pId,
-          productName: formattedName,
-          rawName,
-          size: pSize,
-          sku: pSku || 'N/A',
-          category: pCat || 'Beverage',
-          imageUrl: pImg || '',
-          unitPrice: pPrice,
-          totalUnitsSold: qty,
-          totalComparableUnits: comparableQty,
-          totalRevenue: revenue,
-          orderCount: 1,
-          warehouseId: wId,
-          warehouseName: wName,
-          unitLabel: unit,
-          unitsMap,
-        })
-      }
-    }
-
-    // 1. Process Wholesale / Online Orders
-    orders.forEach((order) => {
-      const status = String(order.status || '').toUpperCase()
-      if (isCancelledReportStatus(status) || status === 'REJECTED') return
-      const orderDate = order.createdAt || order.date || ''
-      if (!isDateInPeriod(orderDate)) return
-
-      // Keep warehouse metadata on aggregated rows without using it as a filter.
-      const orderWarehouseId = String(order.warehouseId || order.warehouse_id || order.warehouse?.id || '').trim()
-      const wName = String(order.warehouseName || order.warehouse?.name || 'Central Warehouse').trim()
-
-      const items = Array.isArray(order.items) ? order.items : []
-      items.forEach((item: any) => {
-        const isMixed =
-          String(item.itemType || item.item_type || '').toUpperCase() === 'MIXED_CASE' ||
-          (Array.isArray(item.components) && item.components.length > 0)
-
-        if (isMixed && Array.isArray(item.components) && item.components.length > 0) {
-          const caseQty = Math.max(1, Number(item.quantity || 1))
-          item.components.forEach((comp: any) => {
-            const cProd = comp.product || {}
-            const cId = String(comp.productId || cProd.id || '').trim()
-            const cName = String(comp.productName || cProd.name || 'Component').trim()
-            const cSize = getItemSize(comp)
-            const cSku = String(comp.productSku || cProd.sku || '').trim()
-            const cCat = String(cProd.category?.name || cProd.category || 'Mixed Component').trim()
-            const cImg = String(cProd.imageUrl || comp.imageUrl || '').trim()
-            const cPrice = Number(comp.unitPrice || 0)
-            const perCaseQty = Math.max(1, Number(comp.quantityPerCase || comp.quantityBaseUnits || comp.quantity || 1))
-            const totalBottles = perCaseQty * caseQty
-            const rev = totalBottles * cPrice
-            const uLabel = getLooseUnitLabel(comp, cCat)
-            // Bottle components are converted back to their case count for fair velocity ranking.
-            registerMovement(cId, cName, cSize, cSku, cCat, cImg, cPrice, totalBottles, rev, orderWarehouseId, wName, uLabel, caseQty)
-          })
-        } else {
-          const prod = item.product || {}
-          const pId = String(item.productId || prod.id || '').trim()
-          const pName = String(item.productName || prod.name || item.name || 'Product').trim()
-          const pSize = getItemSize(item)
-          const pSku = String(prod.sku || item.sku || '').trim()
-          const pCat = String(prod.category?.name || prod.category || item.category || '').trim()
-          const pImg = String(prod.imageUrl || item.imageUrl || '').trim()
-          const pPrice = Number(item.unitPrice || item.price || prod.price || 0)
-          const qty = Math.max(1, Number(item.quantity || 1))
-          const rev = Number(item.subtotal || qty * pPrice)
-          const explicitUnit = String(item?.unit || item?.product?.unit || '').toLowerCase()
-          const uLabel = explicitUnit.includes('pack') ? 'packs' : 'cases'
-          registerMovement(pId, pName, pSize, pSku, pCat, pImg, pPrice, qty, rev, orderWarehouseId, wName, uLabel)
-        }
-      })
+    const currentUnits = new Map<string, unknown>()
+    inventory.forEach((inv) => {
+      const productId = String(inv.productId || inv.product?.id || '').trim()
+      if (productId && inv.product?.unit) currentUnits.set(productId, inv.product.unit)
     })
-
-    // 2. Process Retail POS Sales
-    retailSales.forEach((sale) => {
-      // Cancelled counter sales remain in Transactions but are not product movement or revenue.
-      if (isCancelledReportStatus(sale.retailStatus || sale.retail_status || sale.status)) return
-      const saleDate = sale.createdAt || sale.date || ''
-      if (!isDateInPeriod(saleDate)) return
-
-      const saleWarehouseId = String(sale.warehouseId || sale.warehouse?.id || '').trim()
-      const wName = String(sale.warehouseName || sale.warehouse?.name || 'Retail Warehouse').trim()
-
-      const items = Array.isArray(sale.items) ? sale.items : []
-      items.forEach((item: any) => {
-        const isMixed =
-          String(item.mode || item.itemType || '').toUpperCase() === 'MIXED_CASE' ||
-          (Array.isArray(item.components) && item.components.length > 0)
-
-        if (isMixed && Array.isArray(item.components) && item.components.length > 0) {
-          const caseQty = Math.max(1, Number(item.quantity || 1))
-          item.components.forEach((comp: any) => {
-            const cId = String(comp.productId || '').trim()
-            const cName = String(comp.productName || 'Component').trim()
-            const cSize = getItemSize(comp)
-            const cSku = String(comp.productSku || '').trim()
-            const cCat = String(comp.category || 'Retail Mixed Component').trim()
-            const cImg = String(comp.imageUrl || '').trim()
-            const cPrice = Number(comp.unitPrice || 0)
-            const totalBottles = Math.max(1, Number(comp.quantityBaseUnits || comp.quantityPerCase || 1)) * caseQty
-            const rev = totalBottles * cPrice
-            const uLabel = getLooseUnitLabel(comp, cCat)
-            // Compare the movement as cases while retaining bottle quantity in the display breakdown.
-            registerMovement(cId, cName, cSize, cSku, cCat, cImg, cPrice, totalBottles, rev, saleWarehouseId, wName, uLabel, caseQty)
-          })
-        } else {
-          const pId = String(item.productId || '').trim()
-          const pName = String(item.productName || item.name || 'Product').trim()
-          const pSize = getItemSize(item)
-          const pSku = String(item.productSku || item.sku || '').trim()
-          const pCat = String(item.category || '').trim()
-          const pImg = String(item.imageUrl || '').trim()
-          const pPrice = Number(item.unitPrice || 0)
-          const qty = Math.max(1, Number(item.quantity || 1))
-          const rev = Number(item.productSubtotal || qty * pPrice)
-          const explicitUnit = String(item?.unit || '').toLowerCase()
-          const isLoose = item.mode === 'BOTTLE' || explicitUnit.includes('bottle') || explicitUnit.includes('can')
-          const uLabel = isLoose ? getLooseUnitLabel(item, pCat) : (explicitUnit.includes('pack') ? 'packs' : 'cases')
-          const quantityPerCase = Math.max(1, Number(item.quantityPerCase || item.product?.quantityPerCase || 1))
-          const comparableQty = isLoose ? qty / quantityPerCase : qty
-          registerMovement(pId, pName, pSize, pSku, pCat, pImg, pPrice, qty, rev, saleWarehouseId, wName, uLabel, comparableQty)
-        }
-      })
+    return buildProductMovements(orders, retailSales, isDateInPeriod, {
+      currentProductUnit: (productId) => currentUnits.get(productId),
     })
-
-    // 3. Process Stock-Out Inventory Transactions if available
-    inventoryTransactions.forEach((tx) => {
-      const txType = String(tx.type || tx.transactionType || '').toUpperCase()
-      const isStockOut = ['STOCK_OUT', 'DISPATCH', 'SALE', 'OUT', 'ORDER_OUT'].includes(txType)
-      if (!isStockOut) return
-
-      const txDate = tx.createdAt || tx.date || ''
-      if (!isDateInPeriod(txDate)) return
-
-      const txWarehouseId = String(tx.warehouseId || tx.warehouse?.id || '').trim()
-      const wName = String(tx.warehouseName || tx.warehouse?.name || 'Warehouse Hub').trim()
-
-      const pId = String(tx.productId || tx.product?.id || '').trim()
-      const pName = String(tx.productName || tx.product?.name || tx.product || '').trim()
-      if (!pName && !pId) return
-      const key = (pId || pName).toLowerCase().trim()
-
-      // Only add transaction if not already heavily captured from order lines
-      if (!map.has(key)) {
-        const pSize = getItemSize(tx)
-        const pSku = String(tx.product?.sku || tx.sku || '').trim()
-        const pCat = String(tx.product?.category?.name || tx.category || '').trim()
-        const pImg = String(tx.product?.imageUrl || tx.imageUrl || '').trim()
-        const pPrice = Number(tx.unitPrice || tx.price || tx.product?.price || 0)
-        const qty = Math.max(1, Math.abs(Number(tx.quantity || 1)))
-        const rev = qty * pPrice
-        const explicitUnit = String(tx.unit || '').toLowerCase()
-        const isLoose = tx.mode === 'BOTTLE' || explicitUnit.includes('bottle') || explicitUnit.includes('can')
-        const uLabel = isLoose ? getLooseUnitLabel(tx, pCat) : (explicitUnit.includes('pack') ? 'packs' : 'cases')
-        const quantityPerCase = Math.max(1, Number(tx.quantityPerCase || tx.product?.quantityPerCase || 1))
-        const comparableQty = isLoose ? qty / quantityPerCase : qty
-        registerMovement(pId, pName, pSize, pSku, pCat, pImg, pPrice, qty, rev, txWarehouseId, wName, uLabel, comparableQty)
-      }
-    })
-
-    return Array.from(map.values())
-  }, [orders, retailSales, inventoryTransactions, isDateInPeriod])
+  }, [orders, retailSales, isDateInPeriod, inventory])
 
   // Build fully ranked fastest moving product list with on-hand stock and velocity
   const rankedProducts = useMemo(() => {
@@ -484,7 +223,8 @@ export function WarehouseInventoryReport({
 
       const currentStock = stockInfo.currentStock
       // Rank velocity using normalized case/pack equivalents instead of adding bottles to cases.
-      const dailyVelocity = Number((item.totalComparableUnits / Math.max(1, periodDays)).toFixed(1))
+      // Kept unrounded: rounding to 0.1 tied every slow mover at 0.0 and shuffled their ranks.
+      const dailyVelocity = item.totalComparableUnits / Math.max(1, periodDays)
       const stockRunwayDays = dailyVelocity > 0 ? Math.round(currentStock / dailyVelocity) : (currentStock > 0 ? 999 : 0)
 
       let stockStatus = 'HEALTHY'
@@ -549,6 +289,15 @@ export function WarehouseInventoryReport({
       )
     }
 
+    // Rank is the product's place by volume. The sort control below only reorders
+    // rows, so sorting by stock or ascending no longer hands the gold medal to
+    // whichever product lands first.
+    const rankOf = new Map(
+      [...list]
+        .sort((a, b) => b.totalComparableUnits - a.totalComparableUnits)
+        .map((item, index) => [item, index + 1] as const)
+    )
+
     // Sorting
     list = [...list].sort((a, b) => {
       let valA = 0
@@ -569,10 +318,9 @@ export function WarehouseInventoryReport({
       return sortOrder === 'desc' ? valB - valA : valA - valB
     })
 
-    // Assign Rank Numbers
-    return list.map((item, index) => ({
+    return list.map((item) => ({
       ...item,
-      rank: index + 1,
+      rank: rankOf.get(item) ?? 0,
     }))
   }, [productMovements, inventoryStockMap, periodDays, categoryFilter, searchTerm, sortField, sortOrder])
 
@@ -580,17 +328,17 @@ export function WarehouseInventoryReport({
   // or "#1" reads this copy instead. Sorting the table ascending used to chart the
   // slowest products as "Top Fast-Moving" and crown the slowest one.
   const productsByVolume = useMemo(
-    () => [...rankedProducts].sort((a, b) => b.totalComparableUnits - a.totalComparableUnits),
+    () => [...rankedProducts].sort((a, b) => a.rank - b.rank),
     [rankedProducts]
   )
 
   // KPIs
   const kpis = useMemo(() => {
     const totalMovingSkus = rankedProducts.length
-    const totalUnitsDispatched = rankedProducts.reduce((sum, p) => sum + p.totalUnitsSold, 0)
-    const totalComparableUnits = rankedProducts.reduce((sum, p) => sum + p.totalComparableUnits, 0)
+    // Case-equivalents, the same unit as the velocity: raw totals added bottles to cases.
+    const totalUnitsDispatched = rankedProducts.reduce((sum, p) => sum + p.totalComparableUnits, 0)
     const totalOutflowRevenue = rankedProducts.reduce((sum, p) => sum + p.totalRevenue, 0)
-    const avgDailyTurnover = Number((totalComparableUnits / Math.max(1, periodDays)).toFixed(1))
+    const avgDailyTurnover = totalUnitsDispatched / Math.max(1, periodDays)
     const topFastestProduct = productsByVolume[0] || null
 
     return {
@@ -618,9 +366,9 @@ export function WarehouseInventoryReport({
   // Units here are the normalized comparable quantity the ranking itself uses.
   const chartInterpretation = useMemo(() => {
     const fastest = top10ChartData[0]
-    const perDay = Number(Number(fastest?.velocity || 0).toFixed(1))
-    const velocity = fastest && perDay > 0
-      ? ` That works out to about ${perDay.toLocaleString('en-US')} ${perDay === 1 ? 'unit' : 'units'} a day for ${fastest.fullName}, the fastest mover.`
+    const perDay = formatDailyVelocity(Number(fastest?.velocity || 0))
+    const velocity = fastest && Number(fastest.velocity) >= 0.01
+      ? ` That works out to about ${perDay} ${perDay === '1' ? 'unit' : 'units'} a day for ${fastest.fullName}, the fastest mover.`
       : ''
     return `${describeRanking(toPoints(top10ChartData, (row: any) => row.fullName, (row: any) => row.units), {
       noun: 'dispatched units',
@@ -653,6 +401,12 @@ export function WarehouseInventoryReport({
   const getExportProductName = (row: any) =>
     formatReportProductNameForExport({ name: row?.rawName || row?.productName, sizeLabel: row?.size })
 
+  // Each unit stays separate: adding loose bottles to cases made "34 cases" out of 10 cases and 24 bottles.
+  const formatUnitBreakdown = (row: any, separator: string) =>
+    (row?.unitBreakdown || []).map((b: { unit: string; qty: number }) => `${b.qty.toLocaleString()} ${b.unit}`).join(separator)
+
+  const formatEquivalentUnits = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 1 })
+
   // Export Columns for CSV & PDF
   const exportColumns: ExportColumn[] = [
     { header: 'Rank', accessor: (r) => `#${r.rank}` },
@@ -666,10 +420,10 @@ export function WarehouseInventoryReport({
       header: 'QTY',
       accessor: (r) =>
         r.unitBreakdown && r.unitBreakdown.length > 0
-          ? r.unitBreakdown.map((b: any) => `${b.qty.toLocaleString()} ${b.unit}`).join(' / ')
+          ? formatUnitBreakdown(r, ' / ')
           : `${Number(r.totalUnitsSold || 0).toLocaleString()} ${r.unitLabel || 'cases'}`,
     },
-    { header: 'Daily Velocity (Equivalent Units/Day)', accessor: (r) => `${r.dailyVelocity}/day` },
+    { header: 'Daily Velocity (Equivalent Units/Day)', accessor: (r) => `${formatDailyVelocity(r.dailyVelocity)}/day` },
     { header: 'Revenue Generated (₱)', accessor: (r) => Number(r.totalRevenue || 0).toFixed(2) },
     { header: 'Current Stock', accessor: (r) => `${Number(r.currentStock || 0).toLocaleString()} ${r.stockUnitLabel || r.unitLabel || 'cases'}` },
     { header: 'Stock Status', key: 'stockStatus' },
@@ -686,6 +440,12 @@ export function WarehouseInventoryReport({
     return 'All Time'
   }, [periodPreset, dateFrom, dateTo])
 
+  const exportSummaryLines = () => [
+    `#1 Best Seller: ${kpis.topFastestProduct ? `${getExportProductName(kpis.topFastestProduct)} (${formatUnitBreakdown(kpis.topFastestProduct, ', ')} moved)` : 'N/A'}`,
+    `Total Volume Dispatched: ${formatEquivalentUnits(kpis.totalUnitsDispatched)} case-equivalent units | Velocity: ${formatDailyVelocity(kpis.avgDailyTurnover)} units/day`,
+    `Total Movement Value: ${formatPeso(kpis.totalOutflowRevenue)} across ${kpis.totalMovingSkus} active SKUs`,
+  ]
+
   const handleExportCsv = () => {
     exportToCsv(
       `fastest-moving-products-${periodPreset}-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -700,11 +460,7 @@ export function WarehouseInventoryReport({
       `Fastest-Moving Products Velocity Ranking (${periodLabel})`,
       exportColumns,
       rankedProducts,
-      [
-        `#1 Best Seller: ${kpis.topFastestProduct ? getExportProductName(kpis.topFastestProduct) : 'N/A'} (${kpis.topFastestProduct?.totalUnitsSold.toLocaleString() || 0} ${kpis.topFastestProduct?.unitLabel || 'cases'} moved)`,
-        `Total Volume Dispatched: ${kpis.totalUnitsDispatched.toLocaleString()} units | Velocity: ${kpis.avgDailyTurnover} units/day`,
-        `Total Movement Value: ${formatPeso(kpis.totalOutflowRevenue)} across ${kpis.totalMovingSkus} active SKUs`,
-      ],
+      exportSummaryLines(),
       periodLabel
     )
   }
@@ -714,11 +470,7 @@ export function WarehouseInventoryReport({
       `Fastest-Moving Products Velocity Ranking (${periodLabel})`,
       exportColumns,
       rankedProducts,
-      [
-        `#1 Best Seller: ${kpis.topFastestProduct ? getExportProductName(kpis.topFastestProduct) : 'N/A'} (${kpis.topFastestProduct?.totalUnitsSold.toLocaleString() || 0} ${kpis.topFastestProduct?.unitLabel || 'cases'} moved)`,
-        `Total Volume Dispatched: ${kpis.totalUnitsDispatched.toLocaleString()} units | Velocity: ${kpis.avgDailyTurnover} units/day`,
-        `Total Movement Value: ${formatPeso(kpis.totalOutflowRevenue)} across ${kpis.totalMovingSkus} active SKUs`,
-      ],
+      exportSummaryLines(),
       periodLabel
     )
   }
@@ -752,17 +504,17 @@ export function WarehouseInventoryReport({
             <span className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-bold text-amber-700">
                 {kpis.topFastestProduct.unitBreakdown && kpis.topFastestProduct.unitBreakdown.length > 0
-                  ? kpis.topFastestProduct.unitBreakdown.map((b: any) => `${b.qty.toLocaleString()} ${b.unit}`).join(', ')
+                  ? formatUnitBreakdown(kpis.topFastestProduct, ', ')
                   : `${kpis.topFastestProduct.totalUnitsSold.toLocaleString()} cases`}
               </span>
-              <span className="text-slate-400">{kpis.topFastestProduct.dailyVelocity}/day</span>
+              <span className="text-slate-400">{formatDailyVelocity(kpis.topFastestProduct.dailyVelocity)}/day</span>
             </span>
           ) : undefined,
         }}
         items={[
-          { label: 'Dispatched QTY', value: kpis.totalUnitsDispatched.toLocaleString(), hint: 'Items sold in period', tone: 'blue' },
+          { label: 'Dispatched QTY', value: formatEquivalentUnits(kpis.totalUnitsDispatched), hint: 'Case-equivalents sold in period', tone: 'blue' },
           { label: 'Movement Value', value: formatPeso(kpis.totalOutflowRevenue), hint: 'Outflow valuation', tone: 'emerald' },
-          { label: 'Avg Daily Velocity', value: <>{kpis.avgDailyTurnover} <span className="text-sm font-normal text-slate-500">units/day</span></>, hint: 'Stock outflow rate', tone: 'purple' },
+          { label: 'Avg Daily Velocity', value: <>{formatDailyVelocity(kpis.avgDailyTurnover)} <span className="text-sm font-normal text-slate-500">units/day</span></>, hint: 'Stock outflow rate', tone: 'purple' },
           { label: 'Moving SKUs', value: kpis.totalMovingSkus, hint: 'With active movement', tone: 'slate' },
         ]}
       />
@@ -1031,7 +783,7 @@ export function WarehouseInventoryReport({
                     <td className="p-3.5 text-center whitespace-nowrap">
                       <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700 border border-purple-100">
                         <TrendingUp className="h-3 w-3" />
-                        {row.dailyVelocity}/day
+                        {formatDailyVelocity(row.dailyVelocity)}/day
                       </span>
                     </td>
 

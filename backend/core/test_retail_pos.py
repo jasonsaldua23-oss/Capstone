@@ -380,6 +380,55 @@ class RetailPosApiTests(TestCase):
         self.assertTrue(quoted_item["depositExempt"])
         self.assertEqual(quoted_item["deposit"], "0.00")
 
+    def test_sale_lines_report_the_selling_unit(self):
+        # Reports labelled every counter line "cases"; a pack product's line is a pack.
+        self.product.unit = "Pack (Bundle)"
+        self.product.save(update_fields=["unit"])
+        payload = {
+            "warehouseId": self.warehouse.id,
+            "customerType": "WALK_IN",
+            "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "09171234567"},
+            "fulfillmentType": "IMMEDIATE",
+            "items": [{"mode": "LOOSE", "productId": self.product.id, "quantity": 2, "emptyBottlesProvided": 1}],
+            "amountPaid": "62.00",
+        }
+        payload.update({"quoteToken": self._post_json("/api/retail/quote", payload).json()["quoteToken"], "idempotencyKey": "pos-unit-001"})
+        created = self._post_json("/api/retail/sales", payload)
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(created.json()["sale"]["items"][0]["unit"], "pack")
+
+    def test_sales_list_summary_covers_every_sale_and_skips_cancelled(self):
+        # Each sale: two loose bottles at 30.00, one empty returned, so 60.00 of goods
+        # and 2.00 of deposit on the uncovered bottle.
+        sale_ids = []
+        for key in ("pos-summary-001", "pos-summary-002"):
+            payload = {
+                "warehouseId": self.warehouse.id,
+                "customerType": "WALK_IN",
+                "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "09171234567"},
+                "fulfillmentType": "IMMEDIATE",
+                "items": [{"mode": "LOOSE", "productId": self.product.id, "quantity": 2, "emptyBottlesProvided": 1}],
+                "amountPaid": "62.00",
+            }
+            payload.update({"quoteToken": self._post_json("/api/retail/quote", payload).json()["quoteToken"], "idempotencyKey": key})
+            created = self._post_json("/api/retail/sales", payload)
+            self.assertEqual(created.status_code, 201, created.content)
+            sale_ids.append(created.json()["sale"]["id"])
+        cancelled = self._post_json(
+            f"/api/retail/sales/{sale_ids[0]}/cancel",
+            {"warehouseId": self.warehouse.id, "reason": "Test cancellation", "emptiesRestoredToCustomer": True},
+        )
+        self.assertEqual(cancelled.status_code, 200, cancelled.content)
+
+        # One row per page: the totals must still cover both sales.
+        listed = self.client.get(f"/api/retail/sales?warehouseId={self.warehouse.id}&pageSize=1", **self.auth)
+        self.assertEqual(listed.status_code, 200, listed.content)
+        self.assertEqual(len(listed.json()["sales"]), 1)
+        self.assertEqual(
+            listed.json()["summary"],
+            {"completedCount": 1, "cancelledCount": 1, "salesTotal": 60.0, "depositTotal": 2.0},
+        )
+
     def test_completed_sale_cancellation_adds_compensating_audits(self):
         payload = {
             "warehouseId": self.warehouse.id,

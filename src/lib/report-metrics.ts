@@ -81,6 +81,18 @@ export function isCancelledReportStatus(status: unknown): boolean {
   return ['CANCELLED', 'CANCELED', 'VOIDED'].includes(String(status || '').trim().toUpperCase())
 }
 
+/**
+ * A counter sale's state: COMPLETED, or CANCELLED for any cancelled spelling.
+ * /api/retail/sales sends it as `transactionStatus`. Reports read `retailStatus`
+ * and `status`, found neither, and counted every cancelled counter sale as completed.
+ */
+export function getRetailSaleStatus(sale: any): string {
+  const status = String(sale?.transactionStatus || sale?.retailStatus || sale?.retail_status || sale?.status || 'COMPLETED')
+    .trim()
+    .toUpperCase()
+  return isCancelledReportStatus(status) ? 'CANCELLED' : status
+}
+
 export type OrderReportRow = {
   orderNumber: string
   customer: string
@@ -91,7 +103,10 @@ export type OrderReportRow = {
   totalQuantity: number
   status: string
   normalizedReportStatus: OrderReportStatus
+  /** Goods after discount (getOrderSalesAmount); revenue sums this. */
   amount: number
+  /** Container deposit carried by the order total, shown beside the sales amount. */
+  deposit: number
   createdAt: unknown
   deliveredAt: unknown
   orderDateLabel: string
@@ -103,6 +118,8 @@ export type OrderReportSummary = {
   pendingOrders: number
   cancelledOrders: number
   totalRevenue: number
+  /** Deposits on the delivered orders: held against the empties, kept out of revenue. */
+  totalDeposits: number
   totalQuantity: number
 }
 
@@ -728,10 +745,11 @@ export function formatOrderReportStatus(status: OrderReportStatus) {
  * no status rule at all, so voided counter sales were counted as income.
  *
  * Reads the status off whichever field the caller's rows carry: plain orders use
- * `status`, purchase-order rows use `stage`, retail rows use `retailStatus`.
+ * `status`, purchase-order rows use `stage`, counter sales from /api/retail/sales
+ * use `transactionStatus` (older retail rows used `retailStatus`).
  */
 export function isRevenueRecognized(row: any): boolean {
-  const status = row?.status ?? row?.stage ?? row?.retailStatus
+  const status = row?.status ?? row?.stage ?? row?.transactionStatus ?? row?.retailStatus
   return normalizeOrderReportStatus(status) === 'DELIVERED'
 }
 
@@ -741,6 +759,29 @@ export function sumRecognizedRevenue(rows: any[], getAmount: (row: any) => unkno
     (sum, row) => (isRevenueRecognized(row) ? sum + Math.max(0, asNumber(getAmount(row))) : sum),
     0,
   )
+}
+
+const roundMoney = (value: number) => Math.round(value * 100) / 100
+
+/**
+ * Goods sold on an order or counter sale, after discounts: the amount revenue counts.
+ *
+ * totalAmount also carries the net container deposit and any deposit credit
+ * applied at checkout. That is money held against the empties, not sales, so
+ * counting it made revenue rise with every bottle sent out and fall with every
+ * empty returned. The backend dashboard and client spend use the same rule
+ * (backend/core/sales_amounts.py). Rows without a subtotal fall back to the total.
+ */
+export function getOrderSalesAmount(row: any): number {
+  const subtotal = row?.subtotal ?? row?.productTotal
+  if (subtotal === undefined || subtotal === null || subtotal === '') return Math.max(0, asNumber(row?.totalAmount))
+  return roundMoney(Math.max(0, asNumber(subtotal) - asNumber(row?.discount)))
+}
+
+/** The container-deposit part of a total; negative when returned empties were credited back. */
+export function getOrderDepositAmount(row: any): number {
+  if (row?.totalAmount === undefined || row?.totalAmount === null || row?.totalAmount === '') return 0
+  return roundMoney(asNumber(row.totalAmount) - getOrderSalesAmount(row))
 }
 
 // ==== New vs returning customers ====
@@ -807,7 +848,7 @@ export function summarizeCustomerMix(
           order?.shippingName ||
           '',
       ).trim())
-  const getAmount = options.getAmount || ((order: any) => order?.totalAmount ?? order?.subtotal)
+  const getAmount = options.getAmount || getOrderSalesAmount
 
   // The date a purchase actually completed is what places a customer in time.
   const purchaseDate = (order: any) => toDate(order?.deliveredAt) || toDate(order?.timeline?.deliveredAt) || toDate(order?.createdAt)
@@ -930,7 +971,7 @@ export function formatOrderItemsForExport(items: any[]) {
 }
 
 // Keep replacement orders out of the main order report because the system already has a dedicated replacements report.
-function isPrimaryOrderForReporting(order: any) {
+export function isPrimaryOrderForReporting(order: any) {
   const orderNumber = String(order?.orderNumber || order?.order_number || '').trim().toUpperCase()
   return !Boolean(order?.isScheduledReplacement) && !orderNumber.startsWith('RPL-')
 }
@@ -983,7 +1024,8 @@ export function buildOrderReportRows(
         totalQuantity,
         status: String(order?.status || ''),
         normalizedReportStatus,
-        amount: Math.max(0, asNumber(order?.totalAmount)),
+        amount: getOrderSalesAmount(order),
+        deposit: getOrderDepositAmount(order),
         createdAt,
         deliveredAt: order?.timeline?.deliveredAt || order?.deliveredAt,
         orderDateLabel: orderDate ? orderDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
@@ -1005,6 +1047,7 @@ export function summarizeOrderReportRows(rows: OrderReportRow[]): OrderReportSum
       acc.deliveredOrders += 1
       // Revenue is counted only after successful delivery so cancelled/pending orders do not inflate the report.
       acc.totalRevenue += Math.max(0, asNumber(row.amount))
+      acc.totalDeposits += asNumber(row.deposit)
     }
     if (row.normalizedReportStatus === 'PENDING') acc.pendingOrders += 1
     if (row.normalizedReportStatus === 'CANCELLED') acc.cancelledOrders += 1
@@ -1015,6 +1058,7 @@ export function summarizeOrderReportRows(rows: OrderReportRow[]): OrderReportSum
     pendingOrders: 0,
     cancelledOrders: 0,
     totalRevenue: 0,
+    totalDeposits: 0,
     totalQuantity: 0,
   })
 }

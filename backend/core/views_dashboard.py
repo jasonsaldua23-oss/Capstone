@@ -7,6 +7,7 @@ from django.views.decorators.http import require_GET
 
 from . import views_api as legacy
 from .api_utils import ok as _ok
+from .sales_amounts import REPLACEMENT_ORDER, SALES_AMOUNT
 from .models import (
     Customer,
     DropPointStatus,
@@ -94,7 +95,10 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
     cancelled_orders = orders.filter(status__in=[OrderStatus.CANCELLED, OrderStatus.REJECTED]).count()
     loaded_orders = 0
     total_orders = orders.count()
-    total_revenue = float(orders.filter(status=OrderStatus.DELIVERED).aggregate(total=Sum("total_amount")).get("total") or 0)
+    # Revenue is goods sold, as in the web reports: no container deposits, no replacements.
+    total_revenue = float(
+        orders.filter(status=OrderStatus.DELIVERED).exclude(REPLACEMENT_ORDER).aggregate(total=Sum(SALES_AMOUNT)).get("total") or 0
+    )
     active_drivers = drivers.filter(is_active=True).count()
     available_drivers = active_drivers
     low_stock_items = inventory.filter(quantity__lte=F("threshold") + F("reserved_quantity")).count()

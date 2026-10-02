@@ -7,6 +7,7 @@ import * as dates from '../report-date-utils'
 import * as shared from '../shared'
 import * as metrics from '@/lib/report-metrics'
 import * as documents from '@/lib/purchase-documents'
+import * as movement from '@/lib/product-movement'
 
 // Exercise the components' actual data derivation with controlled hook state.
 // Stop at the requested memo before rendering: these are filter tests, not browser tests.
@@ -14,6 +15,9 @@ function derive(file: string, component: string, props: object, state: unknown[]
   let stateIndex = 0, memoIndex = 0, result: unknown
   const stop = Symbol('captured report rows')
   const hooks = {
+    // Effects never run here: these tests feed fetched data in as state instead.
+    useCallback: (callback: unknown) => callback,
+    useEffect: () => {},
     useState: (initial: unknown) => [stateIndex < state.length ? state[stateIndex++] : initial, () => {}],
     useMemo: (calculate: () => unknown) => {
       const value = calculate()
@@ -30,6 +34,7 @@ function derive(file: string, component: string, props: object, state: unknown[]
     if (name === '../shared') return shared
     if (name === '@/lib/report-metrics') return metrics
     if (name === '@/lib/purchase-documents') return documents
+    if (name === '@/lib/product-movement') return movement
     return {}
   } })
   try { exports[component](props) } catch (error) { if (error !== stop) throw error }
@@ -65,6 +70,48 @@ test('transactions combine dates with channel, status, payment, and search', () 
   assert.equal(derive('transactions-report', 'TransactionsReport', { orders }, state, 2).length, 0)
 })
 
+// /api/retail/sales rows carry their state only as transactionStatus. The reports read
+// retailStatus and status, found nothing, defaulted to COMPLETED, and counted cancelled sales.
+// subtotal is the goods; the rest of totalAmount is the bottle deposit.
+const counterSales = [
+  { id: 'sale-done', transactionNumber: 'POS-1', createdAt: '2026-09-11T10:00:00', transactionStatus: 'COMPLETED', customerName: 'Walk-in Customer', subtotal: '90.00', totalAmount: '100.00', items: [] },
+  { id: 'sale-void', transactionNumber: 'POS-2', createdAt: '2026-09-11T11:00:00', transactionStatus: 'CANCELLED', customerName: 'Walk-in Customer', subtotal: '850.00', totalAmount: '900.00', items: [] },
+]
+
+test('cancelled counter sales stay listed but leave every retail total', () => {
+  const retailProps = { orders: [], retailSales: counterSales }
+  const retailState = ['all', '', '', '', 'asc', 1]
+  const listed = derive('retail-sales-report', 'RetailSalesReport', retailProps, retailState, 1)
+  assert.deepEqual(Array.from(listed, (row: any) => [row.id, row.status]), [['sale-done', 'COMPLETED'], ['sale-void', 'CANCELLED']])
+  const retail = derive('retail-sales-report', 'RetailSalesReport', retailProps, retailState, 4)
+  // Takings are the goods; the 10.00 bottle deposit is reported beside them.
+  assert.deepEqual([retail.currentSales, retail.currentDeposits, retail.currentTxCount], [90, 10, 1])
+
+  const ledger = derive('transactions-report', 'TransactionsReport', retailProps, ['', 'all', 'all', 'all', 'all', '', '', 'asc', 1], 3)
+  assert.deepEqual([ledger.totalVolume, ledger.totalDeposits, ledger.totalCount], [90, 10, 2])
+
+  // Without the API's totals the page adds up what it loaded.
+  const counter = derive('../retail-transactions-view', 'RetailTransactionsView', {}, [counterSales, false, '', null, null], 2)
+  assert.deepEqual({ ...counter }, { revenue: 90, deposits: 10, completedCount: 1, cancelledCount: 1 })
+})
+
+// The page loads only the newest receipts, so its card must use the API's totals over all of them.
+test('counter transactions card reads the totals over every sale', () => {
+  const summary = { completedCount: 140, cancelledCount: 3, salesTotal: 51234.5, depositTotal: 1820 }
+  const counter = derive('../retail-transactions-view', 'RetailTransactionsView', {}, [counterSales, false, '', null, summary, 143], 2)
+  assert.deepEqual({ ...counter }, { revenue: 51234.5, deposits: 1820, completedCount: 140, cancelledCount: 3 })
+})
+
+test('transaction status options cover every status their badge shows', () => {
+  const props = { orders: [orders[0], { ...orders[0], id: 'rejected', status: 'REJECTED' }], retailSales: counterSales }
+  const state = ['', 'all', 'DELIVERED', 'all', 'all', '', '', 'asc', 1]
+  // "Delivered / Completed" used to drop every counter sale, which finishes COMPLETED.
+  assert.deepEqual(ids(derive('transactions-report', 'TransactionsReport', props, state, 2)), ['start', 'sale-done'])
+  // "Cancelled" used to drop rejected orders, although their badge reads Cancelled.
+  state[2] = 'CANCELLED'
+  assert.deepEqual(ids(derive('transactions-report', 'TransactionsReport', props, state, 2)), ['rejected', 'sale-void'])
+})
+
 test('logistics combines custom dates, trip status, driver, and search', () => {
   const trips = orders.map((row) => ({ ...row, tripNumber: row.orderNumber, status: row.status === 'PENDING' ? 'PLANNED' : 'COMPLETED', driver: { id: 'driver-1', name: 'Alice' } }))
   const state = ['alice', 'COMPLETED', 'driver-1', 'custom', '2026-09-10', '2026-09-12', 'asc', 1]
@@ -87,6 +134,28 @@ test('warehouse period counts inclusive days and rejects invalid dates', () => {
   assert.equal(matches('2026-09-12T23:59:59.999'), true)
   assert.equal(matches('invalid'), false)
   assert.equal(matches('2026-09-13T00:00:00'), false)
+})
+
+// Regression: rank was the row's position after the table sort, so sorting by stock
+// gave the gold medal to the least-stocked product, and 30 loose bottles beat 5 cases.
+test('fast-moving rank and #1 follow volume whatever the table is sorted by', () => {
+  const sale = (id: string, productId: string, quantity: number, mode = 'CASE') => ({
+    id,
+    createdAt: '2026-09-11T10:00:00',
+    transactionStatus: 'COMPLETED',
+    items: [{ mode, productId, productName: `Product ${productId}`, quantity, caseCapacity: 24, unitPrice: '10.00', productSubtotal: String(quantity * 10) }],
+  })
+  // Product ids are lowercase cuids, as the backend issues them.
+  const retailSales = [sale('s1', 'a', 5), sale('s2', 'b', 2), sale('s3', 'c', 30, 'LOOSE')]
+  const inventory = [['a', 100], ['b', 1], ['c', 50]].map(([id, quantity]) => ({ product: { id, name: `Product ${id}` }, quantity }))
+  const state = ['all', '', '', 'all', '', 'stock', 'asc', 1]
+  const props = { inventory, retailSales }
+
+  const rows = derive('warehouse-inventory-report', 'WarehouseInventoryReport', props, state, 6)
+  assert.deepEqual(Array.from(rows, (row: any) => [row.productId, row.rank]), [['b', 2], ['c', 3], ['a', 1]])
+  const kpis = derive('warehouse-inventory-report', 'WarehouseInventoryReport', props, state, 8)
+  assert.equal(kpis.topFastestProduct.productId, 'a')
+  assert.equal(kpis.totalUnitsDispatched, 5 + 2 + 30 / 24)
 })
 
 test('replacement filters and historical chart use the same selected records', () => {

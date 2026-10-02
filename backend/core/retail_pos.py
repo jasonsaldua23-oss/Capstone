@@ -10,6 +10,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from .api_validators import _normalize_product_unit
 from .beverage_categories import require_category_spec
 from .deposit_math import full_case_deposit
 from .mixed_case import (
@@ -934,6 +935,9 @@ def serialize_retail_sale(order: Order) -> dict[str, Any]:
             {
                 "id": item.id,
                 "mode": item.sale_mode,
+                # The product's selling unit when sold (case or pack): a CASE-mode
+                # line of a pack product is one pack, and reports must say so.
+                "unit": _normalize_product_unit(item.product_unit),
                 "productId": item.product_id,
                 "productName": item.product_name,
                 "productSku": item.product_sku,

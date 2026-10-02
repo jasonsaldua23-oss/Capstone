@@ -243,6 +243,31 @@ class ProductWeightApiContractTests(TestCase):
         self.assertNotEqual(product.sku, "PEPS-WEIGHT-EDIT")
         self.assertTrue(product.sku.startswith("PEPS-CAS-1LIT-"))
 
+    def test_any_save_realigns_a_sku_naming_another_order_format(self) -> None:
+        # A seed-era SKU kept CAS after the product moved to packs.
+        stale = Product.objects.create(
+            sku="MILK-CAS-250M-CAN24", name="Milkis", unit="pack", category="Carbonated (Cans)",
+            sizes=["250ml"], quantity_per_unit=24, weight=6.6, price=720,
+        )
+        aligned = Product.objects.create(
+            sku="7UPP-CAS-8OZ-RGB24", name="7Up", unit="case", category="Carbonated (Glass)",
+            sizes=["8oz"], quantity_per_unit=24, weight=12.0, price=230,
+        )
+
+        for product in (stale, aligned):
+            response = self.client.put(
+                f"/api/products/{product.id}",
+                data=json.dumps({"price": 750}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {self.token}",
+            )
+            self.assertEqual(response.status_code, 200, response.content.decode())
+            product.refresh_from_db()
+
+        self.assertTrue(stale.sku.startswith("MILK-PAC-250M-"), stale.sku)
+        # A SKU that already names the right format is left alone, old format and all.
+        self.assertEqual(aligned.sku, "7UPP-CAS-8OZ-RGB24")
+
     def test_zero_stock_product_archive_can_be_listed_and_restored(self) -> None:
         product = Product.objects.create(
             sku="PRODUCT-DELETE-HISTORY",

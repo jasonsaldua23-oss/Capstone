@@ -34,8 +34,15 @@ import { describeTrend, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso, formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { buildDailyChartSeries, describeDailyChartWindow, formatOrderItemsForExport, formatPesoAxisTick, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
+import { buildDailyChartSeries, describeDailyChartWindow, formatOrderItemsForExport, formatPesoAxisTick, getOrderDepositAmount, getOrderSalesAmount, getRetailSaleStatus, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
+import { DepositNote, formatDepositsExcludedHint } from './deposit-note'
+
+// Status filter options that stand for more than one stored status, matching getStatusBadge.
+const STATUS_FILTER_GROUPS: Record<string, string[]> = {
+  DELIVERED: ['DELIVERED', 'COMPLETED'],
+  CANCELLED: ['CANCELLED', 'REJECTED'],
+}
 
 interface TransactionsReportProps {
   orders: any[]
@@ -68,7 +75,6 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       const txNumber = o.retailTransactionNumber || o.orderNumber || `TX-${o.id?.slice(-8)}`
       const client = o.customer?.name || o.shippingName || o.walkInName || 'Client / Customer'
       const clientEmail = o.customer?.email || ''
-      const amount = Number(o.totalAmount || o.subtotal || 0)
       // Fix: missing timestamps must not appear as records created today.
       const date = o.createdAt || ''
       const rawStatus = String(o.status || 'PENDING').toUpperCase()
@@ -85,7 +91,9 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
         orderId: o.id,
         client,
         clientEmail,
-        amount,
+        // Goods only; the container deposit in the order total is kept beside it.
+        amount: getOrderSalesAmount(o),
+        deposit: getOrderDepositAmount(o),
         date,
         channel: normalizedChannel,
         status,
@@ -100,15 +108,15 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       const txNum = rs.transactionNumber || rs.id
       const exists = list.some((item) => item.txNumber === txNum || item.id === rs.id)
       if (!exists) {
-        const rawStatus = String(rs.retailStatus || rs.retail_status || rs.status || 'COMPLETED').toUpperCase()
-        const status = isCancelledReportStatus(rawStatus) ? 'CANCELLED' : rawStatus
+        const status = getRetailSaleStatus(rs)
         list.push({
           id: rs.id,
           txNumber: txNum,
           orderId: rs.id,
           client: rs.customerName || rs.walkInName || 'Walk-in Retail Customer',
           clientEmail: '',
-          amount: Number(rs.totalAmount || rs.subtotal || 0),
+          amount: getOrderSalesAmount(rs),
+          deposit: getOrderDepositAmount(rs),
           // Fix: missing timestamps must not appear as records created today.
           date: rs.createdAt || '',
           channel: 'RETAIL',
@@ -138,9 +146,12 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       list = list.filter((item) => item.channel === channelFilter)
     }
 
-    // Status filter
+    // Status filter. An option covers every status its badge shows: counter sales
+    // finish COMPLETED and rejected orders read Cancelled, but matching the option
+    // value alone left both out.
     if (statusFilter !== 'all') {
-      list = list.filter((item) => item.status === statusFilter)
+      const matching = STATUS_FILTER_GROUPS[statusFilter] || [statusFilter]
+      list = list.filter((item) => matching.includes(item.status))
     }
 
     // Payment Status filter
@@ -177,12 +188,13 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
     // were reported as income under the same "Revenue" label as the Orders tab.
     const revenueTransactions = filteredTransactions.filter((item) => isRevenueRecognized(item))
     const totalVolume = revenueTransactions.reduce((sum, item) => sum + (item.amount || 0), 0)
+    const totalDeposits = revenueTransactions.reduce((sum, item) => sum + (item.deposit || 0), 0)
     const paidCount = filteredTransactions.filter(
       (item) => !isCancelledReportStatus(item.status) && item.paymentStatus === 'PAID'
     ).length
     const avgValue = revenueTransactions.length > 0 ? totalVolume / revenueTransactions.length : 0
 
-    return { totalCount, totalVolume, paidCount, avgValue }
+    return { totalCount, totalVolume, totalDeposits, paidCount, avgValue }
   }, [filteredTransactions])
 
   // Trend Chart Data (Daily Revenue)
@@ -281,7 +293,8 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
     { header: 'Client / Customer', key: 'client' },
     { header: 'Products', key: 'products' },
     { header: 'Status', key: 'status' },
-    { header: 'Amount (₱)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
+    { header: 'Sales (₱)', accessor: (r) => Number(r.amount || 0).toFixed(2) },
+    { header: 'Deposit (₱)', accessor: (r) => Number(r.deposit || 0).toFixed(2) },
     { header: 'Transaction Date', accessor: (r) => formatReportTableDateTime(r.date) },
   ]
 
@@ -298,6 +311,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       [
         `Total Transactions: ${kpis.totalCount}`,
         `Gross Revenue: ${formatPeso(kpis.totalVolume)} | Average Ticket: ${formatPeso(kpis.avgValue)}`,
+        `Container Deposits: ${formatPeso(kpis.totalDeposits)} (delivered, held against empties)`,
         `Settled / Paid: ${kpis.paidCount} of ${kpis.totalCount}`,
       ]
     )
@@ -311,6 +325,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
       [
         `Total Transactions: ${kpis.totalCount}`,
         `Gross Revenue: ${formatPeso(kpis.totalVolume)} | Average Ticket: ${formatPeso(kpis.avgValue)}`,
+        `Container Deposits: ${formatPeso(kpis.totalDeposits)} (delivered, held against empties)`,
         `Settled / Paid: ${kpis.paidCount} of ${kpis.totalCount}`,
       ]
     )
@@ -362,7 +377,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
         headline={{
           label: 'Gross Transaction Revenue',
           value: formatPeso(kpis.totalVolume),
-          hint: 'Revenue from delivered orders only',
+          hint: formatDepositsExcludedHint(kpis.totalDeposits),
           tone: 'emerald',
         }}
         items={[
@@ -542,7 +557,7 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
                 <th className="p-3.5">Type / Channel</th>
                 <th className="p-3.5">Client / Customer</th>
                 <th className="p-3.5">Status</th>
-                <th className="p-3.5 text-right">Amount</th>
+                <th className="p-3.5 text-right">Sales Amount</th>
                 <th className="p-3.5 pr-4">Transaction Date</th>
               </tr>
             </thead>
@@ -557,7 +572,10 @@ export function TransactionsReport({ orders, retailSales = [] }: TransactionsRep
                       {row.clientEmail && <div className="text-[11px] text-slate-400">{row.clientEmail}</div>}
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
-                    <td className="p-3.5 text-right font-semibold text-slate-900">{formatPeso(row.amount)}</td>
+                    <td className="p-3.5 text-right font-semibold text-slate-900">
+                      {formatPeso(row.amount)}
+                      <DepositNote amount={row.deposit} />
+                    </td>
                     <td className="p-3.5 pr-4 text-slate-500 whitespace-nowrap">{formatReportTableDateTime(row.date)}</td>
                   </tr>
                 ))

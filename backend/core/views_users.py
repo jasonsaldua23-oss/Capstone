@@ -26,6 +26,7 @@ from .api_constants import (
 )
 from .api_utils import error as _err, json_body as _json_body, ok as _ok, to_int as _int
 from .auth import hash_password
+from .sales_amounts import REPLACEMENT_ORDER, SALES_AMOUNT
 from .views_media import resolve_available_avatar
 from .models import (
     Customer,
@@ -472,7 +473,12 @@ def customers_collection(request: HttpRequest) -> JsonResponse:
             str(entry["customer_id"]): entry
             for entry in regular_orders.filter(status=OrderStatus.DELIVERED)
             .values("customer_id")
-            .annotate(successful_deliveries=Count("id"), successful_delivery_spend=Sum("total_amount"))
+            # Spend is goods bought: total_amount also holds refundable container
+            # deposits, and a replacement delivery repays an earlier purchase.
+            .annotate(
+                successful_deliveries=Count("id"),
+                successful_delivery_spend=Sum(SALES_AMOUNT, filter=~REPLACEMENT_ORDER),
+            )
         }
         # Fix: return satisfaction with the directory so the Clients page does
         # not download/serialize every order and feedback just to calculate ratings.

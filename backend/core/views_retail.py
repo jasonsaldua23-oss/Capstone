@@ -5,7 +5,7 @@ from typing import Any
 
 from django.core import signing
 from django.db import IntegrityError
-from django.db.models import Prefetch, Q
+from django.db.models import Count, Prefetch, Q, Sum
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
@@ -17,6 +17,7 @@ from .models import (
     InventoryTransaction,
     Order,
     Product,
+    RetailTransactionStatus,
     RoleType,
     SalesChannel,
     User,
@@ -115,6 +116,25 @@ def _retail_sale_queryset(warehouse: Warehouse | None = None):
     if warehouse is not None:
         qs = qs.filter(warehouse_id=warehouse.id)
     return qs
+
+
+def _retail_sales_summary(queryset) -> dict[str, Any]:
+    """Totals over every matching sale, not only the page of rows returned.
+
+    Cancelling a sale restocks it and reverses its deposits, so only the rest are
+    takings. Sales are the goods (subtotal); the rest of the total is container
+    deposit, which is held against the empties and is not revenue.
+    """
+    completed = queryset.exclude(retail_sale__retail_status=RetailTransactionStatus.CANCELLED)
+    totals = completed.aggregate(sales=Sum("subtotal"), charged=Sum("total_amount"), count=Count("id"))
+    sales = round(float(totals["sales"] or 0), 2)
+    charged = round(float(totals["charged"] or 0), 2)
+    return {
+        "completedCount": int(totals["count"] or 0),
+        "cancelledCount": queryset.filter(retail_sale__retail_status=RetailTransactionStatus.CANCELLED).count(),
+        "salesTotal": sales,
+        "depositTotal": round(charged - sales, 2),
+    }
 
 
 @require_GET
@@ -259,6 +279,7 @@ def retail_sales_collection(request: HttpRequest) -> JsonResponse:
     return _ok({
         "success": True,
         "sales": [serialize_retail_sale(row) for row in rows],
+        "summary": _retail_sales_summary(queryset),
         "total": total,
         "page": page,
         "pageSize": size,

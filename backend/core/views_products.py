@@ -135,6 +135,21 @@ def _generated_product_sku(product: Product) -> str:
     return f"{candidate}-{secrets.token_hex(2).upper()}"
 
 
+# The second SKU segment names the order format the SKU was built for.
+_SKU_ORDER_FORMATS = {"CAS": "case", "PAC": "pack", "BOT": "bottle"}
+
+
+def _sku_names_other_order_format(product: Product) -> bool:
+    """True when the SKU says CAS/PAC/BOT but the product is sold in another format.
+
+    SKUs are rebuilt when the name, unit or size changes, but seed-era SKUs predate
+    that: a product switched to packs could keep MILK-CAS-..., which reads as a case.
+    """
+    segments = str(product.sku or "").split("-")
+    named = _SKU_ORDER_FORMATS.get(segments[1].strip().upper()) if len(segments) > 1 else None
+    return bool(named) and named != _normalize_product_unit(product.unit)
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def products_collection(request: HttpRequest) -> JsonResponse:
@@ -489,9 +504,10 @@ def product_detail(request: HttpRequest, product_id: str) -> JsonResponse:
         str(prod.unit or "").strip().casefold(),
         tuple(str(value or "").strip().casefold() for value in (prod.sizes or [])),
     )
-    if current_identity != previous_identity:
+    if current_identity != previous_identity or _sku_names_other_order_format(prod):
         # Fix: identity edits regenerate the SKU so it remains aligned with the
-        # product name, order format, and size shown throughout inventory.
+        # product name, order format, and size shown throughout inventory. A SKU
+        # naming another order format is realigned on any save.
         prod.sku = _generated_product_sku(prod)
     elif "sku" in body:
         prod.sku = str(body.get("sku") or "").strip()

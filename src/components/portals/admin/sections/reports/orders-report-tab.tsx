@@ -24,6 +24,7 @@ import { chartCardClassName, chartTooltipItemStyle, chartTooltipLabelStyle, char
 import type { ReportDatasets } from './use-report-datasets'
 import type { ReportToolbarRenderer } from './chart-styles'
 import { ReportKpiRow } from './report-kpi'
+import { DepositNote, formatDepositsExcludedHint } from './deposit-note'
 
 /**
  * Order report tab: status filter, outcome charts and the order table.
@@ -96,7 +97,8 @@ export function OrdersReportTab({
             hint: orderKpi.totalOrders > 0 ? `${((orderKpi.cancelledOrders / orderKpi.totalOrders) * 100).toFixed(1)}% of orders` : undefined,
             tone: 'rose',
           },
-          { label: 'Total Revenue', value: formatPeso(orderKpi.totalRevenue), hint: 'Delivered orders only', tone: 'cyan' },
+          // Deposits are held against the empties, so revenue leaves them out and says how much.
+          { label: 'Total Revenue', value: formatPeso(orderKpi.totalRevenue), hint: formatDepositsExcludedHint(orderKpi.totalDeposits), tone: 'cyan' },
         ]}
       />
 
@@ -205,7 +207,7 @@ export function OrdersReportTab({
                   <th className="p-3 text-left">Quantity</th>
                   <th className="p-3 text-left">Order Date</th>
                   <th className="p-3 text-left">Order Status</th>
-                  <th className="p-3 text-left">Total Amount</th>
+                  <th className="p-3 text-left">Sales Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -236,7 +238,10 @@ export function OrdersReportTab({
                         {formatOrderReportStatus(row.normalizedReportStatus)}
                       </Badge>
                     </td>
-                    <td className="p-3">{formatPeso(Number(row.amount || 0))}</td>
+                    <td className="p-3">
+                      {formatPeso(Number(row.amount || 0))}
+                      <DepositNote amount={Number(row.deposit || 0)} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

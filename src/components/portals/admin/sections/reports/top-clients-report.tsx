@@ -36,7 +36,7 @@ import { describeRanking, toPoints } from '@/lib/chart-interpretation'
 import { formatPeso } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
-import { formatPesoAxisTick, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
+import { formatPesoAxisTick, getOrderSalesAmount, isCancelledReportStatus, isRevenueRecognized } from '@/lib/report-metrics'
 import { ReportKpiRow } from './report-kpi'
 
 interface TopClientsReportProps {
@@ -137,7 +137,8 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
 
       // Revenue lands only once the order was delivered, the same rule the Orders
       // tab uses. The order count still reflects everything the client placed.
-      const orderAmount = isRevenueRecognized(o) ? Math.max(0, Number(o.totalAmount || o.subtotal || 0)) : 0
+      // Goods bought, not the container deposits riding on the order total.
+      const orderAmount = isRevenueRecognized(o) ? getOrderSalesAmount(o) : 0
       const orderDate = o.createdAt || new Date().toISOString()
 
       if (!clientStatsMap[key]) {
@@ -385,7 +386,7 @@ export function TopClientsReport({ orders, customers = [] }: TopClientsReportPro
         headline={{
           label: 'Cumulative Revenue',
           value: formatPeso(kpis.totalRevenue),
-          hint: 'Revenue from delivered orders only',
+          hint: 'Delivered orders, excl. deposits',
           tone: 'emerald',
         }}
         items={[

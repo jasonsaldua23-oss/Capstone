@@ -24,6 +24,9 @@ import {
   describeInventoryOverstock,
   describeSkuDemand,
   describeStockHealth,
+  getOrderDepositAmount,
+  getOrderSalesAmount,
+  getRetailSaleStatus,
   isCancelledReportStatus,
   isRevenueRecognized,
   sumRecognizedRevenue,
@@ -322,7 +325,9 @@ test('order report selectors normalize statuses and build report totals from pri
     {
       orderNumber: 'ORD-1',
       status: 'DELIVERED',
-      totalAmount: 100,
+      // 100 of goods; the other 24 of the total is container deposit.
+      subtotal: 100,
+      totalAmount: 124,
       createdAt: '2026-05-22T10:00:00Z',
       customer: { name: 'Alice' },
       items: [
@@ -377,8 +382,10 @@ test('order report selectors normalize statuses and build report totals from pri
     pendingOrders: 1,
     cancelledOrders: 1,
     totalRevenue: 100,
+    totalDeposits: 24,
     totalQuantity: 7,
   })
+  assert.deepEqual([rows[0].amount, rows[0].deposit], [100, 24])
 
   const breakdown = buildOrderReportStatusBreakdown(rows)
   assert.deepEqual(breakdown.map((entry) => entry.value), [1, 1, 1])
@@ -787,6 +794,25 @@ test('every tab recognises revenue on delivery and only on delivery', () => {
   assert.equal(isRevenueRecognized({ stage: 'COMPLETED' }), true)
   assert.equal(isRevenueRecognized({ retailStatus: 'COMPLETED' }), true)
   assert.equal(isRevenueRecognized({ retailStatus: 'VOIDED' }), false)
+  // Revenue counts goods after discount; the rest of the total is container deposit.
+  assert.equal(getOrderSalesAmount({ subtotal: 1000, discount: 100, totalAmount: 1140 }), 900)
+  assert.equal(getOrderDepositAmount({ subtotal: 1000, discount: 100, totalAmount: 1140 }), 240)
+  // Counter sales send money as text and have no discount.
+  assert.equal(getOrderSalesAmount({ subtotal: '60.00', totalAmount: '62.00' }), 60)
+  assert.equal(getOrderDepositAmount({ subtotal: '60.00', totalAmount: '62.00' }), 2)
+  // Returned empties credited at checkout leave a negative deposit, not lower sales.
+  assert.equal(getOrderSalesAmount({ subtotal: 500, discount: 0, totalAmount: 450 }), 500)
+  assert.equal(getOrderDepositAmount({ subtotal: 500, discount: 0, totalAmount: 450 }), -50)
+  // Rows without a subtotal keep their total.
+  assert.equal(getOrderSalesAmount({ totalAmount: 75 }), 75)
+  // /api/retail/sales rows carry only transactionStatus.
+  assert.equal(isRevenueRecognized({ transactionStatus: 'COMPLETED' }), true)
+  assert.equal(isRevenueRecognized({ transactionStatus: 'CANCELLED' }), false)
+  assert.equal(getRetailSaleStatus({ transactionStatus: 'CANCELLED' }), 'CANCELLED')
+  assert.equal(getRetailSaleStatus({ transactionStatus: 'completed' }), 'COMPLETED')
+  assert.equal(getRetailSaleStatus({ retailStatus: 'VOIDED' }), 'CANCELLED')
+  // A sale with no recorded state was completed at the counter.
+  assert.equal(getRetailSaleStatus({ transactionStatus: null }), 'COMPLETED')
   assert.equal(isRevenueRecognized({ status: 'CANCELED' }), false)
   assert.equal(isCancelledReportStatus('CANCELLED'), true)
   assert.equal(isCancelledReportStatus('CANCELED'), true)
