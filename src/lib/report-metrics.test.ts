@@ -546,7 +546,7 @@ test('dimension breakdown returns every bucket and counts each review once per d
   assert.equal(timeliness.positive, 0)
 })
 
-test('top issues rank negative reasons with deterministic tie-breaks', () => {
+test('top issues rank negative categories with deterministic tie-breaks', () => {
   const rows = buildFeedbackRows([
     feedbackRow({ id: 'a', rating: 1, message: '- Delivery was severely delayed' }),
     feedbackRow({ id: 'b', rating: 1, message: '- Delivery was severely delayed' }),
@@ -556,7 +556,7 @@ test('top issues rank negative reasons with deterministic tie-breaks', () => {
 
   const issues = buildFeedbackTopIssues(rows, { limit: 5 })
   assert.equal(issues.length, 2)
-  assert.equal(issues[0].reason, 'Delivery was severely delayed')
+  assert.equal(issues[0].reason, 'Timeliness')
   assert.equal(issues[0].rank, 1)
   assert.equal(issues[0].count, 2)
   assert.equal(issues[0].dimension, 'timeliness')
@@ -564,6 +564,22 @@ test('top issues rank negative reasons with deterministic tie-breaks', () => {
   assert.equal(issues.some((issue) => issue.reason === 'Delivery was on time as scheduled'), false)
   assert.equal(issues.reduce((sum, issue) => sum + issue.share, 0), 100)
   assert.equal(buildFeedbackTopIssues(rows, { limit: 1 }).length, 1)
+})
+
+// Fix: different complaint wording must contribute to one category and its metrics.
+test('top issues combine custom and preset complaints by category', () => {
+  const rows = buildFeedbackRows([
+    feedbackRow({ id: 'a', rating: 1, message: '- Other: guba 3 ka case' }),
+    feedbackRow({ id: 'b', rating: 1, message: '- Other: hayss haras haras ang driver' }),
+    feedbackRow({ id: 'c', rating: 1, message: '- Poor driver attitude' }),
+    feedbackRow({ id: 'd', rating: 2, message: '- Other: buka iban nga item ano na man' }),
+  ])
+
+  const issues = buildFeedbackTopIssues(rows)
+  assert.deepEqual(issues.map(({ reason, count, share, avgRating }) => ({ reason, count, share, avgRating })), [
+    { reason: 'Driver Conduct', count: 2, share: 50, avgRating: 1 },
+    { reason: 'Product Condition', count: 2, share: 50, avgRating: 1.5 },
+  ])
 })
 
 test('needs-attention queue pins the most recent one and two star feedback', () => {
@@ -668,9 +684,13 @@ test('free text typed into Other is classified onto a service dimension', () => 
   assert.equal(driver?.mentions, 1)
   assert.equal(driver?.negative, 1)
 
-  // But it stays out of the frequency leaderboard: every free-text entry is unique,
-  // so ranking them by count is meaningless and would crowd out real repeat offenders.
-  assert.equal(buildFeedbackTopIssues(rows).length, 0)
+  // Fix: custom negative reasons must also appear in Top Issues.
+  const issues = buildFeedbackTopIssues(rows)
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0].reason, hit.dimensionLabel)
+  assert.equal(issues[0].count, 1)
+  assert.equal(issues[0].share, 100)
+  assert.equal(issues[0].avgRating, 1)
 })
 
 test('described feedback is classified in English, Tagalog and Hiligaynon', () => {

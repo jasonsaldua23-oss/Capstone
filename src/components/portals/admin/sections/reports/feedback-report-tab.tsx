@@ -312,9 +312,6 @@ export function FeedbackReportTab({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-medium text-slate-900">{issue.reason}</p>
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${DIMENSION_PILL_CLASS[issue.dimension]}`}>
-                          {issue.dimensionLabel}
-                        </span>
                       </div>
                       <div className="mt-1.5 flex items-center gap-2">
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">

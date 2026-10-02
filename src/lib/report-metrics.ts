@@ -1670,11 +1670,13 @@ export function buildFeedbackTopIssues(
 
   rows.forEach((row) => {
     row.reasons
-      .filter((hit) => hit.polarity === 'negative' && hit.matched)
+      // Fix: custom complaints count as issues too, matching the negative-reason total.
+      .filter((hit) => hit.polarity === 'negative')
       .forEach((hit) => {
-        const key = hit.canonicalReason.toLowerCase()
+        // Fix: combine preset and custom complaints under their service category.
+        const key = hit.dimension
         const current = grouped.get(key) || {
-          reason: hit.canonicalReason,
+          reason: FEEDBACK_DIMENSION_LABELS[hit.dimension],
           dimension: hit.dimension,
           count: 0,
           ratingSum: 0,

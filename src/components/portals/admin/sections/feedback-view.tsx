@@ -412,9 +412,10 @@ export function FeedbackView() {
     [allRows, trendMonthStart]
   )
 
-  const negativeReasonTotal = useMemo(
+  const negativeCategoryTotal = useMemo(
+    // Fix: count the same categories used to group the issue list.
     () => new Set(
-      currentRows.flatMap((row) => row.reasons.filter((hit) => hit.polarity === 'negative').map((hit) => hit.canonicalReason))
+      currentRows.flatMap((row) => row.reasons.filter((hit) => hit.polarity === 'negative').map((hit) => hit.dimension))
     ).size,
     [currentRows]
   )
@@ -718,7 +719,6 @@ export function FeedbackView() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-medium text-slate-900">{issue.reason}</p>
-                        <DimensionPill dimension={issue.dimension} label={issue.dimensionLabel} />
                       </div>
                       <div className="mt-1.5 flex items-center gap-2">
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
@@ -732,7 +732,7 @@ export function FeedbackView() {
                   </motion.div>
                 ))}
                 <p className="pt-1 text-xs text-gray-400">
-                  Showing top {topIssues.length} of {negativeReasonTotal} distinct negative reasons
+                  Showing top {topIssues.length} of {negativeCategoryTotal} complaint categories
                 </p>
               </div>
             )}
