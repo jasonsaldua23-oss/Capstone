@@ -26,6 +26,7 @@ from .models import (
     InventoryReservation,
     InventoryTransaction,
     MixedCaseComponent,
+    OrderItem,
     Product,
     ProductPackaging,
     ReservationStatus,
@@ -407,7 +408,18 @@ def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTra
     if actor_ids:
         actor_names.update({str(uid): str(name or "").strip() for uid, name in User.objects.filter(id__in=actor_ids).values_list("id", "name")})
         actor_names.update({str(cid): str(name or "").strip() for cid, name in Customer.objects.filter(id__in=actor_ids - set(actor_names)).values_list("id", "name")})
+    # Fix: resolve both document numbers so replacement deliveries show their own reference.
+    item_ids = {row.reference_id for row in rows if row.reference_type == "order_item" and row.reference_id}
+    order_references = {
+        item_id: (po_number, replacement_number)
+        for item_id, po_number, replacement_number in OrderItem.objects.filter(id__in=item_ids).values_list(
+            "id", "order__purchase_order_number", "order__scheduled_replacement__replacement_number"
+        )
+    } if item_ids else {}
     for payload, row in zip(data, rows):
+        po_number, replacement_number = order_references.get(row.reference_id, (None, None))
+        payload["purchaseOrderNumber"] = str(po_number or "").strip() or None
+        payload["replacementNumber"] = str(replacement_number or "").strip() or None
         product = row.product
         warehouse = row.warehouse
         payload["productName"] = str(getattr(product, "name", "") or "").strip() or None
@@ -429,7 +441,7 @@ def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTra
     if mixed_component_ids:
         components_by_id = {
             str(component.id): component
-            for component in MixedCaseComponent.objects.filter(id__in=mixed_component_ids).select_related("product", "order_item__order")
+            for component in MixedCaseComponent.objects.filter(id__in=mixed_component_ids).select_related("product", "order_item__order__scheduled_replacement")
         }
         sibling_components_by_item_id: dict[str, list[dict[str, Any]]] = {}
         # Fix: fetch all siblings once. setdefault evaluated a fresh database query
@@ -445,6 +457,10 @@ def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTra
                 # Transaction history needs the full mixed-case composition, not
                 # only the component whose stock movement is on this row.
                 order_item = component.order_item
+                payload["purchaseOrderNumber"] = str(order_item.order.purchase_order_number or "").strip() or None
+                # Mixed-case movements use the same replacement document as standard items.
+                replacement = getattr(order_item.order, "scheduled_replacement", None)
+                payload["replacementNumber"] = str(getattr(replacement, "replacement_number", "") or "").strip() or None
                 payload["mixedCase"] = {
                     "orderItemId": component.order_item_id,
                     "components": sibling_components_by_item_id[str(component.order_item_id)],

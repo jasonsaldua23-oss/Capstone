@@ -68,6 +68,8 @@ interface TransactionRow {
   createdAt: string
   referenceType: string | null
   referenceId: string | null
+  purchaseOrderNumber?: string | null
+  replacementNumber?: string | null
   performedByName?: string | null
   product?: {
     name?: string
@@ -484,7 +486,16 @@ export function InventoryTransactionsView({ userRole }: { userRole?: string }) {
                 <div>
                   {getTypeBadge(selectedTx.stockType || selectedTx.type)}
                 </div>
-                {selectedTx.referenceType && (
+                {/* Fix: replacement deliveries show their replacement number before the PO. */}
+                {selectedTx.replacementNumber ? (
+                  <span className="text-xs text-gray-400">
+                    Replacement: {selectedTx.replacementNumber}
+                  </span>
+                ) : selectedTx.purchaseOrderNumber ? (
+                  <span className="text-xs text-gray-400">
+                    Purchase Order: {selectedTx.purchaseOrderNumber}
+                  </span>
+                ) : selectedTx.referenceType && (
                   <span className="text-xs text-gray-400">
                     Ref: {selectedTx.referenceType}
                     {selectedTx.referenceId ? ` #${selectedTx.referenceId.slice(0, 10)}` : ''}

@@ -19,7 +19,8 @@ import {
   getInventoryReservedBaseUnits,
   getInventoryUnitsPerCase,
 } from '@/lib/report-metrics'
-import { formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
+import { BEVERAGE_CATEGORIES, formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
+import { buildProductSizeFilterOptions, productHasSize } from '@/lib/product-sizes'
 import {
   ADMIN_INVENTORY_CACHE_KEY,
   PORTAL_CACHE_TTL_MS,
@@ -183,28 +184,27 @@ export function InventoryView() {
     if (level === 'overstocked') return 'overstocked'
     return level === 'healthy' ? 'healthy' : 'restock'
   }
-  // Added: derive filter options from actual inventory, including multi-size products.
+  // Filters offer every registrable size and category (same lists as the warehouse
+  // inventory), plus any older size label a stocked product still carries.
   const filterOptions = useMemo(() => ({
-    sizes: Array.from(new Set<string>(inventory.flatMap((item) =>
+    sizes: buildProductSizeFilterOptions(inventory.flatMap((item) =>
       Array.isArray(item.product?.sizes) ? item.product.sizes.map((size: any) => String(size).trim()).filter(Boolean) : []
-    ))),
-    categories: Array.from(new Set<string>(inventory.map((item) =>
-      String(item.product?.category?.name || item.product?.category || '').trim()
-    ).filter(Boolean))),
+    )),
+    categories: BEVERAGE_CATEGORIES,
   }), [inventory])
 
   const filteredInventory = useMemo(() => {
     const query = inventorySearch.trim().toLowerCase()
     const matchingInventory = inventory.filter((item) => {
       const sizes = Array.isArray(item.product?.sizes) ? item.product.sizes.map((size: any) => String(size).trim()) : []
-      const category = String(item.product?.category?.name || item.product?.category || '').trim()
+      const category = getBeverageCategorySpec(item.product?.category?.name || item.product?.category).category
       const level = getInventoryAlertLevel(item)
       const status = level === 'out_of_stock'
         ? 'out_of_stock'
         : level === 'overstocked' ? 'overstocked' : level === 'healthy' ? 'healthy' : 'restock'
       return [item.id, item.product?.name, item.product?.sku, sizes.join(' ')].some((value) => String(value || '').toLowerCase().includes(query))
         && (!statusFilter || status === statusFilter)
-        && (!sizeFilter || sizes.includes(sizeFilter))
+        && (!sizeFilter || productHasSize(sizes, sizeFilter))
         && (!categoryFilter || category === categoryFilter)
     })
     // All statuses is the inventory directory view, so keep its product names alphabetical.

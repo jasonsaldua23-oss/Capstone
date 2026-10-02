@@ -39,7 +39,8 @@ const STANDARD_UNIT_WEIGHT_KG: Record<string, number> = {
   '640g': 0.64,
 }
 
-const normalizeProductSize = (value: unknown): string | null => {
+/** "1 Liter", "1L" and "330ml (11 oz)" become "1l" and "330ml"; null when no size is readable. */
+export const normalizeProductSize = (value: unknown): string | null => {
   const compact = String(value || '').trim().toLowerCase().replace(/\s+/g, '')
   const match = compact.match(/^(\d+(?:\.\d+)?)(ml|millilit(?:er|re)s?|l|lit(?:er|re)s?|oz|g)/)
   if (!match) return null

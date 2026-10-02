@@ -5,7 +5,7 @@ from unittest.mock import patch
 from django.test import TestCase, RequestFactory
 from django.utils import timezone
 
-from .models import Customer, Inventory, InventoryTransaction, Order, OrderItem, Product, StockBatch, Warehouse
+from .models import Customer, Inventory, InventoryTransaction, Order, OrderItem, Product, Replacement, StockBatch, Warehouse
 from .views_api import (
     _allocate_inventory_for_order_item,
     _serialize_inventory_transactions_with_stock_changes,
@@ -19,6 +19,34 @@ from .mixed_case import reserve_order_item, repack_batch_loose_stock, allocatabl
 
 
 class InventoryTransactionStockChangeTests(TestCase):
+    def test_order_item_transaction_exposes_purchase_order_number(self):
+        _, order = self.make_delivery()
+        order.purchase_order_number = "PO-REFERENCE-TEST"
+        order.save(update_fields=["purchase_order_number"])
+        item = order.items.get()
+        movement = InventoryTransaction.objects.create(
+            product=self.product, warehouse=self.warehouse, type="OUT", quantity=1,
+            previous_stock=20, updated_stock=19,
+            reference_type="order_item", reference_id=item.id,
+        )
+        # The customer-facing PO must come from the order, not the item's internal ID.
+        payload = _serialize_inventory_transactions_with_stock_changes([movement])[0]
+        self.assertEqual(payload["purchaseOrderNumber"], "PO-REFERENCE-TEST")
+        self.assertEqual(payload["referenceId"], item.id)
+        self.assertIsNone(payload["replacementNumber"])
+        # A replacement shipment keeps its own number even when it also has a PO.
+        Replacement.objects.create(
+            replacement_number="RPL-REFERENCE-TEST", order=order,
+            delivery_transaction=order, customer_id=order.customer_id or "test-customer",
+            reason="Damaged items",
+        )
+        replacement_payload = _serialize_inventory_transactions_with_stock_changes([movement])[0]
+        self.assertEqual(replacement_payload["replacementNumber"], "RPL-REFERENCE-TEST")
+        self.assertEqual(replacement_payload["purchaseOrderNumber"], "PO-REFERENCE-TEST")
+        order.purchase_order_number = None
+        order.save(update_fields=["purchase_order_number"])
+        self.assertIsNone(_serialize_inventory_transactions_with_stock_changes([movement])[0]["purchaseOrderNumber"])
+
     def test_customer_po_cancellation_releases_stock_once_and_keeps_identity(self):
         inventory, order = self.make_delivery()
         customer = Customer.objects.create(email='cancellation@example.test', name='Cancellation Customer')

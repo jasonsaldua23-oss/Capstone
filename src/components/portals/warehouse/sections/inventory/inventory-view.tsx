@@ -9,7 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import type { WarehouseInventoryViewProps } from '../shared/types'
-import { formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
+import { BEVERAGE_CATEGORIES, formatLooseQuantity, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
+import { buildProductSizeFilterOptions, productHasSize } from '@/lib/product-sizes'
 import { describeInventoryOverstock, getInventoryLooseRemainder } from '@/lib/report-metrics'
 import { FILTER_SELECT_CLASS } from '@/components/portals/shared/filter-select'
 
@@ -29,18 +30,19 @@ export function WarehouseInventoryView({
   const [sizeFilter, setSizeFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
 
-  // Added: filter choices use only products within the staff member's warehouse scope.
+  // Filters offer every registrable size and category, so a new size is filterable before
+  // its first product arrives; labels for the same size ("330ml (11 oz)") match as one.
   const sizesFor = (item: any): string[] => Array.isArray(item.product?.sizes)
     ? item.product.sizes.map((size: any) => String(size).trim()).filter(Boolean) : []
-  const categoryFor = (item: any) => String(item.product?.category?.name || item.product?.category || '').trim()
-  const sizeOptions = Array.from(new Set(scopedInventory.flatMap(sizesFor)))
-  const categoryOptions = Array.from(new Set(scopedInventory.map(categoryFor).filter(Boolean)))
+  const categoryFor = (item: any) => getBeverageCategorySpec(item.product?.category?.name || item.product?.category).category
+  const sizeOptions = buildProductSizeFilterOptions(scopedInventory.flatMap(sizesFor))
+  const categoryOptions = BEVERAGE_CATEGORIES
 
   const query = inventorySearch.trim().toLowerCase()
   const matchingInventory = scopedInventory.filter((item) =>
     [item.id, item.product?.name, item.product?.sku, sizesFor(item).join(' ')].some((value) => String(value || '').toLowerCase().includes(query))
     && (!statusFilter || getStockStatus(item) === statusFilter)
-    && (!sizeFilter || sizesFor(item).includes(sizeFilter))
+    && (!sizeFilter || productHasSize(sizesFor(item), sizeFilter))
     && (!categoryFilter || categoryFor(item) === categoryFilter)
   )
   // All statuses is the inventory directory view, so keep its product names alphabetical.

@@ -20,48 +20,11 @@ import { Archive, ArrowLeft, Loader2, RotateCcw } from 'lucide-react'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { BEVERAGE_CATEGORIES, getBeverageCategorySpec } from '@/lib/beverage-category-specs'
 import { calculateProductWeightKg } from '@/lib/product-weight'
+import { CASE_SIZE_OPTIONS, PACK_SIZE_OPTIONS } from '@/lib/product-sizes'
 
 const PRODUCT_UNIT_OPTIONS = [
   { value: 'case', label: 'case' },
   { value: 'pack', label: 'pack' },
-]
-
-const CASE_SIZE_OPTIONS = [
-  '7oz',
-  '8oz',
-  '12oz',
-  '750ml',
-  '1 Liter',
-]
-
-const PACK_SIZE_OPTIONS = [
-  '7oz',
-  '8oz',
-  '12oz',
-  '195ml',
-  '230ml',
-  '237ml',
-  '240ml',
-  '250ml',
-  '290ml',
-  '295ml',
-  '300ml',
-  '320ml',
-  '330ml',
-  '350ml',
-  '355ml',
-  '360ml',
-  '450ml',
-  '500ml',
-  '600ml',
-  '900ml',
-  '1 Liter',
-  '1.5 Liters',
-  '2 Liters',
-  '10 Liters',
-  '20 Liters',
-  '320g',
-  '640g',
 ]
 
 const SIZE_OPTIONS = {
