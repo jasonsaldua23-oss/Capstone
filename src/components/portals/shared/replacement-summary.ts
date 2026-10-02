@@ -1,3 +1,39 @@
+/** Convert one replacement line from base quantity to its actual reporting unit. */
+export function getReplacementLineQuantity(line: any, mode: 'toReplace' | 'replaced') {
+  const positive = (value: any) => Number.isFinite(Number(value)) ? Math.max(Number(value), 0) : 0
+  const inputMode = String(line?.lineInputMode || line?.replacementInputMode || '').toLowerCase()
+  const productUnit = String(line?.productUnit || line?.replacementProductUnit || line?.originalProductUnit || line?.unit || '').toLowerCase()
+  const bottleQty = mode === 'replaced'
+    ? (line?.quantityReplacedBottles ?? line?.replacedBottles ?? line?.replacementBottles)
+    : (line?.quantityToReplaceBottles ?? line?.damagedBottles ?? line?.replacementBottles)
+  const unitQty = mode === 'replaced'
+    ? (line?.quantityReplacedCases ?? line?.replacedCases ?? line?.quantityReplacedUnits ?? line?.unitsReplaced ?? line?.replacementCases)
+    : (line?.quantityToReplaceCases ?? line?.damagedCases ?? line?.quantityToReplaceUnits ?? line?.unitsToReplace ?? line?.replacementCases)
+  const rawQty = mode === 'replaced' ? line?.quantityReplaced : (line?.quantityToReplace ?? line?.quantity ?? line?.quantityReplaced)
+  const capacity = positive(line?.quantityPerCase ?? line?.qtyPerUnit ?? line?.quantityPerUnit ?? line?.unitsPerCase ?? line?.bottlesPerCase ?? line?.bottlesPerUnit)
+  // Fix: bottle input overrides the product's packaging; case input can represent a pack or bundle.
+  const isBottle = inputMode === 'bottle' || (!inputMode && (positive(bottleQty) > 0 || productUnit.includes('bottle')))
+  let unit = isBottle ? 'bottle'
+    : productUnit.includes('pack') ? 'pack'
+      : productUnit.includes('bundle') ? 'bundle'
+        : productUnit.includes('case') ? 'case'
+          : ['case', 'pack', 'bundle'].includes(inputMode) ? inputMode : 'unit'
+  let quantity = isBottle ? positive(bottleQty ?? rawQty)
+    : unitQty != null ? positive(unitQty) : capacity > 0 ? positive(rawQty) / capacity : positive(rawQty)
+  // Fix: explicit zero fulfillment must never fall back to the requested quantity.
+  if (mode === 'replaced' && rawQty != null && positive(rawQty) === 0) quantity = 0
+  // Retain legacy display hints only when structured unit information is absent.
+  if (!inputMode && !productUnit && bottleQty == null && unitQty == null && capacity === 0) {
+    const display = String(mode === 'replaced' ? line?.quantityReplacedDisplay || '' : line?.quantityToReplaceDisplay || '')
+    const match = display.match(/^(\d+(?:\.\d+)?)\s*(bottles?|cases?|packs?|bundles?|units?)$/i)
+    if (match && !(mode === 'replaced' && rawQty != null && positive(rawQty) === 0)) {
+      quantity = positive(match[1])
+      unit = match[2].toLowerCase().replace(/s$/, '')
+    }
+  }
+  return { quantity, unit, unitLabel: quantity === 1 ? unit : unit + 's' }
+}
+
 /**
  * Replacement case counts and replaced quantities, shared by the Admin and
  * Warehouse dashboards so both report the same figures.
@@ -131,40 +167,53 @@ export function summarizeReplacementCases(replacements: any[]) {
               : rawStatus
     if (status === 'RESOLVED_ON_DELIVERY' || status === 'COMPLETED') {
       const replacementLines = getReplacementLinesForKpi(entry, meta)
-      const firstLine = replacementLines[0] || {}
-      const bottleQty = getBottleReplacedQtyForKpi(entry, meta)
-      const lineReplacedUnits = Number(
-        firstLine?.replacedCases ??
-        firstLine?.quantityReplacedCases ??
-        firstLine?.replacementCases
-      )
-      const fallbackQty = Number(
-        (entry as any)?.quantityReplaced ??
-        (meta as any)?.quantityReplaced ??
-        (entry as any)?.replacementQuantity ??
-        (meta as any)?.replacementQuantity ??
-        0
-      )
-      const canonicalQty = getCanonicalReplacedQtyForKpi(entry, meta)
-      const unitQty = getUnitReplacedQtyForKpi(entry, meta)
-      const qty = unitQty > 0
-        ? unitQty
-        : Number.isFinite(fallbackQty) && fallbackQty > 0
-          ? fallbackQty
-          : Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
-            ? lineReplacedUnits
-            : 0
-      if (bottleQty <= 0 && qty > 0) {
-        replacedQty += qty
-      }
-
-      if (bottleQty > 0) {
-        replacedBottleQty += bottleQty
+      // Fix: mixed requests can contain both packaged units and bottles on later lines.
+      if (replacementLines.length > 0) {
+        for (const line of replacementLines) {
+          const { quantity, unit } = getReplacementLineQuantity(line, 'replaced')
+          if (unit === 'bottle') replacedBottleQty += quantity
+          else {
+            replacedQty += quantity
+            replacedCaseQty += quantity
+          }
+        }
       } else {
-        const caseQty = Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
-          ? lineReplacedUnits
-          : (unitQty > 0 ? unitQty : (canonicalQty > 0 ? canonicalQty : (Number.isFinite(fallbackQty) && fallbackQty > 0 ? fallbackQty : 0)))
-        if (caseQty > 0) replacedCaseQty += caseQty
+        // Preserve the existing fallback for legacy records without product lines.
+        const firstLine = replacementLines[0] || {}
+        const bottleQty = getBottleReplacedQtyForKpi(entry, meta)
+        const lineReplacedUnits = Number(
+          firstLine?.replacedCases ??
+          firstLine?.quantityReplacedCases ??
+          firstLine?.replacementCases
+        )
+        const fallbackQty = Number(
+          (entry as any)?.quantityReplaced ??
+          (meta as any)?.quantityReplaced ??
+          (entry as any)?.replacementQuantity ??
+          (meta as any)?.replacementQuantity ??
+          0
+        )
+        const canonicalQty = getCanonicalReplacedQtyForKpi(entry, meta)
+        const unitQty = getUnitReplacedQtyForKpi(entry, meta)
+        const qty = unitQty > 0
+          ? unitQty
+          : Number.isFinite(fallbackQty) && fallbackQty > 0
+            ? fallbackQty
+            : Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
+              ? lineReplacedUnits
+              : 0
+        if (bottleQty <= 0 && qty > 0) {
+          replacedQty += qty
+        }
+
+        if (bottleQty > 0) {
+          replacedBottleQty += bottleQty
+        } else {
+          const caseQty = Number.isFinite(lineReplacedUnits) && lineReplacedUnits > 0
+            ? lineReplacedUnits
+            : (unitQty > 0 ? unitQty : (canonicalQty > 0 ? canonicalQty : (Number.isFinite(fallbackQty) && fallbackQty > 0 ? fallbackQty : 0)))
+          if (caseQty > 0) replacedCaseQty += caseQty
+        }
       }
     }
     if (status === 'RESOLVED_ON_DELIVERY') {

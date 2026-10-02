@@ -35,6 +35,8 @@ import { describeSeriesMix, describeTrend, toPoints } from '@/lib/chart-interpre
 import { formatDayKey } from '../shared'
 import { exportToCsv, exportReportPdf, printReportTable, ExportColumn } from './export-utils'
 import { ReportKpiRow } from './report-kpi'
+import { getReplacementLineLoss } from './replacement-loss'
+import { getReplacementLineQuantity, summarizeReplacementCases } from '@/components/portals/shared/replacement-summary'
 import { buildReportDateWindow, matchesReportDateWindow, formatReportTableDateTime } from '@/components/portals/admin/sections/report-date-utils'
 import { buildDailyChartSeries, describeDailyChartWindow, formatReportProductNameForExport } from '@/lib/report-metrics'
 
@@ -143,7 +145,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
 
       let quantity = rawBottleQuantity
       let unitLabel = 'units'
-      let loss = 0
+      let loss: number | null = 0
 
       if (isByBottle) {
         quantity = rawBottleQuantity
@@ -196,7 +198,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         rep.replacementMode === 'CUSTOMER_SUBMITTED' && rawLines.length > 0 ? '' : description
       )
 
-      type LineEntry = { productName: string; qty: number; unitLabel: string; reason: string }
+      type LineEntry = { productName: string; qty: number; unitLabel: string; reason: string; loss?: number | null }
 
       let lines: LineEntry[] = []
       if (rawLines.length > 0) {
@@ -218,31 +220,19 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
               matchedItem?.product?.size ??
               _originalProductSize,
           })
-          const rawQty = Math.max(Number(line.quantityToReplace ?? line.quantity ?? line.quantityReplaced ?? 0), 0)
-          const lineUnit = String(
-            line.productUnit ?? line.replacementProductUnit ?? line.originalProductUnit ?? line.unit ?? ''
-          ).trim().toLowerCase()
-
-          let lineLabel = 'bottles'
-          let lineQty = rawQty
-          if (lineUnit.includes('case')) { lineLabel = 'cases' }
-          else if (lineUnit.includes('pack')) { lineLabel = 'packs' }
-          else if (lineUnit.includes('bundle')) { lineLabel = 'bundles' }
-          else if (lineUnit.includes('bottle')) { lineLabel = 'bottles' }
-
-          // If display hint is available prefer it
-          if (line.quantityToReplaceDisplay) {
-            const m = String(line.quantityToReplaceDisplay).match(/^(\d+(?:\.\d+)?)\s*(\w+)?$/)
-            if (m) {
-              lineQty = Number(m[1])
-              if (m[2]) lineLabel = m[2].toLowerCase()
-            }
-          }
+          // Fix: use each line's input mode and packaging count in the table and exports.
+          const { quantity: lineQty, unitLabel: lineLabel } = getReplacementLineQuantity(line, 'toReplace')
 
           const lineReason = String(line.reason || rep.reason || 'N/A').trim()
 
-          return { productName, qty: lineQty, unitLabel: lineLabel, reason: lineReason }
+          // Fix: use the exact order item/component price for each replaced product.
+          const lineLoss = getReplacementLineLoss(line, matchedOrder?.items || [])
+          return { productName, qty: lineQty, unitLabel: lineLabel, reason: lineReason, loss: lineLoss }
         })
+        // Missing historical prices remain unavailable instead of using an unrelated item's price.
+        loss = lines.some((line) => line.loss == null)
+          ? null
+          : lines.reduce((sum, line) => sum + (line.loss ?? 0), 0)
       }
 
       // Fallback single-line when no structured lines
@@ -272,6 +262,8 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         replacementProduct,
         quantity,
         rawBottleQuantity,
+        // Fix: retain the shared completed-unit count through report filtering.
+        replacedUnitQty: summarizeReplacementCases([rep]).replacedQty,
         unitLabel,
         unitPrice,
         loss,
@@ -343,7 +335,8 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
     const resolved = filteredReplacements.filter((r) => r.status === 'RESOLVED' || r.status === 'CLOSED').length
     const inProgress = filteredReplacements.filter((r) => r.status === 'IN_PROGRESS' || r.status === 'NEEDS_FOLLOW_UP').length
     const pending = filteredReplacements.filter((r) => r.status === 'REPORTED' || r.status === 'PENDING').length
-    const totalUnits = filteredReplacements.reduce((sum, r) => sum + (r.rawBottleQuantity || r.quantity), 0)
+    // Fix: match portal units instead of summing raw bottles and unfinished requests.
+    const totalUnits = filteredReplacements.reduce((sum, r) => sum + r.replacedUnitQty, 0)
 
     return { total, resolved, inProgress, pending, totalUnits }
   }, [filteredReplacements])
@@ -464,8 +457,10 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
 
   // Each replaced item gets its own exported row so its quantity and reason stay aligned.
   const replacementExportRows = useMemo(() => filteredReplacements.flatMap((replacement) =>
-    replacement.lines.map((line: { productName: string; qty: number; unitLabel: string; reason: string }) => ({
+    replacement.lines.map((line: { productName: string; qty: number; unitLabel: string; reason: string; loss?: number | null }) => ({
       ...replacement,
+      // Fix: item exports show each line's loss, not the entire request loss on every row.
+      loss: line.loss === undefined ? replacement.loss : line.loss,
       lineProductName: line.productName,
       lineQty: line.qty,
       lineUnitLabel: line.unitLabel,
@@ -777,7 +772,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
                     <td className="p-3.5">
-                      {row.loss > 0 ? (
+                      {row.loss != null && row.loss > 0 ? (
                         <span className="font-semibold text-rose-600">₱{row.loss.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       ) : (
                         <span className="text-slate-400 text-[11px]">—</span>

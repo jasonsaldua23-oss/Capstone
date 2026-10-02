@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { localDateInputValue } from '@/lib/local-date'
+import { summarizeReplacementCases } from '@/components/portals/shared/replacement-summary'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -789,117 +790,11 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
     return index
   }, [ordersForPricing])
 
-  const getReplacementLinesForKpi = (item: any, meta: any) =>
-    (Array.isArray(item?.replacementLines) && item.replacementLines.length ? item.replacementLines : null) ||
-    (Array.isArray(meta?.replacementLines) && meta.replacementLines.length ? meta.replacementLines : null) ||
-    (Array.isArray(item?.replacementItems) && item.replacementItems.length ? item.replacementItems : null) ||
-    (Array.isArray(meta?.replacementItems) && meta.replacementItems.length ? meta.replacementItems : null) ||
-    []
-
-  const getCanonicalReplacedQtyForKpi = (item: any, meta: any): number => {
-    const qty = Number(
-      item?.replacementQuantity ??
-      meta?.replacementQuantity ??
-      item?.quantityReplaced ??
-      meta?.quantityReplaced ??
-      0
-    )
-    return Number.isFinite(qty) && qty > 0 ? qty : 0
-  }
-
-  const getUnitReplacedQtyForKpi = (item: any, meta: any): number => {
-    const lines = getReplacementLinesForKpi(item, meta)
-    const firstLine = lines[0] || {}
-    const directUnitQty = Number(
-      firstLine?.replacedCases ??
-      firstLine?.quantityReplacedCases ??
-      firstLine?.replacementCases ??
-      item?.replacementCases ??
-      meta?.replacementCases ??
-      item?.quantityReplacedCases ??
-      meta?.quantityReplacedCases ??
-      0
-    )
-    if (Number.isFinite(directUnitQty) && directUnitQty > 0) return directUnitQty
-
-    const qtyPerCase = Number(
-      firstLine?.quantityPerCase ??
-      firstLine?.qtyPerUnit ??
-      firstLine?.quantityPerUnit ??
-      item?.quantityPerCase ??
-      meta?.quantityPerCase ??
-      item?.qtyPerUnit ??
-      meta?.qtyPerUnit ??
-      0
-    )
-    const canonicalQty = getCanonicalReplacedQtyForKpi(item, meta)
-    if (Number.isFinite(qtyPerCase) && qtyPerCase > 0 && canonicalQty > 0) {
-      const units = canonicalQty / qtyPerCase
-      return Number.isFinite(units) && units > 0 ? units : 0
-    }
-    // Do not fallback to canonical quantity here, because it is typically base bottles
-    // and can leak bottle-based replacements into the unit card.
-    return 0
-  }
-
-  const getBottleReplacedQtyForKpi = (item: any, meta: any): number => {
-    const lines = getReplacementLinesForKpi(item, meta)
-    const firstLine = lines[0] || {}
-    const lineBottleQty = Number(
-      firstLine?.replacedBottles ??
-      firstLine?.quantityReplacedBottles ??
-      firstLine?.replacementBottles
-    )
-    if (Number.isFinite(lineBottleQty) && lineBottleQty > 0) return lineBottleQty
-
-    const topBottleQty = Number(
-      item?.replacementBottles ??
-      meta?.replacementBottles ??
-      item?.replacedBottles ??
-      meta?.replacedBottles ??
-      0
-    )
-    if (Number.isFinite(topBottleQty) && topBottleQty > 0) return topBottleQty
-
-    // Fallback: text-based bottle classification when structural bottle qty is absent.
-    const contextText = `${String(item?.reason || '')} ${String(item?.description || '')} ${String(item?.notes || '')}`.toLowerCase()
-    const hasBottleText = /\bbottle(?:s)?\b/.test(contextText)
-    const hasUnitEvidence = Number(
-      firstLine?.replacedCases ??
-      firstLine?.quantityReplacedCases ??
-      firstLine?.replacementCases ??
-      item?.replacementCases ??
-      meta?.replacementCases ??
-      item?.quantityReplacedCases ??
-      meta?.quantityReplacedCases ??
-      0
-    ) > 0
-    if (!hasBottleText || hasUnitEvidence) return 0
-
-    return getCanonicalReplacedQtyForKpi(item, meta)
-  }
-
+  // Fix: use the warehouse summary so cancelled cases and base bottles do not inflate units.
+  const replacementSummary = useMemo(() => summarizeReplacementCases(filteredReplacements), [filteredReplacements])
   const totalIssues = filteredReplacements.length
-  const totalReplacedQty = filteredReplacements.reduce((sum, item) => {
-    const meta = parseMeta(item?.notes)
-    const rawStatus = String(item?.status || '').trim().toUpperCase()
-    const isResolved =
-      (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)) ||
-      ['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)
-    if (!isResolved) return sum
-    const bottleQty = getBottleReplacedQtyForKpi(item, meta)
-    if (bottleQty > 0) return sum
-    return sum + getUnitReplacedQtyForKpi(item, meta)
-  }, 0)
-  const replacedTypeSummary = filteredReplacements.reduce((sum, item) => {
-    const meta = parseMeta(item?.notes)
-    const rawStatus = String(item?.status || '').trim().toUpperCase()
-    const isResolved = ['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)
-    if (!isResolved) return sum
-    const bottleQty = getBottleReplacedQtyForKpi(item, meta)
-    if (bottleQty > 0) sum.bottles += bottleQty
-    return sum
-  }, { bottles: 0, cases: 0 })
+  const totalReplacedQty = replacementSummary.replacedQty
+  const replacedTypeSummary = { bottles: replacementSummary.replacedBottleQty }
   const todayDateInput = localDateInputValue()
   const rejectedCount = filteredReplacements.filter((item) => {
     const rawStatus = String(item?.status || '').toUpperCase()
@@ -1391,12 +1286,14 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
                   <div className="rounded-md border bg-white px-3 py-2">
                     <p className="text-xs font-medium text-slate-500">Evidence ({evidenceUrls.length})</p>
                     <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {/* Fix: load protected evidence with the admin tab's authentication token. */}
                       {evidenceUrls.map((url, index) => (
-                        <img
+                        <PodImagePreview
                           key={`${url}-${index}`}
                           src={url}
                           alt={`Replacement evidence ${index + 1}`}
                           className="max-h-[360px] w-full rounded-md border object-contain"
+                          caption=""
                         />
                       ))}
                     </div>
@@ -1515,4 +1412,3 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
     </div>
   )
 }
-
