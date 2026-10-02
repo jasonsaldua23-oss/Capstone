@@ -26,6 +26,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   const [dashboardInventory, setDashboardInventory] = useState<any[]>([])
   const [dashboardReplacements, setDashboardReplacements] = useState<any[]>([])
   const [dashboardOrdersLoading, setDashboardOrdersLoading] = useState(true)
+  const [dashboardOrdersLoaded, setDashboardOrdersLoaded] = useState(false)
   const [welcomeState] = useState(() => {
     if (typeof window === 'undefined') return { open: false, message: 'Welcome back!' }
     try {
@@ -74,6 +75,8 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
         if (ordersResult.ok) {
           setDashboardOrders(getCollection<any>(ordersResult.data, ['orders']))
+          // Fix: distinguish an empty PO collection from an unavailable one.
+          setDashboardOrdersLoaded(true)
         }
         if (inventoryResult.ok) {
           setDashboardInventory(getCollection<any>(inventoryResult.data, ['inventory']))
@@ -99,17 +102,12 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   const totalVehicles = Number(stats?.totalVehicles || 0)
   const totalClients = Number(stats?.totalCustomers || 0)
   const activeTrips = Number(stats?.activeTrips || 0)
-  // Fix: only resolved delivery stops contribute to delivery success, not order approvals/cancellations.
-  // Missing API fields mean unavailable data, not zero recorded deliveries.
-  const hasDeliveryStats = typeof stats?.deliveredDeliveryStops === 'number' &&
-    Number.isFinite(stats.deliveredDeliveryStops) && stats.deliveredDeliveryStops >= 0 &&
-    typeof stats?.failedDeliveryStops === 'number' &&
-    Number.isFinite(stats.failedDeliveryStops) && stats.failedDeliveryStops >= 0
-  const deliveredDeliveryStops = stats?.deliveredDeliveryStops ?? 0
-  const failedDeliveryStops = stats?.failedDeliveryStops ?? 0
-  const resolvedDeliveryStops = deliveredDeliveryStops + failedDeliveryStops
-  const deliverySuccessRate = resolvedDeliveryStops > 0
-    ? Math.round((deliveredDeliveryStops / resolvedDeliveryStops) * 100)
+  // Fix: both displays count issued purchase orders, excluding replacement deliveries.
+  const hasDeliveryStats = dashboardOrdersLoaded
+  const deliveredPurchaseOrders = dashboardOrderStats.delivered
+  const notDeliveredPurchaseOrders = dashboardOrderStats.totalOrders - deliveredPurchaseOrders
+  const deliveryCompletionRate = dashboardOrderStats.totalOrders > 0
+    ? Math.round((deliveredPurchaseOrders / dashboardOrderStats.totalOrders) * 100)
     : 0
 
   const last7Days = useMemo(() => {
@@ -167,11 +165,12 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   }
 
   const deliveryPerformance = useMemo(() => {
+    // Fix: the remainder includes pending and cancelled POs, not failed delivery stops.
     return [
-      { name: 'Delivered', value: deliveredDeliveryStops, color: '#10b981' },
-      { name: 'Failed', value: failedDeliveryStops, color: '#ef4444' },
+      { name: 'Delivered', value: deliveredPurchaseOrders, color: '#10b981' },
+      { name: 'Not Delivered', value: notDeliveredPurchaseOrders, color: '#ef4444' },
     ]
-  }, [deliveredDeliveryStops, failedDeliveryStops])
+  }, [deliveredPurchaseOrders, notDeliveredPurchaseOrders])
 
   // Both dashboard charts carry a reading so the numbers are not left to the eye alone.
   const ordersInterpretation = useMemo(() => describeComparison(
@@ -182,7 +181,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
   const deliveryInterpretation = useMemo(() => describeComposition(
     toPoints(deliveryPerformance, (row) => row.name, (row) => row.value),
-    { noun: 'delivery outcomes', entityNoun: 'outcome', emptyMessage: 'No delivery stop has been completed or failed yet, so there is nothing to interpret.' }
+    { noun: 'purchase orders', entityNoun: 'status', emptyMessage: 'No purchase orders have been issued yet, so there is nothing to interpret.' }
   ), [deliveryPerformance])
 
   return (
@@ -211,7 +210,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
             <DashboardMetricCard icon={ShoppingCart} value={dashboardOrderStats.totalOrders} label="Purchase Orders" tone="blue" />
             <DashboardMetricCard icon={Package} value={replacementSummary.totalCases} label="Replacement Cases" tone="rose" />
-            <DashboardMetricCard icon={CircleCheck} value={dashboardOrderStats.delivered} label="Delivered" tone="emerald" />
+            <DashboardMetricCard icon={CircleCheck} value={deliveredPurchaseOrders} label="Delivered Purchase Orders" tone="emerald" />
             <DashboardMetricCard icon={Truck} value={activeTrips} label="Active Trips" tone="indigo" />
           </div>
 
@@ -273,8 +272,8 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         </Card>
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
-            <CardTitle className="text-base">Delivery Performance</CardTitle>
-            <CardDescription>Delivered vs failed delivery stops · {!hasDeliveryStats ? 'Delivery statistics unavailable' : resolvedDeliveryStops > 0 ? `${deliverySuccessRate}% delivery success rate` : 'No delivery outcomes yet'}</CardDescription>
+            <CardTitle className="text-base">Purchase Order Delivery</CardTitle>
+            <CardDescription>Delivered vs not-delivered purchase orders · {!hasDeliveryStats ? 'Delivery statistics unavailable' : dashboardOrderStats.totalOrders > 0 ? `${deliveryCompletionRate}% of purchase orders delivered` : 'No purchase orders yet'}</CardDescription>
           </CardHeader>
           <CardContent>
             {hasDeliveryStats ? <>
