@@ -9,6 +9,8 @@ from . import views_api as legacy
 from .api_utils import ok as _ok
 from .models import (
     Customer,
+    DropPointStatus,
+    DropPointType,
     Feedback,
     Inventory,
     Order,
@@ -17,6 +19,7 @@ from .models import (
     Replacement,
     ReplacementStatus,
     Trip,
+    TripDropPoint,
     TripStatus,
     User,
     Vehicle,
@@ -61,6 +64,8 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
     today = timezone.now().date()
     orders = _real_orders(Order.objects.all())
     trips = _real_trips(Trip.objects.all())
+    # Delivery performance measures delivery stops, not cancelled/rejected orders.
+    delivery_stops = TripDropPoint.objects.filter(trip__in=trips, drop_point_type=DropPointType.DELIVERY)
     inventory = (
         Inventory.objects.filter(product__in=_real_products(Product.objects.all()))
         .filter(warehouse__in=_real_warehouses(Warehouse.objects.all()))
@@ -105,6 +110,8 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
         "inTransitOrders": in_transit_orders,
         "deliveredOrders": delivered_orders,
         "failedOrders": cancelled_orders,
+        "deliveredDeliveryStops": delivery_stops.filter(status=DropPointStatus.COMPLETED).count(),
+        "failedDeliveryStops": delivery_stops.filter(status=DropPointStatus.FAILED).count(),
         "completedOrders": delivered_orders,
         "totalRevenue": total_revenue,
         "totalCustomers": total_customers,
@@ -124,4 +131,3 @@ def dashboard_stats(request: HttpRequest) -> JsonResponse:
         "revenueTotal": total_revenue,
     }
     return _ok({"success": True, "stats": stats})
-

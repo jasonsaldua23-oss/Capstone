@@ -99,8 +99,17 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   const totalVehicles = Number(stats?.totalVehicles || 0)
   const totalClients = Number(stats?.totalCustomers || 0)
   const activeTrips = Number(stats?.activeTrips || 0)
-  const deliverySuccessRate = dashboardOrderStats.totalOrders > 0
-    ? Math.round((dashboardOrderStats.delivered / dashboardOrderStats.totalOrders) * 100)
+  // Fix: only resolved delivery stops contribute to delivery success, not order approvals/cancellations.
+  // Missing API fields mean unavailable data, not zero recorded deliveries.
+  const hasDeliveryStats = typeof stats?.deliveredDeliveryStops === 'number' &&
+    Number.isFinite(stats.deliveredDeliveryStops) && stats.deliveredDeliveryStops >= 0 &&
+    typeof stats?.failedDeliveryStops === 'number' &&
+    Number.isFinite(stats.failedDeliveryStops) && stats.failedDeliveryStops >= 0
+  const deliveredDeliveryStops = stats?.deliveredDeliveryStops ?? 0
+  const failedDeliveryStops = stats?.failedDeliveryStops ?? 0
+  const resolvedDeliveryStops = deliveredDeliveryStops + failedDeliveryStops
+  const deliverySuccessRate = resolvedDeliveryStops > 0
+    ? Math.round((deliveredDeliveryStops / resolvedDeliveryStops) * 100)
     : 0
 
   const last7Days = useMemo(() => {
@@ -158,14 +167,11 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
   }
 
   const deliveryPerformance = useMemo(() => {
-    const delivered = dashboardOrderStats.delivered
-    const failed = Number(stats?.failedOrders || 0)
-
     return [
-      { name: 'Delivered', value: delivered, color: '#10b981' },
-      { name: 'Failed', value: failed, color: '#ef4444' },
+      { name: 'Delivered', value: deliveredDeliveryStops, color: '#10b981' },
+      { name: 'Failed', value: failedDeliveryStops, color: '#ef4444' },
     ]
-  }, [dashboardOrderStats.delivered, stats?.failedOrders])
+  }, [deliveredDeliveryStops, failedDeliveryStops])
 
   // Both dashboard charts carry a reading so the numbers are not left to the eye alone.
   const ordersInterpretation = useMemo(() => describeComparison(
@@ -176,7 +182,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
 
   const deliveryInterpretation = useMemo(() => describeComposition(
     toPoints(deliveryPerformance, (row) => row.name, (row) => row.value),
-    { noun: 'closed orders', entityNoun: 'outcome', emptyMessage: 'No order has been delivered or failed yet, so there is nothing to interpret.' }
+    { noun: 'delivery outcomes', entityNoun: 'outcome', emptyMessage: 'No delivery stop has been completed or failed yet, so there is nothing to interpret.' }
   ), [deliveryPerformance])
 
   return (
@@ -268,9 +274,10 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Delivery Performance</CardTitle>
-            <CardDescription>Delivered vs failed orders · {deliverySuccessRate}% of purchase orders delivered</CardDescription>
+            <CardDescription>Delivered vs failed delivery stops · {!hasDeliveryStats ? 'Delivery statistics unavailable' : resolvedDeliveryStops > 0 ? `${deliverySuccessRate}% delivery success rate` : 'No delivery outcomes yet'}</CardDescription>
           </CardHeader>
           <CardContent>
+            {hasDeliveryStats ? <>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={deliveryPerformance} margin={{ left: 8, right: 8, top: 12, bottom: 0 }}>
@@ -287,6 +294,7 @@ export function DashboardView({ stats, isLoading }: { stats: DashboardStats | nu
               </ResponsiveContainer>
             </div>
             <ChartInterpretation text={deliveryInterpretation} />
+            </> : <div className="h-[300px] flex items-center justify-center text-sm text-muted-foreground" role="status">Unable to load delivery statistics. Refresh the page to try again.</div>}
           </CardContent>
         </Card>
         <StockHealthCard lowStockCount={lowStockCount} totalItems={dashboardInventory.length} />

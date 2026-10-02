@@ -56,6 +56,25 @@ class GlassDepositCalculationTests(TestCase):
         self.assertEqual(result["depositRefunded"], 4.0)
         self.assertEqual(result["netDeposit"], 6.0)
 
+    def test_returnable_bottle_sport_and_juice_lines_charge_glass_deposits(self) -> None:
+        # Gatorade RB / Tropicana RB 240ml sit in the price list's 8oz deposit group.
+        for sku, category in (("GAT-RB-240", "Sport Drinks (Glass)"), ("TROP-RB-240", "Juice (Glass)")):
+            with self.subTest(category=category):
+                product = Product.objects.create(
+                    sku=sku,
+                    name=f"{category} Product",
+                    unit="case",
+                    quantity_per_unit=24,
+                    category=category,
+                    sizes=["8oz"],
+                )
+                packaging, _ = _get_or_create_product_packaging(product)
+                self.assertTrue(_is_returnable_product(product))
+                self.assertEqual((packaging.deposit_amount, packaging.case_deposit_amount), (Decimal("2.00"), Decimal("42.00")))
+                result = calculate_deposit_for_order_item(product, full_quantity=24, empty_returned_quantity=0)
+                self.assertTrue(result["is_returnable"])
+                self.assertEqual(result["depositCharged"], 90.0)
+
     def test_non_glass_product_has_no_returnable_deposit(self) -> None:
         product = Product.objects.create(
             sku="CAN-CALC-12OZ",
@@ -129,6 +148,36 @@ class GlassProductRegistrationTests(TestCase):
         assert packaging is not None
         self.assertEqual(packaging.deposit_amount, Decimal("6.00"))
         self.assertEqual(packaging.case_deposit_amount, Decimal("52.00"))
+
+    def test_750ml_product_gets_its_own_container_and_deposits(self) -> None:
+        twelve_oz = Product.objects.create(
+            sku="GLASS-TEST-12OZ-SHARED",
+            name="Test 12oz Glass Product",
+            unit="case",
+            quantity_per_unit=24,
+            category="Carbonated(Glass)",
+            sizes=["12oz"],
+        )
+        _, twelve_oz_container = _get_or_create_product_packaging(twelve_oz)
+        product = Product.objects.create(
+            sku="GLASS-TEST-750ML",
+            name="Test 750ml Glass Product",
+            unit="case",
+            quantity_per_unit=12,
+            category="Carbonated(Glass)",
+            sizes=["750ml"],
+        )
+
+        packaging, container = _get_or_create_product_packaging(product)
+
+        # 12 x 4 + 52 = 100, the price list's full-case deposit for 750ml.
+        self.assertEqual(container.code, "RGB-GLASS-750")
+        self.assertEqual(packaging.deposit_amount, Decimal("4.00"))
+        self.assertEqual(packaging.case_deposit_amount, Decimal("52.00"))
+        self.assertEqual(packaging.containers_per_case, 12)
+        self.assertNotEqual(container.id, twelve_oz_container.id)
+        twelve_oz_container.refresh_from_db()
+        self.assertEqual(twelve_oz_container.deposit_amount, Decimal("2.00"))
 
     def test_non_glass_product_does_not_create_returnable_packaging(self) -> None:
         product = Product.objects.create(

@@ -41,6 +41,22 @@ export const BEVERAGE_CATEGORY_SPECS = {
     depositAllowed: false,
     depositExempt: false,
   },
+  // Returnable-bottle (RB) lines on the price list, e.g. Gatorade RB 240ml.
+  'Sport Drinks (Glass)': {
+    packagingType: 'Glass Bottle',
+    looseUnit: 'Glass Bottle',
+    compatibilityKey: 'GLASS_BOTTLE',
+    depositAllowed: true,
+    depositExempt: false,
+  },
+  // e.g. Tropicana RB 240ml.
+  'Juice (Glass)': {
+    packagingType: 'Glass Bottle',
+    looseUnit: 'Glass Bottle',
+    compatibilityKey: 'GLASS_BOTTLE',
+    depositAllowed: true,
+    depositExempt: false,
+  },
   Alcohol: {
     packagingType: 'Glass Bottle',
     looseUnit: 'Glass Bottle',
@@ -64,6 +80,8 @@ const CATEGORY_ALIASES: Record<string, BeverageCategory> = {
   'carbonated(pet/plastic)': 'Carbonated (PET/PLASTIC)',
   'carbonated(cans)': 'Carbonated (Cans)',
   'energy drinks(glass)': 'Energy Drinks (Glass)',
+  'sport drinks(glass)': 'Sport Drinks (Glass)',
+  'juice(glass)': 'Juice (Glass)',
   'beer & liquor': 'Alcohol',
   'beer and liquor': 'Alcohol',
   beer: 'Alcohol',
@@ -99,7 +117,13 @@ export function getBeverageCategorySpec(value: unknown) {
   if (category) return { category, ...BEVERAGE_CATEGORY_SPECS[category] }
 
   // Fuzzy match fallback
-  if (low.includes('glass')) return { category: low.includes('energy') ? 'Energy Drinks (Glass)' : 'Carbonated (Glass)', ...BEVERAGE_CATEGORY_SPECS[low.includes('energy') ? 'Energy Drinks (Glass)' : 'Carbonated (Glass)'] }
+  if (low.includes('glass')) {
+    const glassCategory: BeverageCategory = low.includes('energy') ? 'Energy Drinks (Glass)'
+      : low.includes('sport') ? 'Sport Drinks (Glass)'
+      : low.includes('juice') ? 'Juice (Glass)'
+      : 'Carbonated (Glass)'
+    return { category: glassCategory, ...BEVERAGE_CATEGORY_SPECS[glassCategory] }
+  }
   if (low.includes('can')) return { category: 'Carbonated (Cans)', ...BEVERAGE_CATEGORY_SPECS['Carbonated (Cans)'] }
   if (['beer', 'alcohol', 'liquor', 'wine', 'spirit'].some((k) => low.includes(k))) return { category: 'Alcohol', ...BEVERAGE_CATEGORY_SPECS['Alcohol'] }
   if (low.includes('energy')) return { category: 'Energy Drinks', ...BEVERAGE_CATEGORY_SPECS['Energy Drinks'] }

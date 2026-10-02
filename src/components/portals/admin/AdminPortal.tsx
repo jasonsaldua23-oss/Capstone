@@ -709,20 +709,31 @@ export function AdminPortal() {
   }
 
   useEffect(() => {
+    let disposed = false
+    let fetching = false
     async function fetchDashboardStats() {
+      if (fetching || disposed) return
+      fetching = true
       try {
         const result = await safeFetchJson('/api/dashboard/stats', { cache: 'no-store' }, { retries: 3, timeoutMs: 15000 })
-        if (result.ok) {
+        if (result.ok && !disposed) {
           const data = result.data
           setStats((data?.stats ?? null) as DashboardStats | null)
         }
       } catch (error) {
         console.error('Failed to fetch stats:', error)
       } finally {
-        setIsLoading(false)
+        fetching = false
+        if (!disposed) setIsLoading(false)
       }
     }
     fetchDashboardStats()
+    // Fix: refresh retained dashboard statistics when returning to the page.
+    window.addEventListener('focus', fetchDashboardStats)
+    return () => {
+      disposed = true
+      window.removeEventListener('focus', fetchDashboardStats)
+    }
   }, [])
 
   const fetchNotifications = async (options?: { silent?: boolean }) => {

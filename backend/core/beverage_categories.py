@@ -52,6 +52,22 @@ CATEGORY_SPECS: dict[str, dict[str, Any]] = {
         "depositAllowed": False,
         "depositExempt": False,
     },
+    # Returnable-bottle (RB) lines on the price list, e.g. Gatorade RB 240ml.
+    "Sport Drinks (Glass)": {
+        "packagingType": "Glass Bottle",
+        "looseUnit": "Glass Bottle",
+        "compatibilityKey": "GLASS_BOTTLE",
+        "depositAllowed": True,
+        "depositExempt": False,
+    },
+    # e.g. Tropicana RB 240ml.
+    "Juice (Glass)": {
+        "packagingType": "Glass Bottle",
+        "looseUnit": "Glass Bottle",
+        "compatibilityKey": "GLASS_BOTTLE",
+        "depositAllowed": True,
+        "depositExempt": False,
+    },
     "Alcohol": {
         "packagingType": "Glass Bottle",
         "looseUnit": "Glass Bottle",
@@ -74,6 +90,8 @@ _CATEGORY_ALIASES = {
     "carbonated(pet/plastic)": "Carbonated (PET/PLASTIC)",
     "carbonated(cans)": "Carbonated (Cans)",
     "energy drinks(glass)": "Energy Drinks (Glass)",
+    "sport drinks(glass)": "Sport Drinks (Glass)",
+    "juice(glass)": "Juice (Glass)",
     "beer & liquor": "Alcohol",
     "beer and liquor": "Alcohol",
     "beer": "Alcohol",
@@ -113,7 +131,13 @@ def canonical_category(value: Any) -> str | None:
             return category
     # Keyword-based fuzzy fallback for non-standard categories
     if "glass" in low:
-        return "Energy Drinks (Glass)" if "energy" in low else "Carbonated (Glass)"
+        if "energy" in low:
+            return "Energy Drinks (Glass)"
+        if "sport" in low:
+            return "Sport Drinks (Glass)"
+        if "juice" in low:
+            return "Juice (Glass)"
+        return "Carbonated (Glass)"
     if "can" in low:
         return "Carbonated (Cans)"
     if any(term in low for term in ("beer", "alcohol", "liquor", "wine", "spirit")):

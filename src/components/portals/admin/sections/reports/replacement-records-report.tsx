@@ -187,6 +187,15 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         (Array.isArray(meta.replacementItems) && meta.replacementItems.length > 0 ? meta.replacementItems : null) ??
         []
 
+      // Fix: show the customer's typed details and notes instead of the generated quantity summary.
+      const customerDescription = [
+        ...rawLines.map((line: any) => String(line.description || '').trim()),
+        String(rep.customerNotes || meta.customerNotes || '').trim(),
+      ].filter(Boolean).join('\n')
+      const displayDescription = customerDescription || (
+        rep.replacementMode === 'CUSTOMER_SUBMITTED' && rawLines.length > 0 ? '' : description
+      )
+
       type LineEntry = { productName: string; qty: number; unitLabel: string; reason: string }
 
       let lines: LineEntry[] = []
@@ -267,7 +276,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
         unitPrice,
         loss,
         reason,
-        description,
+        description: displayDescription,
         status,
         date,
         processedDate,
@@ -764,7 +773,7 @@ export function ReplacementRecordsReport({ replacements, orders = [] }: Replacem
                           <div key={i} className="font-medium text-slate-800 leading-tight">{line.reason}</div>
                         ))}
                       </div>
-                      {row.description && <div className="mt-1 text-[11px] text-slate-400 line-clamp-1">{row.description}</div>}
+                      {row.description && <div className="mt-1 text-[11px] text-slate-400 whitespace-pre-wrap break-words">{row.description}</div>}
                     </td>
                     <td className="p-3.5">{getStatusBadge(row.status)}</td>
                     <td className="p-3.5">

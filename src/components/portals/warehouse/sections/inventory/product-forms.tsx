@@ -27,8 +27,10 @@ const PRODUCT_UNIT_OPTIONS = [
 ]
 
 const CASE_SIZE_OPTIONS = [
+  '7oz',
   '8oz',
   '12oz',
+  '750ml',
   '1 Liter',
 ]
 
@@ -37,14 +39,18 @@ const PACK_SIZE_OPTIONS = [
   '8oz',
   '12oz',
   '195ml',
+  '230ml',
   '237ml',
   '240ml',
   '250ml',
   '290ml',
+  '295ml',
   '300ml',
   '320ml',
+  '330ml',
   '350ml',
   '355ml',
+  '360ml',
   '450ml',
   '500ml',
   '600ml',
@@ -52,6 +58,8 @@ const PACK_SIZE_OPTIONS = [
   '1 Liter',
   '1.5 Liters',
   '2 Liters',
+  '10 Liters',
+  '20 Liters',
   '320g',
   '640g',
 ]
@@ -62,9 +70,14 @@ const SIZE_OPTIONS = {
   'pack': PACK_SIZE_OPTIONS,
 }
 
+// `case` is the physical-shell deposit only; the backend adds every bottle
+// deposit on top (12oz: 24 x 2 + 42 = 90 per full case, per the price list).
 const GLASS_DEPOSIT_BY_SIZE: Record<string, { bottle: number; case: number }> = {
-  '12oz': { bottle: 2, case: 90 },
-  '1 Liter': { bottle: 6, case: 124 },
+  '7oz': { bottle: 2, case: 42 },
+  '8oz': { bottle: 2, case: 42 },
+  '12oz': { bottle: 2, case: 42 },
+  '750ml': { bottle: 4, case: 52 },
+  '1 Liter': { bottle: 6, case: 52 },
 }
 
 const buildProductSku = (name: unknown, unit: unknown, size: unknown, suffix: unknown) => {

@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { localDateInputValue } from '@/lib/local-date'
 import { useAuth } from '@/app/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -32,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, Check, X, FileSearch } from 'lucide-react'
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, CalendarDays, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, Eye, EyeOff, CircleCheck, Boxes, ShoppingCart, ClipboardList, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, Check, X, FileSearch } from 'lucide-react'
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts'
 import {
@@ -757,12 +758,24 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
     return replacements.filter((item) => getNormalizedIssueStatus(item) === selectedStatus)
   }, [replacements, selectedStatus])
 
+  // Same split as the warehouse portal: an open replacement that already has a delivery
+  // scheduled leaves the request queue for the Scheduled Replacements table.
   const replacementsBySource = useMemo(() => {
     const customerRequests: any[] = []
+    const scheduledReplacements: any[] = []
     filteredReplacements.forEach((item) => {
+      const meta = parseMeta(item?.notes)
+      const rawStatus = String(item?.status || '').trim().toUpperCase()
+      const isResolved =
+        (['COMPLETED', 'RESOLVED_ON_DELIVERY'].includes(rawStatus) && !hasOutstandingReplacementQty(item, meta)) ||
+        ['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED_DELIVERY'].includes(rawStatus)
+      if (hasStrictScheduledFollowUp(item) && !isResolved) {
+        scheduledReplacements.push(item)
+        return
+      }
       customerRequests.push(item)
     })
-    return { customerRequests }
+    return { customerRequests, scheduledReplacements }
   }, [filteredReplacements])
 
   const orderItemsByOrderNumber = useMemo(() => {
@@ -887,7 +900,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
     if (bottleQty > 0) sum.bottles += bottleQty
     return sum
   }, { bottles: 0, cases: 0 })
-  const scheduledReplacementsCount = filteredReplacements.filter((item) => hasStrictScheduledFollowUp(item)).length
+  const todayDateInput = localDateInputValue()
   const rejectedCount = filteredReplacements.filter((item) => {
     const rawStatus = String(item?.status || '').toUpperCase()
     return rawStatus === 'REJECTED'
@@ -924,7 +937,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <Package className="h-5 w-5" />
+              <ClipboardList className="h-5 w-5" />
             </div>
             <div className="min-w-0 space-y-1">
               <p className="text-sm leading-5 text-gray-500">Total Cases</p>
@@ -946,7 +959,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
-              <BarChart3 className="h-5 w-5" />
+              <Boxes className="h-5 w-5" />
             </div>
             <div className="min-w-0 space-y-1">
               <p className="text-sm leading-5 text-gray-500">Replaced Bottles</p>
@@ -957,7 +970,7 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-              <Package className="h-5 w-5" />
+              <ClipboardList className="h-5 w-5" />
             </div>
             <div className="min-w-0 space-y-1">
               <p className="text-sm leading-5 text-gray-500">Replaced Unit</p>
@@ -968,15 +981,82 @@ export function ReplacementsView({ notificationReferenceId = '', notificationFoc
         <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
           <CardContent className="flex min-h-[132px] items-center gap-4 p-5">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
-              <Clock className="h-5 w-5" />
+              <CalendarDays className="h-5 w-5" />
             </div>
             <div className="min-w-0 space-y-1">
               <p className="text-sm leading-5 text-gray-500">Scheduled Replacements</p>
-              <p className="text-2xl font-bold leading-none text-gray-900">{scheduledReplacementsCount}</p>
+              <p className="text-2xl font-bold leading-none text-gray-900">{replacementsBySource.scheduledReplacements.length}</p>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      <Card className="min-w-0 max-w-full overflow-hidden">
+        <CardContent className="border-b px-6 py-4">
+          <h3 className="text-base font-semibold text-slate-900">Scheduled Replacements</h3>
+          <p className="text-sm text-slate-500">Already scheduled and ready for Create Trip</p>
+        </CardContent>
+        <CardContent className="w-full min-w-0 p-0">
+          {isLoading ? (
+            <PortalTableSkeleton rows={5} columns={5} className="border-0 shadow-none" />
+          ) : replacementsBySource.scheduledReplacements.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-gray-500">No scheduled replacements found</p>
+            </div>
+          ) : (
+            <div className="w-full max-w-full overflow-x-auto overscroll-x-contain">
+              <table className="stack-table w-full min-w-[980px]">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="text-left p-4 font-medium text-gray-600">Replacement #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Order #</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Customer</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Scheduled Date</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Status</th>
+                    <th className="text-left p-4 font-medium text-gray-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {replacementsBySource.scheduledReplacements.map((item: any) => {
+                    const meta = parseMeta(item?.notes)
+                    const scheduledDate = String(item?.scheduledDeliveryDate || meta?.scheduledDeliveryDate || '').trim()
+                    // Dates are stored as YYYY-MM-DD, so the day part alone decides overdue.
+                    const isOverdue = Boolean(scheduledDate) && scheduledDate.slice(0, 10) < todayDateInput
+                    return (
+                      <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="p-4 font-medium whitespace-nowrap">{item.replacementNumber}</td>
+                        <td className="p-4 whitespace-nowrap">{item.orderNumber || item.order?.orderNumber || 'N/A'}</td>
+                        <td className="p-4">{item.customerName || item.order?.customer?.name || 'N/A'}</td>
+                        <td className="p-4">
+                          <span className={`whitespace-nowrap ${isOverdue ? 'font-medium text-amber-700' : 'text-gray-500'}`}>
+                            {scheduledDate ? new Date(scheduledDate).toLocaleDateString() : 'N/A'}
+                          </span>
+                          {isOverdue ? (
+                            <Badge className="ml-2 bg-amber-100 text-amber-700 hover:bg-amber-100">Overdue</Badge>
+                          ) : null}
+                        </td>
+                        <td className="p-4">
+                          <ReplacementStatusBadge statusLabel={formatIssueStatus(item)} />
+                        </td>
+                        <td className="p-4">
+                          {/* Only warehouse staff may reschedule (the API refuses admins), so
+                              an overdue row is flagged here and moved from the warehouse portal. */}
+                          <div className="table-actions">
+                            <Button size="sm" variant="outline" className={ACTION_INSPECT} onClick={() => setSelectedReplacement(item)}>
+                              <Eye className="size-3.5" />
+                              View Details
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="min-w-0 max-w-full overflow-hidden">
         {/* Match the Warehouse Portal's compact replacement-table heading size. */}

@@ -272,6 +272,9 @@ export interface DashboardStats {
   inTransitOrders: number
   deliveredOrders: number
   failedOrders: number
+  // Delivery outcomes are counted separately from order cancellations.
+  deliveredDeliveryStops?: number
+  failedDeliveryStops?: number
   processingOrders: number
   loadedOrders: number
   availableDrivers: number

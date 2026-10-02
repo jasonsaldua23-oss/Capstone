@@ -43,11 +43,21 @@ def is_returnable_product(product: Product) -> bool:
 def get_or_create_product_packaging(product: Product) -> tuple[ProductPackaging, ContainerType]:
     """Ensure a returnable glass product has active packaging and container records."""
     is_1l = any("1l" in str(size).lower() or "1 liter" in str(size).lower() for size in (product.sizes or []))
-    container_code = "RGB-GLASS-1L" if is_1l else "RGB-GLASS-330"
-    container_name = "1L Returnable Glass Bottle" if is_1l else "330ml Returnable Glass Bottle"
-    deposit_amount = Decimal("6.00") if is_1l else Decimal("2.00")
-    case_deposit_amount = Decimal("52.00") if is_1l else Decimal("42.00")
-    containers_per_case = 12 if is_1l else (product.quantity_per_unit or 24)
+    # 750ml bottles are their own container: sharing RGB-GLASS-330 would let a
+    # 750ml product overwrite the 12oz bottle deposit stored on that container.
+    is_750ml = not is_1l and any("750ml" in str(size).lower().replace(" ", "") for size in (product.sizes or []))
+    if is_1l:
+        container_code, container_name = "RGB-GLASS-1L", "1L Returnable Glass Bottle"
+        deposit_amount, case_deposit_amount = Decimal("6.00"), Decimal("52.00")
+        containers_per_case = 12
+    elif is_750ml:
+        container_code, container_name = "RGB-GLASS-750", "750ml Returnable Glass Bottle"
+        deposit_amount, case_deposit_amount = Decimal("4.00"), Decimal("52.00")
+        containers_per_case = product.quantity_per_unit or 12
+    else:
+        container_code, container_name = "RGB-GLASS-330", "330ml Returnable Glass Bottle"
+        deposit_amount, case_deposit_amount = Decimal("2.00"), Decimal("42.00")
+        containers_per_case = product.quantity_per_unit or 24
 
     container_type, _ = ContainerType.objects.get_or_create(
         code=container_code,

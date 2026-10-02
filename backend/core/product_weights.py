@@ -17,8 +17,10 @@ from .beverage_categories import category_spec
 # Returnable glass containers include the established bottle weight as well as
 # their contents. These values preserve the weights already used by the UI.
 RETURNABLE_GLASS_UNIT_WEIGHT_KG: dict[str, float] = {
+    "7oz": 0.42,
     "8oz": 0.45,
     "12oz": 0.68,
+    "750ml": 1.20,
     "1l": 1.55,
 }
 
@@ -28,22 +30,28 @@ STANDARD_UNIT_WEIGHT_KG: dict[str, float] = {
     "8oz": 0.23,
     "12oz": 0.34,
     "195ml": 0.20,
+    "230ml": 0.23,
     "237ml": 0.24,
     "240ml": 0.24,
     "250ml": 0.25,
     "290ml": 0.29,
+    "295ml": 0.30,
     "300ml": 0.30,
     "320ml": 0.32,
     "330ml": 0.33,
     "350ml": 0.35,
     "355ml": 0.36,
+    "360ml": 0.36,
     "450ml": 0.45,
     "500ml": 0.50,
     "600ml": 0.60,
+    "750ml": 0.75,
     "900ml": 0.90,
     "1l": 1.00,
     "1.5l": 1.50,
     "2l": 2.00,
+    "10l": 10.00,
+    "20l": 20.00,
     "320g": 0.32,
     "640g": 0.64,
 }

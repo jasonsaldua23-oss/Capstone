@@ -41,6 +41,25 @@ class ProductWeightCalculationTests(TestCase):
         )
         self.assertEqual(weight, 7.92)
 
+    def test_calculates_price_list_sizes_added_in_october_2026(self) -> None:
+        # Sizes from the July 2026 Bacolod price list that registration lacked.
+        cases = [
+            (["230ml"], 20, "Water", 4.6),
+            (["295ml"], 24, "Alcohol", 7.2),
+            (["330ml"], 24, "Carbonated (Cans)", 7.92),
+            (["360ml"], 20, "Alcohol", 7.2),
+            (["10 Liters"], 1, "Carbonated (PET/PLASTIC)", 10.0),
+            (["20 Liters"], 1, "Carbonated (PET/PLASTIC)", 20.0),
+            (["7oz"], 24, "Carbonated (Glass)", 10.08),
+            (["750ml"], 12, "Carbonated (Glass)", 14.4),
+        ]
+        for sizes, quantity, category, expected in cases:
+            with self.subTest(size=sizes[0]):
+                self.assertEqual(
+                    calculate_product_weight(sizes=sizes, quantity_per_unit=quantity, category=category),
+                    expected,
+                )
+
 
 class ProductWeightApiContractTests(TestCase):
     def setUp(self) -> None:

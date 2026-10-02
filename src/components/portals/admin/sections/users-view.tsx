@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { toast } from 'sonner'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
+import { resolveClientImageUrl } from '@/lib/client-image'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -667,6 +668,14 @@ export function UsersView() {
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
+                            {/* The initial shows until the photo loads, and stays if it fails to load. */}
+                            {resolveClientImageUrl(user.avatar) ? (
+                              <AvatarImage
+                                src={resolveClientImageUrl(user.avatar) || undefined}
+                                alt={user.name || 'User avatar'}
+                                className="object-cover"
+                              />
+                            ) : null}
                             <AvatarFallback className="bg-blue-600 text-white text-sm">
                               {(user.firstName || user.name || '?').charAt(0).toUpperCase()}
                             </AvatarFallback>
