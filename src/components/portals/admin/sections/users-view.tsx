@@ -95,6 +95,7 @@ function isFormEmpty(form: FormState): boolean {
 
 export function UsersView() {
   const [users, setUsers] = useState<any[]>([])
+  const [avatarSources, setAvatarSources] = useState<Record<string, string>>({})
   const [roles, setRoles] = useState<any[]>([])
   const [rolesError, setRolesError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -229,6 +230,45 @@ export function UsersView() {
     fetchUsers()
     fetchRoles()
   }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const objectUrls: string[] = []
+    setAvatarSources({})
+
+    // Fix: protected avatars need the current portal's fetch authentication;
+    // plain image requests cannot send its Bearer token or X-Portal header.
+    users.forEach((user) => {
+      const source = resolveClientImageUrl(user.avatar)
+      if (!source) return
+      const url = new URL(source, window.location.origin)
+      const protectedMedia = url.origin === window.location.origin &&
+        (url.pathname.startsWith('/uploads/') || url.pathname.startsWith('/api/media/'))
+      if (!protectedMedia) {
+        setAvatarSources((previous) => ({ ...previous, [user.id]: source }))
+        return
+      }
+      // Legacy upload URLs use the same protected API reader and auth interceptor.
+      const path = url.pathname.replace(/^\/uploads\//, '/api/media/')
+      void fetch(`${path}${url.search}`, { signal: controller.signal, cache: 'no-store' })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`Avatar request failed with ${response.status}`)
+          const blob = await response.blob()
+          if (controller.signal.aborted) return
+          const objectUrl = URL.createObjectURL(blob)
+          objectUrls.push(objectUrl)
+          setAvatarSources((previous) => ({ ...previous, [user.id]: objectUrl }))
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted) console.error('Unable to load user avatar:', error)
+        })
+    })
+
+    return () => {
+      controller.abort()
+      objectUrls.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [users])
 
   const resetForm = () => {
     setForm({ ...initialFormState })
@@ -669,9 +709,9 @@ export function UsersView() {
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
                             {/* The initial shows until the photo loads, and stays if it fails to load. */}
-                            {resolveClientImageUrl(user.avatar) ? (
+                            {avatarSources[user.id] ? (
                               <AvatarImage
-                                src={resolveClientImageUrl(user.avatar) || undefined}
+                                src={avatarSources[user.id]}
                                 alt={user.name || 'User avatar'}
                                 className="object-cover"
                               />
