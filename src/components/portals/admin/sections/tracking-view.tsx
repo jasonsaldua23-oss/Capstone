@@ -448,7 +448,8 @@ export function TrackingView() {
       }
 
       dropPoints.forEach((dropPoint: any, index: number) => {
-        const dropPointOrderId = String(dropPoint?.orderId || '').trim()
+        // Fix: trip responses also nest the order ID; suppress its standalone pin.
+        const dropPointOrderId = String(dropPoint?.orderId || dropPoint?.order?.id || '').trim()
         if (dropPointOrderId) tripOrderIds.add(dropPointOrderId)
         const dpStatus = String(dropPoint?.status || '').toUpperCase()
         const isCancelledOrFailed = ['FAILED', 'CANCELLED', 'SKIPPED'].includes(dpStatus)
