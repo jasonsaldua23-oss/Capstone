@@ -27,9 +27,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, PackageCheck, Package, Archive, Building2, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, Recycle, Store } from 'lucide-react';
+import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, PackageCheck, Package, Archive, Building2, FileText, Users, Star, Download, Pencil, Trash2, ClipboardList, Recycle, Store, PackageX } from 'lucide-react';
 // Fix: download section code only when opened, reducing the admin startup bundle.
 const WarehouseEmptyBottlesView = dynamic(() => import('../warehouse/sections/inventory/empty-bottles-view').then((mod) => mod.WarehouseEmptyBottlesView))
+const DamagedStockView = dynamic(() => import('../shared/damaged-stock-view').then((mod) => mod.DamagedStockView))
 const RetailTransactionsView = dynamic(() => import('./sections/retail-transactions-view').then((mod) => mod.RetailTransactionsView))
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { AreaChart, CartesianGrid, YAxis, XAxis, Area, LineChart, Line, Tooltip, PieChart, Pie, Cell, Label, BarChart, Bar, ResponsiveContainer, Legend } from 'recharts';
@@ -441,7 +442,7 @@ export function AdminPortal() {
   const [globalSearchResults, setGlobalSearchResults] = useState<Array<{ view: string; label: string; sublabel: string }>>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const sidebarScrollTopRef = useRef(0)
-  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties'>('inventory')
+  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties' | 'damaged'>('inventory')
   const [inventoryMenuExpanded, setInventoryMenuExpanded] = useState(true)
   const [ordersMenuExpanded, setOrdersMenuExpanded] = useState(true)
   const [stats, setStats] = useState<DashboardStats | null>(null)
@@ -818,6 +819,16 @@ export function AdminPortal() {
       setActiveView('replacements')
       return
     }
+    // An accident or vehicle damage is shown where the vehicle is: the live map.
+    if (referenceType === 'incident') {
+      setActiveView('tracking')
+      return
+    }
+    if (referenceType === 'damaged_stock') {
+      setInventorySubView('damaged')
+      setActiveView('inventory')
+      return
+    }
     if (['trip', 'driver', 'vehicle', 'transport'].includes(referenceType)) {
       setActiveView('transportation')
       return
@@ -1147,7 +1158,7 @@ export function AdminPortal() {
         return <InventoryTransactionsView userRole={user?.role} />
       case 'inventory':
         return (
-          <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks' | 'empties')} className="space-y-4">
+          <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks' | 'empties' | 'damaged')} className="space-y-4">
             <TabsList className="h-auto w-full flex-wrap gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
               <TabsTrigger
                 value="inventory"
@@ -1170,6 +1181,13 @@ export function AdminPortal() {
                 <Recycle className="h-4 w-4" />
                 Empties
               </TabsTrigger>
+              <TabsTrigger
+                value="damaged"
+                className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-3 py-2.5 text-sm font-semibold sm:px-5 sm:text-[15px] text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+              >
+                <PackageX className="h-4 w-4" />
+                Damaged
+              </TabsTrigger>
             </TabsList>
             <TabsContent value="inventory" className="mt-0">
               <InventoryView />
@@ -1179,6 +1197,10 @@ export function AdminPortal() {
             </TabsContent>
             <TabsContent value="empties" className="mt-0">
               <WarehouseEmptyBottlesView readOnly />
+            </TabsContent>
+            <TabsContent value="damaged" className="mt-0">
+              {/* Administrators watch damaged stock; the warehouse records and resolves it. */}
+              <DamagedStockView canRecord={false} />
             </TabsContent>
           </Tabs>
         )

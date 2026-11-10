@@ -3,10 +3,12 @@ from django.urls import path
 from . import views_auth as auth_v
 from . import views_bottles as bottle_v
 from . import views_customer as customer_v
+from . import views_damaged_stock as damaged_v
 from . import views_dashboard as dashboard_v
 from . import views_driver as driver_v
 from . import views_feedback as feedback_v
 from . import views_fleet as fleet_v
+from . import views_incidents as incident_v
 from . import views_inventory as inventory_v
 from . import views_media as media_v
 from . import views_notifications as notification_v
@@ -62,12 +64,18 @@ urlpatterns = [
     path("inventory", inventory_v.inventory_collection),
     path("inventory/empty-cases", inventory_v.empty_case_inventory),
     path("inventory/empty-returns", inventory_v.record_returned_empty_containers),
+    path("inventory/empties-shortfalls", inventory_v.empties_shortfalls),
     path("inventory/<str:inventory_id>", inventory_v.inventory_detail),
     path("inventory-transactions", inventory_v.inventory_transactions_list),
     path("stock-batches", stock_v.stock_batches_collection),
     path("stock-batches/bulk", stock_v.stock_batches_bulk_collection),
     path("stock-batches/expired-stock", inventory_v.resolve_expired_stock),
     path("stock-batches/disposals", inventory_v.disposed_stock_history),
+    # Damaged warehouse stock and what became of it; see views_damaged_stock.
+    path("damaged-stock", damaged_v.damaged_stock_collection),
+    path("damaged-stock/photo", damaged_v.damaged_stock_photo),
+    path("damaged-stock/customer-reports", damaged_v.damaged_stock_customer_reports),
+    path("damaged-stock/<str:record_id>", damaged_v.damaged_stock_detail),
     path("vehicles", fleet_v.vehicles_collection),
     path("vehicles/<str:vehicle_id>", fleet_v.vehicle_detail),
     path("drivers", fleet_v.drivers_collection),
@@ -88,6 +96,10 @@ urlpatterns = [
     path("orders/<str:order_id>/status", order_v.order_status_update),
     path("trips", trip_v.trips_collection),
     path("driver/trips", driver_v.driver_trips),
+    # Accidents and vehicle damage reported from a trip; see views_incidents.
+    path("incidents", incident_v.incidents_collection),
+    path("incidents/photo", incident_v.incident_photo),
+    path("incidents/<str:incident_id>", incident_v.incident_detail),
     # Protected files are owned by the media domain module.
     path("uploads/product-image", media_v.upload_product_image),
     path("uploads/pod-image", media_v.upload_pod_image),
@@ -115,9 +127,12 @@ urlpatterns = [
     path("driver/profile", driver_v.driver_profile),
     path("trips/route-plan", trip_ops_v.trips_route_plan),
     path("trips/upcoming-deliveries", trip_planning_v.trips_upcoming_deliveries),
+    path("trips/driver-day", trip_planning_v.trips_driver_day),
     path("trips/<str:trip_id>", trip_v.trip_detail),
     path("trips/<str:trip_id>/start", trip_ops_v.trip_start),
     path("trips/<str:trip_id>/reschedule", trip_v.trip_reschedule),
+    path("trips/<str:trip_id>/cancel", trip_v.trip_cancel),
+    path("trips/<str:trip_id>/transfer", trip_v.trip_transfer),
     path("trips/<str:trip_id>/complete", trip_ops_v.trip_complete),
     path("trips/<str:trip_id>/drop-points/<str:drop_point_id>", trip_ops_v.trip_drop_point_update),
     path("trips/<str:trip_id>/stops/<str:stop_id>", trip_ops_v.trip_stop_update),

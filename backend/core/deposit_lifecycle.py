@@ -18,6 +18,7 @@ from .models import (
     ContainerType,
     Customer,
     CustomerDepositLedger,
+    EmptiesStockCorrection,
     Inventory,
     InventoryQuantityUnit,
     InventoryTransaction,
@@ -307,6 +308,14 @@ def get_empty_case_balances(inventories: Iterable[Inventory]) -> dict[str, dict[
     for row in refund_returns:
         returned[(row["order__warehouse_id"], row["product_id"])] += int(row["total"] or 0)
 
+    # An incomplete return: the driver counted fewer bottles than were declared, so
+    # only the ones that arrived are in stock (see empties_verification).
+    corrections = EmptiesStockCorrection.objects.filter(
+        order__status="DELIVERED", order__warehouse_id__in=warehouse_ids, product_id__in=product_ids,
+    ).values("order__warehouse_id", "product_id").annotate(total=Sum("bottles"))
+    for row in corrections:
+        returned[(row["order__warehouse_id"], row["product_id"])] += int(row["total"] or 0)
+
     # Fix: outgoing warehouse returns do not change customer return records.
     returned_to_supplier: dict[tuple[str, str], int] = defaultdict(int)
     consumption = (
@@ -421,6 +430,16 @@ def get_empty_bottle_changes(
         changes[(warehouse_id, product_id)][at] += int(bottles or 0)
     for warehouse_id, product_id, at, bottles in mixed_returned.values_list(
         "order_item__order__warehouse_id", "product_id", "arrived_at", "empty_covered_quantity"
+    ):
+        changes[(warehouse_id, product_id)][at] += int(bottles or 0)
+    # Incomplete returns land when their order does, like the declarations they correct.
+    corrections = EmptiesStockCorrection.objects.filter(
+        order__status="DELIVERED", order__warehouse_id__in=warehouse_ids, product_id__in=product_ids,
+    ).annotate(arrived_at=Coalesce("order__timeline__delivered_at", "order__pod_submitted_at", "order__created_at"))
+    if since is not None:
+        corrections = corrections.filter(arrived_at__gt=since)
+    for warehouse_id, product_id, at, bottles in corrections.values_list(
+        "order__warehouse_id", "product_id", "arrived_at", "bottles"
     ):
         changes[(warehouse_id, product_id)][at] += int(bottles or 0)
     for warehouse_id, product_id, at, reference_type, quantity in consumption.values_list(

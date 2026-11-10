@@ -21,6 +21,7 @@ import { Warehouse, Loader2, RefreshCw } from 'lucide-react'
 import { SelectedOrdersSummary, TripLoadSummary, type SelectedOrderSummaryRow } from '@/components/shared/trip-load-summary'
 import { isWarehouseRescheduledOrder, getOrderBarangayLabel } from '../../warehouse-order-helpers'
 import { getRouteOrderLoad, UPCOMING_DELIVERY_DAYS, useUpcomingDeliveries, type WarehouseRoutePlanning } from './use-warehouse-route-planning'
+import { DriverDayNotice } from './driver-day-notice'
 import type { deriveOrderFulfillmentSummaryImpl } from '../../warehouse-order-helpers'
 
 const formatKilogramsShort = (value: number) =>
@@ -495,6 +496,9 @@ export function WarehouseCreateRouteDialog({
                   {selectedRouteDriverId && selectedRouteDriverId !== editingTripState.originalDriverId && selectedDriverEligibilityIssue ? (
                     <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
                   ) : null}
+                  {selectedRouteDriverId ? (
+                    <DriverDayNotice driverId={selectedRouteDriverId} driverName={selectedRouteDriverName} date={routeDate} excludeTripId={editingTripState.tripId} compact />
+                  ) : null}
                   <p className="text-[11px] text-gray-500">This edit updates the trip orders and driver assignment.</p>
                 </>
               ) : (
@@ -528,6 +532,9 @@ export function WarehouseCreateRouteDialog({
                   />
                   {selectedRouteDriverId && selectedDriverEligibilityIssue ? (
                     <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
+                  ) : null}
+                  {selectedRouteDriverId ? (
+                    <DriverDayNotice driverId={selectedRouteDriverId} driverName={selectedRouteDriverName} date={routeDate} compact />
                   ) : null}
                 </>
               )}

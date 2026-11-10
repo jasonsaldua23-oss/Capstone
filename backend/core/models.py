@@ -281,6 +281,12 @@ class AuthThrottleState(models.Model):
 
 
 class Feedback(models.Model):
+    class RatingTarget(models.TextChoices):
+        # The beverages themselves: condition, freshness, seals, packaging.
+        PRODUCT = "PRODUCT", "Product"
+        # How the order was handled: timing, completeness, driver, updates.
+        SERVICE = "SERVICE", "Service"
+
     id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="feedback")
     order = models.ForeignKey("Order", on_delete=models.SET_NULL, related_name="feedback", blank=True, null=True)
@@ -288,6 +294,9 @@ class Feedback(models.Model):
     subject = models.CharField(max_length=255, default="General Feedback")
     message = models.TextField(default="")
     rating = models.IntegerField(blank=True, null=True)
+    # What the rating is for. A review of an order rates both, as two rows; a rating
+    # made before the split was the single "Delivery Rating", so it reads as SERVICE.
+    rating_target = models.CharField(max_length=20, choices=RatingTarget.choices, default=RatingTarget.SERVICE)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -623,6 +632,21 @@ class Trip(models.Model):
     total_drop_points = models.IntegerField(default=0)
     completed_drop_points = models.IntegerField(default=0)
     notes = models.TextField(blank=True, null=True)
+    # Set when the warehouse cancels the trip (views_trips.trip_cancel); the trip stays on record.
+    cancelled_at = models.DateTimeField(blank=True, null=True)
+    cancelled_by_user_id = models.CharField(max_length=25, blank=True, null=True)
+    cancelled_by_name = models.CharField(max_length=255, blank=True, null=True)
+    cancellation_reason = models.TextField(blank=True, null=True)
+    # Load transfer (views_trips.trip_transfer): a truck that cannot go on hands its
+    # undelivered stops to a new trip. The new trip points back at this one and keeps
+    # where to collect the load; this one keeps the trip number its load went to.
+    transferred_from = models.ForeignKey("self", on_delete=models.SET_NULL, blank=True, null=True, related_name="load_transfers")
+    transferred_from_number = models.CharField(max_length=120, blank=True, null=True)
+    transferred_to_number = models.CharField(max_length=120, blank=True, null=True)
+    transferred_at = models.DateTimeField(blank=True, null=True)
+    transfer_reason = models.TextField(blank=True, null=True)
+    transfer_latitude = models.FloatField(blank=True, null=True)
+    transfer_longitude = models.FloatField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -699,6 +723,145 @@ class TripPathPoint(models.Model):
     class Meta:
         db_table = "TripPathPoint"
         indexes = [models.Index(fields=["trip", "recorded_at"], name="trip_path_point_trip_time")]
+
+
+class DamagedStock(models.Model):
+    """Stock found damaged at the warehouse, held out of sellable inventory until dealt with.
+
+    Recording it takes the units out of their batch and the inventory at once, so
+    nothing damaged can be reserved or sold. The record then follows what becomes
+    of the goods: disposed (a loss at listed price), returned to the supplier, or
+    found sellable after all and put back into the same batch.
+    """
+
+    class Cause(models.TextChoices):
+        BROKEN_IN_WAREHOUSE = "BROKEN_IN_WAREHOUSE", "Broken or dropped in the warehouse"
+        DAMAGED_IN_TRANSIT = "DAMAGED_IN_TRANSIT", "Damaged in transit"
+        DAMAGED_ON_ARRIVAL = "DAMAGED_ON_ARRIVAL", "Damaged on arrival from the supplier"
+        LEAKING_OR_SPOILED = "LEAKING_OR_SPOILED", "Leaking or spoiled"
+        OTHER = "OTHER", "Other"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        DISPOSED = "DISPOSED", "Disposed"
+        RETURNED_TO_SUPPLIER = "RETURNED_TO_SUPPLIER", "Returned to supplier"
+        RESTOCKED = "RESTOCKED", "Back in stock"
+
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    record_number = models.CharField(max_length=120, unique=True)
+    # Retry key: a recording whose response was lost is answered with the record it made.
+    request_id = models.CharField(max_length=120)
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="damaged_stock")
+    inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name="damaged_stock")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="damaged_stock")
+    stock_batch = models.ForeignKey(StockBatch, on_delete=models.SET_NULL, blank=True, null=True, related_name="damaged_stock")
+    # Kept on the record so its history reads the same after the batch is gone.
+    batch_number = models.CharField(max_length=120, blank=True, default="")
+    cases = models.PositiveIntegerField(default=0)
+    loose_units = models.PositiveIntegerField(default=0)
+    units_per_case = models.PositiveIntegerField(default=1)
+    # Full cases opened to reach damaged bottles; their good bottles stay in stock, loose.
+    cases_opened = models.PositiveIntegerField(default=0)
+    cause = models.CharField(max_length=40, choices=Cause.choices)
+    description = models.TextField()
+    # Optional photo, served only through the authorized /api/media route.
+    photo_url = models.CharField(max_length=500, blank=True, default="")
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.PENDING)
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, blank=True, null=True, related_name="recorded_damaged_stock"
+    )
+    resolved_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, blank=True, null=True, related_name="resolved_damaged_stock"
+    )
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    resolution_notes = models.TextField(blank=True, default="")
+    # Listed prices when disposed, so later price edits cannot change the recorded loss.
+    loss_case_price = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    loss_unit_price = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    loss_amount = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "DamagedStock"
+        constraints = [
+            models.UniqueConstraint(fields=["warehouse", "request_id"], name="unique_damaged_stock_request"),
+        ]
+        indexes = [models.Index(fields=["warehouse", "status", "created_at"], name="damaged_stock_wh_status_time")]
+
+
+class VehicleIncident(models.Model):
+    """An accident or vehicle damage a driver reported while out on a trip.
+
+    The live tracking maps flag the vehicle until warehouse staff resolve the
+    incident, so whoever sends help can see where the vehicle is and what state it
+    is in. The location is the driver's device position when they reported, or
+    failing that the last GPS fix the driver uploaded.
+    """
+
+    class Type(models.TextChoices):
+        ACCIDENT = "ACCIDENT", "Accident"
+        VEHICLE_DAMAGE = "VEHICLE_DAMAGE", "Vehicle damage"
+
+    class Status(models.TextChoices):
+        REPORTED = "REPORTED", "Reported"
+        ACKNOWLEDGED = "ACKNOWLEDGED", "Acknowledged"
+        RESOLVED = "RESOLVED", "Resolved"
+
+    class Outcome(models.TextChoices):
+        RESUMED = "RESUMED", "Vehicle resumed the trip"
+        SENT_FOR_REPAIR = "SENT_FOR_REPAIR", "Vehicle sent for repair"
+        # Recorded when the warehouse cancels the trip or transfers its load without
+        # sending the truck for repair; never chosen by hand (see incident_lifecycle).
+        TRIP_ENDED = "TRIP_ENDED", "Closed when the trip ended"
+
+    class LocationSource(models.TextChoices):
+        DEVICE = "DEVICE", "Driver's device when reporting"
+        LAST_GPS = "LAST_GPS", "Driver's last GPS update"
+
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    incident_number = models.CharField(max_length=120, unique=True)
+    # Retry key: a report whose response was lost is answered with the incident it made.
+    request_id = models.CharField(max_length=120)
+    trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name="incidents")
+    driver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="vehicle_incidents")
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="incidents")
+    type = models.CharField(max_length=30, choices=Type.choices)
+    vehicle_can_continue = models.BooleanField(default=False)
+    description = models.TextField()
+    # Optional photo, served only through the authorized /api/media route.
+    photo_url = models.CharField(max_length=500, blank=True, default="")
+    latitude = models.FloatField(blank=True, null=True)
+    longitude = models.FloatField(blank=True, null=True)
+    location_accuracy = models.FloatField(blank=True, null=True)
+    location_source = models.CharField(max_length=20, choices=LocationSource.choices, blank=True, default="")
+    location_recorded_at = models.DateTimeField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.REPORTED)
+    acknowledged_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, blank=True, null=True, related_name="acknowledged_vehicle_incidents"
+    )
+    acknowledged_at = models.DateTimeField(blank=True, null=True)
+    resolved_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, blank=True, null=True, related_name="resolved_vehicle_incidents"
+    )
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    resolution_outcome = models.CharField(max_length=30, choices=Outcome.choices, blank=True, default="")
+    resolution_notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "VehicleIncident"
+        constraints = [
+            models.UniqueConstraint(fields=["driver", "request_id"], name="unique_vehicle_incident_request"),
+            # A second report while one is open would be the same emergency twice.
+            models.UniqueConstraint(
+                fields=["trip"],
+                condition=models.Q(status__in=["REPORTED", "ACKNOWLEDGED"]),
+                name="unique_open_vehicle_incident_per_trip",
+            ),
+        ]
+        indexes = [models.Index(fields=["status", "created_at"], name="vehicle_incident_status_time")]
 
 
 class Replacement(models.Model):
@@ -1116,6 +1279,34 @@ class BottleReturnLine(models.Model):
         db_table = "BottleReturnLine"
         verbose_name = "Bottle Return Line"
         verbose_name_plural = "Bottle Return Lines"
+
+
+class EmptiesStockCorrection(models.Model):
+    """Empties of one product a delivery actually handed over, against what the order declared.
+
+    The warehouse's empty stock counts a delivered order's empties as declared at
+    checkout (refund claims as settled). When the driver counts fewer - an incomplete
+    return - this row carries the difference, so the stock holds only the bottles that
+    arrived. The customer pays the missing bottles' deposit through the order's
+    EMPTIES_SHORTFALL charge; see empties_verification.record_collected_empties.
+    """
+
+    id = models.CharField(primary_key=True, max_length=25, default=generate_cuid, editable=False)
+    bottle_return = models.ForeignKey(BottleReturn, on_delete=models.CASCADE, related_name="stock_corrections")
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="empties_stock_corrections")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="empties_stock_corrections")
+    # Bottles the stock would otherwise count for this order and product...
+    declared_bottles = models.PositiveIntegerField(default=0)
+    # ...the bottles the driver counted, and the signed difference added to the stock.
+    counted_bottles = models.PositiveIntegerField(default=0)
+    bottles = models.IntegerField()
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "EmptiesStockCorrection"
+        constraints = [
+            models.UniqueConstraint(fields=["bottle_return", "product"], name="unique_empties_correction_per_product"),
+        ]
 
 
 class SyncStamp(models.Model):

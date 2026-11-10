@@ -24,6 +24,8 @@ function productNameWithSize(item: any): string {
   return size && name && !name.toLowerCase().includes(size.toLowerCase()) ? `${name} ${size}` : name
 }
 
+const countLabel = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
+
 export function getEmptiesAdjustment(order: any): EmptiesAdjustment | null {
   const adjustment = order?.emptiesAdjustment
   if (!adjustment || !(Number(adjustment.amount) > 0)) return null
@@ -50,7 +52,7 @@ export function getEmptiesAdjustment(order: any): EmptiesAdjustment | null {
       const caseSize = caseSizes[0] || 0
       const shortQuantity = Number(line.shortQuantity || 0)
       const useCases = caseSize > 0 && caseSizes.every((size: number) => size === caseSize) && shortQuantity % caseSize === 0
-      const quantityLabel = useCases ? `${shortQuantity / caseSize} case` : `${shortQuantity} bottle`
+      const quantityLabel = useCases ? countLabel(shortQuantity / caseSize, 'case') : countLabel(shortQuantity, 'bottle')
       return { ...line, productNames: [...new Set<string>(productNames)], quantityLabel }
     }),
   }
@@ -139,14 +141,14 @@ function describeDepositRefundClaim(claim: DepositRefundClaimSummary): string {
   return `${claim.productName || claim.containerTypeName || 'Returnable container'}: ${quantity}`
 }
 
-/** "2 case 7Up 330ml declared but not returned" */
+/** "2 cases of 7Up 330ml declared but not returned"; a part case is counted in bottles. */
 export function describeEmptiesShortfall(adjustment: EmptiesAdjustment | null): string {
   if (!adjustment) return ''
   const lines = (adjustment.lines || []).filter((line) => Number(line?.shortQuantity || 0) > 0)
   if (!lines.length) return 'Declared empties were not handed over on delivery'
   return lines
     // A container charge can cover several products; keep its shared quantity intact.
-    .map((line) => `${line.quantityLabel || `${line.shortQuantity} bottle`} ${line.productNames?.length ? line.productNames.join(', ') : line.containerTypeName || 'container'}`)
+    .map((line) => `${line.quantityLabel || countLabel(Number(line.shortQuantity || 0), 'bottle')} of ${line.productNames?.length ? line.productNames.join(', ') : line.containerTypeName || 'container'}`)
     .join(', ')
     .concat(' declared but not returned')
 }

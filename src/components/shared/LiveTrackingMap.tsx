@@ -36,7 +36,17 @@ import {
   roadSnappedRouteCache,
   shortestAngleDelta,
 } from './live-tracking/geometry'
-import { DefaultIcon, getStatusPinIcon, getTruckIcon, getWarehouseIcon, STATUS_PIN_TILT_STEP_DEG } from './live-tracking/icons'
+import {
+  DefaultIcon,
+  getIncidentSiteIcon,
+  getStatusPinIcon,
+  getTruckIcon,
+  getWarehouseIcon,
+  INCIDENT_TONE_COLORS,
+  STATUS_PIN_TILT_STEP_DEG,
+} from './live-tracking/icons'
+import { IncidentPopupDetails } from './live-tracking/incident-popup'
+import { incidentLocationNote } from '@/lib/vehicle-incidents'
 import { coincidentPinTilts } from './live-tracking/pin-spread'
 import {
   TRUCK_LOCAL_TANGENT_LOOKAHEAD_METERS,
@@ -1110,15 +1120,33 @@ export default function LiveTrackingMap({
               <CircleMarkerUnsafe
                 center={[loc.lat, loc.lng]}
                 radius={11}
-                pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#1d4ed8', fillOpacity: 0.9 }}
+                pathOptions={{
+                  color: '#ffffff',
+                  weight: 3,
+                  // A vehicle with an open incident is drawn in the incident's colour.
+                  fillColor: loc.incident ? INCIDENT_TONE_COLORS[loc.incident.tone] : '#1d4ed8',
+                  fillOpacity: 0.9,
+                }}
               />
               <MarkerUnsafe
                 position={[loc.lat, loc.lng]}
-                icon={getTruckIcon({ direction: loc.markerDirection || 'right', heading: loc.markerHeading, showSelfBadge: showDriverSelfBadge })}
+                icon={getTruckIcon({
+                  direction: loc.markerDirection || 'right',
+                  heading: loc.markerHeading,
+                  showSelfBadge: showDriverSelfBadge,
+                  alert: loc.incident
+                    ? {
+                        tone: loc.incident.tone,
+                        label: loc.incident.type === 'ACCIDENT' ? 'ACCIDENT' : 'DAMAGE',
+                        pulse: loc.incident.status === 'REPORTED',
+                      }
+                    : undefined,
+                })}
                 zIndexOffset={10000}
               >
                 <Popup>
-                  <div className="text-sm" style={{ minWidth: 220 }}>
+                  <div className="text-sm" style={{ minWidth: 220, maxWidth: 300 }}>
+                    {loc.incident ? <IncidentPopupDetails incident={loc.incident} /> : null}
                     {/* Added: expose the active assignment details without changing map behavior. */}
                     <p className="font-bold text-base mb-1">Driver: {loc.driverName}</p>
                     <p className="text-gray-600">Plate Number: {loc.vehiclePlate || 'N/A'}</p>
@@ -1137,6 +1165,32 @@ export default function LiveTrackingMap({
                 </Popup>
               </MarkerUnsafe>
             </Fragment>
+          ) : loc.markerType === 'incident' && loc.incident ? (
+            <MarkerUnsafe
+              key={loc.id}
+              position={[loc.lat, loc.lng]}
+              icon={getIncidentSiteIcon(loc.incident.tone, loc.incident.status === 'REPORTED')}
+              // Above the stop pins, below the trucks that may be standing on it.
+              zIndexOffset={9000}
+              title={`${loc.incident.typeLabel} reported here`}
+            >
+              <Popup>
+                <div className="text-sm" style={{ minWidth: 220, maxWidth: 300 }}>
+                  <IncidentPopupDetails incident={loc.incident} />
+                  <p className="text-gray-600">Driver: {loc.driverName}</p>
+                  <p className="text-gray-600">Plate Number: {loc.vehiclePlate || 'N/A'}</p>
+                  <p className="text-gray-600">Trip #: {loc.incident.tripNumber || 'N/A'}</p>
+                  <p className="text-gray-500">
+                    Where it was reported ({incidentLocationNote({
+                      latitude: loc.lat,
+                      longitude: loc.lng,
+                      locationSource: loc.incident.locationSource,
+                      locationRecordedAt: loc.incident.locationRecordedAt,
+                    })}).
+                  </p>
+                </div>
+              </Popup>
+            </MarkerUnsafe>
           ) : loc.markerType === 'dot' || loc.markerColor ? (
             <CircleMarkerUnsafe
               key={loc.id}
@@ -1202,6 +1256,23 @@ export default function LiveTrackingMap({
         .map-eta-tooltip.map-eta-upcoming .leaflet-tooltip-content {
           background: #22c55e !important;
           color: #ffffff !important;
+        }
+        /* An incident nobody has responded to yet keeps pulsing on the map: a copy
+           of the ring, in the ring's own colour, swells out and fades. */
+        .incident-ring-pulse::after {
+          content: '';
+          position: absolute;
+          inset: -3px;
+          border-radius: inherit;
+          border: 3px solid currentColor;
+          animation: incident-ring-pulse 1.6s ease-out infinite;
+        }
+        @keyframes incident-ring-pulse {
+          from { transform: scale(1); opacity: 0.9; }
+          to { transform: scale(1.9); opacity: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .incident-ring-pulse::after { animation: none; opacity: 0; }
         }
       `}</style>
     </div>

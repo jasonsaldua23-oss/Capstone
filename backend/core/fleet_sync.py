@@ -44,7 +44,13 @@ def trip_scheduled_date(trip: Trip, drop_points: Iterable[Any] | None = None) ->
         and getattr(point.order, "timeline", None)
         and point.order.timeline.delivery_date
     ]
-    return local_date_of(min(candidates) if candidates else getattr(trip, "planned_start_at", None))
+    scheduled = local_date_of(min(candidates) if candidates else getattr(trip, "planned_start_at", None))
+    # A load transfer carries on deliveries already under way: its day is the day it
+    # was made, not the (possibly earlier) day its orders were first due.
+    transferred_on = local_date_of(getattr(trip, "transferred_at", None)) if getattr(trip, "transferred_from_id", None) else None
+    if transferred_on and (scheduled is None or transferred_on > scheduled):
+        return transferred_on
+    return scheduled
 
 
 def trip_is_overdue(status: str | None, scheduled_date: date | None, today: date | None = None) -> bool:

@@ -214,6 +214,43 @@ REMOTE_POSTGRES_DB = _parse_database_url(DATABASE_URL) if DATABASE_URL else None
 if not REMOTE_POSTGRES_DB:
     raise ValueError("DATABASE_URL environment variable is required. SQLite has been completely removed.")
 
+
+def _local_connection_pool_options() -> dict | None:
+    """Pool database connections under `manage.py runserver`.
+
+    runserver handles each request on a brand-new thread, and Django connections
+    are per thread, so CONN_MAX_AGE never reuses anything there: every request
+    paid a full TLS connect to the remote Supabase pooler (3-29s measured
+    2026-11-09; a one-query health check took as long) and then left that
+    connection open until garbage collection (16 -> 27 pooler slots in a minute,
+    the leak behind the EMAXCONN deploy failure). A process-wide pool hands each
+    request a warm connection and caps how many exist.
+
+    Local only: production runs gunicorn's fixed gthread pool, where CONN_MAX_AGE
+    already reuses connections, and its requirements pin Django 4.2, which has no
+    pooling. DB_POOL=0 turns it off; it also stays off without psycopg-pool.
+    """
+    import importlib.util
+
+    import django
+
+    if not _bool("DB_POOL", DEBUG) or django.VERSION < (5, 1):
+        return None
+    if importlib.util.find_spec("psycopg_pool") is None:
+        return None
+    # max_size bounds this machine's share of the pooler's 200 client slots, which
+    # every developer and production draw on together.
+    return {"min_size": 1, "max_size": 10, "timeout": 30}
+
+
+_pool_options = _local_connection_pool_options()
+if _pool_options:
+    REMOTE_POSTGRES_DB["OPTIONS"]["pool"] = _pool_options
+    # Django refuses a pool alongside persistent connections; the pool is the reuse.
+    # CONN_HEALTH_CHECKS stays on, so each borrowed connection is checked with one
+    # round trip and a link the pooler dropped is replaced, not handed out dead.
+    REMOTE_POSTGRES_DB["CONN_MAX_AGE"] = 0
+
 ACTIVE_DB_ALIAS = "default"
 DATABASES = {
     "default": REMOTE_POSTGRES_DB,

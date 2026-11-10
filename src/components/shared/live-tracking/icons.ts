@@ -1,4 +1,5 @@
 import L from 'leaflet';
+import type { IncidentTone } from '@/lib/vehicle-incidents'
 import type { TruckIconDirection } from './types'
 import { normalizeAngle } from './geometry'
 import { rotateScreenOffset } from './pin-spread'
@@ -83,9 +84,22 @@ export function getStatusPinIcon(color: 'green' | 'blue' | 'red' | 'orange', num
   return icon;
 }
 
-export function getTruckIcon(options: { direction?: TruckIconDirection; heading?: number; showSelfBadge?: boolean } = {}) {
+/** Accidents read red and vehicle damage amber, everywhere an incident is drawn. */
+export const INCIDENT_TONE_COLORS: Record<IncidentTone, string> = { accident: '#dc2626', damage: '#d97706' };
+
+// lucide-react's TriangleAlert, in white, for the incident badge and pin.
+const warningGlyph = (size: number, strokeWidth: number) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block;flex:none;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
+
+/** An open incident on this vehicle: a ring and a labelled badge in its tone. `pulse` while nobody has responded. */
+export type TruckIncidentAlert = { tone: IncidentTone; label: string; pulse: boolean };
+
+export function getTruckIcon(
+  options: { direction?: TruckIconDirection; heading?: number; showSelfBadge?: boolean; alert?: TruckIncidentAlert } = {}
+) {
   const direction = options.direction || 'right';
   const showSelfBadge = Boolean(options.showSelfBadge);
+  const alert = options.alert || null;
   const heading = typeof options.heading === 'number' && Number.isFinite(options.heading) ? options.heading : null;
   const quantizedHeading =
     heading === null
@@ -101,22 +115,60 @@ export function getTruckIcon(options: { direction?: TruckIconDirection; heading?
       : direction === 'left'
         ? 180
         : 0;
-  const cacheKey = `${direction}:${rotation.toFixed(1)}:${showSelfBadge ? 'self' : 'driver'}`;
+  const alertKey = alert ? `${alert.tone}:${alert.label}:${alert.pulse ? 'pulse' : 'steady'}` : 'none';
+  const cacheKey = `${direction}:${rotation.toFixed(1)}:${showSelfBadge ? 'self' : 'driver'}:${alertKey}`;
   const cached = truckIconCache.get(cacheKey);
   if (cached) return cached;
+
+  const alertColor = alert ? INCIDENT_TONE_COLORS[alert.tone] : null;
+  // The ring sits under the van and the badge above it, clear of the self badge's slot.
+  const alertRing = alertColor
+    ? `<div class="incident-ring${alert?.pulse ? ' incident-ring-pulse' : ''}" style="position:absolute;left:50%;top:50%;width:46px;height:46px;transform:translate(-50%,-50%);border-radius:9999px;border:3px solid ${alertColor};color:${alertColor};background:${alertColor}29;box-sizing:border-box;"></div>`
+    : '';
+  const alertBadge = alertColor
+    ? `<div style="position:absolute;left:50%;top:-12px;transform:translateX(-50%);z-index:2;display:flex;align-items:center;gap:3px;border-radius:9999px;background:${alertColor};border:2px solid #ffffff;padding:1px 7px 1px 5px;color:#ffffff;font-size:10px;line-height:14px;font-weight:800;letter-spacing:0.03em;white-space:nowrap;box-shadow:0 2px 6px rgba(15,23,42,0.35);">${warningGlyph(11, 3)}${alert?.label ?? ''}</div>`
+    : '';
 
   const icon = L.divIcon({
     className: 'custom-truck-marker',
     html: `<div style="position:relative;width:72px;height:72px;display:flex;align-items:center;justify-content:center;overflow:visible;">
       ${showSelfBadge ? '<div style="position:absolute;left:50%;top:-8px;transform:translateX(-50%);border-radius:9999px;background:#ffffff;border:1px solid rgba(15,23,42,0.18);padding:1px 6px;color:#0f3d72;font-size:10px;line-height:14px;font-weight:900;letter-spacing:0;">YOU</div>' : ''}
-      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:9999px;background:#1d4ed8;border:2px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>
+      ${alertRing}
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:9999px;background:${alertColor || '#1d4ed8'};border:2px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.35);"></div>
       <img src="${TRUCK_ICON_URL}" alt="truck" style="position:relative;z-index:1;width:72px;height:72px;display:block;object-fit:contain;image-rendering:auto;transform:rotate(${rotation}deg);transform-origin:36px 36px;will-change:transform;filter:drop-shadow(0 4px 10px rgba(15,23,42,0.38)) contrast(1.08) saturate(1.08);" onerror="this.onerror=null;this.src='/icons/driver-location-cropped.png';" />
+      ${alertBadge}
     </div>`,
     iconSize: [72, 72],
     iconAnchor,
     popupAnchor,
   });
   truckIconCache.set(cacheKey, icon);
+  return icon;
+}
+
+const incidentSiteIconCache = new Map<string, L.DivIcon>();
+
+/** Warning pin standing on the spot an accident or damage was reported. */
+export function getIncidentSiteIcon(tone: IncidentTone, pulse: boolean) {
+  const cacheKey = `${tone}:${pulse ? 'pulse' : 'steady'}`;
+  const cached = incidentSiteIconCache.get(cacheKey);
+  if (cached) return cached;
+  const color = INCIDENT_TONE_COLORS[tone];
+  const icon = L.divIcon({
+    className: 'incident-site-marker-icon',
+    html: `<div style="position:relative;width:40px;height:52px;">
+      <div class="incident-ring${pulse ? ' incident-ring-pulse' : ''}" style="position:absolute;left:8px;top:43px;width:24px;height:10px;border-radius:50%;border:2px solid ${color};color:${color};box-sizing:border-box;"></div>
+      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="52" viewBox="0 0 40 52" aria-hidden="true" style="position:relative;display:block;overflow:visible;filter:drop-shadow(0 1px 2px rgba(15,23,42,0.35));">
+        <path d="${WAREHOUSE_PIN_PATH}" fill="${color}" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+      </svg>
+      <div style="position:absolute;left:11px;top:10px;">${warningGlyph(18, 2.6)}</div>
+    </div>`,
+    iconSize: [40, 52],
+    // The tip marks the spot, like the stop and warehouse pins.
+    iconAnchor: [20, 49],
+    popupAnchor: [0, -46],
+  });
+  incidentSiteIconCache.set(cacheKey, icon);
   return icon;
 }
 

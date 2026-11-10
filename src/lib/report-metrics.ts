@@ -5,7 +5,9 @@ import {
   inferFeedbackDimensions,
   lookupFeedbackReason,
   normalizeFeedbackReasonText,
+  normalizeRatingTarget,
   stripOtherReasonPrefix,
+  type FeedbackRatingTarget,
   type FeedbackServiceDimension,
 } from '../../shared/customer-logic/src/feedback-reasons.ts'
 import { describeComposition, toPoints } from './chart-interpretation.ts'
@@ -1352,6 +1354,8 @@ export type FeedbackRow = {
   orderNumber: string
   isReplacement: boolean
   rating: number
+  /** What the rating is for: the products, or the service. */
+  ratingTarget: FeedbackRatingTarget
   polarity: FeedbackPolarity
   type: string
   subject: string
@@ -1535,6 +1539,7 @@ export function buildFeedbackRows(feedback: any[], options: { orders?: any[] } =
       orderNumber,
       isReplacement: orderNumber.toUpperCase().startsWith('RPL-'),
       rating: rating >= 1 && rating <= 5 ? rating : 0,
+      ratingTarget: normalizeRatingTarget(item?.ratingTarget ?? item?.rating_target),
       polarity: getFeedbackPolarity(rating),
       type: String(item?.type || ''),
       subject: String(item?.subject || ''),
@@ -1543,6 +1548,21 @@ export function buildFeedbackRows(feedback: any[], options: { orders?: any[] } =
       dimensions: [...dimensions],
     }
   })
+}
+
+export type FeedbackTargetFilter = 'ALL' | FeedbackRatingTarget
+
+/** Ratings of the products, of the service, or both. */
+export function filterFeedbackRowsByTarget(rows: FeedbackRow[], target: FeedbackTargetFilter): FeedbackRow[] {
+  return target === 'ALL' ? rows : rows.filter((row) => row.ratingTarget === target)
+}
+
+/** Products and service side by side, so the two never blur into one average. */
+export function summarizeFeedbackByTarget(rows: FeedbackRow[]): Record<FeedbackRatingTarget, FeedbackKpiSummary> {
+  return {
+    PRODUCT: summarizeFeedbackKpis(filterFeedbackRowsByTarget(rows, 'PRODUCT')),
+    SERVICE: summarizeFeedbackKpis(filterFeedbackRowsByTarget(rows, 'SERVICE')),
+  }
 }
 
 export function filterFeedbackRowsByWindow(

@@ -39,6 +39,7 @@ from .models import (
     ReplacementStatus,
     Trip,
     TripDropPoint,
+    TripStatus,
     User,
     Vehicle,
     Warehouse,
@@ -1125,12 +1126,21 @@ def _serialize_trip(trip: Trip, include_points: bool = True, *, ctx: dict = None
         for dp in drop_point_rows:
             if dp.order_id and getattr(dp, "order", None) and getattr(dp.order, "timeline", None) and dp.order.timeline.delivery_date:
                 trip_schedule_candidates.append(dp.order.timeline.delivery_date.isoformat())
-    data["tripSchedule"] = min(trip_schedule_candidates) if trip_schedule_candidates else None
+    # A trip with no stops left (its load moved to another truck) keeps its own day.
+    fallback_schedule = getattr(trip, "planned_start_at", None) or getattr(trip, "actual_start_at", None)
+    data["tripSchedule"] = (
+        min(trip_schedule_candidates) if trip_schedule_candidates
+        else fallback_schedule.isoformat() if fallback_schedule else None
+    )
     # Added: every portal sorts and flags trips by the same local day trip_start
     # enforces, instead of each client re-deriving it from the timestamps above.
     scheduled_date = trip_scheduled_date(trip, drop_point_rows)
     data["scheduledDate"] = scheduled_date.isoformat() if scheduled_date else None
-    data["isOverdue"] = trip_is_overdue(getattr(trip, "status", None), scheduled_date)
+    # A load transfer carries on deliveries already under way, whatever their day was.
+    data["isOverdue"] = (
+        not getattr(trip, "transferred_from_id", None)
+        and trip_is_overdue(getattr(trip, "status", None), scheduled_date)
+    )
     return data
 
 
@@ -1610,8 +1620,10 @@ def _build_assigned_trip_map(order_ids: list[str], require_driver: bool = True) 
     if not normalized_order_ids:
         return {}
 
+    # A cancelled trip no longer carries its orders (views_trips.trip_cancel).
     trip_qs = _real_trips(
-        Trip.objects.filter(drop_points__order_id__in=normalized_order_ids).select_related("driver", "vehicle")
+        Trip.objects.filter(drop_points__order_id__in=normalized_order_ids).exclude(status=TripStatus.CANCELLED)
+        .select_related("driver", "vehicle")
     ).order_by("-updated_at").prefetch_related(
         Prefetch(
             "drop_points",

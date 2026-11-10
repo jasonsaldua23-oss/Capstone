@@ -8,8 +8,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useMemo, useState } from 'react'
 import {
-  DELIVERY_FEEDBACK_OPTIONS_BY_RATING as FEEDBACK_OPTIONS_BY_RATING,
-  REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING,
+  DELIVERY_SERVICE_FEEDBACK_OPTIONS_BY_RATING,
+  PRODUCT_FEEDBACK_OPTIONS_BY_RATING,
+  REPLACEMENT_PRODUCT_FEEDBACK_OPTIONS_BY_RATING,
+  REPLACEMENT_SERVICE_FEEDBACK_OPTIONS_BY_RATING,
   OTHER_REASON_MAX_LENGTH,
   OTHER_FEEDBACK_REASON,
   OTHER_REASON_LABEL,
@@ -17,6 +19,157 @@ import {
   getFeedbackOptionsForRating,
   isOtherFeedbackReason,
 } from '@shared/customer-logic/feedback-reasons'
+
+export type ProductRatingInput = { rating: number; reasons: string[]; otherText: string }
+
+const RATING_LABELS: Record<number, string> = {
+  1: 'Poor',
+  2: 'Fair',
+  3: 'Good',
+  4: 'Very Good',
+  5: 'Excellent!',
+}
+
+/** A reason list is complete when it has a ticked phrase, or "Other" with the words typed. */
+export function hasCompleteReasons(reasons: string[], otherText: string) {
+  return reasons.some(isOtherFeedbackReason) ? otherText.trim().length > 0 : reasons.length > 0
+}
+
+/**
+ * One rated aspect of the order: its stars, then the reasons for them. The product
+ * and the service sections are the same control with different phrases.
+ */
+function RatingSection({
+  id,
+  label,
+  rating,
+  onRatingChange,
+  catalog,
+  selected,
+  onSelectedChange,
+  otherText,
+  onOtherTextChange,
+  disabled,
+}: {
+  id: string
+  label: string
+  rating: number
+  onRatingChange: (rating: number) => void
+  catalog: Record<number, readonly string[]>
+  selected: string[]
+  onSelectedChange: (next: string[]) => void
+  otherText: string
+  onOtherTextChange: (value: string) => void
+  disabled: boolean
+}) {
+  const options = useMemo(() => (rating > 0 ? getFeedbackOptionsForRating(catalog, rating) : []), [catalog, rating])
+  const hasOtherSelected = selected.some(isOtherFeedbackReason)
+  const complete = hasCompleteReasons(selected, otherText)
+
+  return (
+    <section aria-label={label} className="space-y-2 rounded-xl border border-slate-200 p-2.5 md:p-3">
+      <Label className="text-xs font-semibold text-slate-900 md:text-sm">{label}</Label>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          {Array.from({ length: 5 }).map((_, index) => {
+            const value = index + 1
+            const isActive = value <= rating
+            return (
+              <button
+                key={`${id}-${value}`}
+                type="button"
+                onClick={() => {
+                  onRatingChange(value)
+                  onSelectedChange([])
+                }}
+                disabled={disabled}
+                aria-label={`${label}: ${value} star${value > 1 ? 's' : ''}`}
+                className={`transition-transform hover:scale-110 ${isActive ? 'text-amber-500' : 'text-gray-300'}`}
+                title={`${value} star${value > 1 ? 's' : ''}`}
+              >
+                <Star className="h-4.5 w-4.5 fill-current md:h-6 md:w-6" />
+              </button>
+            )
+          })}
+        </div>
+        <div className="text-right">
+          {rating > 0 ? (
+            <>
+              <p className="text-sm font-bold text-amber-500 md:text-lg">{rating}/5</p>
+              <p className="text-xs text-slate-500">{RATING_LABELS[rating]}</p>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500">Tap a star</p>
+          )}
+        </div>
+      </div>
+
+      {rating > 0 ? (
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold text-slate-900 md:text-sm">Select Feedback <span className="text-red-600">*</span></Label>
+          <div className="grid grid-cols-1 gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-2.5">
+            {options.map((option) => {
+              const isOther = isOtherFeedbackReason(option)
+              const checked = selected.includes(option)
+              // Describing the problem and ticking preset phrases are alternatives: a review
+              // that says both cannot be attributed to either, so one disables the other.
+              const blocked = isOther ? selected.length > 0 && !checked : hasOtherSelected
+              return (
+                <label key={option} className={`flex items-start gap-2 text-xs md:text-sm ${blocked ? 'text-slate-400' : 'text-slate-700'}`}>
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300"
+                    checked={checked}
+                    disabled={disabled || blocked}
+                    onChange={(event) => {
+                      const isChecked = event.target.checked
+                      if (!isChecked) onSelectedChange(selected.filter((item) => item !== option))
+                      // Other stands alone; picking it clears the preset phrases.
+                      else if (isOther) onSelectedChange([OTHER_FEEDBACK_REASON])
+                      else onSelectedChange([...selected.filter((item) => !isOtherFeedbackReason(item)), option])
+                      if (isOther && !isChecked) onOtherTextChange('')
+                    }}
+                  />
+                  <span className={isOther ? 'font-medium' : undefined}>{option}</span>
+                </label>
+              )
+            })}
+          </div>
+
+          {hasOtherSelected ? (
+            <div className="space-y-1.5">
+              <Label htmlFor={`${id}-other`} className="text-xs font-medium md:text-sm">
+                {OTHER_REASON_LABEL} <span className="text-red-600">*</span>
+              </Label>
+              <Textarea
+                id={`${id}-other`}
+                value={otherText}
+                onChange={(event) => onOtherTextChange(event.target.value)}
+                placeholder={OTHER_REASON_PLACEHOLDER}
+                maxLength={OTHER_REASON_MAX_LENGTH}
+                rows={3}
+                disabled={disabled}
+                autoFocus
+                className="resize-none text-xs md:text-sm"
+              />
+              <p className="text-right text-[11px] text-gray-400">
+                {otherText.length}/{OTHER_REASON_MAX_LENGTH}
+              </p>
+            </div>
+          ) : null}
+
+          {!complete ? (
+            <p className="text-xs text-red-600">
+              {hasOtherSelected
+                ? 'Describe what happened to submit your review.'
+                : 'Select at least one feedback option to submit your review.'}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
 
 export function CustomerRatingDialog(props: any) {
   const {
@@ -32,46 +185,49 @@ export function CustomerRatingDialog(props: any) {
 
   const [showSuccess, setShowSuccess] = useState(false)
   const [selectedFeedbackOptions, setSelectedFeedbackOptions] = useState<string[]>([])
+  // The products are rated on their own, so a damaged case is never read as a late driver.
+  const [productRating, setProductRating] = useState(0)
+  const [productReasons, setProductReasons] = useState<string[]>([])
+  const [productOtherText, setProductOtherText] = useState('')
   const isReplacementReview = Boolean(ratingDialogOrder?.isReplacementReview)
-  const visibleFeedbackOptions = useMemo(
-    () => getFeedbackOptionsForRating(
-      isReplacementReview ? REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING : FEEDBACK_OPTIONS_BY_RATING,
-      deliveryRatingValue
-    ),
-    [deliveryRatingValue, isReplacementReview]
-  )
-
-  const hasOtherSelected = selectedFeedbackOptions.some(isOtherFeedbackReason)
   const otherText = String(otherReasonText || '')
-  // Describing the problem and ticking preset phrases are alternatives: a review that
-  // says both cannot be attributed to either, so one disables the other.
-  const canSubmitFeedback = hasOtherSelected
-    ? otherText.trim().length > 0
-    : selectedFeedbackOptions.length > 0
+
+  const canSubmitFeedback =
+    deliveryRatingValue > 0
+    && productRating > 0
+    && hasCompleteReasons(selectedFeedbackOptions, otherText)
+    && hasCompleteReasons(productReasons, productOtherText)
+
+  const resetProduct = () => {
+    setProductRating(0)
+    setProductReasons([])
+    setProductOtherText('')
+  }
+
+  const close = () => {
+    setSelectedFeedbackOptions([])
+    resetProduct()
+    setRatingDialogOrder(null)
+  }
 
   const handleSubmit = async () => {
-    const submitted = await submitRating(selectedFeedbackOptions)
+    const submitted = await submitRating(selectedFeedbackOptions, {
+      rating: productRating,
+      reasons: productReasons,
+      otherText: productOtherText,
+    } satisfies ProductRatingInput)
     if (!submitted) return
     setShowSuccess(true)
     setTimeout(() => {
       setShowSuccess(false)
+      setSelectedFeedbackOptions([])
+      resetProduct()
       setRatingDialogOrder(null)
     }, 1500)
   }
 
-  const getRatingLabel = (rating: number) => {
-    const labels: Record<number, string> = {
-      1: 'Poor',
-      2: 'Fair',
-      3: 'Good',
-      4: 'Very Good',
-      5: 'Excellent!',
-    }
-    return labels[rating] || ''
-  }
-
   return (
-    <Dialog open={!!ratingDialogOrder} onOpenChange={(open) => !open && setRatingDialogOrder(null)}>
+    <Dialog open={!!ratingDialogOrder} onOpenChange={(open) => !open && close()}>
       {ratingDialogOrder && (
         <DialogContent showCloseButton={false} className="w-[95vw] max-h-[86vh] overflow-y-auto max-w-md p-3 md:w-full md:max-h-[92vh] md:p-6">
           <motion.div
@@ -84,7 +240,7 @@ export function CustomerRatingDialog(props: any) {
             <button
               type="button"
               aria-label="Close"
-              onClick={() => setRatingDialogOrder(null)}
+              onClick={close}
               className="absolute right-4 top-4 text-slate-400 transition-colors hover:text-slate-600 disabled:pointer-events-none disabled:opacity-50"
               disabled={isSubmittingRating}
             >
@@ -99,111 +255,40 @@ export function CustomerRatingDialog(props: any) {
                 </div>
                 <div>
                   <h3 className="text-xs font-semibold text-slate-900 md:text-base">Review {isReplacementReview ? 'Replacement' : 'Order'} {ratingDialogOrder.orderNumber}</h3>
-                  <p className="text-xs text-slate-500">Rate {isReplacementReview ? 'replacement handling' : 'delivery'}, then select feedback.</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Rating Section */}
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold text-slate-900 md:text-sm">{isReplacementReview ? 'Replacement Handling Rating' : 'Delivery Rating'}</Label>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: 5 }).map((_, index) => {
-                      const value = index + 1
-                      const isActive = value <= deliveryRatingValue
-                      return (
-                        <button
-                          key={`delivery-${value}`}
-                          type="button"
-                          onClick={() => {
-                            setDeliveryRatingValue(value)
-                            setSelectedFeedbackOptions([])
-                          }}
-                          disabled={isSubmittingRating}
-                          className={`transition-transform hover:scale-110 ${isActive ? 'text-amber-500' : 'text-gray-300'}`}
-                          title={`${value} star${value > 1 ? 's' : ''}`}
-                        >
-                          <Star className="h-4.5 w-4.5 fill-current md:h-6 md:w-6" />
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-amber-500 md:text-lg">{deliveryRatingValue}/5</p>
-                    <p className="text-xs text-slate-500">{getRatingLabel(deliveryRatingValue)}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold text-slate-900 md:text-sm">Select Feedback <span className="text-red-600">*</span></Label>
-              <div className="grid grid-cols-1 gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-2.5">
-                {visibleFeedbackOptions.map((option) => {
-                  const isOther = isOtherFeedbackReason(option)
-                  const checked = selectedFeedbackOptions.includes(option)
-                  const blocked = isOther
-                    ? selectedFeedbackOptions.length > 0 && !checked
-                    : hasOtherSelected
-                  return (
-                    <label
-                      key={option}
-                      className={`flex items-start gap-2 text-xs md:text-sm ${blocked ? 'text-slate-400' : 'text-slate-700'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300"
-                        checked={checked}
-                        disabled={isSubmittingRating || blocked}
-                        onChange={(event) => {
-                          const isChecked = event.target.checked
-                          setSelectedFeedbackOptions((prev) => {
-                            if (!isChecked) return prev.filter((item) => item !== option)
-                            // Other stands alone; picking it clears the preset phrases.
-                            if (isOther) return [OTHER_FEEDBACK_REASON]
-                            return [...prev.filter((item) => !isOtherFeedbackReason(item)), option]
-                          })
-                          if (isOther && !isChecked) setOtherReasonText?.('')
-                        }}
-                      />
-                      <span className={isOther ? 'font-medium' : undefined}>{option}</span>
-                    </label>
-                  )
-                })}
-              </div>
-
-              {hasOtherSelected ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="rating-other" className="text-xs font-medium md:text-sm">
-                    {OTHER_REASON_LABEL} <span className="text-red-600">*</span>
-                  </Label>
-                  <Textarea
-                    id="rating-other"
-                    value={otherText}
-                    onChange={(event) => setOtherReasonText?.(event.target.value)}
-                    placeholder={OTHER_REASON_PLACEHOLDER}
-                    maxLength={OTHER_REASON_MAX_LENGTH}
-                    rows={3}
-                    disabled={isSubmittingRating}
-                    autoFocus
-                    className="resize-none text-xs md:text-sm"
-                  />
-                  <p className="text-right text-[11px] text-gray-400">
-                    {otherText.length}/{OTHER_REASON_MAX_LENGTH}
+                  <p className="text-xs text-slate-500">
+                    {isReplacementReview
+                      ? 'Rate the replacement products and how the replacement was handled, then select feedback.'
+                      : 'Rate the products and the delivery service separately, then select feedback.'}
                   </p>
                 </div>
-              ) : null}
-
-              {!canSubmitFeedback ? (
-                <p className="text-xs text-red-600">
-                  {hasOtherSelected
-                    ? 'Describe what happened to submit your review.'
-                    : 'Select at least one feedback option to submit your review.'}
-                </p>
-              ) : null}
+              </div>
             </div>
+
+            <RatingSection
+              id="rating-product"
+              label={isReplacementReview ? 'Replacement Product Rating' : 'Product Rating'}
+              rating={productRating}
+              onRatingChange={setProductRating}
+              catalog={isReplacementReview ? REPLACEMENT_PRODUCT_FEEDBACK_OPTIONS_BY_RATING : PRODUCT_FEEDBACK_OPTIONS_BY_RATING}
+              selected={productReasons}
+              onSelectedChange={setProductReasons}
+              otherText={productOtherText}
+              onOtherTextChange={setProductOtherText}
+              disabled={isSubmittingRating}
+            />
+
+            <RatingSection
+              id="rating-service"
+              label={isReplacementReview ? 'Replacement Handling Rating' : 'Delivery Rating'}
+              rating={deliveryRatingValue}
+              onRatingChange={setDeliveryRatingValue}
+              catalog={isReplacementReview ? REPLACEMENT_SERVICE_FEEDBACK_OPTIONS_BY_RATING : DELIVERY_SERVICE_FEEDBACK_OPTIONS_BY_RATING}
+              selected={selectedFeedbackOptions}
+              onSelectedChange={setSelectedFeedbackOptions}
+              otherText={otherText}
+              onOtherTextChange={(value) => setOtherReasonText?.(value)}
+              disabled={isSubmittingRating}
+            />
 
             {/* Success message */}
             {showSuccess && (
@@ -221,7 +306,7 @@ export function CustomerRatingDialog(props: any) {
             <div className="flex gap-1.5 pt-1.5">
               <Button
                 variant="outline"
-                onClick={() => setRatingDialogOrder(null)}
+                onClick={close}
                 disabled={isSubmittingRating}
                 className="h-9 flex-1 text-xs md:h-10 md:text-sm"
               >
@@ -229,7 +314,7 @@ export function CustomerRatingDialog(props: any) {
               </Button>
               <Button
                 onClick={() => void handleSubmit()}
-                disabled={isSubmittingRating || deliveryRatingValue === 0 || !canSubmitFeedback}
+                disabled={isSubmittingRating || !canSubmitFeedback}
                 className="h-9 flex-1 bg-emerald-600 text-xs hover:bg-emerald-700 md:h-10 md:text-sm"
               >
                 {isSubmittingRating ? (

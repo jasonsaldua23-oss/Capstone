@@ -31,11 +31,13 @@ import { useWarehousePortalLayoutState, type PortalNotification, type WarehouseV
 import { WarehouseDashboardView } from './sections/dashboard/dashboard-view'
 import { WarehouseInventoryView } from './sections/inventory/inventory-view'
 import { WarehouseLiveTrackingView } from './sections/live-tracking/live-tracking-view'
+import { IncidentAlarm } from './incident-alarm'
 import { WarehouseOrdersView } from './sections/orders/orders-view'
 import { WarehouseReplacementsView } from './sections/replacements/replacements-view'
 import { WarehouseStocksView } from './sections/stocks/stocks-view'
 import { WarehouseWarehousesView } from './sections/warehouses/warehouses-view'
 import { WarehouseEmptyBottlesView } from './sections/inventory/empty-bottles-view'
+import { DamagedStockView } from '../shared/damaged-stock-view'
 import { WarehouseRetailPosView } from './sections/retail-pos/retail-pos-view'
 import { WarehouseInventoryTransactionsView } from './sections/inventory/transactions-view'
 import { WarehousePurchaseRequestsView } from './sections/purchase-requests/purchase-requests-view'
@@ -88,6 +90,7 @@ import {
   Recycle,
   Store,
   ShoppingCart,
+  PackageX,
 } from 'lucide-react'
 import {
   getMaxOrderUpdatedAt,
@@ -182,7 +185,7 @@ export function WarehousePortal() {
   const [createRouteOpen, setCreateRouteOpen] = useState(false)
   const [createTripOpen, setCreateTripOpen] = useState(false)
   const [editingTripState, setEditingTripState] = useState<TripEditorState | null>(null)
-  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties'>('inventory')
+  const [inventorySubView, setInventorySubView] = useState<'inventory' | 'stocks' | 'empties' | 'damaged'>('inventory')
   // Bumped when an existing-empties notification is opened, so the review dialog opens.
   const [emptiesReviewRequest, setEmptiesReviewRequest] = useState<number | undefined>(undefined)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
@@ -608,6 +611,8 @@ export function WarehousePortal() {
   })
 
   const {
+    cancelTrip,
+    transferTripLoad,
     confirmDeleteTrip,
     createRoutePlan,
     createTripFromCurrentRoutePlan,
@@ -1037,6 +1042,11 @@ export function WarehousePortal() {
       setActiveView('trips')
       const trip = trips.find((item) => item.id === referenceId)
       if (trip) setSelectedTrip(trip)
+      return
+    }
+    // An accident or vehicle damage is responded to from the live map, where the vehicle is.
+    if (referenceType === 'incident') {
+      setActiveView('liveTracking')
       return
     }
     if (referenceType === 'warehouse') {
@@ -1499,6 +1509,9 @@ export function WarehousePortal() {
                   onEditTrip={(trip) => { void openTripEditorInCreateDialog(trip as WarehouseTripItem) }}
                   onDeleteTrip={(trip) => { void deleteTrip(trip) }}
                   onRescheduleTrip={(trip, scheduledDate) => rescheduleTrip(trip as WarehouseTripItem, scheduledDate)}
+                  onCancelTrip={(trip, request) => cancelTrip(trip as WarehouseTripItem, request)}
+                  onTransferTrip={(trip, request) => transferTripLoad(trip as WarehouseTripItem, request)}
+                  drivers={drivers}
                   onUnassignOrderItems={(tripId, orderId, warehouseId, itemIds) => { void unassignOrderItemsFromTrip(tripId, orderId, warehouseId, itemIds) }}
                   availableOrders={scopedOrders.filter((order) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(String(order.status || '').toUpperCase())).map((order) => ({ id: order.id, orderNumber: order.orderNumber, shippingName: order.shippingName || order.customer?.name || '', shippingCity: order.shippingCity || '', status: order.status, allocatedQtyForSelectedWarehouse: Number((order as any)?.allocatedQtyForSelectedWarehouse || 0), totalOrderQty: Number((order as any)?.totalOrderQty || 0) }))}
                   onEditTripDropPoints={(trip, changes) => { void editTripDropPoints(trip as WarehouseTripItem, changes) }}
@@ -1543,7 +1556,7 @@ export function WarehousePortal() {
           )}
 
           {activeView === 'inventory' && (
-            <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks' | 'empties')} className="space-y-4">
+            <Tabs value={inventorySubView} onValueChange={(value) => setInventorySubView(value as 'inventory' | 'stocks' | 'empties' | 'damaged')} className="space-y-4">
               <TabsList className="h-auto w-full flex-wrap gap-2 rounded-2xl border border-white/40 bg-white/65 p-1.5 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-xl">
                 <TabsTrigger
                   value="inventory"
@@ -1565,6 +1578,13 @@ export function WarehousePortal() {
                 >
                   <Recycle className="h-4 w-4" />
                   Empties
+                </TabsTrigger>
+                <TabsTrigger
+                  value="damaged"
+                  className="inline-flex items-center gap-2 rounded-xl border border-transparent bg-transparent px-3 py-2.5 text-sm font-semibold sm:px-5 sm:text-[15px] text-slate-700 transition-all duration-300 ease-out hover:border-sky-200/70 hover:bg-sky-50/70 hover:text-sky-900 data-[state=active]:-translate-y-0.5 data-[state=active]:border-sky-200 data-[state=active]:bg-white data-[state=active]:text-[#0f2a4a] data-[state=active]:shadow-[0_8px_18px_rgba(14,116,144,0.18)]"
+                >
+                  <PackageX className="h-4 w-4" />
+                  Damaged
                 </TabsTrigger>
               </TabsList>
 
@@ -1603,6 +1623,10 @@ export function WarehousePortal() {
 
               <TabsContent value="empties" className="mt-0">
                 <WarehouseEmptyBottlesView warehouseId={assignedWarehouse?.id} openEmptiesReview={emptiesReviewRequest} onEmptiesReviewOpened={() => setEmptiesReviewRequest(undefined)} />
+              </TabsContent>
+
+              <TabsContent value="damaged" className="mt-0">
+                <DamagedStockView canRecord />
               </TabsContent>
             </Tabs>
           )}
@@ -1855,6 +1879,9 @@ export function WarehousePortal() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* A driver's unacknowledged accident or breakdown: siren + full-screen alert. */}
+      <IncidentAlarm onOpenMap={() => setActiveView('liveTracking')} />
     </div>
   )
 }

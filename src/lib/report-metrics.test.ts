@@ -6,6 +6,8 @@ import {
   buildFeedbackComparisonWindow,
   buildFeedbackDimensionBreakdown,
   buildFeedbackRows,
+  filterFeedbackRowsByTarget,
+  summarizeFeedbackByTarget,
   buildFeedbackSatisfactionTrend,
   buildFeedbackTopIssues,
   classifyFeedbackReason,
@@ -66,6 +68,8 @@ import {
   FEEDBACK_OVERALL_REASONS,
   FEEDBACK_REASON_CATALOGS,
   OTHER_FEEDBACK_REASON,
+  DELIVERY_SERVICE_FEEDBACK_OPTIONS_BY_RATING,
+  PRODUCT_FEEDBACK_OPTIONS_BY_RATING,
   buildFeedbackReasonMessage,
   getFeedbackOptionsForRating,
   inferFeedbackDimensions,
@@ -499,6 +503,36 @@ test('feedback KPI totals and period deltas come from one row set', () => {
   assert.equal(describeFeedbackDelta(-4, { unit: 'percent', higherIsBetter: false }).text, '-4 pts')
   assert.equal(describeFeedbackDelta(0, { unit: 'rating' }).direction, 'flat')
   assert.equal(describeFeedbackDelta(0.3, { unit: 'rating' }).text, '+0.3')
+})
+
+test('every rating says whether it is for the products or the service', () => {
+  const rows = buildFeedbackRows([
+    feedbackRow({ id: 'p', rating: 2, ratingTarget: 'PRODUCT', message: '- Some bottles had broken seals' }),
+    feedbackRow({ id: 's', rating: 5, ratingTarget: 'SERVICE', message: '- Delivery was on time as scheduled' }),
+    // A rating from before the split was the single Delivery Rating.
+    feedbackRow({ id: 'legacy', rating: 4, message: '- Delivery was on time' }),
+  ])
+  assert.deepEqual(rows.map((row) => row.ratingTarget), ['PRODUCT', 'SERVICE', 'SERVICE'])
+  assert.deepEqual(filterFeedbackRowsByTarget(rows, 'PRODUCT').map((row) => row.id), ['p'])
+  assert.equal(filterFeedbackRowsByTarget(rows, 'ALL').length, 3)
+
+  const byTarget = summarizeFeedbackByTarget(rows)
+  assert.equal(byTarget.PRODUCT.avgRating, 2)
+  assert.equal(byTarget.PRODUCT.negativeCount, 1)
+  assert.equal(byTarget.SERVICE.avgRating, 4.5)
+  assert.equal(byTarget.SERVICE.ratedCount, 2)
+})
+
+test('product reasons are about the drinks and service reasons about the handling', () => {
+  for (const star of [1, 2, 3, 4, 5]) {
+    for (const phrase of PRODUCT_FEEDBACK_OPTIONS_BY_RATING[star]) {
+      assert.deepEqual(inferFeedbackDimensions(phrase), ['condition'], `product ${star}star "${phrase}"`)
+    }
+    for (const phrase of DELIVERY_SERVICE_FEEDBACK_OPTIONS_BY_RATING[star]) {
+      assert.notDeepEqual(inferFeedbackDimensions(phrase), ['condition'], `service ${star}star "${phrase}"`)
+    }
+    assert.equal(DELIVERY_SERVICE_FEEDBACK_OPTIONS_BY_RATING[star].length, 4)
+  }
 })
 
 test('satisfaction trend returns trailing months and never a future month', () => {

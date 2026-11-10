@@ -15,9 +15,11 @@ import {
   CircleCheck,
   FileText,
   MessageSquare,
+  Package,
   Star,
   TrendingDown,
   TrendingUp,
+  Truck,
   User,
 } from 'lucide-react'
 import { BarChart, Bar, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -37,13 +39,18 @@ import {
   buildFeedbackTopIssues,
   compareFeedbackKpis,
   describeFeedbackDelta,
+  filterFeedbackRowsByTarget,
   filterFeedbackRowsByWindow,
+  summarizeFeedbackByTarget,
   summarizeFeedbackParticipation,
   type FeedbackDeltaDisplay,
+  type FeedbackTargetFilter,
 } from '@/lib/report-metrics'
 import {
   FEEDBACK_DIMENSION_LABELS,
+  FEEDBACK_RATING_TARGET_LABELS,
   stripOtherReasonPrefix,
+  type FeedbackRatingTarget,
   type FeedbackServiceDimension,
 } from '@shared/customer-logic/feedback-reasons'
 
@@ -118,6 +125,87 @@ function DeltaChip({ delta, hasPrevious, periodLabel }: { delta: FeedbackDeltaDi
       <span className="font-semibold">{delta.text}</span>
       <span className="text-gray-400">vs {periodLabel}</span>
     </p>
+  )
+}
+
+// Products share Product Condition's amber; the service takes Timeliness's blue.
+const TARGET_TONE: Record<FeedbackRatingTarget, { badge: string; tile: string; selected: string; icon: string }> = {
+  PRODUCT: {
+    badge: 'bg-amber-50 text-amber-800 ring-amber-200',
+    tile: 'border-amber-200 bg-amber-50/60 hover:bg-amber-50',
+    selected: 'ring-2 ring-amber-500',
+    icon: 'bg-amber-100 text-amber-700',
+  },
+  SERVICE: {
+    badge: 'bg-blue-50 text-blue-800 ring-blue-200',
+    tile: 'border-blue-200 bg-blue-50/60 hover:bg-blue-50',
+    selected: 'ring-2 ring-blue-500',
+    icon: 'bg-blue-100 text-blue-700',
+  },
+}
+
+const TARGET_HINT: Record<FeedbackRatingTarget, string> = {
+  PRODUCT: 'The drinks: condition, freshness, seals',
+  SERVICE: 'The delivery: timing, completeness, driver, updates',
+}
+
+/** Says what a rating is for, beside its stars. */
+function RatingTargetBadge({ target }: { target: FeedbackRatingTarget }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${TARGET_TONE[target].badge}`}>
+      {target === 'PRODUCT' ? <Package className="h-3 w-3" aria-hidden="true" /> : <Truck className="h-3 w-3" aria-hidden="true" />}
+      {FEEDBACK_RATING_TARGET_LABELS[target]} rating
+    </span>
+  )
+}
+
+/**
+ * The products and the service side by side for the selected dates. Each tile also
+ * scopes the page to that kind of rating; choosing the selected one again shows both.
+ */
+function RatingTargetComparison({
+  byTarget,
+  selected,
+  onSelect,
+}: {
+  byTarget: ReturnType<typeof summarizeFeedbackByTarget>
+  selected: FeedbackTargetFilter
+  onSelect: (target: FeedbackTargetFilter) => void
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      {(['PRODUCT', 'SERVICE'] as const).map((target) => {
+        const summary = byTarget[target]
+        const isSelected = selected === target
+        return (
+          <button
+            key={target}
+            type="button"
+            aria-pressed={isSelected}
+            onClick={() => onSelect(isSelected ? 'ALL' : target)}
+            className={`flex items-center gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${TARGET_TONE[target].tile} ${isSelected ? TARGET_TONE[target].selected : ''}`}
+          >
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${TARGET_TONE[target].icon}`}>
+              {target === 'PRODUCT' ? <Package className="h-5 w-5" aria-hidden="true" /> : <Truck className="h-5 w-5" aria-hidden="true" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-slate-900">{FEEDBACK_RATING_TARGET_LABELS[target]} ratings</span>
+              <span className="block text-xs text-slate-500">{TARGET_HINT[target]}</span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="block text-2xl font-bold text-slate-900">
+                {summary.ratedCount > 0 ? summary.avgRating.toFixed(1) : '—'}
+                <span className="text-sm font-medium text-slate-400">/5</span>
+              </span>
+              <span className="block text-xs text-slate-500">
+                {summary.ratedCount} rating{summary.ratedCount === 1 ? '' : 's'}
+                {summary.ratedCount > 0 ? ` · ${summary.negativeRate}% negative` : ''}
+              </span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -311,6 +399,8 @@ export function FeedbackView() {
   const [ordersState, setOrdersState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [searchTerm, setSearchTerm] = useState('')
   const [ratingFilter, setRatingFilter] = useState('all')
+  // Every rating is for the products or for the service; this scopes the whole page to one.
+  const [targetFilter, setTargetFilter] = useState<FeedbackTargetFilter>('ALL')
   const [datePreset, setDatePreset] = useState<ReportDatePreset>('30')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -386,13 +476,19 @@ export function FeedbackView() {
   }, [])
 
   // Parse once. Everything below is a view over these rows.
-  const allRows = useMemo(() => buildFeedbackRows(feedbacks, { orders }), [feedbacks, orders])
+  const parsedRows = useMemo(() => buildFeedbackRows(feedbacks, { orders }), [feedbacks, orders])
+  const allRows = useMemo(() => filterFeedbackRowsByTarget(parsedRows, targetFilter), [parsedRows, targetFilter])
   const dateWindow = useMemo(
     () => buildReportDateWindow(datePreset, dateFrom, dateTo),
     [datePreset, dateFrom, dateTo]
   )
   const previousWindow = useMemo(() => buildFeedbackComparisonWindow(dateWindow), [dateWindow])
   const currentRows = useMemo(() => filterFeedbackRowsByWindow(allRows, dateWindow), [allRows, dateWindow])
+  // Products beside service for the selected dates, whichever one the page is scoped to.
+  const byTarget = useMemo(
+    () => summarizeFeedbackByTarget(filterFeedbackRowsByWindow(parsedRows, dateWindow)),
+    [parsedRows, dateWindow]
+  )
   const previousRows = useMemo(
     () => (previousWindow ? filterFeedbackRowsByWindow(allRows, previousWindow) : null),
     [allRows, previousWindow]
@@ -498,7 +594,7 @@ export function FeedbackView() {
   const reduceMotion = useReducedMotion()
   // Keyed on the date window only. Typing in the search box must not remount the
   // charts on every keystroke - search filters the list below, nothing above it.
-  const analyticsKey = `${datePreset}|${dateFrom}|${dateTo}`
+  const analyticsKey = `${datePreset}|${dateFrom}|${dateTo}|${targetFilter}`
 
   const periodLabel = previousWindow ? `previous ${dateWindow.label.toLowerCase().replace('past ', '')}` : 'previous period'
   const comparisonLabel = previousWindow
@@ -562,6 +658,17 @@ export function FeedbackView() {
             />
             <select
               className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              title="Rating for"
+              aria-label="Rating for"
+              value={targetFilter}
+              onChange={(event) => setTargetFilter(event.target.value as FeedbackTargetFilter)}
+            >
+              <option value="ALL">Products and service</option>
+              <option value="PRODUCT">Product ratings</option>
+              <option value="SERVICE">Service ratings</option>
+            </select>
+            <select
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
               title="Filter Rating"
               value={ratingFilter}
               onChange={(event) => setRatingFilter(event.target.value)}
@@ -586,6 +693,8 @@ export function FeedbackView() {
           exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -8 }}
           transition={{ duration: reduceMotion ? 0 : 0.24, ease: 'easeOut' }}
         >
+      <RatingTargetComparison byTarget={byTarget} selected={targetFilter} onSelect={setTargetFilter} />
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <KpiCard
           label="Avg Rating"
@@ -598,7 +707,7 @@ export function FeedbackView() {
           periodLabel={periodLabel}
         />
         <KpiCard
-          label="Total Feedback"
+          label="Total Ratings"
           value={String(kpis.current.total)}
           icon={<MessageSquare className="h-5 w-5 text-blue-600" />}
           iconWrapClass="bg-blue-50"
@@ -932,6 +1041,7 @@ export function FeedbackView() {
                           )}
                         </div>
                         <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-slate-500">
+                          <RatingTargetBadge target={row.ratingTarget} />
                           {renderStars(row.rating)}
                           <span className="hidden h-5 w-px bg-slate-200 md:block" />
                           <div className="flex items-center gap-1 text-[0.82rem] md:text-[0.88rem]">

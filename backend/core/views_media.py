@@ -16,7 +16,10 @@ from django.views.decorators.http import require_GET, require_http_methods
 from . import object_storage
 from . import views_api as legacy
 from .image_compression import optimize_image_upload
-from .models import Customer, OpeningEmptiesDeclaration, Order, Replacement, RoleType, Trip, TripDropPoint, User
+from .models import (
+    Customer, DamagedStock, OpeningEmptiesDeclaration, Order, Replacement, RoleType, Trip, TripDropPoint, User,
+    VehicleIncident,
+)
 from .pod_overlay import build_driver_full_name, burn_pod_overlay, parse_pod_overlay_metadata
 
 logger = logging.getLogger(__name__)
@@ -298,9 +301,14 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
             or OpeningEmptiesDeclaration.objects.filter(evidence_photo_url__in=media_urls).exists()
             or Customer.objects.filter(avatar__in=media_urls).exists()
             or User.objects.filter(avatar__in=media_urls).exists()
+            or VehicleIncident.objects.filter(photo_url__in=media_urls).exists()
+            or DamagedStock.objects.filter(photo_url__in=media_urls).exists()
         )
 
     if role == RoleType.DRIVER:
+        # A driver sees the photos of the incidents they reported.
+        if VehicleIncident.objects.filter(driver_id=account_id, photo_url__in=media_urls).exists():
+            return True
         assigned_trip_ids = Trip.objects.filter(driver_id=account_id).values("id")
         if TripDropPoint.objects.filter(
             trip_id__in=assigned_trip_ids,
@@ -332,6 +340,14 @@ def _private_media_access_allowed(payload: dict[str, Any], media_urls: set[str])
             trip__warehouse_id__in=allowed_warehouse_ids,
             delivery_photo__in=media_urls,
         ).exists():
+            return True
+        # Incident photos follow the same warehouse scope as responding to the incident.
+        if VehicleIncident.objects.filter(
+            trip__warehouse_id__in=allowed_warehouse_ids,
+            photo_url__in=media_urls,
+        ).exists():
+            return True
+        if DamagedStock.objects.filter(warehouse_id__in=allowed_warehouse_ids, photo_url__in=media_urls).exists():
             return True
         return _matching_replacements(media_urls).filter(
             Q(order__warehouse_id__in=allowed_warehouse_ids)

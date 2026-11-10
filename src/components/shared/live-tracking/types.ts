@@ -1,3 +1,5 @@
+import type { IncidentMarkerInfo } from '@/lib/vehicle-incidents'
+
 export type DriverLocationPopupItem = {
   name: string;
   qty: string;
@@ -16,7 +18,8 @@ export type DriverLocation = {
   markerLabel?: string;
   markerDirection?: 'left' | 'right';
   markerHeading?: number;
-  markerType?: 'pin' | 'dot' | 'truck' | 'default';
+  // 'incident' is the warning pin where a driver reported an accident or damage.
+  markerType?: 'pin' | 'dot' | 'truck' | 'incident' | 'default';
   markerNumber?: number | string;
   markerEta?: string;
   markerEtaPhase?: 'completed' | 'next' | 'upcoming';
@@ -39,6 +42,9 @@ export type DriverLocation = {
   popupOrderItems?: DriverLocationPopupItem[];
   assignedTripNumber?: string;
   destinationCustomer?: string;
+  // An open accident or damage report: on a truck it flags the vehicle where it is
+  // now; on an 'incident' marker it describes what was reported at that spot.
+  incident?: IncidentMarkerInfo;
 };
 
 export type LiveRouteLine = {

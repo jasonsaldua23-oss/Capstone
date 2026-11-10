@@ -76,91 +76,133 @@ def throttle_response(retry_after: int) -> JsonResponse:
 def check_limit(action: str, account: str, ip_address: str, policy: ThrottlePolicy) -> int:
     """Return the longest active account/IP delay, or zero when allowed."""
     now = timezone.now()
-    retry_after = 0
-    for scope, identifier in _identifiers(account, ip_address):
-        key, _ = _state_key(action, scope, identifier)
-        state = AuthThrottleState.objects.filter(key=key).only("blocked_until").first()
-        if state and state.blocked_until and state.blocked_until > now:
-            retry_after = max(retry_after, _retry_seconds(state.blocked_until))
-    return retry_after
+    keys = [_state_key(action, scope, identifier)[0] for scope, identifier in _identifiers(account, ip_address)]
+    # One query for both scopes: every statement is a full round trip to the remote database.
+    blocked = AuthThrottleState.objects.filter(key__in=keys, blocked_until__gt=now).values_list("blocked_until", flat=True)
+    return max((_retry_seconds(until) for until in blocked), default=0)
 
 
-def _locked_state(action: str, scope: str, identifier: str, now) -> AuthThrottleState:
-    key, identifier_hash = _state_key(action, scope, identifier)
-    # get_or_create handles the first request; select_for_update serializes later
-    # updates so concurrent workers cannot bypass the configured attempt count.
-    AuthThrottleState.objects.get_or_create(
-        key=key,
-        defaults={
-            "action": action,
-            "scope": scope,
-            "identifier_hash": identifier_hash,
-            "window_started_at": now,
-            "last_attempt_at": now,
-        },
-    )
-    return AuthThrottleState.objects.select_for_update().get(key=key)
+@dataclass(frozen=True)
+class _ScopeOutcome:
+    scope: str
+    attempt_count: int
+    retry_after: int
+    allowed: bool
 
 
-def _advance_state(
+_ADVANCED_FIELDS = ["attempt_count", "window_started_at", "last_attempt_at", "blocked_until"]
+
+
+def _lock_states(keys: list[str]) -> dict[str, AuthThrottleState]:
+    # Lock in key order so two requests sharing a row (one IP, two accounts) can never deadlock.
+    rows = AuthThrottleState.objects.select_for_update().filter(key__in=keys).order_by("key")
+    return {row.key: row for row in rows}
+
+
+def _apply_attempt(state: AuthThrottleState, scope: str, policy: ThrottlePolicy, failure: bool, now) -> tuple[_ScopeOutcome, bool]:
+    """Advance one locked counter in memory; the bool says whether it must be written back."""
+    window_end = state.window_started_at + timedelta(seconds=policy.window_seconds)
+    if now >= window_end:
+        state.attempt_count = 0
+        state.window_started_at = now
+        state.blocked_until = None
+
+    # A second concurrent worker must observe the first worker's lock before
+    # incrementing or sending another OTP.
+    if state.blocked_until and state.blocked_until > now:
+        return _ScopeOutcome(scope, state.attempt_count, _retry_seconds(state.blocked_until), False), False
+
+    state.attempt_count += 1
+    state.last_attempt_at = now
+    limit = _limit_for(policy, scope)
+    if state.attempt_count >= limit:
+        state.blocked_until = now + timedelta(seconds=policy.lockout_seconds)
+    elif failure and policy.progressive_delay:
+        # 10, 20, 40, 60... seconds. Starting at ten seconds ensures the
+        # delay remains meaningful even when password hashing is deliberately slow.
+        delay = min(10 * (2 ** max(0, state.attempt_count - 1)), 60)
+        state.blocked_until = now + timedelta(seconds=delay)
+    elif state.blocked_until and state.blocked_until <= now:
+        state.blocked_until = None
+
+    retry_after = _retry_seconds(state.blocked_until) if state.blocked_until and state.blocked_until > now else 0
+    return _ScopeOutcome(scope, state.attempt_count, retry_after, True), True
+
+
+def _advance_states(
     action: str,
-    scope: str,
-    identifier: str,
+    account: str,
+    ip_address: str,
     policy: ThrottlePolicy,
+    *,
     failure: bool,
-) -> tuple[int, int, bool]:
+    stop_when_blocked: bool,
+) -> list[_ScopeOutcome]:
+    """Advance the account counter, then the IP counter, in a single transaction.
+
+    Why one transaction: this runs on every OTP send and every login, against a
+    database that is a network round trip away. Counting each scope in its own
+    transaction with get_or_create + select_for_update + save cost 10 statements
+    per call (16 on a first send), which was most of a verification-code request.
+    This is 4 when both rows exist and 6 when either must be created.
+    """
     now = timezone.now()
+    targets = []
+    for scope, identifier in _identifiers(account, ip_address):
+        key, identifier_hash = _state_key(action, scope, identifier)
+        targets.append((scope, key, identifier_hash))
+    keys = [key for _, key, _ in targets]
+
+    outcomes: list[_ScopeOutcome] = []
     with transaction.atomic():
-        state = _locked_state(action, scope, identifier, now)
-        window_end = state.window_started_at + timedelta(seconds=policy.window_seconds)
-        if now >= window_end:
-            state.attempt_count = 0
-            state.window_started_at = now
-            state.blocked_until = None
-            window_end = now + timedelta(seconds=policy.window_seconds)
+        states = _lock_states(keys)
+        missing = sorted((key, scope, identifier_hash) for scope, key, identifier_hash in targets if key not in states)
+        if missing:
+            # ON CONFLICT DO NOTHING absorbs a concurrent first request; the re-select
+            # then locks whichever row won, so the attempt count stays serialized.
+            AuthThrottleState.objects.bulk_create(
+                [
+                    AuthThrottleState(
+                        key=key,
+                        action=action,
+                        scope=scope,
+                        identifier_hash=identifier_hash,
+                        attempt_count=0,
+                        window_started_at=now,
+                        last_attempt_at=now,
+                    )
+                    for key, scope, identifier_hash in missing
+                ],
+                ignore_conflicts=True,
+            )
+            states = _lock_states(keys)
 
-        # A second concurrent worker must observe the first worker's lock before
-        # incrementing or sending another OTP.
-        if state.blocked_until and state.blocked_until > now:
-            return state.attempt_count, _retry_seconds(state.blocked_until), False
-
-        state.attempt_count += 1
-        state.last_attempt_at = now
-        limit = _limit_for(policy, scope)
-        if state.attempt_count >= limit:
-            state.blocked_until = now + timedelta(seconds=policy.lockout_seconds)
-        elif failure and policy.progressive_delay:
-            # 10, 20, 40, 60... seconds. Starting at ten seconds ensures the
-            # delay remains meaningful even when password hashing is deliberately slow.
-            delay = min(10 * (2 ** max(0, state.attempt_count - 1)), 60)
-            state.blocked_until = now + timedelta(seconds=delay)
-        elif state.blocked_until and state.blocked_until <= now:
-            state.blocked_until = None
-
-        state.save(
-            update_fields=["attempt_count", "window_started_at", "last_attempt_at", "blocked_until"]
-        )
-        retry_after = _retry_seconds(state.blocked_until) if state.blocked_until and state.blocked_until > now else 0
-        return state.attempt_count, retry_after, True
+        changed = []
+        for scope, key, _ in targets:
+            state = states[key]
+            outcome, dirty = _apply_attempt(state, scope, policy, failure, now)
+            outcomes.append(outcome)
+            if dirty:
+                changed.append(state)
+            if stop_when_blocked and not outcome.allowed:
+                break
+        if changed:
+            AuthThrottleState.objects.bulk_update(changed, _ADVANCED_FIELDS)
+    return outcomes
 
 
 def record_failure(action: str, account: str, ip_address: str, policy: ThrottlePolicy) -> FailureResult:
-    account_count = 0
-    retry_after = 0
-    for scope, identifier in _identifiers(account, ip_address):
-        count, scope_retry, _ = _advance_state(action, scope, identifier, policy, failure=True)
-        if scope == "account":
-            account_count = count
-        retry_after = max(retry_after, scope_retry)
-    return FailureResult(account_count=account_count, retry_after=retry_after)
+    outcomes = _advance_states(action, account, ip_address, policy, failure=True, stop_when_blocked=False)
+    account_count = next((o.attempt_count for o in outcomes if o.scope == "account"), 0)
+    return FailureResult(account_count=account_count, retry_after=max((o.retry_after for o in outcomes), default=0))
 
 
 def consume_event(action: str, account: str, ip_address: str, policy: ThrottlePolicy) -> int:
     """Count a permitted OTP send; the request reaching the limit still succeeds."""
-    for scope, identifier in _identifiers(account, ip_address):
-        _, retry_after, allowed = _advance_state(action, scope, identifier, policy, failure=False)
-        if not allowed:
-            return retry_after
+    # A blocked account stops before the IP counter is touched, as before.
+    for outcome in _advance_states(action, account, ip_address, policy, failure=False, stop_when_blocked=True):
+        if not outcome.allowed:
+            return outcome.retry_after
     return 0
 
 

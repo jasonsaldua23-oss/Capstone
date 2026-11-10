@@ -49,7 +49,9 @@ import {
 } from './shared'
 import { buildDeliveredTransactions, deliveredTransactionPin } from '@/lib/delivered-transactions'
 import { LiveTrackingPage } from '@/components/portals/shared/live-tracking-page'
+import { useVehicleIncidents } from '@/components/portals/shared/use-vehicle-incidents'
 import { toMapWarehouses } from '@/components/shared/live-tracking/warehouse-markers'
+import { withIncidentMarkers } from '@/lib/vehicle-incidents'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -618,7 +620,9 @@ export function TrackingView() {
     return { locations, routeLines }
   }, [deliveredTransactions, driverLocations, ordersForMap, trackingDate, tripPaths, trips])
 
-  const mapLocations = mapData.locations
+  // Administrators see where each incident is and how it stands; the warehouse responds.
+  const { incidents, isLoading: isLoadingIncidents } = useVehicleIncidents({ date: trackingDate })
+  const mapLocations = useMemo(() => withIncidentMarkers(mapData.locations, incidents), [incidents, mapData.locations])
   const routeLines = mapData.routeLines
 
   const mapCenter = (mapLocations[0]
@@ -635,6 +639,8 @@ export function TrackingView() {
       deliveries={deliveredTransactions}
       recentLocations={recentLocations}
       isLoadingTrips={isLoading}
+      incidents={incidents}
+      isLoadingIncidents={isLoadingIncidents}
       map={
         <LiveTrackingMap
           locations={mapLocations}

@@ -18,6 +18,7 @@ import type { DriverOption, SavedRouteDraft, WarehouseOrderItem } from '../../wa
 import { Warehouse, Loader2, Route } from 'lucide-react'
 import { TripLoadSummary } from '@/components/shared/trip-load-summary'
 import type { WarehouseRoutePlanning } from './use-warehouse-route-planning'
+import { DriverDayNotice } from './driver-day-notice'
 
 /**
  * Creates a trip from a saved route draft: driver, vehicle and load checks.
@@ -141,6 +142,9 @@ export function WarehouseCreateTripDialog({
               <p className="text-xs text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
             ) : null}
           </div>
+          {selectedRouteDriverId && selectedSavedRoute ? (
+            <DriverDayNotice driverId={selectedRouteDriverId} driverName={selectedDriverName} date={selectedSavedRoute.date} />
+          ) : null}
           <TripLoadSummary
             totalCases={selectedSavedRouteLoad.totalCases}
             totalWeight={selectedSavedRouteLoad.totalWeight}

@@ -41,8 +41,13 @@ const TripHistoryBadge = ({ trip }: { trip: Trip }) => {
 // One line saying when the trip left the driver's active list, per history status.
 const describeHistoryMoment = (trip: Trip, formatDate: (value?: string | null) => string) => {
   const status = getTripDisplayStatus(trip)
-  if (status === 'COMPLETED') return `Completed: ${formatDate(trip.actualEndAt || trip.updatedAt)}`
+  if (status === 'COMPLETED') {
+    const ended = `Completed: ${formatDate(trip.actualEndAt || trip.updatedAt)}`
+    return trip.transferredToNumber ? `${ended} - load transferred to ${trip.transferredToNumber}` : ended
+  }
   if (status === 'OVERDUE') return `Scheduled: ${formatTripScheduledDay(trip)} - not started`
+  // The warehouse's reason, when it cancelled the trip (views_trips.trip_cancel).
+  if (trip.cancellationReason) return `Cancelled: ${formatDate(trip.cancelledAt || trip.updatedAt)} - ${trip.cancellationReason}`
   return `Cancelled: ${formatDate(trip.updatedAt)} - scheduled ${formatTripScheduledDay(trip)}`
 }
 

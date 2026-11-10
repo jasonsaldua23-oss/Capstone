@@ -20,6 +20,7 @@ import { ProfileView } from './sections/profile/profile-view'
 import { TripDetailView } from './sections/trips/trip-detail-view'
 import { TripDetailsView } from './sections/trips/trip-details-view'
 import { TripsListView } from './sections/trips/trips-list-view'
+import { CancelledTripNotice } from './sections/trips/cancelled-trip-notice'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { PullToRefresh } from '../shared/pull-to-refresh'
 
@@ -229,6 +230,10 @@ export function DriverPortal() {
               {activeView === 'trips' && selectedTripId && (() => {
                 const selectedTrip = trips.find((t) => t.id === selectedTripId) ?? null
                 if (!selectedTrip) return null
+                // Cancelled, or its load moved to another truck, while open: nothing on it is left to deliver.
+                if (String(selectedTrip.status || '').toUpperCase() === 'CANCELLED' || selectedTrip.transferredToNumber) {
+                  return <CancelledTripNotice trip={selectedTrip} onBack={() => setSelectedTripId(null)} />
+                }
                 return (
                   // Detailed operational workflow for one selected trip.
                   <TripDetailView

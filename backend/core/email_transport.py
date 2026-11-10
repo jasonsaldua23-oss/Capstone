@@ -23,11 +23,23 @@ _GMAIL_API_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
 
 _GMAIL_API_COOLDOWN_SECONDS = 300
 
+# A refresh token Google calls invalid stays invalid until someone replaces it, so
+# retrying every five minutes only delays that one email by a failed round trip.
+_GMAIL_API_CREDENTIAL_COOLDOWN_SECONDS = 6 * 60 * 60
+
+_GMAIL_API_CREDENTIAL_ERRORS = frozenset({"invalid_grant", "invalid_client", "unauthorized_client"})
+
 _gmail_api_disabled_until = 0.0
 
 _BREVO_COOLDOWN_SECONDS = 300
 
 _brevo_disabled_until = 0.0
+
+# A blocked port or revoked app password fails the same way for every email; skip
+# SMTP for a while rather than make each one wait out EMAIL_TIMEOUT first.
+_SMTP_COOLDOWN_SECONDS = 300
+
+_smtp_disabled_until = 0.0
 
 _sender_identity_checked = False
 
@@ -72,16 +84,45 @@ def _get_gmail_api_access_token() -> str:
             },
             timeout=15,
         )
-        resp.raise_for_status()
+    except requests.RequestException as exc:
+        _mark_gmail_api_failed()
+        logger.warning("Gmail API token refresh unreachable (%s); using the fallback transport for %ss", exc, _GMAIL_API_COOLDOWN_SECONDS)
+        return ""
+
+    if not resp.ok:
+        # Google puts the actual reason in the body; a bare "400 Bad Request" hid a
+        # revoked refresh token for weeks while every email paid for the retry.
+        try:
+            reason = resp.json()
+        except ValueError:
+            reason = {}
+        error = str(reason.get("error") or f"HTTP {resp.status_code}")
+        description = str(reason.get("error_description") or "").strip()
+        cooldown = _GMAIL_API_CREDENTIAL_COOLDOWN_SECONDS if error in _GMAIL_API_CREDENTIAL_ERRORS else _GMAIL_API_COOLDOWN_SECONDS
+        _mark_gmail_api_failed(cooldown)
+        hint = " The refresh token is expired or revoked: mint a new one with backend/get_gmail_refresh_token.py." if error == "invalid_grant" else ""
+        logger.warning(
+            "Gmail API token refresh rejected: %s%s. Mail goes through the fallback transport for %ss.%s",
+            error,
+            f" ({description})" if description else "",
+            cooldown,
+            hint,
+        )
+        return ""
+
+    try:
         data = resp.json()
         token = data.get("access_token", "")
         expires_in = int(data.get("expires_in", 3600))
-        if token:
-            _GMAIL_API_TOKEN_CACHE["token"] = token
-            _GMAIL_API_TOKEN_CACHE["expires_at"] = now + expires_in
-            return token
-    except Exception:
-        logger.exception("Failed to refresh Gmail API access token")
+    except (ValueError, TypeError):
+        logger.exception("Gmail API token response was not usable")
+        _mark_gmail_api_failed()
+        return ""
+    if token:
+        _GMAIL_API_TOKEN_CACHE["token"] = token
+        _GMAIL_API_TOKEN_CACHE["expires_at"] = now + expires_in
+        return token
+    _mark_gmail_api_failed()
     return ""
 
 
@@ -157,9 +198,9 @@ def _gmail_api_available() -> bool:
     return monotonic() >= _gmail_api_disabled_until
 
 
-def _mark_gmail_api_failed() -> None:
+def _mark_gmail_api_failed(cooldown_seconds: int = _GMAIL_API_COOLDOWN_SECONDS) -> None:
     global _gmail_api_disabled_until
-    _gmail_api_disabled_until = monotonic() + _GMAIL_API_COOLDOWN_SECONDS
+    _gmail_api_disabled_until = monotonic() + cooldown_seconds
 
 
 class BrevoUnavailable(RuntimeError):
@@ -252,6 +293,57 @@ def _warn_on_mismatched_sender_identity() -> None:
         )
 
 
+# Mailbox providers whose addresses Brevo will not send as. Brevo rewrites such a
+# sender to <account>.brevosend.com, and Gmail enforces that shared domain's DMARC
+# p=reject: on 2026-11-09 it started bouncing every code ("550 5.7.26 Unauthenticated
+# email from brevosend.com"). Brevo had already answered 201, so the app reported the
+# code as sent and nothing ever reached the inbox.
+_FREE_MAILBOX_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "outlook.com",
+    "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "aol.com",
+})
+
+
+def _smtp_configured() -> bool:
+    return bool(getattr(settings, "EMAIL_HOST_USER", "") and getattr(settings, "EMAIL_HOST_PASSWORD", ""))
+
+
+def _smtp_available() -> bool:
+    return monotonic() >= _smtp_disabled_until
+
+
+def _mark_smtp_failed() -> None:
+    global _smtp_disabled_until
+    _smtp_disabled_until = monotonic() + _SMTP_COOLDOWN_SECONDS
+
+
+def _brevo_sender_is_free_mailbox() -> bool:
+    sender = _normalize_email(getattr(settings, "OTP_FROM_EMAIL", ""))
+    return sender.rpartition("@")[2] in _FREE_MAILBOX_DOMAINS
+
+
+def _smtp_before_brevo() -> bool:
+    """SMTP signs as the Gmail account itself, so it passes Gmail's DMARC check.
+
+    Brevo only goes first when its sender is on a domain it can authenticate.
+    """
+    if not _smtp_configured():
+        return False
+    brevo_configured = bool(str(getattr(settings, "BREVO_API_KEY", "") or "").strip())
+    return not brevo_configured or _brevo_sender_is_free_mailbox()
+
+
+def _send_via_smtp(*, subject: str, text: str, html: str, recipient: str) -> None:
+    send_mail(
+        subject=subject,
+        message=text,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[recipient],
+        fail_silently=False,
+        html_message=html,
+    )
+
+
 def _dispatch_email(*, subject: str, text: str, html: str, recipient: str) -> None:
     """Send one message through the first transport that is configured and healthy."""
     _warn_on_mismatched_sender_identity()
@@ -264,21 +356,34 @@ def _dispatch_email(*, subject: str, text: str, html: str, recipient: str) -> No
             _mark_gmail_api_failed()
             logger.exception("Gmail API send failed for %s; falling back", recipient)
 
+    smtp_error: Exception | None = None
+    smtp_first = _smtp_before_brevo()
+    if smtp_first and _smtp_available():
+        try:
+            _send_via_smtp(subject=subject, text=text, html=html, recipient=recipient)
+            return
+        except Exception as exc:
+            smtp_error = exc
+            _mark_smtp_failed()
+            logger.exception("SMTP send failed for %s; falling back to Brevo", recipient)
+
     if str(getattr(settings, "BREVO_API_KEY", "") or "").strip():
         try:
             if _send_via_brevo(subject=subject, message=text, recipient=recipient, html_message=html):
+                if smtp_first:
+                    logger.warning(
+                        "Sent %s through Brevo as %s; Gmail may bounce it (DMARC) because Brevo "
+                        "rewrites free-mailbox senders to brevosend.com",
+                        recipient,
+                        _normalize_email(getattr(settings, "OTP_FROM_EMAIL", "")),
+                    )
                 return
         except Exception:
             logger.exception("Brevo send failed for %s; falling back to SMTP", recipient)
 
-    send_mail(
-        subject=subject,
-        message=text,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[recipient],
-        fail_silently=False,
-        html_message=html,
-    )
+    if smtp_error is not None:
+        raise RuntimeError(f"Every email transport failed for {recipient}") from smtp_error
+    _send_via_smtp(subject=subject, text=text, html=html, recipient=recipient)
 
 
 def _start_email_delivery(deliver) -> None:

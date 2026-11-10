@@ -8,12 +8,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
-import { CalendarClock, Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
+import { ArrowRightLeft, Ban, CalendarClock, Circle, Clock3, Eye, Loader2, MapPin, Pencil, Trash2, Truck, User, Warehouse } from 'lucide-react'
 import { DepositRefundRow, EmptiesExchangeRow, getOrderTotalWithEmpties } from '@/components/shared/empties-charge-note'
 import { TRIP_LIST_SORT_OPTIONS, sortTripsForList, type TripListSort } from '@/components/portals/shared/trip-list-sort'
-import { ACTION_ADVANCE } from '@/components/portals/shared/row-actions'
+import { ACTION_ADVANCE, ACTION_REFUSE } from '@/components/portals/shared/row-actions'
 import { isTripOverdue } from '@/lib/trip-schedule'
+import { describeTripRoute } from '@/lib/trip-route'
 import { WarehouseRescheduleTripDialog } from './sections/trips/reschedule-trip-dialog'
+import { WarehouseCancelTripDialog, type CancelTripRequest } from './sections/trips/cancel-trip-dialog'
+import { WarehouseTransferLoadDialog, type TransferLoadRequest } from './sections/trips/transfer-load-dialog'
+import type { DriverOption } from './warehouse-portal-types'
 
 type TripDropPointItem = {
   id: string
@@ -39,12 +43,23 @@ type TripItem = {
   scheduledDate?: string | null
   isOverdue?: boolean
   actualEndAt?: string | null
+  // Set when the warehouse cancelled the trip (views_trips.trip_cancel).
+  cancelledAt?: string | null
+  cancelledByName?: string | null
+  cancellationReason?: string | null
+  // A load transfer after a breakdown (views_trips.trip_transfer): the trip that took
+  // the load over names the one it came from, and that one names where it went.
+  transferredFromNumber?: string | null
+  transferredToNumber?: string | null
+  transferredAt?: string | null
+  transferReason?: string | null
   createdAt?: string | null
   updatedAt?: string | null
   totalDropPoints?: number
   completedDropPoints?: number
   cashCollectedTotal?: number
   driver?: {
+    id?: string
     name?: string
     user?: {
       name?: string
@@ -68,6 +83,9 @@ type WarehouseTripsSectionProps = {
   onEditTrip: (trip: TripItem) => void
   onDeleteTrip: (trip: TripItem) => void
   onRescheduleTrip: (trip: TripItem, scheduledDate: string) => Promise<boolean>
+  onCancelTrip: (trip: TripItem, request: CancelTripRequest) => Promise<boolean>
+  onTransferTrip: (trip: TripItem, request: TransferLoadRequest) => Promise<boolean>
+  drivers: DriverOption[]
   onUnassignOrderItems?: (tripId: string, orderId: string, warehouseId: string, itemIds: string[]) => void
   availableOrders: Array<{
     id: string
@@ -95,12 +113,22 @@ export function WarehouseTripsSection({
   onEditTrip,
   onDeleteTrip,
   onRescheduleTrip,
+  onCancelTrip,
+  onTransferTrip,
+  drivers,
   availableOrders,
   onEditTripDropPoints,
   editingTripId,
 }: WarehouseTripsSectionProps) {
   const [tripPageSelection, setTripPageSelection] = useState({ scope: '', page: 1 })
   const [reschedulingTrip, setReschedulingTrip] = useState<TripItem | null>(null)
+  const [cancellingTrip, setCancellingTrip] = useState<TripItem | null>(null)
+  const [transferringTrip, setTransferringTrip] = useState<TripItem | null>(null)
+  // Drivers on the road cannot take over a load: one driver runs one trip at a time.
+  const busyDriverIds = useMemo(
+    () => new Set(scopedTrips.filter((trip) => String(trip.status || '').toUpperCase() === 'IN_PROGRESS').map((trip) => String(trip.driver?.id || '')).filter(Boolean)),
+    [scopedTrips]
+  )
   const [tripStatusFilter, setTripStatusFilter] = useState('ALL')
   const [tripSort, setTripSort] = useState<TripListSort>('DELIVERY_DATE')
   const tripsPageSize = 10
@@ -429,6 +457,20 @@ export function WarehouseTripsSection({
   }
 
   const canDeleteTrip = (trip: TripItem) => getEffectiveTripStatus(trip) === 'PLANNED'
+  // A trip can be cancelled until it is completed; trip_cancel keeps it on record.
+  const canCancelTrip = (trip: TripItem) => ['PLANNED', 'IN_PROGRESS'].includes(getEffectiveTripStatus(trip))
+  const describeCancellation = (trip: TripItem) => {
+    if (!trip.cancellationReason) return null
+    const when = trip.cancelledAt
+      ? new Date(trip.cancelledAt).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : ''
+    return `Cancelled${trip.cancelledByName ? ` by ${trip.cancelledByName}` : ''}${when ? ` on ${when}` : ''}: ${trip.cancellationReason}`
+  }
+  const describeTransfer = (trip: TripItem) => {
+    if (trip.transferredToNumber) return `Load transferred to ${trip.transferredToNumber}: ${trip.transferReason || ''}`.trim()
+    if (trip.transferredFromNumber) return `Takes over the load of ${trip.transferredFromNumber}: ${trip.transferReason || ''}`.trim()
+    return null
+  }
   const hasMultiWarehouseDropPoint = (trip: TripItem): boolean => {
     const points = Array.isArray(trip?.dropPoints) ? trip.dropPoints : []
     return points.some((point: any) => {
@@ -641,7 +683,7 @@ export function WarehouseTripsSection({
                         Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} | Driver: {trip.driver?.name || trip.driver?.user?.name || 'Unassigned'}
                       </p>
                       <p className="text-[13px] text-gray-600">
-                        Route: {(trip.warehouse?.name || assignedWarehouseName || 'Warehouse')} {'->'} {(trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination')}
+                        Route: {describeTripRoute(trip, trip.warehouse?.name || assignedWarehouseName)}
                       </p>
                       <p className={`text-[13px] ${tripIsOverdue ? 'font-medium text-amber-700' : 'text-gray-600'}`}>
                         Schedule: {formatTripSchedule(trip.tripSchedule)}{tripIsOverdue ? ' (passed without starting)' : ''}
@@ -651,9 +693,16 @@ export function WarehouseTripsSection({
                           Cash collected: {formatPeso(Number(trip.cashCollectedTotal || 0))}
                         </p>
                       ) : null}
+                      {statusKey === 'CANCELLED' && describeCancellation(trip) && !trip.transferredToNumber ? (
+                        <p className="text-[13px] font-medium text-red-700">{describeCancellation(trip)}</p>
+                      ) : null}
+                      {describeTransfer(trip) ? (
+                        <p className="text-[13px] font-medium text-sky-800">{describeTransfer(trip)}</p>
+                      ) : null}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
-                      {tripIsOverdue ? (
+                      {/* Any planned trip can move to another day, not only one that missed its own. */}
+                      {statusKey === 'PLANNED' ? (
                         <Button
                           size="sm"
                           className={`h-8 px-3 text-xs ${ACTION_ADVANCE}`}
@@ -664,6 +713,34 @@ export function WarehouseTripsSection({
                         >
                           <CalendarClock className="size-3.5" />
                           Reschedule
+                        </Button>
+                      ) : null}
+                      {/* After an accident or breakdown, another truck takes the undelivered stops. */}
+                      {statusKey === 'IN_PROGRESS' ? (
+                        <Button
+                          size="sm"
+                          className={`h-8 px-3 text-xs ${ACTION_ADVANCE}`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setTransferringTrip(trip)
+                          }}
+                        >
+                          <ArrowRightLeft className="size-3.5" />
+                          Transfer Load
+                        </Button>
+                      ) : null}
+                      {canCancelTrip(trip) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className={`h-8 px-3 text-xs ${ACTION_REFUSE}`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setCancellingTrip(trip)
+                          }}
+                        >
+                          <Ban className="size-3.5" />
+                          Cancel Trip
                         </Button>
                       ) : null}
                       <Button
@@ -766,6 +843,12 @@ export function WarehouseTripsSection({
                     </span>
                   ) : null}
                 </div>
+                {statusKey === 'CANCELLED' && describeCancellation(selectedTrip) && !selectedTrip.transferredToNumber ? (
+                  <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{describeCancellation(selectedTrip)}</p>
+                ) : null}
+                {describeTransfer(selectedTrip) ? (
+                  <p className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">{describeTransfer(selectedTrip)}</p>
+                ) : null}
               </div>
               <div className="space-y-4 px-5 py-5">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/35 p-4">
@@ -1282,6 +1365,20 @@ export function WarehouseTripsSection({
       </Dialog>
 
       {/* Keyed by trip so each opening starts from today's date. */}
+      <WarehouseTransferLoadDialog
+        key={`transfer-${transferringTrip?.id || 'closed'}`}
+        trip={transferringTrip}
+        drivers={drivers}
+        busyDriverIds={busyDriverIds}
+        onClose={() => setTransferringTrip(null)}
+        onTransfer={(request) => (transferringTrip ? onTransferTrip(transferringTrip, request) : Promise.resolve(false))}
+      />
+      <WarehouseCancelTripDialog
+        key={`cancel-${cancellingTrip?.id || 'closed'}`}
+        trip={cancellingTrip}
+        onClose={() => setCancellingTrip(null)}
+        onCancelTrip={(request) => (cancellingTrip ? onCancelTrip(cancellingTrip, request) : Promise.resolve(false))}
+      />
       <WarehouseRescheduleTripDialog
         key={reschedulingTrip?.id || 'closed'}
         trip={reschedulingTrip}

@@ -7,6 +7,7 @@ from typing import Any
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
+from django.db.models.functions import Coalesce
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -21,6 +22,7 @@ from .inventory_overstock import _attach_recent_sales_units, _inventory_overstoc
 from .mixed_case import serialize_mixed_component
 from .models import (
     Customer,
+    EmptiesStockCorrection,
     Inventory,
     InventoryQuantityUnit,
     InventoryReservation,
@@ -387,6 +389,105 @@ def record_returned_empty_containers(request: HttpRequest) -> JsonResponse:
             notes=f"Warehouse return: {quantity} {container_unit.lower()}(s). {str(body.get('remarks') or '').strip()}",
         )
     return _ok({"success": True, "returnedBottles": returned_bottles, "message": "Empty stock returned"}, 201)
+
+
+# Incomplete returns are rare; they are read whole and paged in memory.
+_SHORTFALL_LIST_LIMIT = 5000
+
+
+@require_GET
+def empties_shortfalls(request: HttpRequest) -> JsonResponse:
+    """Delivered orders whose customer handed over fewer empties than they declared.
+
+    How an incomplete return is handled (empties_verification.record_collected_empties):
+    the driver counts each product's empties at the stop; the deposit for the missing
+    bottles is added to the order's amount due, which the driver collects; and only the
+    bottles that arrived enter the warehouse's empty stock. This lists the outcome,
+    newest delivery first. Read-only: admins see every warehouse, warehouse staff their own.
+    """
+    staff, err = _require_staff(request)
+    if err:
+        return err
+    # Drivers pass _require_staff too; the role comes from the database.
+    viewer = User.objects.filter(id=str(staff.get("userId") or "").strip(), is_active=True).first()
+    role = str(getattr(viewer, "role", "") or "").strip().upper()
+    if viewer is None or role not in {"ADMIN", "WAREHOUSE_STAFF"}:
+        return _err("Forbidden", 403)
+    page, size, off = _pagination(request)
+
+    corrections = EmptiesStockCorrection.objects.filter(order__status="DELIVERED")
+    allowed_warehouse_ids: set[str] | None = None
+    if role == "WAREHOUSE_STAFF":
+        allowed_warehouse_ids = {str(value) for value in _get_allowed_warehouse_ids_for_staff(str(viewer.id))}
+        corrections = corrections.filter(order__warehouse_id__in=allowed_warehouse_ids)
+    requested_warehouse_id = str(request.GET.get("warehouseId") or "").strip()
+    if requested_warehouse_id:
+        if allowed_warehouse_ids is not None and requested_warehouse_id not in allowed_warehouse_ids:
+            return _err("Forbidden", 403)
+        corrections = corrections.filter(order__warehouse_id=requested_warehouse_id)
+
+    # Orders with a missing bottle, with every product counted on them: one brand
+    # handed over in place of another nets out within the order.
+    rows = list(
+        corrections.filter(order_id__in=corrections.filter(bottles__lt=0).values("order_id"))
+        .select_related("order__customer", "product", "bottle_return")
+        .annotate(delivered_at=Coalesce("order__timeline__delivered_at", "order__pod_submitted_at", "order__created_at"))
+        .order_by("-delivered_at", "order_id", "product__name")[:_SHORTFALL_LIST_LIMIT]
+    )
+    warehouse_names = dict(
+        Warehouse.objects.filter(id__in={row.order.warehouse_id for row in rows if row.order.warehouse_id})
+        .values_list("id", "name")
+    )
+    charges = legacy.empties_adjustments_for_orders(list(dict.fromkeys(row.order_id for row in rows)))
+
+    shortfalls: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        order = row.order
+        entry = shortfalls.get(order.id)
+        if entry is None:
+            entry = shortfalls[order.id] = {
+                "orderId": order.id,
+                "orderNumber": order.order_number,
+                "customerName": str(getattr(order.customer, "name", "") or "").strip() or "Unavailable customer",
+                "warehouseId": order.warehouse_id,
+                "warehouseName": warehouse_names.get(order.warehouse_id) or "Unavailable warehouse",
+                "deliveredAt": row.delivered_at,
+                "returnNumber": row.bottle_return.return_number,
+                "countedBy": str(row.bottle_return.received_by or "").strip() or None,
+                "declaredBottles": 0,
+                "countedBottles": 0,
+                "missingBottles": 0,
+                "depositCharged": float((charges.get(str(order.id)) or {}).get("amount") or 0),
+                "lines": [],
+            }
+        missing = max(0, row.declared_bottles - row.counted_bottles)
+        entry["declaredBottles"] += row.declared_bottles
+        entry["countedBottles"] += row.counted_bottles
+        entry["missingBottles"] += missing
+        entry["lines"].append({
+            "productId": row.product_id,
+            "productName": row.product.name,
+            "productSku": row.product.sku,
+            "declaredBottles": row.declared_bottles,
+            "countedBottles": row.counted_bottles,
+            "missingBottles": missing,
+        })
+
+    listed = list(shortfalls.values())
+    total = len(listed)
+    return _ok({
+        "success": True,
+        "shortfalls": listed[off : off + size],
+        "summary": {
+            "orders": total,
+            "missingBottles": sum(entry["missingBottles"] for entry in listed),
+            "depositCharged": round(sum(entry["depositCharged"] for entry in listed), 2),
+        },
+        "total": total,
+        "page": page,
+        "pageSize": size,
+        "totalPages": (total + size - 1) // size,
+    })
 
 
 def _serialize_inventory_transactions_with_stock_changes(rows: list[InventoryTransaction]) -> list[dict[str, Any]]:
@@ -759,9 +860,19 @@ def resolve_expired_stock(request: HttpRequest) -> JsonResponse:
     return _ok({"success": True, "message": "Expired stock action recorded"}, 201)
 
 
+# Disposals are rare events; both sources are read whole and paged together in memory.
+_DISPOSAL_HISTORY_LIMIT = 5000
+
+
 @require_GET
 def disposed_stock_history(request: HttpRequest) -> JsonResponse:
-    """List warehouse-scoped disposal records with their retained batch details."""
+    """List warehouse-scoped disposal records with their retained batch details.
+
+    Expired batches disposed through resolve_expired_stock, and damaged stock disposed
+    through views_damaged_stock, newest first: both are stock written off as a loss.
+    """
+    from .views_damaged_stock import disposed_damaged_rows
+
     staff, err = _require_staff(request)
     if err:
         return err
@@ -773,14 +884,14 @@ def disposed_stock_history(request: HttpRequest) -> JsonResponse:
     )
     staff_role = str(staff.get("role") or "").strip().upper()
     staff_user_id = str(staff.get("userId") or "").strip()
+    allowed_warehouse_ids = None
     if staff_role == "WAREHOUSE_STAFF" and staff_user_id:
-        allowed_warehouse_ids = _get_allowed_warehouse_ids_for_staff(staff_user_id)
+        allowed_warehouse_ids = {str(value) for value in _get_allowed_warehouse_ids_for_staff(staff_user_id)}
         if not allowed_warehouse_ids:
             return _ok({"success": True, "disposals": [], "total": 0, "page": page, "pageSize": size, "totalPages": 0})
         qs = qs.filter(warehouse_id__in=allowed_warehouse_ids)
 
-    total = qs.count()
-    rows = list(qs[off : off + size])
+    rows = list(qs[:_DISPOSAL_HISTORY_LIMIT])
     # Existing disposal ledger rows store the batch ID in their immutable notes.
     # Batches are retained after disposal, allowing their expiry details to remain visible.
     batch_id_by_transaction: dict[str, str] = {}
@@ -813,5 +924,16 @@ def disposed_stock_history(request: HttpRequest) -> JsonResponse:
             "lossUnitPrice": row.loss_unit_price,
             "lossAmount": row.loss_amount,
             "lossBasis": "LISTED_PRICE",
+            "source": "EXPIRED_STOCK",
         })
-    return _ok({"success": True, "disposals": disposals, "total": total, "page": page, "pageSize": size, "totalPages": (total + size - 1) // size})
+    disposals.extend(disposed_damaged_rows(allowed_warehouse_ids)[:_DISPOSAL_HISTORY_LIMIT])
+    disposals.sort(key=lambda row: (row["disposedAt"], str(row["id"])), reverse=True)
+    total = len(disposals)
+    return _ok({
+        "success": True,
+        "disposals": disposals[off : off + size],
+        "total": total,
+        "page": page,
+        "pageSize": size,
+        "totalPages": (total + size - 1) // size,
+    })

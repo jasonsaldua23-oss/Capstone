@@ -5,6 +5,14 @@ from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from .auth import create_token, hash_password
+from .auth_throttling import (
+    OTP_FAILURE_POLICY,
+    OTP_SEND_POLICY,
+    _identifier_hash,
+    check_limit,
+    consume_event,
+    record_failure,
+)
 from .models import AuthThrottleState, RoleType, User
 
 
@@ -157,3 +165,75 @@ class AuthenticationThrottleTests(TestCase):
         )
         self.assertEqual(delayed.status_code, 429)
         self.assertIn("Retry-After", delayed)
+
+
+class ThrottleRoundTripTests(TestCase):
+    """The throttle sits on every OTP send and login, a network round trip per statement.
+
+    Counting the account and IP scopes in separate transactions cost 10 statements
+    per call (16 on a first send), most of a verification-code request's latency.
+    """
+
+    action = "round_trip_probe"
+    account = "round.trip@example.com"
+    ip_address = "203.0.113.50"
+
+    def _counts(self) -> dict[str, int]:
+        return dict(
+            AuthThrottleState.objects.filter(action=self.action).values_list("scope", "attempt_count")
+        )
+
+    def test_consume_event_advances_both_scopes_in_one_transaction(self) -> None:
+        # First send creates both rows: begin, lock, insert, re-lock, update, commit.
+        with self.assertNumQueries(6):
+            self.assertEqual(consume_event(self.action, self.account, self.ip_address, OTP_SEND_POLICY), 0)
+        # Later sends find both rows: begin, lock, update, commit.
+        with self.assertNumQueries(4):
+            self.assertEqual(consume_event(self.action, self.account, self.ip_address, OTP_SEND_POLICY), 0)
+        self.assertEqual(self._counts(), {"account": 2, "ip": 2})
+
+    def test_check_limit_reads_both_scopes_in_one_query(self) -> None:
+        with self.assertNumQueries(1):
+            self.assertEqual(check_limit(self.action, self.account, self.ip_address, OTP_SEND_POLICY), 0)
+
+    def test_blocked_account_does_not_spend_the_ip_allowance(self) -> None:
+        # The send that reaches the account limit still succeeds.
+        for _ in range(OTP_SEND_POLICY.account_limit):
+            self.assertEqual(consume_event(self.action, self.account, self.ip_address, OTP_SEND_POLICY), 0)
+        self.assertEqual(self._counts(), {"account": 3, "ip": 3})
+
+        retry_after = consume_event(self.action, self.account, self.ip_address, OTP_SEND_POLICY)
+
+        self.assertGreater(retry_after, 0)
+        self.assertEqual(self._counts(), {"account": 3, "ip": 3})
+        self.assertEqual(check_limit(self.action, self.account, self.ip_address, OTP_SEND_POLICY), retry_after)
+
+    def test_blocked_ip_keeps_the_account_attempt_that_preceded_it(self) -> None:
+        # Same order as before the merge: the account is counted, then the IP refuses.
+        consume_event(self.action, "someone.else@example.com", self.ip_address, OTP_SEND_POLICY)
+        AuthThrottleState.objects.filter(action=self.action, scope="ip").update(
+            blocked_until=timezone.now() + timedelta(minutes=15),
+        )
+
+        retry_after = consume_event(self.action, self.account, self.ip_address, OTP_SEND_POLICY)
+
+        self.assertGreater(retry_after, 0)
+        account_row = AuthThrottleState.objects.get(
+            action=self.action,
+            scope="account",
+            identifier_hash=_identifier_hash("account", self.account),
+        )
+        self.assertEqual(account_row.attempt_count, 1)
+
+    def test_record_failure_counts_both_scopes_even_when_the_account_is_blocked(self) -> None:
+        record_failure(self.action, self.account, self.ip_address, OTP_FAILURE_POLICY)
+        AuthThrottleState.objects.filter(action=self.action, scope="account").update(
+            blocked_until=timezone.now() + timedelta(minutes=15),
+        )
+        AuthThrottleState.objects.filter(action=self.action, scope="ip").update(blocked_until=None)
+
+        result = record_failure(self.action, self.account, self.ip_address, OTP_FAILURE_POLICY)
+
+        self.assertEqual(result.account_count, 1)
+        self.assertGreater(result.retry_after, 0)
+        self.assertEqual(self._counts(), {"account": 1, "ip": 2})

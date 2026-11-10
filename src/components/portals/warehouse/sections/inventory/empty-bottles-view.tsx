@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Loader2, PackageCheck, Recycle, Search, Undo2 } from 'lucide-react'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { ExistingEmptiesReview } from '@/components/portals/shared/existing-empties-review'
+import { IncompleteEmptiesReturns } from './incomplete-empties-returns'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -293,7 +294,7 @@ export function WarehouseEmptyBottlesView({ warehouseId, readOnly = false, openE
                     ? ` and ${totals.looseBottles.toLocaleString()} ${totals.looseBottles === 1 ? 'glass bottle' : 'glass bottles'}`
                     : ''}
                 </p>
-                <p className="mt-0.5 text-[11px] text-slate-500">Received from delivered customer orders</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">Counted by drivers on delivered customer orders</p>
               </div>
               <div className="rounded-xl bg-emerald-100 p-2.5 text-emerald-600">
                 <Recycle className="h-5 w-5" />
@@ -410,6 +411,8 @@ export function WarehouseEmptyBottlesView({ warehouseId, readOnly = false, openE
           )}
         </CardContent>
       </Card>
+
+      <IncompleteEmptiesReturns key={warehouseId || 'all'} warehouseId={warehouseId} />
 
       <ReturnedEmptiesHistory key={`${warehouseId || 'all'}-${historyRevision}`} warehouseId={warehouseId} />
 

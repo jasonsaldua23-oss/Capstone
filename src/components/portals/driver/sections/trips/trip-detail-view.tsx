@@ -18,7 +18,9 @@ import { calculateNavigationViewportInsets, type NavigationViewportInsets } from
 import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import { DriverGpsLocation, DropPoint, mergeDropPointIntoTrip, stripPhilippinesFromAddress, TERMINAL_DROP_POINT_STATUSES, Trip } from './trip-detail-helpers'
-import { Phone, Navigation, CheckCircle, AlertCircle, Camera, ChevronLeft, Play, Flag, Loader2, Route, LocateFixed, Volume2, VolumeX, Plus, Minus } from 'lucide-react'
+import { Phone, Navigation, CheckCircle, AlertCircle, AlertTriangle, Camera, ChevronLeft, Play, Flag, Loader2, Route, LocateFixed, Volume2, VolumeX, Plus, Minus } from 'lucide-react'
+import { incidentProgressLabel, incidentTypeLabel, vehicleStoppedMessage } from '@/lib/vehicle-incidents'
+import { clampEmptiesCount, countedBottles, uncoveredDeposit, type EmptiesCount, type EmptiesDeclaration } from '@/lib/empties-count'
 import { NavInstructionsPanel, type OsrmStep } from '@/components/shared/NavInstructionsPanel'
 import { isAutomaticallyRetryableWriteStatus, waitForDriverWriteRetry } from './trip-detail-retry'
 import {
@@ -35,6 +37,7 @@ import {
   getOverdueTripMessage,
   ACTIVE_TRIP_BLOCK_MESSAGE,
   speakNavigationPrompt,
+  transferPickupUrl,
 } from './trip-detail-format'
 import { useDriverTripsSnapshot } from '../layout/portal-state'
 import { uploadPodImage } from './trip-detail-camera'
@@ -45,6 +48,8 @@ import { DropPointDetailsDialog } from './drop-point-details-dialog'
 import { FailedDeliveryDialogs } from './failed-delivery-dialogs'
 import { PodCameraDialogs } from './pod-camera-dialogs'
 import { useTripPodCamera } from './use-trip-pod-camera'
+import { IncidentReportDialog, IncidentStatusDialog, VehicleStoppedNote } from './incident-report-dialog'
+import { reportableLocation, useTripIncident } from './use-trip-incident'
 
 const LiveTrackingMap = dynamic(() => import('@/components/shared/LiveTrackingMap'), {
   ssr: false,
@@ -115,6 +120,7 @@ export function TripDetailView({
     containerTypeName: string
     returnedQuantity: number
     returnedCases?: number
+    missingBottles?: number
     returnedLooseBottles?: number
   }>>>({})
 
@@ -156,6 +162,20 @@ export function TripDetailView({
       ? ACTIVE_TRIP_BLOCK_MESSAGE
       : null
   const [selectedDropPointForDetails, setSelectedDropPointForDetails] = useState<DropPoint | null>(null)
+
+  // Accident or vehicle damage on the road: reported here, flagged on the staff maps.
+  const [isIncidentReportOpen, setIsIncidentReportOpen] = useState(false)
+  const [isIncidentStatusOpen, setIsIncidentStatusOpen] = useState(false)
+  const { openIncident, stoppedBy, reportIncident } = useTripIncident({
+    tripId: trip.id,
+    enabled: trip.status === 'IN_PROGRESS',
+    currentLocation,
+  })
+  // The truck cannot move: no next stop until the warehouse transfers the load,
+  // cancels the trip, or clears the truck. A stop already reached can still be settled.
+  const vehicleStoppedNote = stoppedBy ? vehicleStoppedMessage(stoppedBy) : null
+  const incidentControlVisible = trip.status === 'IN_PROGRESS'
+  const openIncidentDialog = () => (openIncident ? setIsIncidentStatusOpen(true) : setIsIncidentReportOpen(true))
 
   // Mobile bottom sheet and map UX state.
   // Fix: one mounted sheet owns the whole drag, including its collapsed summary.
@@ -322,6 +342,8 @@ export function TripDetailView({
     ) : null
   const hasBlockingDialogOpen =
     isStartTripConfirmOpen ||
+    isIncidentReportOpen ||
+    isIncidentStatusOpen ||
     isArriveWarningOpen ||
     isDeliveredWarningOpen ||
     isFailedDeliveryActionWarningOpen ||
@@ -428,7 +450,9 @@ export function TripDetailView({
       declarationId?: string
       containerTypeId: string
       declaredQuantity?: number
+      declaredCases?: number
       depositValue?: number
+      shellDepositValue?: number
     }>
     if (!declaredEmpties.length) return 0
     const counted = returnedEmptiesByDropPoint[String(dropPoint?.id || '')] || []
@@ -437,11 +461,20 @@ export function TripDetailView({
       const declared = Math.max(0, Number(entry.declaredQuantity || 0))
       if (declared <= 0) continue
       const declarationId = entry.declarationId || entry.containerTypeId
-      const stored = counted.find((row) => (row.declarationId || row.containerTypeId) === declarationId)?.returnedQuantity
-      const collected = Math.min(Math.max(0, stored ?? declared), declared)
-      const short = declared - collected
-      if (short <= 0) continue
-      shortfall += (Number(entry.depositValue || 0) * short) / declared
+      const stored = counted.find((row) => (row.declarationId || row.containerTypeId) === declarationId)
+      const declaredCases = Math.max(0, Number(entry.declaredCases || 0))
+      shortfall += uncoveredDeposit(
+        {
+          declaredBottles: declared,
+          declaredCases,
+          depositValue: Number(entry.depositValue || 0),
+          shellDepositValue: Number(entry.shellDepositValue || 0),
+        },
+        {
+          bottles: Math.min(Math.max(0, stored?.returnedQuantity ?? declared), declared),
+          cases: stored?.returnedCases ?? declaredCases,
+        },
+      )
     }
     return Math.round(shortfall * 100) / 100
   }
@@ -536,6 +569,10 @@ export function TripDetailView({
   }
 
   const openArriveWarning = (dropPoint: DropPoint) => {
+    if (vehicleStoppedNote) {
+      toast.error(vehicleStoppedNote)
+      return
+    }
     setArriveTargetDropPointId(String(dropPoint.id || ''))
     setArriveTargetDropPointName(String(dropPoint.locationName || `Stop ${dropPoint.sequence || ''}`).trim())
     setIsArriveWarningOpen(true)
@@ -565,18 +602,21 @@ export function TripDetailView({
       // An untouched counter means the driver agreed with the declaration, so the
       // declared quantity is what gets submitted rather than an empty payload.
       const storedEmpties = returnedEmptiesByDropPoint[dropPointId] || []
-      const declaredEmpties = ((dropPoint as any)?.declaredEmpties || []) as Array<{ declarationId?: string; containerTypeId: string; containerTypeName?: string; declaredQuantity?: number }>
+      const declaredEmpties = ((dropPoint as any)?.declaredEmpties || []) as Array<{ declarationId?: string; containerTypeId: string; containerTypeName?: string; declaredQuantity?: number; declaredCases?: number }>
       const returnedEmpties = declaredEmpties.length
         ? declaredEmpties
             .filter((entry) => entry?.containerTypeId)
-            .map((entry) => ({
-              containerTypeId: entry.containerTypeId,
-              containerTypeName: entry.containerTypeName || '',
-              declarationId: entry.declarationId || entry.containerTypeId,
-              returnedQuantity:
-                storedEmpties.find((stored) => (stored.declarationId || stored.containerTypeId) === (entry.declarationId || entry.containerTypeId))?.returnedQuantity
-                ?? Math.max(0, Number(entry.declaredQuantity || 0)),
-            }))
+            .map((entry) => {
+              const stored = storedEmpties.find((row) => (row.declarationId || row.containerTypeId) === (entry.declarationId || entry.containerTypeId))
+              return {
+                containerTypeId: entry.containerTypeId,
+                containerTypeName: entry.containerTypeName || '',
+                declarationId: entry.declarationId || entry.containerTypeId,
+                returnedQuantity: stored?.returnedQuantity ?? Math.max(0, Number(entry.declaredQuantity || 0)),
+                // Cases handed over settle the shell deposits apart from the bottles.
+                returnedCases: stored?.returnedCases ?? Math.max(0, Number(entry.declaredCases || 0)),
+              }
+            })
         : storedEmpties
       const completed = await handleUpdateDropPoint(dropPoint.id, 'COMPLETED', deliveryNote, {
         recipientName: 'Customer',
@@ -896,11 +936,13 @@ export function TripDetailView({
       countsByCase?: boolean
       unitLabel?: string
       depositValue?: number
+      shellDepositValue?: number
     }>
 
     // Cased goods are counted in cases and loose goods in bottles; a driver hands
-    // back twelve cases, not two hundred and eighty-eight bottles. The stored value
-    // stays in containers so the settlement arithmetic is untouched.
+    // back twelve cases, not two hundred and eighty-eight bottles. Bottles missing
+    // from a case are counted on their own. The stored value stays in containers so
+    // the settlement arithmetic is untouched.
     const containerTypesMap = new Map<string, {
       containerTypeId: string
       typeName: string
@@ -911,6 +953,7 @@ export function TripDetailView({
       declaredLooseBottles: number
       isRefundClaim: boolean
       depositValue: number
+      shellDepositValue: number
     }>()
     for (const entry of declaredEmpties) {
       if (!entry?.containerTypeId) continue
@@ -928,6 +971,7 @@ export function TripDetailView({
         declaredLooseBottles: Math.max(0, Number(entry.declaredLooseBottles ?? (perUnit > 1 ? 0 : entry.declaredQuantity) ?? 0)),
         isRefundClaim: Boolean(entry.isRefundClaim),
         depositValue: Math.max(0, Number(entry.depositValue || 0)),
+        shellDepositValue: Math.max(0, Number(entry.shellDepositValue || 0)),
       })
     }
 
@@ -947,6 +991,7 @@ export function TripDetailView({
             declaredLooseBottles: 0,
             isRefundClaim: false,
             depositValue: 0,
+            shellDepositValue: 0,
           })
         }
       }
@@ -957,39 +1002,54 @@ export function TripDetailView({
     const dropPointId = dropPoint.id!
     const currentEmpties = returnedEmptiesByDropPoint[dropPointId] || []
 
-    const handleUpdateQuantity = (
+    const handleUpdateCount = (
       declarationId: string,
       cTypeId: string,
       cTypeName: string,
-      returnedCases: number,
-      returnedLooseBottles: number,
-      maxCases: number,
-      maxLooseBottles: number,
-      containersPerCase: number,
+      count: EmptiesCount,
+      declaration: EmptiesDeclaration,
     ) => {
-      // Keep the UI breakdown while submitting the combined bottle quantity used
-      // by the existing deposit settlement and bottle inventory records.
-      const cases = Math.min(Math.max(0, returnedCases), Math.max(0, maxCases))
-      const looseBottles = Math.min(Math.max(0, returnedLooseBottles), Math.max(0, maxLooseBottles))
-      const qty = (cases * containersPerCase) + looseBottles
+      // Keep the driver's breakdown while submitting the combined bottle quantity used
+      // by the deposit settlement and bottle inventory records, plus the cases, which
+      // settle the shell deposits.
+      const next = clampEmptiesCount(count, declaration)
+      const row = {
+        returnedQuantity: countedBottles(next, declaration),
+        returnedCases: next.cases,
+        missingBottles: next.missingBottles,
+        returnedLooseBottles: next.looseBottles,
+      }
       setReturnedEmptiesByDropPoint(prev => {
         const current = prev[dropPointId] || []
         const existingIdx = current.findIndex(e => (e.declarationId || e.containerTypeId) === declarationId)
-        let next = [...current]
+        const nextRows = [...current]
         if (existingIdx >= 0) {
-          next[existingIdx] = { ...next[existingIdx], returnedQuantity: qty, returnedCases: cases, returnedLooseBottles: looseBottles }
+          nextRows[existingIdx] = { ...nextRows[existingIdx], ...row }
         } else {
-          next.push({ declarationId, containerTypeId: cTypeId, containerTypeName: cTypeName, returnedQuantity: qty, returnedCases: cases, returnedLooseBottles: looseBottles })
+          nextRows.push({ declarationId, containerTypeId: cTypeId, containerTypeName: cTypeName, ...row })
         }
-        return { ...prev, [dropPointId]: next }
+        return { ...prev, [dropPointId]: nextRows }
       })
     }
+
+    const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
+    const renderCounter = (label: string, noun: string, onStep: (delta: number) => void, canDecrease: boolean, canIncrease: boolean) => (
+      <div className="flex shrink-0 items-center space-x-2 rounded-lg border bg-white px-1 py-1">
+        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" aria-label={`Fewer ${noun}`} onClick={(e) => { e.stopPropagation(); onStep(-1) }} disabled={!canDecrease}>
+          <Minus className="h-3.5 w-3.5" />
+        </Button>
+        <span className="min-w-[5rem] text-center text-sm font-medium">{label}</span>
+        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" aria-label={`More ${noun}`} onClick={(e) => { e.stopPropagation(); onStep(1) }} disabled={!canIncrease}>
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    )
 
     return (
       <div className="space-y-3 border-t border-b border-slate-200 py-3 mb-3 bg-slate-50/50 -mx-4 px-4">
         <div>
           <p className="text-sm font-semibold text-slate-800">Empties collected</p>
-          <p className="text-xs text-slate-500">Count what the customer actually hands over. Anything short of the declared amount is charged back on this order.</p>
+          <p className="text-xs text-slate-500">Count what the customer actually hands over, including any bottles missing from a case. Anything short of the declared amount is charged back on this order.</p>
         </div>
         {Array.from(containerTypesMap.entries()).map(([declarationId, {
           containerTypeId: cTypeId,
@@ -999,71 +1059,81 @@ export function TripDetailView({
           declaredCases,
           declaredLooseBottles,
           isRefundClaim,
-          depositValue: declaredDepositValue,
+          depositValue,
+          shellDepositValue,
         }]) => {
-          const stored = currentEmpties.find(e => (e.declarationId || e.containerTypeId) === declarationId)
-          const storedQuantity = Math.min(Math.max(0, Number(stored?.returnedQuantity ?? declared)), declared)
-          const currentCases = Math.min(
+          const declaration: EmptiesDeclaration = {
+            declaredBottles: declared,
             declaredCases,
-            Math.max(0, Number(stored?.returnedCases ?? (stored ? Math.floor(storedQuantity / containersPerCase) : declaredCases))),
-          )
-          const currentLooseBottles = Math.min(
             declaredLooseBottles,
-            Math.max(0, Number(stored?.returnedLooseBottles ?? (stored ? storedQuantity - (currentCases * containersPerCase) : declaredLooseBottles))),
+            containersPerCase,
+            depositValue,
+            shellDepositValue,
+          }
+          const stored = currentEmpties.find(e => (e.declarationId || e.containerTypeId) === declarationId)
+          // An untouched counter agrees with the declaration.
+          const count = clampEmptiesCount(
+            stored
+              ? { cases: Number(stored.returnedCases ?? 0), missingBottles: Number(stored.missingBottles ?? 0), looseBottles: Number(stored.returnedLooseBottles ?? 0) }
+              : { cases: declaredCases, missingBottles: 0, looseBottles: declaredLooseBottles },
+            declaration,
           )
-          const currentVal = (currentCases * containersPerCase) + currentLooseBottles
-          const short = Math.max(0, declared - currentVal)
-          const shortCases = Math.max(0, declaredCases - currentCases)
-          const shortLooseBottles = Math.max(0, declaredLooseBottles - currentLooseBottles)
+          const collected = countedBottles(count, declaration)
+          const shortCases = Math.max(0, declaredCases - count.cases)
+          const shortBottles = count.missingBottles + Math.max(0, declaredLooseBottles - count.looseBottles)
+          const shortfall = uncoveredDeposit(declaration, { bottles: collected, cases: count.cases })
+          const step = (change: Partial<EmptiesCount>) => handleUpdateCount(declarationId, cTypeId, typeName, { ...count, ...change }, declaration)
           const formatBreakdown = (cases: number, bottles: number) => [
-            cases > 0 ? `${cases} case${cases === 1 ? '' : 's'}` : '',
-            bottles > 0 ? `${bottles} loose bottle${bottles === 1 ? '' : 's'}` : '',
+            cases > 0 ? plural(cases, 'case') : '',
+            bottles > 0 ? plural(bottles, 'loose bottle') : '',
           ].filter(Boolean).join(' + ') || '0 bottles'
+          const countsMissingBottles = declaredCases > 0 && containersPerCase > 1
           return (
-            <div key={declarationId} className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="text-sm font-medium text-slate-700">{typeName}</p>
-                  {isRefundClaim ? (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
-                      Refunded empty
-                    </span>
+            <div key={declarationId} className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="text-sm font-medium text-slate-700">{typeName}</p>
+                    {isRefundClaim ? (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
+                        Refunded empty
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Customer declared: {formatBreakdown(declaredCases, declaredLooseBottles)}
+                  </p>
+                  {collected < declared ? (
+                    <p className="text-xs font-semibold text-[#b42318]">
+                      {[shortCases > 0 ? plural(shortCases, 'case') : '', shortBottles > 0 ? plural(shortBottles, 'bottle') : ''].filter(Boolean).join(' + ')} short -{' '}
+                      {formatCurrency(shortfall)} added to this order
+                    </p>
                   ) : null}
                 </div>
-                <p className="text-xs text-slate-500">
-                  Customer declared: {formatBreakdown(declaredCases, declaredLooseBottles)}
-                </p>
-                {short > 0 ? (
-                  <p className="text-xs font-semibold text-[#b42318]">
-                    {formatBreakdown(shortCases, shortLooseBottles)} short -{' '}
-                    {formatCurrency((declaredDepositValue * short) / Math.max(1, declared))} added to this order
-                  </p>
-                ) : null}
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  {declaredCases > 0
+                    ? renderCounter(plural(count.cases, 'case'), 'cases', (delta) => step({ cases: count.cases + delta }), count.cases > 0, count.cases < declaredCases)
+                    : null}
+                  {declaredLooseBottles > 0
+                    ? renderCounter(plural(count.looseBottles, 'bottle'), 'loose bottles', (delta) => step({ looseBottles: count.looseBottles + delta }), count.looseBottles > 0, count.looseBottles < declaredLooseBottles)
+                    : null}
+                </div>
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-2">
-                {declaredCases > 0 ? (
-                  <div className="flex shrink-0 items-center space-x-2 rounded-lg border bg-white px-1 py-1">
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(declarationId, cTypeId, typeName, currentCases - 1, currentLooseBottles, declaredCases, declaredLooseBottles, containersPerCase) }} disabled={currentCases <= 0}>
-                      <Minus className="h-3.5 w-3.5" />
-                    </Button>
-                    <span className="min-w-[4.5rem] text-center text-sm font-medium">{currentCases} case{currentCases === 1 ? '' : 's'}</span>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(declarationId, cTypeId, typeName, currentCases + 1, currentLooseBottles, declaredCases, declaredLooseBottles, containersPerCase) }} disabled={currentCases >= declaredCases}>
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
+              {countsMissingBottles ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-700">Missing bottles</p>
+                    <p className="text-xs text-slate-500">Bottles not in the cases handed over</p>
                   </div>
-                ) : null}
-                {declaredLooseBottles > 0 ? (
-                  <div className="flex shrink-0 items-center space-x-2 rounded-lg border bg-white px-1 py-1">
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(declarationId, cTypeId, typeName, currentCases, currentLooseBottles - 1, declaredCases, declaredLooseBottles, containersPerCase) }} disabled={currentLooseBottles <= 0}>
-                      <Minus className="h-3.5 w-3.5" />
-                    </Button>
-                    <span className="min-w-[5rem] text-center text-sm font-medium">{currentLooseBottles} bottle{currentLooseBottles === 1 ? '' : 's'}</span>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" onClick={(e) => { e.stopPropagation(); handleUpdateQuantity(declarationId, cTypeId, typeName, currentCases, currentLooseBottles + 1, declaredCases, declaredLooseBottles, containersPerCase) }} disabled={currentLooseBottles >= declaredLooseBottles}>
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
+                  {renderCounter(
+                    plural(count.missingBottles, 'bottle'),
+                    'missing bottles',
+                    (delta) => step({ missingBottles: count.missingBottles + delta }),
+                    count.missingBottles > 0,
+                    count.missingBottles < count.cases * containersPerCase,
+                  )}
+                </div>
+              ) : null}
             </div>
           )
         })}
@@ -1093,6 +1163,38 @@ export function TripDetailView({
               </Badge>
             </div>
           </div>
+
+          {/* Desktop: the open report's status, or the way to make one. */}
+          {!isMobileViewport && incidentControlVisible ? (
+            openIncident ? (
+              <button
+                type="button"
+                onClick={() => setIsIncidentStatusOpen(true)}
+                className={`hidden w-full items-center gap-3 rounded-xl border px-4 py-3 text-left md:flex ${openIncident.type === 'ACCIDENT' ? 'border-red-200 bg-red-50 text-red-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}
+              >
+                <AlertTriangle className={`size-5 shrink-0 ${openIncident.type === 'ACCIDENT' ? 'text-red-600' : 'text-amber-600'}`} aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">
+                    {incidentTypeLabel(openIncident.type)} reported · {openIncident.incidentNumber}
+                  </span>
+                  <span className="block text-xs">{incidentProgressLabel(openIncident)}</span>
+                </span>
+                <span className="text-xs font-medium underline-offset-2 hover:underline">View</span>
+              </button>
+            ) : (
+              <div className="hidden justify-end md:flex">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2 border-red-300 bg-white text-red-700 hover:bg-red-50 hover:text-red-800"
+                  onClick={() => setIsIncidentReportOpen(true)}
+                >
+                  <AlertTriangle className="size-4" />
+                  Report accident or damage
+                </Button>
+              </div>
+            )
+          ) : null}
 
           {/* Location Permission Warning */}
           {locationPermission === 'denied' && !driverLocationMarker && (
@@ -1136,7 +1238,19 @@ export function TripDetailView({
                   <>
                     <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
                       <p className="font-medium text-slate-900">{trip.tripNumber || 'Selected Trip'}</p>
-                      <p>Make sure all assigned orders are loaded before continuing.</p>
+                      {trip.transferredFromNumber ? (
+                        // A load transfer: the goods are on the broken-down truck, not at the warehouse.
+                        <>
+                          <p>Collect the load of {trip.transferredFromNumber} from its truck, then check every product below is on yours.</p>
+                          {transferPickupUrl(trip) ? (
+                            <a href={transferPickupUrl(trip) || undefined} target="_blank" rel="noreferrer" className="font-medium text-sky-700 underline underline-offset-2">
+                              Open where the truck stopped
+                            </a>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p>Make sure all assigned orders are loaded before continuing.</p>
+                      )}
                     </div>
                     <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
                       <div className="mb-2 flex items-center justify-between gap-3">
@@ -1304,6 +1418,20 @@ export function TripDetailView({
               </div>
             </DialogContent>
           </Dialog>
+
+          <IncidentReportDialog
+            open={isIncidentReportOpen}
+            onOpenChange={setIsIncidentReportOpen}
+            tripNumber={trip.tripNumber}
+            vehiclePlate={String(trip.vehicle?.licensePlate || '')}
+            hasLiveLocation={Boolean(reportableLocation(currentLocation))}
+            onSubmit={reportIncident}
+          />
+          <IncidentStatusDialog
+            incident={openIncident}
+            open={isIncidentStatusOpen}
+            onOpenChange={setIsIncidentStatusOpen}
+          />
 
           {/* Route Map */}
           {!isMobileViewport ? (
@@ -1518,6 +1646,33 @@ export function TripDetailView({
                     <Minus className="h-5 w-5" />
                   </button>
                 </div>
+
+                {/* Opposite the map buttons, always in reach while the trip runs. */}
+                {incidentControlVisible ? (
+                  <button
+                    type="button"
+                    onClick={openIncidentDialog}
+                    aria-label={openIncident ? `${incidentTypeLabel(openIncident.type)} reported: ${incidentProgressLabel(openIncident)}` : 'Report accident or damage'}
+                    className={`absolute bottom-[calc(env(safe-area-inset-bottom)+8.25rem)] left-4 z-40 flex min-h-10 max-w-[calc(100%-6rem)] items-center gap-2 rounded-full border px-3.5 text-left shadow-[0_8px_18px_rgba(15,23,42,0.18)] backdrop-blur transition-colors ${
+                      openIncident
+                        ? openIncident.type === 'ACCIDENT'
+                          ? 'border-red-700 bg-red-600 py-1.5 text-white'
+                          : 'border-amber-700 bg-amber-600 py-1.5 text-white'
+                        : 'border-red-200 bg-white/95 text-red-700'
+                    }`}
+                  >
+                    <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+                    {openIncident ? (
+                      // What was reported, then where the warehouse is with it.
+                      <span className="min-w-0 leading-tight">
+                        <span className="block truncate text-[13px] font-semibold">{incidentTypeLabel(openIncident.type)} reported</span>
+                        <span className="block truncate text-[11px] font-medium opacity-90">{incidentProgressLabel(openIncident)}</span>
+                      </span>
+                    ) : (
+                      <span className="truncate text-sm font-semibold">Report incident</span>
+                    )}
+                  </button>
+                ) : null}
 
                 {/* Start Trip Button - Mobile */}
                 {trip.status === 'PLANNED' && tripIsOverdue && (
@@ -1750,18 +1905,24 @@ export function TripDetailView({
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
-                                    <Button
-                                      className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                                      onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
-                                      disabled={isUpdating}
-                                    >
-                                      {arrivingDropPointId === String(dropPoint.id) ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                                      ) : (
-                                        <Navigation className="mr-2 h-4 w-4" />
-                                      )}
-                                      {arrivingDropPointId === String(dropPoint.id) ? 'Marking Arrived...' : 'Mark Arrived'}
-                                    </Button>
+                                    <>
+                                      <Button
+                                        className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                                        onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
+                                        disabled={isUpdating || Boolean(vehicleStoppedNote)}
+                                        aria-describedby={vehicleStoppedNote ? `vehicle-stopped-${dropPoint.id}` : undefined}
+                                      >
+                                        {arrivingDropPointId === String(dropPoint.id) ? (
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                                        ) : (
+                                          <Navigation className="mr-2 h-4 w-4" />
+                                        )}
+                                        {arrivingDropPointId === String(dropPoint.id) ? 'Marking Arrived...' : 'Mark Arrived'}
+                                      </Button>
+                                      {vehicleStoppedNote ? (
+                                        <VehicleStoppedNote id={`vehicle-stopped-${dropPoint.id}`} message={vehicleStoppedNote} />
+                                      ) : null}
+                                    </>
                                   )}
                                   {dropPoint.status === 'ARRIVED' && (
                                     <div className="space-y-3">
@@ -1951,18 +2112,24 @@ export function TripDetailView({
                         onClick={(e) => e.stopPropagation()}
                       >
                         {['PENDING', 'IN_TRANSIT'].includes(String(dropPoint.status || '').toUpperCase()) && (
-                          <Button
-                            className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                            onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
-                            disabled={isUpdating}
-                          >
-                            {arrivingDropPointId === String(dropPoint.id) ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                            ) : (
-                              <Navigation className="mr-2 h-4 w-4" />
-                            )}
-                            {arrivingDropPointId === String(dropPoint.id) ? 'Marking Arrived...' : 'Mark Arrived'}
-                          </Button>
+                          <>
+                            <Button
+                              className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                              onClick={(e) => { e.stopPropagation(); openArriveWarning(dropPoint); }}
+                              disabled={isUpdating || Boolean(vehicleStoppedNote)}
+                              aria-describedby={vehicleStoppedNote ? `vehicle-stopped-desktop-${dropPoint.id}` : undefined}
+                            >
+                              {arrivingDropPointId === String(dropPoint.id) ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                              ) : (
+                                <Navigation className="mr-2 h-4 w-4" />
+                              )}
+                              {arrivingDropPointId === String(dropPoint.id) ? 'Marking Arrived...' : 'Mark Arrived'}
+                            </Button>
+                            {vehicleStoppedNote ? (
+                              <VehicleStoppedNote id={`vehicle-stopped-desktop-${dropPoint.id}`} message={vehicleStoppedNote} />
+                            ) : null}
+                          </>
                         )}
                         {dropPoint.status === 'ARRIVED' && (
                           <div className="space-y-2 md:space-y-3">

@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Loader2, MapPin, PackageCheck, PanelRightClose, PanelRightOpen, Truck, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Loader2, MapPin, PackageCheck, PanelRightClose, PanelRightOpen, Truck, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import type { DeliveredTransaction } from '@/lib/delivered-transactions'
+import { incidentTypeLabel, type VehicleIncident } from '@/lib/vehicle-incidents'
+import { IncidentsList } from './incidents-panel'
+import type { IncidentResponse } from './use-vehicle-incidents'
 
 /**
  * Map-first Live Tracking layout shared by the admin and warehouse portals.
@@ -61,6 +64,11 @@ type LiveTrackingPageProps = {
   deliveries: DeliveredTransaction[]
   recentLocations: any[]
   isLoadingTrips: boolean
+  /** The day's incidents plus any still open; see useVehicleIncidents. */
+  incidents: VehicleIncident[]
+  isLoadingIncidents: boolean
+  /** Passed by the warehouse portal only: administrators watch incidents, warehouse staff act on them. */
+  onRespondToIncident?: (incidentId: string, body: IncidentResponse) => Promise<unknown>
 }
 
 export function LiveTrackingPage({
@@ -73,10 +81,14 @@ export function LiveTrackingPage({
   deliveries,
   recentLocations,
   isLoadingTrips,
+  incidents,
+  isLoadingIncidents,
+  onRespondToIncident,
 }: LiveTrackingPageProps) {
   const detailsOpen = useSyncExternalStore(subscribeDetailsOpen, readDetailsOpen, () => true)
   const [sheetOpen, setSheetOpen] = useState(false)
   const toggleDetails = writeDetailsOpen
+  const openIncidents = incidents.filter((incident) => incident.isOpen)
 
   const details = (
     <TrackingDetails
@@ -84,8 +96,18 @@ export function LiveTrackingPage({
       deliveries={deliveries}
       recentLocations={recentLocations}
       isLoadingTrips={isLoadingTrips}
+      incidents={incidents}
+      openIncidentCount={openIncidents.length}
+      isLoadingIncidents={isLoadingIncidents}
+      onRespondToIncident={onRespondToIncident}
     />
   )
+
+  const showIncidents = () => {
+    // The panel opens on desktop and the sheet below lg; the incidents lead both.
+    toggleDetails(true)
+    if (window.matchMedia('(max-width: 1023px)').matches) setSheetOpen(true)
+  }
 
   return (
     <div className="space-y-4">
@@ -112,6 +134,8 @@ export function LiveTrackingPage({
       <div className="relative flex h-[max(24rem,calc(100dvh-17rem))] overflow-hidden rounded-[20px] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06),0_16px_40px_rgba(15,23,42,0.08)] ring-1 ring-slate-900/5 sm:h-[max(26rem,calc(100dvh-11.5rem))]">
         <div className="relative min-w-0 flex-1">
           {map}
+
+          {openIncidents.length > 0 ? <IncidentAlertChip incidents={openIncidents} onClick={showIncidents} /> : null}
 
           {/* Desktop: restores the collapsed panel. */}
           {!detailsOpen ? (
@@ -179,19 +203,62 @@ function FloatingDetailsButton({ className, onClick }: { className: string; onCl
   )
 }
 
+/**
+ * Sits on the map while any incident is open, so it is seen even with the details
+ * panel collapsed or on a phone, where the panel is a sheet nobody has opened.
+ */
+function IncidentAlertChip({ incidents, onClick }: { incidents: VehicleIncident[]; onClick: () => void }) {
+  const newest = incidents[0]
+  const hasAccident = incidents.some((incident) => incident.type === 'ACCIDENT')
+  const awaitingResponse = incidents.some((incident) => incident.status === 'REPORTED')
+  // Short enough to fit a phone's map; the panel carries the full story.
+  const summary =
+    incidents.length === 1
+      ? `${incidentTypeLabel(newest.type)} · ${newest.vehiclePlate || newest.tripNumber} · ${awaitingResponse ? 'Awaiting response' : 'Acknowledged'}`
+      : `${incidents.length} open incidents · ${awaitingResponse ? 'awaiting response' : 'being handled'}`
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Show incident details"
+      className={`absolute bottom-3 left-3 z-20 inline-flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded-full px-3.5 py-2 text-left text-sm font-semibold text-white shadow-[0_4px_14px_rgba(15,23,42,0.28)] ring-2 ring-white transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${hasAccident ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+    >
+      <span className="relative grid size-5 shrink-0 place-items-center">
+        {awaitingResponse ? (
+          <span className="absolute inset-0 rounded-full bg-white/40 motion-safe:animate-ping" aria-hidden="true" />
+        ) : null}
+        <AlertTriangle className="relative size-4" aria-hidden="true" />
+      </span>
+      <span className="truncate">{summary}</span>
+    </button>
+  )
+}
+
 function TrackingDetails({
   activeTrips,
   deliveries,
   recentLocations,
   isLoadingTrips,
+  incidents,
+  openIncidentCount,
+  isLoadingIncidents,
+  onRespondToIncident,
 }: {
   activeTrips: any[]
   deliveries: DeliveredTransaction[]
   recentLocations: any[]
   isLoadingTrips: boolean
+  incidents: VehicleIncident[]
+  openIncidentCount: number
+  isLoadingIncidents: boolean
+  onRespondToIncident?: (incidentId: string, body: IncidentResponse) => Promise<unknown>
 }) {
   return (
     <div className="space-y-3">
+      {/* An open incident is the one thing on this page that needs someone now. */}
+      <DetailsSection title="Incidents" count={openIncidentCount || null} icon={AlertTriangle} alert={openIncidentCount > 0}>
+        <IncidentsList incidents={incidents} isLoading={isLoadingIncidents} onRespond={onRespondToIncident} />
+      </DetailsSection>
       {/* Same icons as the sidebar entries for these areas (Transportation,
           Purchase Orders, Live Tracking), drawn the same plain way. */}
       <DetailsSection title="Active Trips" count={isLoadingTrips ? null : activeTrips.length} icon={Truck}>
@@ -211,20 +278,28 @@ function DetailsSection({
   title,
   count,
   icon: Icon,
+  alert = false,
   children,
 }: {
   title: string
   count: number | null
   icon: LucideIcon
+  /** Red icon and count, for a section that needs attention now. */
+  alert?: boolean
   children: ReactNode
 }) {
   return (
     <section aria-label={title} className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_6px_18px_rgba(15,23,42,0.05)]">
       <div className="mb-3 flex items-center gap-2">
-        <Icon className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+        <Icon className={`size-4 shrink-0 ${alert ? 'text-red-600' : 'text-slate-500'}`} aria-hidden="true" />
         <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
         {count ? (
-          <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600">{count}</span>
+          <span
+            className={`ml-auto rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${alert ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+            title={alert ? `${count} open` : undefined}
+          >
+            {count}
+          </span>
         ) : null}
       </div>
       {children}

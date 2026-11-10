@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEffect, useState } from 'react'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { getCollection } from '@/components/portals/admin/sections/shared'
+import { FEEDBACK_RATING_TARGET_LABELS, normalizeRatingTarget } from '@shared/customer-logic/feedback-reasons'
 import { fetchFeedbackMeta } from './feedback-api'
 
 interface FeedbackItem {
@@ -12,6 +13,7 @@ interface FeedbackItem {
   message: string
   rating: number
   type: 'COMPLAINT' | 'SUGGESTION' | 'COMPLIMENT'
+  ratingTarget?: string
   createdAt: string
 }
 
@@ -88,7 +90,11 @@ export function CustomerFeedbackView() {
                     </div>
                     <p className="text-slate-700 text-sm mb-3 whitespace-pre-wrap">{feedback.message}</p>
                     <div className="flex items-center justify-between text-xs text-slate-500">
-                      <span>{'★'.repeat(feedback.rating)}{'☆'.repeat(5 - feedback.rating)} {feedback.rating}/5</span>
+                      <span>
+                        {/* Each rating says whether it is for the products or the service. */}
+                        <span className="mr-1.5 font-medium text-slate-600">{FEEDBACK_RATING_TARGET_LABELS[normalizeRatingTarget(feedback.ratingTarget)]} rating:</span>
+                        {'★'.repeat(feedback.rating)}{'☆'.repeat(5 - feedback.rating)} {feedback.rating}/5
+                      </span>
                       <span>{new Date(feedback.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>

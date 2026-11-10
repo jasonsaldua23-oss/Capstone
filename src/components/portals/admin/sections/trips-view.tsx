@@ -9,6 +9,7 @@ import {
   summarizeDriverAvailability,
 } from '@/lib/driver-eligibility'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
+import { describeTripRoute } from '@/lib/trip-route'
 import { toDisplayStatus } from '@/lib/status-display'
 import { isTripOverdue } from '@/lib/trip-schedule'
 import { useAuth } from '@/app/page'
@@ -804,7 +805,8 @@ export function TripsView() {
                         Vehicle: {trip.vehicle?.licensePlate || 'Unassigned'} | Driver: {trip.driver?.user?.name || 'Unassigned'}
                       </p>
                       <p className="text-[13px] text-gray-600">
-                        Route: {(trip.route?.start || trip.origin || 'Warehouse')} {'->'} {(trip.route?.end || trip.destination || trip.destinationCity || 'Destination')}
+                        {/* The API sends the warehouse and stops, not route/origin/destination fields. */}
+                        Route: {describeTripRoute(trip)}
                       </p>
                       <p className={`text-[13px] ${tripIsOverdue ? 'font-medium text-amber-700' : 'text-gray-600'}`}>
                         Schedule: {formatTripScheduleDate(trip.tripSchedule)}{tripIsOverdue ? ' (passed without starting)' : ''}
@@ -812,6 +814,21 @@ export function TripsView() {
                       {normalizedTripStatus === 'COMPLETED' ? (
                         <p className="text-[13px] font-semibold text-emerald-700">
                           Cash collected: {formatPeso(Number(trip.cashCollectedTotal || 0))}
+                        </p>
+                      ) : null}
+                      {/* The warehouse's reason, when it cancelled the trip (views_trips.trip_cancel). */}
+                      {normalizedTripStatus === 'CANCELLED' && trip.cancellationReason && !trip.transferredToNumber ? (
+                        <p className="text-[13px] font-medium text-red-700">
+                          Cancelled{trip.cancelledByName ? ` by ${trip.cancelledByName}` : ''}: {trip.cancellationReason}
+                        </p>
+                      ) : null}
+                      {/* A load transfer after a breakdown (views_trips.trip_transfer). */}
+                      {trip.transferredToNumber || trip.transferredFromNumber ? (
+                        <p className="text-[13px] font-medium text-sky-800">
+                          {trip.transferredToNumber
+                            ? `Load transferred to ${trip.transferredToNumber}`
+                            : `Takes over the load of ${trip.transferredFromNumber}`}
+                          {trip.transferReason ? `: ${trip.transferReason}` : ''}
                         </p>
                       ) : null}
                     </div>

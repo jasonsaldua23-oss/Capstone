@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -78,6 +79,8 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
         })
     if request.method == "POST":
         body = _json_body(request)
+        if not isinstance(body, dict):
+            return _err("A feedback object is required", 400)
         customer_ref = str(p.get("userId") or "").strip() if p.get("type") == "customer" else str(body.get("customerId") or "").strip()
         if not customer_ref:
             return _err("customerId is required")
@@ -91,22 +94,65 @@ def feedback_collection(request: HttpRequest) -> JsonResponse:
             order = Order.objects.filter(id=str(body["orderId"])).first()
         if p.get("type") == "customer" and order and str(order.customer_id or "") != str(customer.id):
             return _err("Forbidden", 403)
-        if order and Feedback.objects.filter(order_id=order.id, customer_id=customer.id).exists():
-            return _err("Feedback already submitted for this order", 409)
-        feedback_message = str(body.get("message") or "").strip()
+        entries, error = _rating_entries(body)
+        if error is not None:
+            return error
+        with transaction.atomic():
+            # Serialize one customer's submissions so a double tap cannot rate a target twice.
+            Customer.objects.select_for_update().filter(id=customer.id).first()
+            if order and Feedback.objects.filter(
+                order_id=order.id, customer_id=customer.id, rating_target__in=[entry["target"] for entry in entries],
+            ).exists():
+                return _err("Feedback already submitted for this order", 409)
+            created = [
+                Feedback.objects.create(
+                    customer=customer,
+                    order=order,
+                    type=entry["type"],
+                    subject=entry["subject"],
+                    message=entry["message"],
+                    rating=entry["rating"],
+                    rating_target=entry["target"],
+                )
+                for entry in entries
+            ]
+        serialized = [_serialize_model(row) for row in created]
+        return _ok({"success": True, "feedback": serialized[0], "feedbackItems": serialized}, 201)
+
+
+def _rating_entries(body: dict[str, Any]) -> tuple[list[dict[str, Any]], JsonResponse | None]:
+    """The ratings in one submission: `ratings` (products and service), or one bare rating.
+
+    A bare rating is what clients sent before the split, and still what the mobile app
+    sends; it rated the delivery, so with no target it is SERVICE.
+    """
+    raw = body.get("ratings")
+    if raw is None:
+        raw = [body]
+    elif not isinstance(raw, list) or not 1 <= len(raw) <= len(Feedback.RatingTarget.values):
+        return [], _err("Send at most one rating for the products and one for the service", 400)
+    entries = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return [], _err("Each rating must be an object", 400)
+        target = str(item.get("ratingTarget") or Feedback.RatingTarget.SERVICE).strip().upper()
+        if target not in Feedback.RatingTarget.values:
+            return [], _err("ratingTarget must be PRODUCT or SERVICE", 400)
+        message = str(item.get("message") or "").strip()
         # Added: rated reviews must include feedback, even when the API is called directly.
-        if not feedback_message:
-            return _err("Feedback is required when submitting a rating" if body.get("rating") is not None else "Feedback is required", 400)
-        rating = body.get("rating")
+        if not message:
+            return [], _err("Feedback is required when submitting a rating" if item.get("rating") is not None else "Feedback is required", 400)
+        rating = item.get("rating")
         if rating is not None and (isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5):
-            return _err("Rating must be an integer from 1 to 5", 400)
-        f = Feedback.objects.create(
-            customer=customer,
-            order=order,
-            type=body.get("type") or "SUGGESTION",
-            subject=str(body.get("subject") or "General Feedback"),
-            message=feedback_message,
-            rating=body.get("rating"),
-        )
-        return _ok({"success": True, "feedback": _serialize_model(f)}, 201)
+            return [], _err("Rating must be an integer from 1 to 5", 400)
+        entries.append({
+            "target": target,
+            "message": message,
+            "rating": rating,
+            "type": item.get("type") or "SUGGESTION",
+            "subject": str(item.get("subject") or "General Feedback"),
+        })
+    if len({entry["target"] for entry in entries}) != len(entries):
+        return [], _err("Rate the products and the service once each", 400)
+    return entries, None
 

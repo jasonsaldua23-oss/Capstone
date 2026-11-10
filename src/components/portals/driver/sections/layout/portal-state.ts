@@ -43,6 +43,16 @@ interface Trip {
   totalDropPoints: number
   completedDropPoints: number
   cashCollectedTotal?: number
+  // Set when the warehouse cancelled the trip (views_trips.trip_cancel).
+  cancelledAt?: string | null
+  cancelledByName?: string | null
+  cancellationReason?: string | null
+  // A load transfer after a breakdown (views_trips.trip_transfer).
+  transferredFromNumber?: string | null
+  transferredToNumber?: string | null
+  transferReason?: string | null
+  transferLatitude?: number | null
+  transferLongitude?: number | null
   latestLocation?: {
     latitude?: number | null
     longitude?: number | null

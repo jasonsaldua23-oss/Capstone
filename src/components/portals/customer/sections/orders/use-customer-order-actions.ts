@@ -9,6 +9,7 @@ import type { DeliveryIssueRecord, Order } from '../shared/customer-types'
 import type { Dispatch, SetStateAction } from 'react'
 import type { CustomerPortalState } from '../layout/portal-state'
 import type { AuthUser } from '@/types'
+import type { ProductRatingInput } from './rating-dialog'
 
 /**
  * Actions a customer takes on an order after checkout: replacement requests, cancellations (order and replacement), delivery ratings, and tracking navigation.
@@ -190,26 +191,28 @@ export function useCustomerOrderActions(inputs: CustomerOrderActionsInputs) {
     setDeliveryRatingValue(Math.max(1, Math.min(5, Math.round(initialDeliveryRating))))
     setOtherReasonText('')
   }
-  const submitRating = async (selectedFeedbackOptions: string[] = []) => {
+  const submitRating = async (selectedFeedbackOptions: string[] = [], product?: ProductRatingInput) => {
     if (!ratingDialogOrder?.id) return false
-    if (deliveryRatingValue === 0) {
+    const productRating = Math.round(Number(product?.rating || 0))
+    if (deliveryRatingValue === 0 || productRating < 1 || productRating > 5) {
       toast.error('Please select a rating')
       return false
     }
-    const selectedReasons = Array.from(
-      new Set(
-        selectedFeedbackOptions
-          .map((item) => String(item || '').trim())
-          .filter(Boolean)
-      )
-    )
+    const cleanReasons = (reasons: string[] = []) =>
+      Array.from(new Set(reasons.map((item) => String(item || '').trim()).filter(Boolean)))
+    const selectedReasons = cleanReasons(selectedFeedbackOptions)
+    const productReasons = cleanReasons(product?.reasons)
+    const productOtherText = String(product?.otherText || '')
     // Added: a star rating cannot be submitted without meaningful feedback.
-    if (selectedReasons.length === 0) {
+    if (selectedReasons.length === 0 || productReasons.length === 0) {
       toast.error('Please select at least one feedback option')
       return false
     }
     // "Other" replaces the preset phrases, so the typed description IS the feedback.
-    if (selectedReasons.some(isOtherFeedbackReason) && !otherReasonText.trim()) {
+    if (
+      (selectedReasons.some(isOtherFeedbackReason) && !otherReasonText.trim())
+      || (productReasons.some(isOtherFeedbackReason) && !productOtherText.trim())
+    ) {
       toast.error('Please describe what happened')
       return false
     }
@@ -221,14 +224,28 @@ export function useCustomerOrderActions(inputs: CustomerOrderActionsInputs) {
 
     setIsSubmittingRating(true)
     try {
-      const overallRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)))
-      const composedMessage = buildFeedbackReasonMessage(selectedReasons, otherReasonText)
+      const serviceRating = Math.max(1, Math.min(5, Math.round(deliveryRatingValue)))
+      const subject = `${ratingDialogOrder?.isReplacementReview ? 'Replacement Review' : 'Order Review'} - ${ratingDialogOrder.orderNumber}`
+      const typeOf = (rating: number) => (rating <= 2 ? 'COMPLAINT' : rating === 3 ? 'SUGGESTION' : 'COMPLIMENT')
+      // One review, two ratings: each says whether it is for the products or the service.
       const { response, payload } = await submitOrderFeedback({
         orderId: ratingDialogOrder.id,
-        rating: overallRating,
-        type: overallRating <= 2 ? 'COMPLAINT' : overallRating === 3 ? 'SUGGESTION' : 'COMPLIMENT',
-        subject: `${ratingDialogOrder?.isReplacementReview ? 'Replacement Review' : 'Order Review'} - ${ratingDialogOrder.orderNumber}`,
-        message: composedMessage,
+        ratings: [
+          {
+            ratingTarget: 'PRODUCT',
+            rating: productRating,
+            type: typeOf(productRating),
+            subject,
+            message: buildFeedbackReasonMessage(productReasons, productOtherText),
+          },
+          {
+            ratingTarget: 'SERVICE',
+            rating: serviceRating,
+            type: typeOf(serviceRating),
+            subject,
+            message: buildFeedbackReasonMessage(selectedReasons, otherReasonText),
+          },
+        ],
       })
       if (response.status === 409) {
         setReviewedOrderIds((prev) => {

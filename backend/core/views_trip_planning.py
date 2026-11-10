@@ -1,10 +1,14 @@
-"""Trip planning previews: the upcoming-deliveries calendar shown while creating a trip."""
+"""Trip planning previews shown while creating a trip.
+
+The upcoming-deliveries calendar, and the selected driver's other trips that day.
+"""
 
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from django.db.models import Prefetch, Q
+from django.utils.dateparse import parse_date
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -12,7 +16,9 @@ from django.views.decorators.http import require_http_methods
 
 from . import views_api as legacy
 from .api_utils import error as _err, ok as _ok, to_int as _int
-from .models import Order, OrderItem, OrderStatus, RoleType, TripDropPoint
+from .api_constants import RESOLVED_DROP_POINT_STATUSES
+from .fleet_sync import trip_scheduled_date
+from .models import Order, OrderItem, OrderStatus, RoleType, Trip, TripDropPoint, TripStatus, User, Warehouse
 
 logger = logging.getLogger(__name__)
 
@@ -248,3 +254,89 @@ def trips_upcoming_deliveries(request: HttpRequest) -> JsonResponse:
             "days": day_rows,
         }
     )
+
+
+def driver_day_queue(driver_id: str, day: date) -> list[Trip]:
+    """The driver's open trips on ``day``, in the order they run.
+
+    One driver, several trips: they run one at a time (trip_start refuses a second
+    while one is in progress). The trip already on the road comes first - one left
+    running from an earlier day still holds today - then the day's
+    planned trips in the order they were planned: planned start, then trip number,
+    which follows the order they were created. src/lib/driver-trip-queue.ts orders
+    the driver's own list the same way.
+    """
+    trips = (
+        Trip.objects.filter(driver_id=driver_id, status__in=[TripStatus.PLANNED, TripStatus.IN_PROGRESS])
+        .prefetch_related(Prefetch("drop_points", queryset=TripDropPoint.objects.select_related("order__timeline")))
+    )
+    today = timezone.localdate()
+    queue: list[Trip] = []
+    for trip in trips:
+        scheduled = trip_scheduled_date(trip, trip.drop_points.all())
+        # A trip still running from an earlier day holds today, as does a load transfer
+        # carrying on deliveries due earlier; nobody knows yet about a later day.
+        carries_on = str(trip.status or "").upper() == TripStatus.IN_PROGRESS or trip.transferred_from_id
+        if scheduled == day or (carries_on and day == today and scheduled is not None and scheduled < day):
+            queue.append(trip)
+    far_future = timezone.make_aware(datetime.max - timedelta(days=2))
+    # A load transfer goes right after the running trip: its goods wait at the roadside.
+    return sorted(queue, key=lambda trip: (
+        0 if str(trip.status or "").upper() == TripStatus.IN_PROGRESS else 1 if trip.transferred_from_id else 2,
+        trip.planned_start_at or far_future,
+        str(trip.trip_number or ""),
+    ))
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def trips_driver_day(request: HttpRequest) -> JsonResponse:
+    """The selected driver's open trips on one day, for the trip dialogs.
+
+    GET /api/trips/driver-day?driverId=<id>&date=YYYY-MM-DD[&excludeTripId=<id>]
+
+    Every warehouse's trips count: a driver drives one truck, whichever warehouse
+    planned the trip. Only trip numbers, statuses and stop counts are returned, so
+    staff of one warehouse see no other warehouse's customers.
+    """
+    staff, err = _require_staff(request)
+    if err:
+        return err
+    # Drivers pass _require_staff too; the role comes from the database.
+    viewer = User.objects.filter(id=str(staff.get("userId") or "").strip(), is_active=True).first()
+    if viewer is None or str(viewer.role or "").upper() not in {RoleType.ADMIN, RoleType.WAREHOUSE_STAFF}:
+        return _err("Forbidden", 403)
+    driver_id = str(request.GET.get("driverId") or "").strip()
+    day = parse_date(str(request.GET.get("date") or "").strip()[:10])
+    if not driver_id or day is None:
+        return _err("driverId and date (YYYY-MM-DD) are required", 400)
+    driver = User.objects.filter(id=driver_id, role=RoleType.DRIVER).first()
+    if driver is None:
+        return _err("Driver not found", 404)
+    exclude_trip_id = str(request.GET.get("excludeTripId") or "").strip()
+
+    queue = [trip for trip in driver_day_queue(driver.id, day) if trip.id != exclude_trip_id]
+    warehouse_names = dict(
+        Warehouse.objects.filter(id__in={trip.warehouse_id for trip in queue if trip.warehouse_id}).values_list("id", "name")
+    )
+    return _ok({
+        "success": True,
+        "driverId": driver.id,
+        "driverName": str(driver.name or "").strip() or None,
+        "date": day.isoformat(),
+        "trips": [
+            {
+                "id": trip.id,
+                "tripNumber": trip.trip_number,
+                "status": str(trip.status or "").upper(),
+                "position": position,
+                "stops": len(trip.drop_points.all()),
+                "openStops": sum(
+                    1 for point in trip.drop_points.all()
+                    if str(point.status or "").upper() not in RESOLVED_DROP_POINT_STATUSES
+                ),
+                "warehouseName": warehouse_names.get(trip.warehouse_id),
+            }
+            for position, trip in enumerate(queue, start=1)
+        ],
+    })

@@ -66,6 +66,7 @@ import { useCustomerCart } from './sections/cart/use-customer-cart'
 import { useCustomerAddress } from './sections/address/use-customer-address'
 import { useCustomerProfileAvatar } from './sections/profile/use-customer-profile-avatar'
 import { useCustomerOrderActions } from './sections/orders/use-customer-order-actions'
+import { normalizeRatingTarget } from '@shared/customer-logic/feedback-reasons'
 
 const poppins = { className: '' }
 
@@ -477,15 +478,20 @@ export function CustomerPortal() {
           const orderId = String(item?.orderId || item?.order_id || item?.order?.id || '').trim()
           if (!orderId) continue
           reviewed.add(orderId)
+          // A review is two ratings, products and service; a rating from before the
+          // split has no target and was the delivery rating.
+          const target = normalizeRatingTarget(item?.ratingTarget ?? item?.rating_target)
           const rawRating = Number(item?.rating)
-          if (Number.isFinite(rawRating) && rawRating >= 1 && rawRating <= 5) {
+          // The order list keeps showing the delivery rating it always showed.
+          if (Number.isFinite(rawRating) && rawRating >= 1 && rawRating <= 5 && (target === 'SERVICE' || !(orderId in ratingsByOrder))) {
             ratingsByOrder[orderId] = Math.round(rawRating)
           }
-          const existing = reviewMap[orderId]
+          const byTarget = reviewMap[orderId] || (reviewMap[orderId] = {})
+          const existing = byTarget[target]
           const existingTime = new Date(existing?.createdAt || existing?.created_at || 0).getTime()
           const nextTime = new Date(item?.createdAt || item?.created_at || 0).getTime()
           if (!existing || nextTime >= existingTime) {
-            reviewMap[orderId] = item
+            byTarget[target] = item
           }
         }
         setReviewedOrderIds(reviewed)
@@ -1693,12 +1699,14 @@ export function CustomerPortal() {
 
           <Dialog open={!!reviewDetailsOrder} onOpenChange={(open) => !open && setReviewDetailsOrder(null)}>
             {reviewDetailsOrder ? (() => {
-              const review = reviewByOrderId[reviewDetailsOrder.id] || null
-              const ratingValue = Number(review?.rating || orderRatings[reviewDetailsOrder.id] || 0)
-              const stars = Math.max(0, Math.min(5, Math.round(ratingValue)))
-              const createdAtText = review?.createdAt ? new Date(review.createdAt).toLocaleString() : 'N/A'
-              const subject = String(review?.subject || '').trim()
-              const message = String(review?.message || '').trim()
+              const reviews = reviewByOrderId[reviewDetailsOrder.id] || {}
+              const isReplacement = String(reviewDetailsOrder.orderNumber || '').toUpperCase().startsWith('RPL-')
+              // Each rating says what it rated; the products first, as in the review form.
+              const parts = [
+                { target: 'PRODUCT', label: isReplacement ? 'Replacement Product Rating' : 'Product Rating', review: reviews.PRODUCT },
+                { target: 'SERVICE', label: isReplacement ? 'Replacement Handling Rating' : 'Delivery Rating', review: reviews.SERVICE },
+              ].filter((part) => part.review)
+              const subject = String((reviews.SERVICE || reviews.PRODUCT)?.subject || '').trim()
               return (
                 <DialogContent>
                   <DialogHeader>
@@ -1706,18 +1714,39 @@ export function CustomerPortal() {
                     <DialogDescription>Submitted review details</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-3 text-sm">
-                    <div className="rounded-md border bg-slate-50 px-3 py-2">
-                      <p className="text-xs text-slate-500">Rating</p>
-                      <p className="font-semibold text-slate-900">
-                        {'★'.repeat(stars)}{'☆'.repeat(Math.max(5 - stars, 0))} ({stars}/5)
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">Submitted: {createdAtText}</p>
-                    </div>
-                    <div className="rounded-md border bg-white px-3 py-2">
-                      <p className="text-xs text-slate-500">Your Feedback</p>
-                      {subject ? <p className="font-medium text-slate-900">{subject}</p> : null}
-                      <p className="mt-1 whitespace-pre-wrap text-slate-800">{message || 'No feedback message'}</p>
-                    </div>
+                    {subject ? <p className="font-medium text-slate-900">{subject}</p> : null}
+                    {parts.length === 0 ? (
+                      <div className="rounded-md border bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">Rating</p>
+                        <p className="font-semibold text-slate-900">
+                          {(() => {
+                            const stars = Math.max(0, Math.min(5, Math.round(Number(orderRatings[reviewDetailsOrder.id] || 0))))
+                            return `${'★'.repeat(stars)}${'☆'.repeat(Math.max(5 - stars, 0))} (${stars}/5)`
+                          })()}
+                        </p>
+                      </div>
+                    ) : null}
+                    {parts.map(({ target, label, review }) => {
+                      const stars = Math.max(0, Math.min(5, Math.round(Number(review?.rating || 0))))
+                      const message = String(review?.message || '').trim()
+                      return (
+                        <div key={target} className="space-y-2 rounded-md border px-3 py-2">
+                          <div>
+                            <p className="text-xs font-semibold text-slate-700">{label}</p>
+                            <p className="font-semibold text-slate-900">
+                              {'★'.repeat(stars)}{'☆'.repeat(Math.max(5 - stars, 0))} ({stars}/5)
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Submitted: {review?.createdAt ? new Date(review.createdAt).toLocaleString() : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="rounded-md bg-slate-50 px-2.5 py-2">
+                            <p className="text-xs text-slate-500">Your Feedback</p>
+                            <p className="mt-1 whitespace-pre-wrap text-slate-800">{message || 'No feedback message'}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </DialogContent>
               )

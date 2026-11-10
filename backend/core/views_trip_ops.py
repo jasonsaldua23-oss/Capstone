@@ -24,6 +24,7 @@ from .api_utils import (
 from .empties_verification import record_collected_empties
 from .notification_services import _create_user_notification
 from .fleet_sync import MANUAL_VEHICLE_STATUSES, sync_vehicle_status_for_trip, trip_scheduled_date
+from .incident_lifecycle import close_open_incidents, open_incident_numbers, stopped_vehicle_message, stopping_incident
 from .mixed_case import serialize_mixed_component
 from .models import (
     Order,
@@ -39,6 +40,7 @@ from .models import (
     TripStatus,
     User,
     Vehicle,
+    VehicleIncident,
     VehicleStatus,
     Warehouse,
 )
@@ -438,9 +440,12 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     # define the day (see fleet_sync.trip_scheduled_date); planned_start_at
     # remains the fallback for older trips.
     scheduled_date = trip_scheduled_date(t)
+    today = timezone.localdate()
+    if t.transferred_from_id:
+        # A load transfer carries on deliveries already under way; it starts the day it is made.
+        scheduled_date = today
     if not scheduled_date:
         return _err("Trip cannot be started because its scheduled date is not set", 409)
-    today = timezone.localdate()
     if scheduled_date < today:
         # Fix: a missed day is not "come back later"; the trip has to be re-planned.
         return _err(
@@ -604,6 +609,7 @@ def trip_complete(request: HttpRequest, trip_id: str) -> JsonResponse:
             )
 
         now = timezone.now()
+        actor_name = str(p.get("name") or "Driver").strip() or "Driver"
         trip.status = TripStatus.COMPLETED
         trip.actual_end_at = trip.actual_end_at or now
         trip.save(update_fields=[
@@ -613,6 +619,17 @@ def trip_complete(request: HttpRequest, trip_id: str) -> JsonResponse:
             "completed_drop_points",
             "updated_at",
         ])
+        # The truck drove on and finished the trip, so its report is done with. A
+        # stranded truck's report stays open: the truck is still where it broke down.
+        closed_incidents = close_open_incidents(
+            trip.id,
+            outcome=VehicleIncident.Outcome.RESUMED,
+            notes=f"Closed automatically when {actor_name} completed trip {trip.trip_number}.",
+            actor=None,
+            only_if_vehicle_can_continue=True,
+            now=now,
+        )
+        still_open_incidents = open_incident_numbers(trip.id)
         # Added: hand the truck back to the fleet unless another trip still has it.
         sync_vehicle_status_for_trip(trip)
 
@@ -621,10 +638,14 @@ def trip_complete(request: HttpRequest, trip_id: str) -> JsonResponse:
         .prefetch_related("drop_points__order")
         .get(id=trip.id)
     )
-    actor_name = str(p.get("name") or "Driver").strip() or "Driver"
+    incident_notes = "".join(
+        f" Incident {incident.incident_number} was closed: the vehicle finished the trip." for incident in closed_incidents
+    ) + "".join(
+        f" Incident {number} is still open: the vehicle was reported unable to continue." for number in still_open_incidents
+    )
     _create_staff_notifications(
         title="Trip completed",
-        message=f"{actor_name} completed trip {completed_trip.trip_number}.",
+        message=f"{actor_name} completed trip {completed_trip.trip_number}.{incident_notes}",
         notification_type="TRIP",
         reference_type="trip",
         reference_id=completed_trip.id,
@@ -656,10 +677,21 @@ def trip_drop_point_update(request: HttpRequest, trip_id: str, drop_point_id: st
         Order.objects.select_for_update().get(id=dp.order_id)
     if p.get("role") == "DRIVER" and p.get("userId") != dp.trip.driver_id:
         return _err("Forbidden", 403)
+    # Locked after the stop and its order, as trip_cancel takes them: a stop confirmed
+    # while the warehouse cancels the trip either lands first or is refused here,
+    # and never puts the cancelled trip back on the road.
+    trip_status = Trip.objects.select_for_update().filter(id=dp.trip_id).values_list("status", flat=True).first()
+    if str(trip_status or "").upper() == TripStatus.CANCELLED:
+        return _err("This trip was cancelled by the warehouse. Contact the warehouse about this stop.", 409)
     body = _json_body(request)
     requeued_to_route_pool = False
     requested_status = str(body.get("status") or "").strip().upper()
     next_status = requested_status
+    if requested_status in {"ARRIVED", "IN_TRANSIT"} and str(dp.status or "").upper() != requested_status:
+        # A truck that cannot move does not reach another stop (incident_lifecycle).
+        stopping = stopping_incident(dp.trip_id)
+        if stopping is not None:
+            return _err(stopped_vehicle_message(stopping), 409)
     if next_status == "COMPLETED" and not str(body.get("deliveryPhoto") or dp.delivery_photo or "").strip():
         return _err("A POD photo is required to confirm delivery", 400)
     if requested_status == "COMPLETED" and str(dp.status or "").upper() == "COMPLETED":

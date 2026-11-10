@@ -10,12 +10,14 @@ import { ACTION_ADVANCE, ACTION_INSPECT } from '@/components/portals/shared/row-
 import { localDateInputValue } from '@/lib/local-date'
 
 /**
- * Moves an overdue trip, with every order on it, to a new delivery day.
+ * Moves a planned trip, with every order on it, to a new delivery day - whether
+ * it missed its day or the warehouse simply wants it on another one.
  */
 export type RescheduleTripTarget = {
   id: string
   tripNumber: string
   scheduledDate?: string | null
+  isOverdue?: boolean
 }
 
 // A YYYY-MM-DD key is a calendar day; build it locally so no timezone shifts it.
@@ -41,7 +43,7 @@ export function WarehouseRescheduleTripDialog({
   const today = localDateInputValue()
   const [scheduledDate, setScheduledDate] = useState(today)
   const [isSaving, setIsSaving] = useState(false)
-  const missedDay = formatDayKey(trip?.scheduledDate)
+  const scheduledDay = formatDayKey(trip?.scheduledDate)
   const isPastDay = Boolean(scheduledDate) && scheduledDate < today
 
   const submit = async () => {
@@ -58,7 +60,9 @@ export function WarehouseRescheduleTripDialog({
         <DialogHeader>
           <DialogTitle>Reschedule trip {trip?.tripNumber}</DialogTitle>
           <DialogDescription>
-            {missedDay ? `It was scheduled for ${missedDay} and never started. ` : 'Its scheduled day passed before it started. '}
+            {trip?.isOverdue
+              ? scheduledDay ? `It was scheduled for ${scheduledDay} and never started. ` : 'Its scheduled day passed before it started. '
+              : scheduledDay ? `It is scheduled for ${scheduledDay}. ` : ''}
             Every order on this trip moves to the new day, and the driver and each customer are notified.
           </DialogDescription>
         </DialogHeader>

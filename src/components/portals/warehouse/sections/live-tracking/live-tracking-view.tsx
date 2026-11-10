@@ -2,7 +2,9 @@
 
 import { useMemo } from 'react'
 import { LiveTrackingPage } from '@/components/portals/shared/live-tracking-page'
+import { useVehicleIncidents } from '@/components/portals/shared/use-vehicle-incidents'
 import { toMapWarehouses } from '@/components/shared/live-tracking/warehouse-markers'
+import { withIncidentMarkers } from '@/lib/vehicle-incidents'
 import type { WarehouseLiveTrackingViewProps } from '../shared/types'
 
 export function WarehouseLiveTrackingView({
@@ -22,6 +24,12 @@ export function WarehouseLiveTrackingView({
   warehouses,
 }: WarehouseLiveTrackingViewProps) {
   const mapWarehouses = useMemo(() => toMapWarehouses(warehouses), [warehouses])
+  // Warehouse staff respond to incidents on their own warehouse's trips (see views_incidents).
+  const { incidents, isLoading: isLoadingIncidents, respond } = useVehicleIncidents({ date: trackingDate })
+  const mapLocations = useMemo(
+    () => withIncidentMarkers(liveTrackingLocations, incidents),
+    [incidents, liveTrackingLocations]
+  )
   const today = new Date()
   const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
@@ -40,12 +48,15 @@ export function WarehouseLiveTrackingView({
       deliveries={liveTrackingDeliveredTransactions}
       recentLocations={liveTrackingRecentLocations}
       isLoadingTrips={loadingTrips}
+      incidents={incidents}
+      isLoadingIncidents={isLoadingIncidents}
+      onRespondToIncident={respond}
       map={
         <LiveTrackingMap
-          locations={liveTrackingLocations}
+          locations={mapLocations}
           routeLines={liveTrackingRouteLines}
           center={liveTrackingCenter}
-          zoom={liveTrackingLocations.length > 0 ? 12 : 10}
+          zoom={mapLocations.length > 0 ? 12 : 10}
           restrictToNegrosOccidental
           showDriverSelfBadge={false}
           className="h-full w-full"

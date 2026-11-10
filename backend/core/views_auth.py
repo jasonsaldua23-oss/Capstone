@@ -140,16 +140,16 @@ def _require_auth(request: HttpRequest) -> dict[str, Any] | None:
     return legacy._require_auth(request)
 
 
-def _send_email_verification_otp(email: str, otp_code: str) -> None:
-    return legacy._send_email_verification_otp(email, otp_code)
+def _send_email_verification_otp(email: str, otp_code: str, *, recipient_name: str | None=None) -> None:
+    return legacy._send_email_verification_otp(email, otp_code, recipient_name=recipient_name)
 
 
-def _send_login_otp_email(email: str, otp_code: str) -> None:
-    return legacy._send_login_otp_email(email, otp_code)
+def _send_login_otp_email(email: str, otp_code: str, *, recipient_name: str | None=None) -> None:
+    return legacy._send_login_otp_email(email, otp_code, recipient_name=recipient_name)
 
 
-def _send_reset_otp_email(email: str, otp_code: str) -> None:
-    return legacy._send_reset_otp_email(email, otp_code)
+def _send_reset_otp_email(email: str, otp_code: str, *, recipient_name: str | None=None) -> None:
+    return legacy._send_reset_otp_email(email, otp_code, recipient_name=recipient_name)
 
 
 def _set_auth_cookie(response: JsonResponse, token: str, remember_me: bool=False) -> None:
@@ -256,7 +256,8 @@ def auth_email_verification_request(request: HttpRequest) -> JsonResponse:
     now = timezone.now()
     code = _stateless_otp_for_bucket(email, account_type, "email_verification", _otp_bucket(now))
     try:
-        _send_email_verification_otp(email, code)
+        # No account holds this address (checked above), so there is no name to look up.
+        _send_email_verification_otp(email, code, recipient_name="")
     except Exception:
         logger.exception("Failed to send email verification OTP to %s", email)
         return _err("Unable to send verification email right now", 500)
@@ -286,6 +287,7 @@ def auth_email_verification_request_existing(request: HttpRequest) -> JsonRespon
     # Added: an administrator editing a staff account may verify that account's current email.
     target_user_id = str(body.get("targetUserId") or "").strip()
     current_email = _normalize_email(p.get("email"))
+    recipient_name = None
     if target_user_id:
         if str(p.get("role") or "").upper() != RoleType.ADMIN:
             return _err("Forbidden", 403)
@@ -293,6 +295,7 @@ def auth_email_verification_request_existing(request: HttpRequest) -> JsonRespon
         if not target_user:
             return _err("User not found", 404)
         current_email = _normalize_email(target_user.email)
+        recipient_name = target_user.name or ""
     if email != current_email:
         return _err("Email does not match your current account email", 400)
 
@@ -308,7 +311,7 @@ def auth_email_verification_request_existing(request: HttpRequest) -> JsonRespon
     now = timezone.now()
     code = _stateless_otp_for_bucket(email, account_type, "old_email_confirm", _otp_bucket(now))
     try:
-        _send_email_verification_otp(email, code)
+        _send_email_verification_otp(email, code, recipient_name=recipient_name)
     except Exception:
         logger.exception("Failed to send old-email confirmation OTP to %s", email)
         return _err("Unable to send verification email right now", 500)
@@ -418,7 +421,7 @@ def _start_staff_login_two_factor(
     now = timezone.now()
     code = _stateless_otp_for_bucket(email, "staff", "login_2fa", _otp_bucket(now))
     try:
-        _send_login_otp_email(email, code)
+        _send_login_otp_email(email, code, recipient_name=user.name or "")
     except Exception:
         logger.exception("Failed to send login 2FA OTP")
         return _err("Failed to send login verification code", 500)
@@ -468,7 +471,7 @@ def _start_customer_login_two_factor(
     now = timezone.now()
     code = _stateless_otp_for_bucket(email, "customer", "login_2fa", _otp_bucket(now))
     try:
-        _send_login_otp_email(email, code)
+        _send_login_otp_email(email, code, recipient_name=customer.name or "")
     except Exception:
         logger.exception("Failed to send customer login 2FA OTP")
         return _err("Failed to send login verification code", 500)
@@ -1151,7 +1154,7 @@ def auth_password_reset_request_otp(request: HttpRequest) -> JsonResponse:
     otp_scope = _password_reset_otp_scope(account_type, portal)
     code = _stateless_otp_for_bucket(email, otp_scope, "password_reset", _otp_bucket(now))
     try:
-        _send_reset_otp_email(email, code)
+        _send_reset_otp_email(email, code, recipient_name=account.name or "")
     except Exception:
         logger.exception("Failed to send password reset OTP to %s", email)
         return _err("Unable to send OTP email right now", 500)

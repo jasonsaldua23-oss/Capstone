@@ -14,6 +14,7 @@ an audit line on the customer's deposit ledger.
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from decimal import Decimal
 from typing import Any
 
@@ -26,14 +27,17 @@ from .models import (
     ContainerType,
     CustomerBottleBalance,
     DepositTransaction,
+    EmptiesStockCorrection,
     MixedCaseComponent,
     OpeningEmptiesDeclaration,
     Order,
     OrderCharge,
     OrderDepositRefundClaim,
+    OrderItem,
     ProductPackaging,
     TripDropPoint,
 )
+from .deposit_math import cases_returned_from_bottles, uncovered_deposit
 from .rgb.services import get_or_create_deposit_ledger, process_bottle_return
 
 logger = logging.getLogger(__name__)
@@ -88,6 +92,14 @@ def _sold_by_case(item: Any) -> bool:
     return str(getattr(item, "product_unit", "") or "").strip().lower() == "case"
 
 
+def _claim_shell_value(claim: Any) -> Decimal:
+    """The physical-case shells inside a refund claim's requested amount."""
+    shells = Decimal(str(getattr(claim, "case_deposit_amount", 0) or 0)) * Decimal(
+        max(0, _int(getattr(claim, "requested_cases", 0), 0))
+    )
+    return min(shells, Decimal(str(getattr(claim, "requested_amount", 0) or 0)))
+
+
 def declared_empties_by_container(
     order: Order | None,
     *,
@@ -118,6 +130,7 @@ def declared_empties_by_container(
         declared_cases: int | None = None,
         declared_loose_bottles: int | None = None,
         is_refund_claim: bool = False,
+        shell_value: Decimal = Decimal("0.00"),
     ) -> None:
         if not container_type_id or quantity <= 0:
             return
@@ -148,6 +161,9 @@ def declared_empties_by_container(
                 "containersPerCase": per_case,
                 "declaredCases": 0,
                 "declaredLooseBottles": 0,
+                # The part of depositValue that is the physical case shells, so a
+                # missing bottle is charged a bottle deposit and a missing case its shell.
+                "shellDepositValue": Decimal("0.00"),
                 "isRefundClaim": is_refund_claim,
                 "exchangeQuantity": 0,
                 "exchangeDepositValue": Decimal("0.00"),
@@ -161,8 +177,12 @@ def declared_empties_by_container(
             entry["declaredCases"] = 0
             cases = 0
             entry["byCase"] = False
+            # Without cases to count, the shells fall back to being spread per bottle.
+            entry["shellDepositValue"] = Decimal("0.00")
         entry["declaredCases"] += cases
         entry["declaredLooseBottles"] += loose_bottles
+        if cases > 0:
+            entry["shellDepositValue"] += min(max(Decimal("0.00"), shell_value), deposit_value)
         entry["isRefundClaim"] = bool(entry["isRefundClaim"] or is_refund_claim)
         entry["declared"] += quantity
         entry["depositValue"] += deposit_value
@@ -192,15 +212,26 @@ def declared_empties_by_container(
         if quantity <= 0:
             continue
         per_case = _containers_per_case(item, packaging_cache)
+        deposit_refunded = Decimal(str(getattr(item, "deposit_refunded", 0) or 0))
+        by_case = _sold_by_case(item) and per_case > 1 and quantity % per_case == 0
+        # A case credit is its bottles at the snapshot bottle deposit plus the shell;
+        # older rows without that snapshot keep the whole value per bottle.
+        bottle_deposit = Decimal(str(getattr(item, "deposit_per_unit", 0) or 0))
+        shell_value = (
+            max(Decimal("0.00"), deposit_refunded - bottle_deposit * Decimal(quantity))
+            if by_case and bottle_deposit > 0
+            else Decimal("0.00")
+        )
         _add(
             _resolve_container_type_id(item, packaging_cache),
             quantity,
-            Decimal(str(getattr(item, "deposit_refunded", 0) or 0)),
+            deposit_refunded,
             str(getattr(item, "container_type_name", "") or "").strip(),
             product_id=str(getattr(item, "product_id", "") or "").strip(),
             product_name=str(getattr(item, "product_name", "") or "").strip(),
-            by_case=_sold_by_case(item) and per_case > 1 and quantity % per_case == 0,
+            by_case=by_case,
             containers_per_case=per_case,
+            shell_value=shell_value,
         )
 
     # Fix: reuse mixed-case rows loaded by the trip query. Other callers keep a
@@ -302,6 +333,7 @@ def declared_empties_by_container(
                 else max(0, _int(claim.requested_quantity, 0))
             ),
             is_refund_claim=True,
+            shell_value=_claim_shell_value(claim),
         )
 
     missing_name_ids = [entry["containerTypeId"] for entry in declared.values() if not entry["containerTypeName"]]
@@ -353,6 +385,7 @@ def serialize_declared_empties(
             "unitLabel": entry["unitLabel"],
             "depositPerContainer": float(entry["depositPerContainer"]),
             "depositValue": float(entry["depositValue"]),
+            "shellDepositValue": float(entry["shellDepositValue"]),
         }
         for entry in sorted(
             declared_empties_by_container(
@@ -544,6 +577,7 @@ def record_collected_empties(
     declared = declared_empties_by_container(order)
 
     counted: dict[str, int] = {}
+    counted_cases: dict[str, int] = {}
     for line in submitted_lines or []:
         if not isinstance(line, dict):
             continue
@@ -552,6 +586,12 @@ def record_collected_empties(
             continue
         quantity = max(0, _int(line.get("returnedQuantity") or line.get("quantityCollected"), 0))
         counted[container_type_id] = counted.get(container_type_id, 0) + quantity
+        # Cases are counted apart from bottles: a case one bottle short still came
+        # back in its shell.
+        if line.get("returnedCases") is not None:
+            counted_cases[container_type_id] = counted_cases.get(container_type_id, 0) + max(
+                0, _int(line.get("returnedCases"), 0),
+            )
 
     if not declared and not any(counted.values()):
         return None
@@ -577,6 +617,8 @@ def record_collected_empties(
     return_lines: list[dict[str, Any]] = []
     summary_lines: list[dict[str, Any]] = []
     shortfall_amount = Decimal("0.00")
+    # Only containers declared in cases; the refund claims draw on these in turn.
+    collected_cases_by_container: dict[str, int] = {}
 
     container_ids = list(dict.fromkeys(list(declared.keys()) + list(counted.keys())))
     for container_type_id in container_ids:
@@ -590,8 +632,27 @@ def record_collected_empties(
         # customer hands over belong to a separate return, not to this settlement.
         collected_qty = min(submitted_qty, declared_qty) if declared_qty > 0 else submitted_qty
         short_qty = max(0, declared_qty - collected_qty)
-        if declared_qty > 0 and short_qty > 0:
-            shortfall_amount += _money(deposit_value * Decimal(short_qty) / Decimal(declared_qty))
+        declared_cases = _int(entry["declaredCases"], 0) if entry else 0
+        if declared_cases > 0:
+            collected_cases_by_container[container_type_id] = (
+                min(declared_cases, counted_cases[container_type_id])
+                if container_type_id in counted_cases
+                else cases_returned_from_bottles(
+                    collected_qty,
+                    cases=declared_cases,
+                    loose_bottles=_int(entry["declaredLooseBottles"], 0),
+                    containers_per_case=_int(entry["containersPerCase"], 1),
+                )
+            )
+        container_shortfall = uncovered_deposit(
+            deposit_value=deposit_value,
+            shell_value=entry["shellDepositValue"] if entry else Decimal("0.00"),
+            bottles=declared_qty,
+            cases=declared_cases,
+            bottles_returned=collected_qty,
+            cases_returned=collected_cases_by_container.get(container_type_id, 0),
+        )
+        shortfall_amount += container_shortfall
 
         container_type = ContainerType.objects.filter(id=container_type_id).first()
         summary_lines.append({
@@ -617,8 +678,9 @@ def record_collected_empties(
             }
             if declared_qty > 0 and deposit_value > 0:
                 # Refund at the rate the customer was charged on this order, not the
-                # container type's standing deposit.
-                line["depositPerContainer"] = deposit_value / Decimal(declared_qty)
+                # container type's standing deposit: what was declared less what is
+                # charged back, so the refund and the shortfall add up to the credit.
+                line["depositPerContainer"] = (deposit_value - container_shortfall) / Decimal(collected_qty)
             elif deposit_per_container > 0:
                 line["depositPerContainer"] = deposit_per_container
             if opening_collected.get(container_type_id, 0) > 0:
@@ -629,6 +691,14 @@ def record_collected_empties(
                     Decimal("0.00"), refund_value - opening_exchange_values[container_type_id],
                 ) / Decimal(collected_qty)
             return_lines.append(line)
+
+    # Per product, while the refund claims are still pending: settled claims leave the
+    # declarations, and their bottles would drop out of the driver's count with them.
+    driver_counts = _driver_counts_by_product(
+        order,
+        submitted_lines,
+        {str(line["containerTypeId"]): _int(line.get("collectedQuantity"), 0) for line in summary_lines},
+    )
 
     if return_lines:
         bottle_return = process_bottle_return(
@@ -659,6 +729,7 @@ def record_collected_empties(
         .filter(order=order, status=OrderDepositRefundClaim.ClaimStatus.PENDING)
         .order_by("created_at", "id")
     )
+    cases_remaining = dict(collected_cases_by_container)
     for claim in claims:
         container_key = str(claim.container_type_id)
         collected_quantity = min(
@@ -666,18 +737,25 @@ def record_collected_empties(
             collected_remaining.get(container_key, 0),
         )
         collected_remaining[container_key] = max(0, collected_remaining.get(container_key, 0) - collected_quantity)
+        # Cases are only counted where the container's declaration kept them.
+        counts_cases = container_key in cases_remaining
+        requested_cases = max(0, _int(claim.requested_cases, 0)) if counts_cases else 0
+        collected_cases = min(requested_cases, cases_remaining.get(container_key, 0))
+        if counts_cases:
+            cases_remaining[container_key] -= collected_cases
         # Preserve the original case/bottle pricing. A complete collection earns
-        # the exact requested amount; a partial collection is prorated fairly.
+        # the exact requested amount; a partial one loses what each missing bottle
+        # and case was worth, matching the shortfall charged on the order.
         requested_quantity = max(0, _int(claim.requested_quantity, 0))
-        collected_amount = (
-            Decimal(str(claim.requested_amount or 0))
-            if requested_quantity > 0 and collected_quantity >= requested_quantity
-            else _money(
-                Decimal(str(claim.requested_amount or 0))
-                * Decimal(collected_quantity)
-                / Decimal(max(1, requested_quantity))
-            )
-        )
+        requested_amount = Decimal(str(claim.requested_amount or 0))
+        collected_amount = max(Decimal("0.00"), requested_amount - uncovered_deposit(
+            deposit_value=requested_amount,
+            shell_value=_claim_shell_value(claim) if counts_cases else Decimal("0.00"),
+            bottles=requested_quantity,
+            cases=requested_cases,
+            bottles_returned=collected_quantity,
+            cases_returned=collected_cases,
+        )) if requested_quantity > 0 else Decimal("0.00")
         claim.collected_quantity = collected_quantity
         claim.collected_amount = collected_amount
         if collected_quantity >= claim.requested_quantity:
@@ -701,6 +779,10 @@ def record_collected_empties(
         drop_point.empties_collected = bool(return_lines)
         drop_point.bottle_return_id = bottle_return.id
         drop_point.save(update_fields=["empties_collected", "bottle_return_id", "updated_at"])
+
+    # The warehouse's empty stock must hold what arrived, not what was promised. Measured
+    # against the claims as just settled, which is how the stock reads them.
+    _record_stock_corrections(order, bottle_return, driver_counts)
 
     shortfall_amount = _money(shortfall_amount)
     if shortfall_amount > 0:
@@ -791,4 +873,81 @@ def _charge_shortfall(
             reference_type="bottle_return",
             reference_id=bottle_return.id,
             performed_by=performed_by,
+        )
+
+
+def _driver_counts_by_product(
+    order: Order,
+    submitted_lines: Any,
+    collected_by_container: dict[str, int],
+) -> dict[str, int]:
+    """Bottles of each product the driver counted, never more than its declaration.
+
+    The driver's counter is per product (``declarationId`` is container:product). A
+    count for the container as a whole - from an older client - is shared out by
+    filling each product's declaration in turn.
+    """
+    entries = declared_empties_by_container(order, group_by_product=True)
+    by_declaration: dict[str, int] = defaultdict(int)
+    for line in submitted_lines or []:
+        if not isinstance(line, dict):
+            continue
+        declaration_id = str(line.get("declarationId") or "").strip()
+        if declaration_id in entries:
+            by_declaration[declaration_id] += max(0, _int(line.get("returnedQuantity") or line.get("quantityCollected"), 0))
+
+    counts: dict[str, int] = defaultdict(int)
+    for container_type_id, collected in collected_by_container.items():
+        container_entries = [entry for entry in entries.values() if entry["containerTypeId"] == container_type_id]
+        per_product = any(entry["declarationId"] in by_declaration for entry in container_entries)
+        remaining = max(0, collected)
+        for entry in container_entries:
+            if per_product:
+                taken = min(by_declaration.get(entry["declarationId"], 0), entry["declared"])
+            else:
+                taken = min(remaining, entry["declared"])
+                remaining -= taken
+            if entry["productId"]:
+                counts[entry["productId"]] += taken
+    return counts
+
+
+def _stock_counted_for_order(order: Order) -> dict[str, int]:
+    """Empties of each product deposit_lifecycle.get_empty_case_balances counts for this order.
+
+    Exchanges as declared at checkout (mixed cases through their components) and refund
+    claims as settled. Keep this in step with that function.
+    """
+    counted: dict[str, int] = defaultdict(int)
+    sources = [
+        OrderItem.objects.filter(order=order, empty_returned_quantity__gt=0)
+        .exclude(item_type="MIXED_CASE")
+        .values_list("product_id", "empty_returned_quantity"),
+        MixedCaseComponent.objects.filter(order_item__order=order, empty_covered_quantity__gt=0)
+        .values_list("product_id", "empty_covered_quantity"),
+        OrderDepositRefundClaim.objects.filter(order=order, status__in=["SETTLED", "PARTIAL"], collected_quantity__gt=0)
+        .values_list("product_id", "collected_quantity"),
+    ]
+    for queryset in sources:
+        for product_id, quantity in queryset:
+            if product_id:
+                counted[str(product_id)] += max(0, _int(quantity, 0))
+    return counted
+
+
+def _record_stock_corrections(order: Order, bottle_return: BottleReturn, driver_counts: dict[str, int]) -> None:
+    """One row per product whose count differs from what the empty stock would count."""
+    expected = _stock_counted_for_order(order)
+    for product_id in sorted(set(expected) | set(driver_counts)):
+        declared = expected.get(product_id, 0)
+        counted = driver_counts.get(product_id, 0)
+        if declared == counted:
+            continue
+        EmptiesStockCorrection.objects.create(
+            bottle_return=bottle_return,
+            order=order,
+            product_id=product_id,
+            declared_bottles=declared,
+            counted_bottles=counted,
+            bottles=counted - declared,
         )

@@ -91,6 +91,7 @@ _OWNERS = {
     "_compute_order_distances": "geo_utils",
     "_compute_order_totals": "order_lifecycle",
     "_count_discount_eligible_cases": "order_lifecycle",
+    "_create_admin_notifications": "notification_services",
     "_create_customer_notification": "notification_services",
     "_create_deposit_refund_claims": "order_lifecycle",
     "_create_order_from_checkout_payload": "order_lifecycle",

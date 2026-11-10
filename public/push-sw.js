@@ -9,6 +9,10 @@ self.addEventListener('push', (event) => {
   if (!payload || typeof payload !== 'object') payload = {}
 
   const data = payload.data || {}
+  // A driver's accident or breakdown report to the warehouse stays on screen until
+  // someone clicks it; the open portal sounds the alarm (incident-alarm.tsx). A browser
+  // cannot play a longer sound than the system's own, so this is as loud as a push gets.
+  const emergency = data.type === 'INCIDENT' && data.referenceType === 'incident'
   event.waitUntil(
     self.registration.showNotification(payload.title || 'Ann Ann\'s Beverages Trading', {
       body: payload.body || '',
@@ -19,6 +23,7 @@ self.addEventListener('push', (event) => {
       tag: data.referenceId ? `${data.referenceType || 'notification'}:${data.referenceId}` : undefined,
       // Fix: replacing an order/trip notification should alert again instead of updating silently.
       renotify: Boolean(data.referenceId),
+      requireInteraction: emergency,
       silent: false,
     })
   )

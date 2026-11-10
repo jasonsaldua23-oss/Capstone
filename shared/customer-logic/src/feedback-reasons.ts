@@ -25,6 +25,8 @@ export type FeedbackServiceDimension =
 export type FeedbackReasonCatalogKey =
   | 'web-delivery'
   | 'web-replacement'
+  | 'web-product'
+  | 'web-replacement-product'
   | 'mobile-delivery'
   | 'mobile-replacement'
 
@@ -87,9 +89,30 @@ export const MOBILE_REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING: Record<number, reado
   5: ['Excellent replacement service', 'Perfect replacement condition', 'Very fast resolution', 'Excellent communication'],
 }
 
+// What the web asks about the drinks themselves, now that products and service are
+// rated apart. Each star leads with its catalog's own condition phrase, so one wording
+// means the same thing in both places.
+export const PRODUCT_FEEDBACK_OPTIONS_BY_RATING: Record<number, readonly string[]> = {
+  1: ['Damaged cases or leaking bottles', 'Products were expired', 'Drinks tasted off or flat'],
+  2: ['Some products or packaging were damaged', 'Some bottles had broken seals', 'Drinks were not fresh'],
+  3: ['Product condition was acceptable', 'Drinks were fresh enough', 'Packaging could be better'],
+  4: ['Products arrived in good condition', 'Drinks were fresh and well sealed'],
+  5: ['Products and packaging were in excellent condition', 'Drinks were fresh and tasted great'],
+}
+
+export const REPLACEMENT_PRODUCT_FEEDBACK_OPTIONS_BY_RATING: Record<number, readonly string[]> = {
+  1: ['Replacement items arrived damaged', 'Products were expired', 'Drinks tasted off or flat'],
+  2: ['Replacement item condition was poor', 'Some bottles had broken seals', 'Drinks were not fresh'],
+  3: ['Replacement condition was acceptable', 'Drinks were fresh enough', 'Packaging could be better'],
+  4: ['Replacement arrived in good condition', 'Drinks were fresh and well sealed'],
+  5: ['Replacement arrived in excellent condition', 'Drinks were fresh and tasted great'],
+}
+
 export const FEEDBACK_REASON_CATALOGS: Record<FeedbackReasonCatalogKey, Record<number, readonly string[]>> = {
   'web-delivery': DELIVERY_FEEDBACK_OPTIONS_BY_RATING,
   'web-replacement': REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING,
+  'web-product': PRODUCT_FEEDBACK_OPTIONS_BY_RATING,
+  'web-replacement-product': REPLACEMENT_PRODUCT_FEEDBACK_OPTIONS_BY_RATING,
   'mobile-delivery': MOBILE_DELIVERY_FEEDBACK_OPTIONS_BY_RATING,
   'mobile-replacement': MOBILE_REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING,
 }
@@ -172,6 +195,15 @@ const REASON_DIMENSION_SOURCE: ReadonlyArray<readonly [FeedbackServiceDimension,
     'Minor packaging issue',
     'Good unit',
     'Perfect packaging',
+    // The product rating's own phrases: still the drinks' condition.
+    'Products were expired',
+    'Drinks tasted off or flat',
+    'Some bottles had broken seals',
+    'Drinks were not fresh',
+    'Drinks were fresh enough',
+    'Packaging could be better',
+    'Drinks were fresh and well sealed',
+    'Drinks were fresh and tasted great',
   ]],
   ['driver', [
     'Driver conduct was unprofessional',
@@ -552,3 +584,47 @@ export function buildFeedbackReasonMessage(selectedReasons: string[], otherText:
 
   return Array.from(new Set(picked)).map((reason) => `- ${reason}`).join(NEWLINE)
 }
+
+// ---------------------------------------------------------------------------
+// Product or service: what a rating is for.
+//
+// Every rating says what it rates. A review of an order is two ratings - the
+// products, and the service that brought them - each with its own reasons, stored
+// as two feedback rows. Product Condition is the one dimension about the beverages
+// themselves; every other dimension is about how the order was handled.
+// ---------------------------------------------------------------------------
+
+export type FeedbackRatingTarget = 'PRODUCT' | 'SERVICE'
+
+export const FEEDBACK_RATING_TARGETS: readonly FeedbackRatingTarget[] = ['PRODUCT', 'SERVICE']
+
+export const FEEDBACK_RATING_TARGET_LABELS: Record<FeedbackRatingTarget, string> = {
+  PRODUCT: 'Product',
+  SERVICE: 'Service',
+}
+
+const PRODUCT_DIMENSIONS: ReadonlySet<FeedbackServiceDimension> = new Set<FeedbackServiceDimension>(['condition'])
+
+export function ratingTargetOfDimension(dimension: FeedbackServiceDimension): FeedbackRatingTarget {
+  return PRODUCT_DIMENSIONS.has(dimension) ? 'PRODUCT' : 'SERVICE'
+}
+
+/**
+ * A stored target. Anything else is a rating from before the split - the single
+ * "Delivery Rating" - and the mobile app still sends those, so it reads as SERVICE.
+ */
+export function normalizeRatingTarget(value: unknown): FeedbackRatingTarget {
+  return String(value ?? '').trim().toUpperCase() === 'PRODUCT' ? 'PRODUCT' : 'SERVICE'
+}
+
+/** A catalog's phrases about how the order was handled: all but its product-condition ones. */
+function serviceOnly(catalog: Record<number, readonly string[]>): Record<number, readonly string[]> {
+  const result: Record<number, readonly string[]> = {}
+  for (const [star, phrases] of Object.entries(catalog)) {
+    result[Number(star)] = phrases.filter((phrase) => ratingTargetOfDimension(inferFeedbackDimension(phrase)) === 'SERVICE')
+  }
+  return result
+}
+
+export const DELIVERY_SERVICE_FEEDBACK_OPTIONS_BY_RATING = serviceOnly(DELIVERY_FEEDBACK_OPTIONS_BY_RATING)
+export const REPLACEMENT_SERVICE_FEEDBACK_OPTIONS_BY_RATING = serviceOnly(REPLACEMENT_FEEDBACK_OPTIONS_BY_RATING)

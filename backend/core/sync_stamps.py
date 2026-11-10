@@ -62,6 +62,8 @@ SYNC_SCOPES: tuple[str, ...] = (
     "feedback",
     "notifications",
     "tracking",
+    # Accidents and vehicle damage reported from a trip, flagged on the tracking maps.
+    "incidents",
     # Paired with the affected data scope when a database row is deleted. Clients
     # use it to replace collections instead of applying an update-only delta.
     "deletions",
@@ -97,6 +99,7 @@ def _model_scope_map() -> dict[type, tuple[str, ...]]:
         m.InventoryReservation: ("inventory", "stocks"),
         m.StockBatch: ("stock-batches", "inventory", "stocks"),
         m.InventoryTransaction: ("inventory-transactions", "inventory", "stocks"),
+        m.DamagedStock: ("inventory", "stocks", "stock-batches"),
         # Catalog.
         m.Product: ("products",),
         m.ProductPackaging: ("products",),
@@ -106,6 +109,7 @@ def _model_scope_map() -> dict[type, tuple[str, ...]]:
         # Logistics.
         m.Trip: ("trips",),
         m.TripDropPoint: ("trips",),
+        m.VehicleIncident: ("incidents",),
         m.Vehicle: ("vehicles", "drivers"),
         # Staff accounts carry the driver records since the Driver model was folded in.
         m.User: ("drivers",),
@@ -139,10 +143,12 @@ _PATH_SCOPES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("/api/replacements", ("replacements", "orders")),
     ("/api/trips", ("trips", "orders", "inventory", "stocks")),
     ("/api/driver/trips", ("trips", "orders")),
+    ("/api/incidents", ("incidents",)),
     ("/api/driver/profile", ("drivers",)),
     ("/api/retail", ("orders", "inventory", "stocks", "stock-batches", "products")),
     ("/api/inventory-transactions", ("inventory-transactions", "inventory", "stocks")),
     ("/api/inventory", ("inventory", "stocks", "stock-batches")),
+    ("/api/damaged-stock", ("inventory", "stocks", "stock-batches", "inventory-transactions")),
     ("/api/stock-batches", ("stock-batches", "inventory", "stocks")),
     ("/api/products", ("products", "inventory", "stocks")),
     ("/api/warehouses", ("warehouses",)),
@@ -171,6 +177,9 @@ TRACKING_BUMP_INTERVAL_SECONDS = 4
 _PATH_SCOPES_EXCLUDED: tuple[str, ...] = (
     "/api/auth",
     "/api/driver/location",
+    # A photo upload changes no record until the report that references it.
+    "/api/incidents/photo",
+    "/api/damaged-stock/photo",
     "/api/push-subscriptions",
     "/api/sync",
     "/api/health",

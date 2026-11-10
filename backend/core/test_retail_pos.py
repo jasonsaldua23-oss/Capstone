@@ -47,30 +47,38 @@ class RetailPosMoneyTests(SimpleTestCase):
             Decimal("0.00"),
         )
 
-    def test_case_deposit_uses_registered_case_rate_and_prorates_partial_coverage(self):
-        self.assertEqual(
-            calculate_deposit_amount(
+    def test_case_deposit_charges_missing_bottles_and_only_unreturned_shells(self):
+        def deposit(empty_units, empty_cases=None, cases=1):
+            return calculate_deposit_amount(
                 mode="CASE",
-                eligible_units=12,
-                empty_units=0,
+                eligible_units=12 * cases,
+                empty_units=empty_units,
                 unit_deposit=Decimal("2.00"),
                 case_deposit=Decimal("90.00"),
-                case_count=1,
+                case_count=cases,
                 case_capacity=12,
-            ),
-            Decimal("114.00"),
-        )
+                empty_cases=empty_cases,
+            )
+
+        self.assertEqual(deposit(0, 0), Decimal("114.00"))
+        # The case came back four bottles short: four bottle deposits, no shell.
+        self.assertEqual(deposit(8, 1), Decimal("8.00"))
+        # Eight loose bottles and no case: the shell is still owed.
+        self.assertEqual(deposit(8, 0), Decimal("98.00"))
+        # Without a shell count, a part-filled case counts as handed back.
+        self.assertEqual(deposit(8), Decimal("8.00"))
+        self.assertEqual(deposit(12, cases=2), Decimal("114.00"))
+        with self.assertRaisesMessage(ValueError, "Empty cases provided cannot exceed 1"):
+            deposit(12, 2)
+
+    def test_one_missing_bottle_from_a_returned_price_list_case_costs_one_bottle(self):
+        # 8oz glass: 24 bottles at 2.00 plus a 42.00 shell, 90.00 a case.
         self.assertEqual(
             calculate_deposit_amount(
-                mode="CASE",
-                eligible_units=12,
-                empty_units=8,
-                unit_deposit=Decimal("2.00"),
-                case_deposit=Decimal("90.00"),
-                case_count=1,
-                case_capacity=12,
+                mode="CASE", eligible_units=24, empty_units=23, unit_deposit=Decimal("2.00"),
+                case_deposit=Decimal("42.00"), case_count=1, case_capacity=24, empty_cases=1,
             ),
-            Decimal("38.00"),
+            Decimal("2.00"),
         )
 
     def test_empty_quantity_cannot_exceed_eligible_bottles(self):
@@ -187,8 +195,8 @@ class RetailPosApiTests(TestCase):
                 self.assertEqual(product["caseQuantity"], 12)
                 self.assertEqual(product["casePrice"], "300.00")
 
-    def test_mixed_case_requires_equal_whole_bottle_split(self):
-        # A 24-bottle case made from two products must be 12 + 12, never 13 + 11.
+    def _mixed_case_products(self):
+        """This product and a second one, both 24 to a case, for a 12 + 12 Mixed Case."""
         self.product.quantity_per_unit = 24
         self.product.save(update_fields=["quantity_per_unit"])
         self.product.packaging_options.update(containers_per_case=24)
@@ -213,7 +221,11 @@ class RetailPosApiTests(TestCase):
             deposit_amount=Decimal("2.00"),
             case_deposit_amount=Decimal("24.00"),
         )
-        products = {self.product.id: self.product, second.id: second}
+        return {self.product.id: self.product, second.id: second}, second
+
+    def test_mixed_case_requires_equal_whole_bottle_split(self):
+        # A 24-bottle case made from two products must be 12 + 12, never 13 + 11.
+        products, second = self._mixed_case_products()
 
         valid = _quote_mixed_line(
             {
@@ -240,6 +252,31 @@ class RetailPosApiTests(TestCase):
                 },
                 products,
             )
+
+    def test_mixed_case_charges_a_shell_only_for_cases_not_handed_back(self):
+        products, second = self._mixed_case_products()
+
+        def deposit(lemon_empties, empty_cases=None):
+            line = {
+                "quantity": 1,
+                "caseCapacity": 24,
+                "components": [
+                    {"productId": self.product.id, "quantityBaseUnits": 12, "emptyBottlesProvided": 12},
+                    {"productId": second.id, "quantityBaseUnits": 12, "emptyBottlesProvided": lemon_empties},
+                ],
+            }
+            if empty_cases is not None:
+                line["emptyCasesProvided"] = empty_cases
+            return _quote_mixed_line(line, products)["deposit"]
+
+        # The case came back one Lemon bottle short: that bottle only.
+        self.assertEqual(deposit(11, 1), Decimal("2.00"))
+        # The same bottles without the case: the shell too.
+        self.assertEqual(deposit(11, 0), Decimal("26.00"))
+        # Without a shell count, a part-filled case counts as handed back.
+        self.assertEqual(deposit(11), Decimal("2.00"))
+        with self.assertRaisesMessage(ValueError, "Empty cases provided cannot exceed 1"):
+            deposit(12, 2)
 
     def test_immediate_sale_is_idempotent_and_hidden_from_regular_orders(self):
         payload = {

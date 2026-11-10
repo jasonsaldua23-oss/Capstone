@@ -298,3 +298,11 @@ export const buildVoicePrompt = (
   const roundedDistance = Math.max(10, Math.round(distanceMeters / 10) * 10)
   return `In ${formatDistance(roundedDistance)}, ${label.charAt(0).toLowerCase()}${label.slice(1)}`
 }
+
+/** A maps link to where a broken-down truck stopped, for the driver collecting its load. */
+export const transferPickupUrl = (trip: any): string | null => {
+  const lat = Number(trip?.transferLatitude)
+  const lng = Number(trip?.transferLongitude)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0) || trip?.transferLatitude == null) return null
+  return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+}

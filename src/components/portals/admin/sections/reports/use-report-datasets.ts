@@ -32,6 +32,7 @@ import {
 } from '@/lib/report-metrics'
 import {
   FEEDBACK_DIMENSION_LABELS,
+  FEEDBACK_RATING_TARGET_LABELS,
   stripOtherReasonPrefix,
 } from '@shared/customer-logic/feedback-reasons'
 import { formatPesoCompact, formatReportDateOnly } from './report-pdf'
@@ -388,6 +389,8 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
         source: !row.orderNumber ? 'General' : row.isReplacement ? 'Replacement' : 'Delivery',
         driver,
         type: row.type || 'N/A',
+        // Whether the rating is for the products or the service.
+        ratingFor: FEEDBACK_RATING_TARGET_LABELS[row.ratingTarget],
         rating: row.rating >= 1 && row.rating <= 5 ? row.rating : 'N/A',
         sentiment: polarityLabel[row.polarity] || 'Unrated',
         subject: row.subject || 'N/A',
@@ -1031,6 +1034,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       source: row.source,
       driver: row.driver,
       type: row.type,
+      ratingFor: row.ratingFor,
       rating: row.rating,
       sentiment: row.sentiment,
       serviceAreas: row.serviceAreasLabel,
@@ -1115,7 +1119,7 @@ export function useReportDatasets(inputs: ReportDatasetsInputs) {
       .slice()
       .sort((a, b) => b.mentions - a.mentions)[0]
     return [
-      `Total Feedback: ${feedbackKpi.total} (${feedbackKpi.ratedCount} rated)`,
+      `Total Ratings: ${feedbackKpi.total} (${feedbackKpi.ratedCount} rated)`,
       `Average Rating: ${feedbackKpi.avgRating.toFixed(2)}`,
       `Positive Ratings (4-5 stars): ${feedbackKpi.positiveRate}%`,
       `Neutral Ratings (3 stars): ${feedbackKpi.neutralRate}%`,

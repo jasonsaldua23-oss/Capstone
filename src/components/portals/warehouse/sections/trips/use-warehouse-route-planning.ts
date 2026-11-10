@@ -769,6 +769,71 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
     }
   }
 
+  // Cancelled trips stay on record; undelivered orders go back to the warehouse (views_trips.trip_cancel).
+  const cancelTrip = async (trip: WarehouseTripItem, request: { reason: string; sendVehicleForRepair: boolean }) => {
+    try {
+      const result = await safeFetchJson(
+        `/api/trips/${trip.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request),
+        },
+        { retries: 0, timeoutMs: 60000 }
+      )
+      const data = result.data || {}
+      if (!result.ok || data?.success === false) {
+        throw new Error(result.error || data?.error || 'Failed to cancel trip')
+      }
+      const updatedTrip = data?.trip
+      if (updatedTrip?.id) {
+        setTrips((prev) => prev.map((entry) => (entry.id === updatedTrip.id ? { ...entry, ...updatedTrip } : entry)))
+        setSelectedTrip((current) => (current?.id === updatedTrip.id ? { ...current, ...updatedTrip } : current))
+      }
+      // The trip's orders are free again, its truck may be too, and its incident report closed.
+      emitDataSync(['trips', 'orders', 'vehicles', 'incidents'])
+      const returned = Array.isArray(data?.returnedOrders) ? data.returnedOrders.length : 0
+      toast.success(returned > 0
+        ? `Trip ${trip.tripNumber} cancelled. ${returned} ${returned === 1 ? 'order is' : 'orders are'} back at the warehouse.`
+        : `Trip ${trip.tripNumber} cancelled.`)
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to cancel trip')
+      return false
+    }
+  }
+
+  // After an accident or breakdown, another truck takes the undelivered stops (views_trips.trip_transfer).
+  const transferTripLoad = async (
+    trip: WarehouseTripItem,
+    request: { driverId: string; vehicleId: string; reason: string; sendVehicleForRepair: boolean },
+  ) => {
+    try {
+      const result = await safeFetchJson(
+        `/api/trips/${trip.id}/transfer`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // One key per attempt, so a retried request cannot create a second trip.
+          body: JSON.stringify({ ...request, requestId: `transfer-${trip.id}-${Date.now()}` }),
+        },
+        { retries: 0, timeoutMs: 60000 }
+      )
+      const data = result.data || {}
+      if (!result.ok || data?.success === false) {
+        throw new Error(result.error || data?.error || 'Failed to transfer the load')
+      }
+      // The broken-down trip ended and a new one exists; read both back.
+      emitDataSync(['trips', 'orders', 'vehicles', 'incidents'])
+      await fetchTripsData({ showLoading: false })
+      toast.success(`Load of ${trip.tripNumber} moved to trip ${data?.trip?.tripNumber || ''}`.trim())
+      return true
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to transfer the load')
+      return false
+    }
+  }
+
   const parseApiErrorMessage = (response: Response, payload: any, fallback: string) => {
     const fromPayload =
       String(payload?.error || '').trim() ||
@@ -1103,6 +1168,8 @@ export function useWarehouseRoutePlanning(inputs: WarehouseRoutePlanningInputs) 
   }
 
   return {
+    cancelTrip,
+    transferTripLoad,
     confirmDeleteTrip,
     createRoutePlan,
     createTripFromCurrentRoutePlan,

@@ -150,7 +150,7 @@ export function WarehouseStocksView({ loadingBatches, stockBatches, openBatchQua
             </Button>
             <div>
               <h2 className="text-xl font-semibold text-slate-900">Disposed Stocks</h2>
-              <p className="text-sm text-slate-500">Confirmed expired-stock removals and their recorded listed-price loss.</p>
+              <p className="text-sm text-slate-500">Disposed expired and damaged stock, with the loss recorded at listed price.</p>
             </div>
           </div>
           <Input

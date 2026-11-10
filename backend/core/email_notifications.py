@@ -79,10 +79,18 @@ def _trip_product_lines(trip: Trip | None) -> list[ProductLine]:
     return legacy._trip_product_lines(trip)
 
 
-def _send_reset_otp_email(email: str, otp_code: str) -> None:
+def _otp_recipient_name(email: str, recipient_name: str | None) -> str:
+    # Callers that already hold the account pass its name: the lookup is two more
+    # sequential queries on the request that the person is waiting on.
+    if recipient_name is not None:
+        return str(recipient_name).strip()
+    return _account_display_name(email)
+
+
+def _send_reset_otp_email(email: str, otp_code: str, *, recipient_name: str | None = None) -> None:
     heading = "Password reset code"
     body = EmailBody(
-        recipient_name=_account_display_name(email),
+        recipient_name=_otp_recipient_name(email, recipient_name),
         time_greeting=time_greeting(),
         paragraphs=["We received a request to reset the password for this account."],
         code=otp_code,
@@ -101,10 +109,10 @@ def _send_reset_otp_email(email: str, otp_code: str) -> None:
     )
 
 
-def _send_email_verification_otp(email: str, otp_code: str) -> None:
+def _send_email_verification_otp(email: str, otp_code: str, *, recipient_name: str | None = None) -> None:
     heading = "Verify your email address"
     body = EmailBody(
-        recipient_name=_account_display_name(email),
+        recipient_name=_otp_recipient_name(email, recipient_name),
         time_greeting=time_greeting(),
         paragraphs=["Please confirm that this email address belongs to you and can receive mail."],
         code=otp_code,
@@ -123,10 +131,10 @@ def _send_email_verification_otp(email: str, otp_code: str) -> None:
     )
 
 
-def _send_login_otp_email(email: str, otp_code: str) -> None:
+def _send_login_otp_email(email: str, otp_code: str, *, recipient_name: str | None = None) -> None:
     heading = "Verify your login"
     body = EmailBody(
-        recipient_name=_account_display_name(email),
+        recipient_name=_otp_recipient_name(email, recipient_name),
         time_greeting=time_greeting(),
         paragraphs=["A login to your account needs to be confirmed with a one-time code."],
         code=otp_code,

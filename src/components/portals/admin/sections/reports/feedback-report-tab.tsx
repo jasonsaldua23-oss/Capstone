@@ -140,7 +140,7 @@ export function FeedbackReportTab({
             hint: `${feedbackParticipation.reviewedOrders} of ${feedbackParticipation.deliveredOrders} delivered orders reviewed`,
             tone: 'blue',
           },
-          { label: 'Total Feedback', value: feedbackKpi.total, hint: `${feedbackKpi.ratedCount} carried a rating`, tone: 'slate' },
+          { label: 'Total Ratings', value: feedbackKpi.total, hint: `product and service ratings; ${feedbackKpi.ratedCount} carried stars`, tone: 'slate' },
           { label: 'Described In Own Words', value: feedbackKpi.describedCount, hint: 'Wrote instead of ticking a phrase', tone: 'purple' },
           { label: 'Distinct Complaints', value: negativeReasonTotal, hint: 'Negative reasons raised in range', tone: 'cyan' },
         ]}
@@ -349,6 +349,7 @@ export function FeedbackReportTab({
                   <th className="p-3 text-left">Source</th>
                   <th className="p-3 text-left">Driver</th>
                   <th className="p-3 text-left">Type</th>
+                  <th className="p-3 text-left">Rating For</th>
                   <th className="p-3 text-left">Rating</th>
                   <th className="p-3 text-left">Service Areas</th>
                   <th className="p-3 text-left">Feedback Details</th>
@@ -364,6 +365,11 @@ export function FeedbackReportTab({
                     <td className="p-3">{String(row.source || 'N/A')}</td>
                     <td className="p-3">{String(row.driver || 'N/A')}</td>
                     <td className="p-3">{String(row.type || 'N/A')}</td>
+                    <td className="p-3">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${row.ratingFor === 'Product' ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-blue-50 text-blue-800 ring-blue-200'}`}>
+                        {row.ratingFor}
+                      </span>
+                    </td>
                     <td className="p-3">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-medium">{String(row.rating ?? 'N/A')}</span>

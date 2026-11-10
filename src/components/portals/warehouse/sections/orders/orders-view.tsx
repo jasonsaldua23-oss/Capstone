@@ -409,7 +409,8 @@ export function WarehouseOrdersView({
                                 Start Processing
                               </Button>
                             ) : null}
-                            {needsReschedule && ['APPROVED', 'PROCESSING', 'RESCHEDULED'].includes(stage) ? (
+                            {/* Any approved or processing PO can move to another day, not only an overdue one. */}
+                            {['APPROVED', 'PROCESSING', 'RESCHEDULED'].includes(stage) ? (
                               <Button
                                 size="sm"
                                 className={`w-full ${ACTION_ADVANCE}`}
@@ -484,7 +485,9 @@ export function WarehouseOrdersView({
               {actionState?.action === 'processing'
                 ? `Are you sure you want to move order ${actionState?.order?.orderNumber || ''} into processing? This will prepare it for warehouse picking and packing.`
                 : actionState?.action === 'reschedule'
-                  ? `The delivery date for ${actionState?.order?.orderNumber || ''} has passed. Choose a new valid delivery date before processing can continue.`
+                  ? (actionState?.order?.showRescheduleAction
+                    ? `The delivery date for ${actionState?.order?.orderNumber || ''} has passed. Choose a new valid delivery date before processing can continue.`
+                    : `Move ${actionState?.order?.orderNumber || ''} to another delivery date. The customer is notified.${getPurchaseOrderStage(actionState?.order) === 'PROCESSING' ? ' The order returns to Rescheduled, so start processing it again when it is ready.' : ''}`)
                 : actionState?.action === 'assign'
                   ? (!actionState?.order?.assignedTripId && !actionState?.order?.progress?.trip?.id
                     ? 'This order needs a transportation trip assignment. Proceed to the Transportation module to assign a vehicle and driver.'

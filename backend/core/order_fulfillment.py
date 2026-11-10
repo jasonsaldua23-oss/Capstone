@@ -314,8 +314,10 @@ def _expire_past_delivery_purchase_requests(order_ids: list[str] | None = None) 
 
 
 def _select_trip_for_order(order_id: str, require_driver: bool = False) -> Trip | None:
+    # A cancelled trip no longer carries its orders (views_trips.trip_cancel).
     trip_qs = _real_trips(
-        Trip.objects.filter(drop_points__order_id=order_id).select_related("driver", "vehicle").order_by("-updated_at")
+        Trip.objects.filter(drop_points__order_id=order_id).exclude(status=TripStatus.CANCELLED)
+        .select_related("driver", "vehicle").order_by("-updated_at")
     )
     if require_driver:
         trip_qs = trip_qs.filter(driver__isnull=False)

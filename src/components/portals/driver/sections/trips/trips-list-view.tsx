@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { toDisplayStatus } from '@/lib/status-display'
 import { Button } from '@/components/ui/button'
@@ -8,10 +8,39 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { PortalCardsSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { FileText, Navigation, Search, Truck } from 'lucide-react'
-import { isOpenDeliveryTrip } from '@/lib/trip-schedule'
-import { formatTripScheduledDay, getTripScheduledDateKey, tripStatusBadgeColors } from './trip-detail-format'
+import { isOpenDeliveryTrip, toManilaDateKey } from '@/lib/trip-schedule'
+import { describeTripRoute } from '@/lib/trip-route'
+import { compareTripRunOrder, countOpenStops, getTripQueue, type TripQueuePlace } from '@/lib/driver-trip-queue'
+import { formatScheduledDateKey, formatTripScheduledDay, getTripScheduledDateKey, transferPickupUrl, tripStatusBadgeColors } from './trip-detail-format'
 
 type Trip = any
+
+// How a driver works through several deliveries; the server enforces each rule
+// (views_trip_ops: trip_start, trip_drop_point_update, trip_complete).
+const DELIVERY_RULES = [
+  'Each order is one stop. A trip lists its stops in route order, and the map leads you to the next one.',
+  'Run one trip at a time. A trip starts only on its scheduled day, after you confirm the load.',
+  'Give every stop an outcome. Delivered: take the photo, name the recipient, count the empties and collect the payment. Not delivered: reschedule it or cancel it with a reason.',
+  'Complete the trip once every stop has an outcome. Then start the next one.',
+]
+
+/** "Trip 2 of 3 today · Starts after TRP-… is completed", or null for a lone trip. */
+function describeQueuePlace(place: TripQueuePlace | undefined, todayKey: string | null) {
+  if (!place) return null
+  const day = place.dayKey === todayKey ? 'today' : `on ${formatScheduledDateKey(place.dayKey)}`
+  const where = `Trip ${place.position} of ${place.count} ${day}`
+  if (place.isRunning) return place.count > 1 ? { text: `${where} · In progress`, tone: 'running' as const } : null
+  if (place.blockedBy) return { text: `${where} · Starts after ${place.blockedBy} is completed`, tone: 'waiting' as const }
+  if (place.plannedAfter) return { text: `${where} · Planned after ${place.plannedAfter}`, tone: 'next' as const }
+  return place.count > 1 ? { text: `${where} · Start this trip first`, tone: 'next' as const } : null
+}
+
+const QUEUE_TONE_CLASSES = {
+  running: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  waiting: 'border-amber-200 bg-amber-50 text-amber-800',
+  next: 'border-sky-200 bg-sky-50 text-sky-800',
+}
+
 export function TripsListView({
   trips,
   isLoading,
@@ -40,8 +69,14 @@ export function TripsListView({
       const aKey = getTripScheduledDateKey(a) || '9999-12-31'
       const bKey = getTripScheduledDateKey(b) || '9999-12-31'
       if (aKey !== bKey) return aKey < bKey ? -1 : 1
-      return String(a?.tripNumber || '').localeCompare(String(b?.tripNumber || ''))
+      // Within a day, the order the trips run in.
+      return compareTripRunOrder(a, b)
     })
+  // Each open trip's place in its day's run, and what is left for today.
+  const todayKey = toManilaDateKey()
+  const tripQueue = useMemo(() => getTripQueue(trips || [], todayKey), [trips, todayKey])
+  const todaysTrips = activeTrips.filter((trip) => tripQueue.get(String(trip.id))?.dayKey === todayKey)
+  const todaysOpenStops = todaysTrips.reduce((sum, trip) => sum + countOpenStops(trip), 0)
   const filteredDeliveryTrips = activeTrips.filter((trip) => {
     const query = deliverySearch.trim().toLowerCase()
     if (!query) return true
@@ -86,6 +121,25 @@ export function TripsListView({
         </div>
       </div>
 
+      {activeTrips.length > 0 && (
+        <Card className="mb-4 rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)]">
+          <CardContent className="p-4 sm:p-5">
+            <p className="text-sm font-bold text-slate-900">
+              {todaysTrips.length > 0
+                ? `Today: ${todaysTrips.length} ${todaysTrips.length === 1 ? 'trip' : 'trips'} · ${todaysOpenStops} ${todaysOpenStops === 1 ? 'stop' : 'stops'} to go`
+                : 'No trips today'}
+            </p>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-slate-600">Run one trip at a time, in the order listed below.</p>
+            <details className="group mt-2">
+              <summary className="cursor-pointer text-[13px] font-semibold text-sky-700">How several deliveries are handled</summary>
+              <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-[13px] leading-relaxed text-slate-600">
+                {DELIVERY_RULES.map((rule) => <li key={rule}>{rule}</li>)}
+              </ol>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+
       {activeTrips.length === 0 ? (
         <Card className="rounded-2xl border border-sky-100 bg-white/96 shadow-[0_12px_24px_rgba(2,132,199,0.10)]">
           <CardContent className="py-12 text-center">
@@ -117,9 +171,34 @@ export function TripsListView({
                 </div>
                 <div className="mt-3 min-w-0 space-y-1">
                   <p className="break-words text-[13px] leading-relaxed text-slate-700">Vehicle: {trip.vehicle?.licensePlate} | Driver: {trip.driver?.user?.name || trip.driver?.name || 'Assigned Driver'}</p>
-                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Route: Warehouse {'->'} {trip.dropPoints?.[trip.dropPoints.length - 1]?.locationName || 'Destination'}</p>
+                  <p className="break-words text-[13px] leading-relaxed text-slate-600">Route: {describeTripRoute(trip, 'Warehouse')}</p>
                   <p className="break-words text-[13px] leading-relaxed text-slate-600">Schedule: {formatTripScheduledDay(trip)}</p>
                 </div>
+                {(() => {
+                  const queueNote = describeQueuePlace(tripQueue.get(String(trip.id)), todayKey)
+                  return queueNote ? (
+                    <p className={`mt-3 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold leading-snug ${QUEUE_TONE_CLASSES[queueNote.tone]}`}>
+                      {queueNote.text}
+                    </p>
+                  ) : null
+                })()}
+                {/* A load handed over after another truck broke down (views_trips.trip_transfer). */}
+                {trip.transferredFromNumber && String(trip.status || '').toUpperCase() === 'PLANNED' ? (
+                  <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[12px] font-semibold leading-snug text-sky-900">
+                    <p>Collect the load of {trip.transferredFromNumber} first. {trip.transferReason || 'Its truck cannot go on.'}</p>
+                    {transferPickupUrl(trip) ? (
+                      <a
+                        href={transferPickupUrl(trip) || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block text-sky-700 underline underline-offset-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        Open where the truck stopped
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
                 {/* Side by side from 340px up; only the narrowest phones stack. */}
                 <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 min-[340px]:flex-row">
                   <Button

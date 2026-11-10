@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from .api_validators import _normalize_product_unit
 from .beverage_categories import require_category_spec
-from .deposit_math import full_case_deposit
+from .deposit_math import cases_returned_from_bottles, full_case_deposit, uncovered_deposit
 from .mixed_case import (
     available_base_units,
     consume_order_reservations,
@@ -101,8 +101,13 @@ def calculate_deposit_amount(
     case_deposit: Decimal = Decimal("0"),
     case_count: int = 0,
     case_capacity: int = 0,
+    empty_cases: int | None = None,
 ) -> Decimal:
-    """Charge uncovered bottles plus the additional physical-case deposit."""
+    """Charge uncovered bottles plus the physical-case deposit of each case not returned.
+
+    empty_cases is the shells handed back with the empties; without it a part-filled
+    case counts as returned, the same rule the driver's delivery count follows.
+    """
     eligible = nonnegative_int(eligible_units, "Eligible bottle quantity")
     empties = nonnegative_int(empty_units, "Empty bottles provided")
     if empties > eligible:
@@ -119,11 +124,29 @@ def calculate_deposit_amount(
         if cases * capacity != eligible:
             raise ValueError("Eligible bottle quantity does not match the case quantity and capacity")
         # Fix: the complete-case amount contains every bottle deposit and the
-        # separate case/container deposit, then existing partial coverage applies.
+        # separate case/container deposit; a missing bottle costs its own deposit
+        # and only a case not handed back costs its shell.
         complete_case_amount = full_case_deposit(unit_deposit, capacity, registered_case_deposit)
-        return money((complete_case_amount * Decimal(cases) * Decimal(uncovered)) / Decimal(eligible))
+        return uncovered_deposit(
+            deposit_value=complete_case_amount * Decimal(cases),
+            shell_value=registered_case_deposit * Decimal(cases),
+            bottles=eligible,
+            cases=cases,
+            bottles_returned=empties,
+            cases_returned=returned_case_count(empty_cases, empties, cases=cases, capacity=capacity),
+        )
 
     return money(money(unit_deposit) * Decimal(uncovered))
+
+
+def returned_case_count(empty_cases: Any, empties: int, *, cases: int, capacity: int) -> int:
+    """Shells handed back: the count given, else inferred from the bottles."""
+    if empty_cases is None or empty_cases == "":
+        return cases_returned_from_bottles(empties, cases=cases, loose_bottles=0, containers_per_case=capacity)
+    returned = nonnegative_int(empty_cases, "Empty cases provided")
+    if returned > cases:
+        raise ValueError(f"Empty cases provided cannot exceed {cases}")
+    return returned
 
 
 def calculate_sale_totals(product_total: Decimal, deposit_total: Decimal) -> dict[str, Decimal]:
@@ -186,6 +209,7 @@ def _quote_standard_line(raw: dict[str, Any], product: Product) -> dict[str, Any
     capacity = positive_int(product.quantity_per_unit, f"Case capacity for {product.name}")
     eligible_units = quantity if mode == RetailSaleMode.LOOSE else quantity * capacity
     empties = nonnegative_int(raw.get("emptyBottlesProvided"), f"Empty bottles for {product.name}")
+    empty_cases = raw.get("emptyCasesProvided") if mode == RetailSaleMode.CASE else None
     price = _price_for(product, mode)
     product_subtotal = money(price * Decimal(quantity))
     packaging, unit_deposit, case_deposit, deposit_eligible = _deposit_configuration(product)
@@ -198,6 +222,7 @@ def _quote_standard_line(raw: dict[str, Any], product: Product) -> dict[str, Any
             case_deposit=case_deposit,
             case_count=quantity if mode == RetailSaleMode.CASE else 0,
             case_capacity=capacity if mode == RetailSaleMode.CASE else 0,
+            empty_cases=empty_cases,
         )
         if deposit_eligible
         else Decimal("0.00")
@@ -218,6 +243,11 @@ def _quote_standard_line(raw: dict[str, Any], product: Product) -> dict[str, Any
         "caseCapacity": capacity,
         "eligibleUnits": eligible_units,
         "emptyBottlesProvided": empties,
+        "emptyCasesProvided": (
+            returned_case_count(empty_cases, empties, cases=quantity, capacity=capacity)
+            if mode == RetailSaleMode.CASE
+            else 0
+        ),
         "unitPrice": price,
         "productSubtotal": product_subtotal,
         "deposit": deposit,
@@ -329,8 +359,11 @@ def _quote_mixed_line(raw: dict[str, Any], products: dict[str, Product]) -> dict
         raise ValueError("These products use different packaging types and cannot be combined in the same case")
     if any(component["quantityPerCase"] <= 0 for component in components):
         raise ValueError("Each Mixed Case component quantity must divide evenly across the selected cases")
-    # Fix: a mixed case still uses a physical case in addition to its bottles.
-    covered_cases = min(case_count, empties_total // case_capacity)
+    # Fix: a mixed case still uses a physical case in addition to its bottles; only a
+    # case not handed back is charged its shell.
+    covered_cases = returned_case_count(
+        raw.get("emptyCasesProvided"), empties_total, cases=case_count, capacity=case_capacity,
+    )
     physical_case_net = money((physical_case_deposit or Decimal("0.00")) * Decimal(case_count - covered_cases))
     deposit_total += physical_case_net
     if physical_case_net > 0:
@@ -353,6 +386,7 @@ def _quote_mixed_line(raw: dict[str, Any], products: dict[str, Product]) -> dict
         "caseCapacity": case_capacity,
         "eligibleUnits": total_units,
         "emptyBottlesProvided": empties_total,
+        "emptyCasesProvided": covered_cases,
         "unitPrice": money(product_subtotal / Decimal(case_count)),
         "productSubtotal": money(product_subtotal),
         "deposit": money(deposit_total),
@@ -426,6 +460,7 @@ def quote_retail_cart(*, warehouse: Warehouse, payload: dict[str, Any]) -> dict[
             "quantity": line["quantity"],
             "caseCapacity": line["caseCapacity"],
             "empties": line["emptyBottlesProvided"],
+            "emptyCases": line["emptyCasesProvided"],
             "productSubtotal": str(line["productSubtotal"]),
             "deposit": str(line["deposit"]),
             "version": line["configurationVersion"],
@@ -492,6 +527,7 @@ def serialize_retail_quote(quote: dict[str, Any]) -> dict[str, Any]:
             "caseCapacity": line["caseCapacity"],
             "eligibleUnits": line["eligibleUnits"],
             "emptyBottlesProvided": line["emptyBottlesProvided"],
+            "emptyCasesProvided": line["emptyCasesProvided"],
             "unitPrice": _money_text(line["unitPrice"]),
             "productSubtotal": _money_text(line["productSubtotal"]),
             "deposit": _money_text(line["deposit"]),

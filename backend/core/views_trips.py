@@ -21,7 +21,8 @@ from .api_utils import (
     ok as _ok,
     to_float_or_none as _to_float_or_none,
 )
-from .fleet_sync import local_date_of, trip_scheduled_date
+from .fleet_sync import local_date_of, sync_vehicle_status_for_trip, trip_scheduled_date
+from .incident_lifecycle import close_open_incidents
 from .models import (
     DriverStatus,
     InventoryTransaction,
@@ -42,6 +43,7 @@ from .models import (
     TripStatus,
     User,
     Vehicle,
+    VehicleIncident,
     VehicleStatus,
     Warehouse,
 )
@@ -1383,3 +1385,380 @@ def trip_unassign_items(request: HttpRequest, trip_id: str) -> JsonResponse:
         "message": f"Unassigned {deleted_count} items from trip",
         "deletedCount": deleted_count,
     })
+
+
+# Stops with work left on them; a cancelled trip takes them off the road.
+OPEN_DROP_POINT_STATUSES = ["PENDING", "IN_TRANSIT", "ARRIVED"]
+CANCELLATION_REASON_MAX_LENGTH = 500
+
+
+def _send_vehicle_for_repair(vehicle_id: str) -> None:
+    """Set the truck to Maintenance; Out of Service already says more, so it stays."""
+    vehicle = Vehicle.objects.select_for_update().get(id=vehicle_id)
+    if vehicle.status != VehicleStatus.OUT_OF_SERVICE:
+        vehicle.status = VehicleStatus.MAINTENANCE
+        vehicle.save(update_fields=["status", "updated_at"])
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_cancel(request: HttpRequest, trip_id: str) -> JsonResponse:
+    """Cancel a planned or running trip, keeping it on record with who, when and why.
+
+    Stops already delivered (or failed) keep their outcome. Every stop with work left
+    is cancelled on this trip, so its order is free to go on another one:
+      - before the trip starts, the order stays in Processing with its delivery date;
+      - once under way, the order is on the truck, so it comes back to the warehouse
+        as Rescheduled with its stock still held - as when a driver reschedules a
+        failed delivery - and the customer is told.
+    The truck is released unless it is under maintenance - or, with
+    ``sendVehicleForRepair``, sent there - and the driver is told. The trip's open
+    incident report closes with it (incident_lifecycle).
+    Deleting a planned trip (trip_detail) remains for trips created by mistake.
+    """
+    staff, err = _require_warehouse_operator(request)
+    if err:
+        return err
+    trip = Trip.objects.select_related("driver").filter(id=trip_id).first()
+    if not trip:
+        return _err("Trip not found", 404)
+    staff_user_id = str(staff.get("userId") or "").strip()
+    if str(trip.warehouse_id or "") not in {str(value) for value in _get_allowed_warehouse_ids_for_staff(staff_user_id)}:
+        return _err("Trip is outside your assigned warehouse scope", 403)
+    body = _json_body(request)
+    reason = " ".join(str(body.get("reason") or "").split())
+    if not reason:
+        return _err("A cancellation reason is required", 400)
+    if len(reason) > CANCELLATION_REASON_MAX_LENGTH:
+        return _err(f"The reason must be {CANCELLATION_REASON_MAX_LENGTH} characters or fewer", 400)
+    send_for_repair = body.get("sendVehicleForRepair") is True
+    actor = User.objects.filter(id=staff_user_id).first()
+    actor_name = str(staff.get("name") or "Warehouse staff").strip() or "Warehouse staff"
+    now = timezone.now()
+
+    with transaction.atomic():
+        # Same lock order as a driver's stop update (stop, order, then trip), so a
+        # delivery confirmed at this moment either lands first or is refused.
+        open_points = list(
+            TripDropPoint.objects.select_for_update()
+            .filter(trip_id=trip.id, status__in=OPEN_DROP_POINT_STATUSES)
+            .order_by("sequence", "id")
+        )
+        orders = list(
+            Order.objects.select_for_update()
+            .filter(id__in=[point.order_id for point in open_points if point.order_id])
+            .order_by("order_number")
+        )
+        locked_trip = Trip.objects.select_for_update().get(id=trip.id)
+        status = str(locked_trip.status or "").upper()
+        if status == TripStatus.CANCELLED:
+            # A retried request: report the cancellation that already happened.
+            return _ok({"success": True, "alreadyCancelled": True, "trip": _serialize_model(locked_trip)})
+        if status not in {TripStatus.PLANNED, TripStatus.IN_PROGRESS}:
+            return _err("Only planned or in-progress trips can be cancelled", 409)
+        was_running = status == TripStatus.IN_PROGRESS
+
+        for point in open_points:
+            point.status = "CANCELLED"
+            point.failure_reason = "Trip cancelled"
+            point.failure_notes = reason
+            # The driver's History shows a stop's notes as its cancellation reason.
+            point.notes = f"Trip cancelled by the warehouse: {reason}"
+            if was_running and not point.actual_departure:
+                point.actual_departure = now
+        TripDropPoint.objects.bulk_update(open_points, ["status", "failure_reason", "failure_notes", "notes", "actual_departure"])
+
+        returned_orders: list[Order] = []
+        if was_running:
+            for order in orders:
+                if _normalize_order_status(order.status) in CLOSED_ORDER_STATUSES:
+                    continue
+                order.status = OrderStatus.RESCHEDULED
+                order.warehouse_dispatched_at = None
+                update_fields = ["status", "warehouse_dispatched_at", "updated_at"]
+                if not order.ready_to_load_at:
+                    order.ready_to_load_at = now
+                    update_fields.append("ready_to_load_at")
+                order.save(update_fields=update_fields)
+                returned_orders.append(order)
+
+        locked_trip.status = TripStatus.CANCELLED
+        locked_trip.cancelled_at = now
+        locked_trip.cancelled_by_user_id = staff_user_id or None
+        locked_trip.cancelled_by_name = actor_name
+        locked_trip.cancellation_reason = reason
+        if was_running:
+            locked_trip.actual_end_at = now
+        locked_trip.completed_drop_points = TripDropPoint.objects.filter(
+            trip_id=locked_trip.id, status__in=["COMPLETED", "FAILED", "SKIPPED"],
+        ).count()
+        locked_trip.save(update_fields=[
+            "status", "cancelled_at", "cancelled_by_user_id", "cancelled_by_name", "cancellation_reason",
+            "actual_end_at", "completed_drop_points", "updated_at",
+        ])
+        if send_for_repair and locked_trip.vehicle_id:
+            _send_vehicle_for_repair(locked_trip.vehicle_id)
+        close_open_incidents(
+            locked_trip.id,
+            outcome=VehicleIncident.Outcome.SENT_FOR_REPAIR if send_for_repair else VehicleIncident.Outcome.TRIP_ENDED,
+            notes=f"Trip cancelled: {reason}",
+            actor=actor,
+            now=now,
+        )
+        sync_vehicle_status_for_trip(locked_trip)
+
+    stop_word = "stop" if len(open_points) == 1 else "stops"
+    _create_staff_notifications(
+        title="Trip cancelled",
+        message=f"{actor_name} cancelled trip {trip.trip_number} ({len(open_points)} undelivered {stop_word}): {reason}",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=trip.id,
+    )
+    driver_message = f"Trip {trip.trip_number} was cancelled by the warehouse: {reason}"
+    if returned_orders:
+        driver_message += " Bring the undelivered orders back to the warehouse."
+    _create_user_notification(
+        user=trip.driver,
+        title="Trip cancelled",
+        message=driver_message,
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=trip.id,
+    )
+    for order in Order.objects.select_related("customer").filter(id__in=[order.id for order in returned_orders]):
+        _create_customer_notification(
+            customer=order.customer,
+            title="Delivery rescheduled",
+            message=f"Your order {order.order_number} could not be delivered on this trip. The warehouse will schedule a new delivery.",
+            notification_type="DELIVERY",
+            reference_type="order",
+            reference_id=order.id,
+        )
+    cancelled = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=trip.id)
+    return _ok({
+        "success": True,
+        "alreadyCancelled": False,
+        "trip": _serialize_trip(cancelled),
+        "cancelledStops": len(open_points),
+        "returnedOrders": [order.order_number for order in returned_orders],
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_transfer(request: HttpRequest, trip_id: str) -> JsonResponse:
+    """Hand a running trip's undelivered stops to another driver and truck.
+
+    For a truck that cannot go on - an accident or a breakdown. The stops still to
+    be delivered move, with their orders and stock, to a new trip for the rescue
+    driver, who collects the load where the truck stopped and confirms it with
+    Confirm Load when starting. The orders stay Out for Delivery; their customers are
+    told another vehicle is coming. The broken-down trip ends with what it already
+    delivered (Completed, or Cancelled when it delivered nothing) and closes its open
+    incident report; it can also send its truck for repair.
+    """
+    staff, err = _require_warehouse_operator(request)
+    if err:
+        return err
+    trip = Trip.objects.select_related("driver", "vehicle").filter(id=trip_id).first()
+    if not trip:
+        return _err("Trip not found", 404)
+    staff_user_id = str(staff.get("userId") or "").strip()
+    if str(trip.warehouse_id or "") not in {str(value) for value in _get_allowed_warehouse_ids_for_staff(staff_user_id)}:
+        return _err("Trip is outside your assigned warehouse scope", 403)
+
+    body = _json_body(request)
+    request_id = str(body.get("requestId") or "").strip()
+    if len(request_id) > 120:
+        return _err("requestId must be 120 characters or fewer", 400)
+    if request_id:
+        # A retry after a lost response: report the transfer that already happened.
+        existing = Trip.objects.filter(request_id=request_id).first()
+        if existing is not None:
+            if existing.transferred_from_id != trip.id:
+                return _err("requestId has already been used", 409)
+            existing = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=existing.id)
+            return _ok({"success": True, "alreadyTransferred": True, "trip": _serialize_trip(existing)})
+    reason = " ".join(str(body.get("reason") or "").split())
+    if not reason:
+        return _err("A reason for the transfer is required", 400)
+    if len(reason) > CANCELLATION_REASON_MAX_LENGTH:
+        return _err(f"The reason must be {CANCELLATION_REASON_MAX_LENGTH} characters or fewer", 400)
+    send_for_repair = body.get("sendVehicleForRepair") is True
+
+    driver = User.objects.filter(id=str(body.get("driverId") or "").strip(), role=RoleType.DRIVER, is_active=True).first()
+    vehicle = Vehicle.objects.filter(id=str(body.get("vehicleId") or "").strip()).first()
+    if driver is None or vehicle is None:
+        return _err("Choose the driver and truck taking over the load", 400)
+    if vehicle.id == trip.vehicle_id:
+        return _err("Choose a different truck from the one on this trip", 400)
+    if str(vehicle.driver_id or "") != str(driver.id):
+        return _err(f"Truck {vehicle.license_plate} is not assigned to {driver.name}", 400)
+    if not vehicle.is_active or vehicle.status not in (VehicleStatus.AVAILABLE, VehicleStatus.IN_USE):
+        return _err(f"Truck {vehicle.license_plate} is not available", 409)
+    missing_fields = _missing_driver_profile_fields(driver)
+    if missing_fields:
+        return _err(f"{driver.name}'s license details are incomplete: " + ", ".join(missing_fields), 400)
+    license_error = driver_vehicle_license_error(driver, vehicle)
+    if license_error:
+        return _err(license_error, 400)
+    # One driver, one trip on the road (trip_start enforces it too).
+    busy = Trip.objects.filter(status=TripStatus.IN_PROGRESS).filter(Q(driver=driver) | Q(vehicle=vehicle)).exclude(id=trip.id).first()
+    if busy is not None:
+        return _err(f"{driver.name} or truck {vehicle.license_plate} is already on trip {busy.trip_number}. Choose a driver who is not on the road.", 409)
+
+    actor = User.objects.filter(id=staff_user_id).first()
+    actor_name = str(staff.get("name") or "Warehouse staff").strip() or "Warehouse staff"
+    now = timezone.now()
+    with transaction.atomic():
+        # Same lock order as trip_cancel and a driver's stop update: stops, orders, trip.
+        open_points = list(
+            TripDropPoint.objects.select_for_update()
+            .filter(trip_id=trip.id, status__in=OPEN_DROP_POINT_STATUSES)
+            .order_by("sequence", "id")
+        )
+        orders = list(
+            Order.objects.select_for_update()
+            .filter(id__in=[point.order_id for point in open_points if point.order_id])
+            .order_by("order_number")
+        )
+        source = Trip.objects.select_for_update().get(id=trip.id)
+        if str(source.status or "").upper() != TripStatus.IN_PROGRESS:
+            return _err("Only a trip on the road can hand over its load", 409)
+        if not open_points:
+            return _err("Every stop on this trip already has an outcome; there is no load to transfer", 409)
+        area_error = _driver_service_area_error(driver, [point.city for point in open_points])
+        if area_error:
+            return _err(area_error, 400)
+        _, load_weight = _calculate_orders_load_for_warehouse(orders, source.warehouse_id)
+        overload = _vehicle_overload_message(vehicle, load_weight)
+        if overload:
+            return _err(overload, 400)
+
+        # Where to collect the load: the incident report's spot, else the truck's last fix.
+        incident = (
+            VehicleIncident.objects.filter(trip_id=source.id, latitude__isnull=False)
+            .order_by("-created_at").first()
+        )
+        last_fix = None if incident else (
+            LocationLog.objects.filter(trip_id=source.id).order_by("-recorded_at", "-id").first()
+        )
+        pickup = incident or last_fix
+
+        replacement = None
+        for _ in range(5):
+            try:
+                with transaction.atomic():
+                    replacement = Trip.objects.create(
+                        trip_number=_generate_next_trip_number(),
+                        request_id=request_id or None,
+                        driver=driver,
+                        vehicle=vehicle,
+                        warehouse_id=source.warehouse_id,
+                        created_by_user_id=staff_user_id or None,
+                        status=TripStatus.PLANNED,
+                        planned_start_at=now,
+                        total_drop_points=len(open_points),
+                        transferred_from=source,
+                        transferred_from_number=source.trip_number,
+                        transferred_at=now,
+                        transfer_reason=reason,
+                        transfer_latitude=getattr(pickup, "latitude", None),
+                        transfer_longitude=getattr(pickup, "longitude", None),
+                    )
+                break
+            except IntegrityError:
+                continue
+        if replacement is None:
+            return _err("Failed to create the trip number. Please try again.", 409)
+
+        for sequence, point in enumerate(open_points, start=1):
+            point.trip = replacement
+            point.sequence = sequence
+            point.status = "PENDING"
+            point.actual_arrival = None
+        TripDropPoint.objects.bulk_update(open_points, ["trip", "sequence", "status", "actual_arrival"])
+        _assign_order_items_to_trip_for_warehouse(
+            trip=replacement,
+            order_ids=[order.id for order in orders],
+            warehouse_id=source.warehouse_id,
+            performed_by=staff_user_id or None,
+        )
+
+        # The broken-down trip ends with what it delivered.
+        kept = TripDropPoint.objects.filter(trip_id=source.id).count()
+        source.status = TripStatus.COMPLETED if kept else TripStatus.CANCELLED
+        source.actual_end_at = now
+        source.total_drop_points = kept
+        source.completed_drop_points = kept
+        source.transferred_to_number = replacement.trip_number
+        source.transferred_at = now
+        source.transfer_reason = reason
+        update_fields = [
+            "status", "actual_end_at", "total_drop_points", "completed_drop_points",
+            "transferred_to_number", "transferred_at", "transfer_reason", "updated_at",
+        ]
+        if not kept:
+            source.cancelled_at = now
+            source.cancelled_by_user_id = staff_user_id or None
+            source.cancelled_by_name = actor_name
+            source.cancellation_reason = f"Load transferred to {replacement.trip_number}: {reason}"
+            update_fields += ["cancelled_at", "cancelled_by_user_id", "cancelled_by_name", "cancellation_reason"]
+        source.save(update_fields=update_fields)
+
+        if send_for_repair and source.vehicle_id:
+            _send_vehicle_for_repair(source.vehicle_id)
+        # The trip has ended, so its report closes either way (incident_lifecycle).
+        close_open_incidents(
+            source.id,
+            outcome=VehicleIncident.Outcome.SENT_FOR_REPAIR if send_for_repair else VehicleIncident.Outcome.TRIP_ENDED,
+            notes=f"Load transferred to {replacement.trip_number}.",
+            actor=actor,
+            now=now,
+        )
+        sync_vehicle_status_for_trip(source)
+
+    stops = f"{len(open_points)} undelivered {'stop' if len(open_points) == 1 else 'stops'}"
+    source_driver = str(getattr(trip.driver, "name", "") or "the driver").strip()
+    source_plate = str(getattr(trip.vehicle, "license_plate", "") or "").strip()
+    _create_staff_notifications(
+        title="Load transferred",
+        message=f"{actor_name} moved the {stops} of trip {trip.trip_number} to trip {replacement.trip_number} ({driver.name}, {vehicle.license_plate}): {reason}",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=replacement.id,
+    )
+    _create_user_notification(
+        user=trip.driver,
+        title="Load transferred",
+        message=f"The {stops} of trip {trip.trip_number} now go with {driver.name} on trip {replacement.trip_number} ({vehicle.license_plate}). Hand the load over to them.",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=trip.id,
+    )
+    _create_user_notification(
+        user=driver,
+        title="New trip assigned",
+        message=f"Trip {replacement.trip_number}: collect the load of trip {trip.trip_number} from {source_driver}{f' ({source_plate})' if source_plate else ''}, then deliver its {stops}.",
+        notification_type="TRIP",
+        reference_type="trip",
+        reference_id=replacement.id,
+    )
+    for order in Order.objects.select_related("customer").filter(id__in=[order.id for order in orders]):
+        _create_customer_notification(
+            customer=order.customer,
+            title="Delivery update",
+            message=f"Your order {order.order_number} is still on its way, now with another vehicle ({vehicle.license_plate}).",
+            notification_type="DELIVERY",
+            reference_type="order",
+            reference_id=order.id,
+        )
+    replacement = Trip.objects.select_related("driver", "vehicle").prefetch_related("drop_points__order").get(id=replacement.id)
+    return _ok({
+        "success": True,
+        "alreadyTransferred": False,
+        "trip": _serialize_trip(replacement),
+        "sourceTrip": _serialize_model(Trip.objects.get(id=trip.id)),
+        "transferredStops": len(open_points),
+    }, 201)
