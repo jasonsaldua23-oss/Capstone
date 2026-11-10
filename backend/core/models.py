@@ -590,6 +590,10 @@ class OrderItem(models.Model):
     product_subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     deposit_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     empty_covered_quantity = models.PositiveIntegerField(default=0)
+    # Case shells handed back with a retail case sale, counted apart from the bottles:
+    # a customer can return an empty case alone, or bottles without their case.
+    # 0 on loose lines; null only on sales recorded before the count was kept.
+    empty_cases_returned = models.PositiveIntegerField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 

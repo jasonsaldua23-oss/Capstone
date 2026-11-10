@@ -51,6 +51,7 @@ import { getTabAuthToken } from '@/lib/client-auth'
 import { emitDataSync, subscribeDataSync } from '@/lib/data-sync'
 import { invalidateInventoryStockCaches } from '@/lib/portal-data-cache'
 import { uncoveredDeposit } from '@/lib/empties-count'
+import { caseLineEmpties, receiptEmptiesLabel, receiptEmptiesTotals } from '@/lib/retail-empties'
 
 type RetailProduct = {
   id: string
@@ -81,11 +82,12 @@ type RetailCartLine = {
   productId?: string
   quantity: number
   caseCapacity?: number
-  /** Empty cases returned in CASE mode, empty units in LOOSE mode. */
+  /** Empty units in LOOSE mode; empty bottles in CASE mode, unset while they follow the cases. */
   emptyBottlesProvided?: number
-  /** CASE mode: bottles missing from the empty cases handed back. */
-  emptyBottlesMissing?: number
-  /** MIXED_CASE mode: empty cases handed back; unset follows the bottles counted. */
+  /**
+   * Empty cases handed back, counted apart from the bottles. MIXED_CASE: unset
+   * follows the bottles counted.
+   */
   emptyCasesProvided?: number
   components?: Array<{ productId: string; quantityBaseUnits: number; emptyBottlesProvided: number }>
 }
@@ -127,34 +129,6 @@ const getReceiptItemSize = (item: any) => {
     ? item.sizes.map((size: any) => String(size || '').trim()).filter(Boolean)
     : []
   return sizes.join(', ') || String(item?.sizeLabel || item?.size || '').trim()
-}
-
-const getReceiptEmptyReturnLabel = (items: any[] | undefined) => {
-  let returnedCases = 0
-  let missingBottles = 0
-  let returnedBottles = 0
-
-  for (const item of items || []) {
-    const returned = Math.max(0, Math.floor(Number(item?.emptyBottlesProvided || 0)))
-    if (!returned) continue
-
-    if (String(item?.mode || '').toUpperCase() === 'CASE') {
-      const caseCapacity = Math.max(1, Math.floor(Number(item?.caseCapacity || 1)))
-      // Fix: retail case returns are stored as bottle equivalents; convert them
-      // back to cases for the receipt. A part-filled case came back in its shell.
-      const cases = Math.ceil(returned / caseCapacity)
-      returnedCases += cases
-      missingBottles += cases * caseCapacity - returned
-    } else {
-      returnedBottles += returned
-    }
-  }
-
-  const parts: string[] = []
-  if (returnedCases) parts.push(`${returnedCases} ${returnedCases === 1 ? 'case' : 'cases'}`)
-  if (missingBottles) parts.push(`${missingBottles} ${missingBottles === 1 ? 'bottle' : 'bottles'} missing`)
-  if (returnedBottles) parts.push(`${returnedBottles} ${returnedBottles === 1 ? 'bottle' : 'bottles'}`)
-  return parts.join(', ') || '0 bottles'
 }
 
 const getReceiptDepositLabel = (items: any[] | undefined) => {
@@ -335,7 +309,8 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       }
       return [
         ...current,
-        { key: crypto.randomUUID(), mode, productId: product.id, quantity: 1, emptyBottlesProvided: 0 },
+        // A case line's bottles start unset so they follow the cases handed back.
+        { key: crypto.randomUUID(), mode, productId: product.id, quantity: 1, ...(mode === 'CASE' ? {} : { emptyBottlesProvided: 0 }) },
       ]
     })
     toast.success(`Added ${product.name} (${mode === 'CASE' ? getProductSellingUnit(product) : 'Loose'}) to sale`)
@@ -348,27 +323,15 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   const getCaseQuantity = (line: Pick<RetailCartLine, 'productId'>) =>
     Math.max(1, Number(products.find((item) => item.id === line.productId)?.caseQuantity || 1))
 
+  // HTML max does not constrain typed values, so each return count is clamped to
+  // what this sale line actually included.
   const updateReturnedEmpties = (line: RetailCartLine, nextValue: number) => {
-    // HTML max does not constrain typed values, so clamp the return credit to
-    // the number of cases or loose units actually included in this sale line.
     const parsed = Number.isFinite(nextValue) ? Math.floor(nextValue) : 0
-    const returned = Math.max(0, Math.min(line.quantity, parsed))
-    updateLine(line.key, {
-      emptyBottlesProvided: returned,
-      // Missing bottles can only come out of the cases handed back.
-      ...(line.mode === 'CASE' ? {
-        emptyBottlesMissing: Math.min(Number(line.emptyBottlesMissing || 0), returned * getCaseQuantity(line)),
-      } : {}),
-    })
+    const limit = line.mode === 'CASE' ? line.quantity * getCaseQuantity(line) : line.quantity
+    updateLine(line.key, { emptyBottlesProvided: Math.max(0, Math.min(limit, parsed)) })
   }
 
-  const updateMissingBottles = (line: RetailCartLine, nextValue: number) => {
-    const parsed = Number.isFinite(nextValue) ? Math.floor(nextValue) : 0
-    const inReturnedCases = Math.max(0, Number(line.emptyBottlesProvided || 0)) * getCaseQuantity(line)
-    updateLine(line.key, { emptyBottlesMissing: Math.max(0, Math.min(inReturnedCases, parsed)) })
-  }
-
-  const updateMixedCaseShells = (line: RetailCartLine, nextValue: number) => {
+  const updateReturnedCases = (line: RetailCartLine, nextValue: number) => {
     const parsed = Number.isFinite(nextValue) ? Math.floor(nextValue) : 0
     updateLine(line.key, { emptyCasesProvided: Math.max(0, Math.min(line.quantity, parsed)) })
   }
@@ -410,17 +373,17 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
       )
       return
     }
-    const returned = Math.min(quantity, Math.max(0, Number(line.emptyBottlesProvided || 0)))
+    const bottleLimit = line.mode === 'CASE' ? quantity * getCaseQuantity(line) : quantity
     updateLine(line.key, {
       quantity,
-      // Reducing the sale quantity must also reduce an existing return count.
-      emptyBottlesProvided: returned,
-      ...(line.mode === 'CASE' ? {
-        emptyBottlesMissing: Math.min(Number(line.emptyBottlesMissing || 0), returned * getCaseQuantity(line)),
-      } : {}),
+      // Reducing the sale quantity must also reduce an existing return count; an
+      // unset count stays unset so it keeps following the other one.
+      emptyCasesProvided: line.emptyCasesProvided === undefined ? undefined : Math.min(quantity, line.emptyCasesProvided),
+      emptyBottlesProvided: line.emptyBottlesProvided === undefined
+        ? undefined
+        : Math.min(bottleLimit, Math.max(0, Number(line.emptyBottlesProvided))),
       // Mixed-case returns cover the whole sale, so reducing cases also reduces their limits.
       ...(line.mode === 'MIXED_CASE' ? {
-        emptyCasesProvided: line.emptyCasesProvided === undefined ? undefined : Math.min(quantity, line.emptyCasesProvided),
         components: line.components?.map((component) => ({
           ...component,
           emptyBottlesProvided: Math.min(component.quantityBaseUnits * quantity, component.emptyBottlesProvided),
@@ -546,7 +509,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
         contactNumber: walkInContact.trim(),
         notes: walkInNotes.trim(),
       },
-      items: cart.map(({ key: _key, emptyBottlesMissing, ...line }) => {
+      items: cart.map(({ key: _key, ...line }) => {
         // Cart recipes are per case; the API expects total bottles across all ordered cases.
         if (line.mode === 'MIXED_CASE') {
           return { ...line, emptyCasesProvided: getMixedCaseShellsReturned(line), components: line.components?.map((component) => ({
@@ -554,16 +517,11 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
             quantityBaseUnits: component.quantityBaseUnits * line.quantity,
           })) }
         }
-        // Backend always expects emptyBottlesProvided in individual bottles.
-        // For CASE mode the UI collects cases less any bottles missing from them, so
-        // convert to bottles here and send the cases, which settle the shell deposits.
+        // The backend takes the bottles and the cases handed back apart: the bottles
+        // settle the bottle deposits and the cases the shell deposits.
         if (line.mode === 'CASE') {
-          const cases = Math.max(0, Number(line.emptyBottlesProvided || 0))
-          return {
-            ...line,
-            emptyBottlesProvided: Math.max(0, cases * getCaseQuantity(line) - Number(emptyBottlesMissing || 0)),
-            emptyCasesProvided: cases,
-          }
+          const { cases, bottles } = caseLineEmpties(line, getCaseQuantity(line))
+          return { ...line, emptyBottlesProvided: bottles, emptyCasesProvided: cases }
         }
         return line
       }),
@@ -674,12 +632,10 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
     if (!product?.depositEligible) return sum
     if (line.mode === 'CASE') {
       const caseQuantity = Math.max(1, Number(product.caseQuantity || 1))
-      const returnedCases = Math.min(line.quantity, Number(line.emptyBottlesProvided || 0))
       const shell = Number(product.caseDeposit || 0)
       // Fix: each full case includes all bottle deposits plus its own case deposit; a
       // missing bottle costs its own deposit and only a case not handed back its shell.
       const fullCaseDeposit = (caseQuantity * Number(product.depositPerUnit || 0)) + shell
-      const inReturnedCases = returnedCases * caseQuantity
       return sum + uncoveredDeposit(
         {
           declaredBottles: line.quantity * caseQuantity,
@@ -687,7 +643,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
           depositValue: line.quantity * fullCaseDeposit,
           shellDepositValue: line.quantity * shell,
         },
-        { bottles: inReturnedCases - Math.min(inReturnedCases, Number(line.emptyBottlesMissing || 0)), cases: returnedCases },
+        caseLineEmpties(line, caseQuantity),
       )
     }
     const returned = Math.min(line.quantity, Number(line.emptyBottlesProvided || 0))
@@ -695,6 +651,10 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
   }, 0), [cart, products])
 
   const cartGrandTotal = cartProductTotal + cartDepositTotal
+
+  // An empty case taken back with no bottles must be handed back on cancel too.
+  const receiptEmpties = receiptEmptiesTotals(receipt?.items)
+  const receiptHasEmpties = receiptEmpties.cases > 0 || receiptEmpties.bottles > 0
 
   return (
     <div className="space-y-6">
@@ -1305,6 +1265,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                     cart.map((line) => {
                       const product = products.find((item) => item.id === line.productId)
                       const mixedCaseStockLimit = getMixedCaseStockLimit(line)
+                      const caseEmpties = line.mode === 'CASE' ? caseLineEmpties(line, getCaseQuantity(line)) : null
 
                       return (
                         <div
@@ -1386,30 +1347,45 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                   <Recycle className="h-3.5 w-3.5 text-emerald-600" />
                                   {line.mode === 'CASE' ? `Empty ${getProductSellingUnit(product, 0)} returned:` : `Empty ${product.looseUnit}s returned:`}
                                 </Label>
-                                <Input
-                                  id={`empties-${line.key}`}
-                                  type="number"
-                                  min={0}
-                                  max={line.quantity}
-                                  value={line.emptyBottlesProvided || ''}
-                                  onChange={(e) => updateReturnedEmpties(line, Number(e.target.value))}
-                                  className="h-7 w-16 rounded-lg text-center text-xs font-bold border-emerald-300 bg-white"
-                                />
-                              </div>
-                              {/* A returned case short of a bottle is charged that bottle, not its shell. */}
-                              {line.mode === 'CASE' && Number(line.emptyBottlesProvided || 0) > 0 && getCaseQuantity(line) > 1 ? (
-                                <div className="mt-2 flex items-center justify-between gap-2 border-t border-emerald-200/70 pt-2">
-                                  <Label htmlFor={`missing-${line.key}`} className="text-[11px] font-semibold text-emerald-900">
-                                    Missing {product.looseUnit}s in them:
-                                  </Label>
+                                {line.mode === 'CASE' ? (
                                   <Input
-                                    id={`missing-${line.key}`}
+                                    id={`empties-${line.key}`}
                                     type="number"
                                     min={0}
-                                    max={Number(line.emptyBottlesProvided || 0) * getCaseQuantity(line)}
-                                    value={line.emptyBottlesMissing || ''}
+                                    max={line.quantity}
+                                    value={line.emptyCasesProvided || ''}
                                     placeholder="0"
-                                    onChange={(e) => updateMissingBottles(line, Number(e.target.value))}
+                                    onChange={(e) => updateReturnedCases(line, Number(e.target.value))}
+                                    className="h-7 w-16 rounded-lg text-center text-xs font-bold border-emerald-300 bg-white"
+                                  />
+                                ) : (
+                                  <Input
+                                    id={`empties-${line.key}`}
+                                    type="number"
+                                    min={0}
+                                    max={line.quantity}
+                                    value={line.emptyBottlesProvided || ''}
+                                    onChange={(e) => updateReturnedEmpties(line, Number(e.target.value))}
+                                    className="h-7 w-16 rounded-lg text-center text-xs font-bold border-emerald-300 bg-white"
+                                  />
+                                )}
+                              </div>
+                              {/* Cases and bottles come back apart: an empty case with no bottles,
+                                  or bottles without their case. The bottles follow the cases as
+                                  full ones until the cashier types a count. */}
+                              {caseEmpties ? (
+                                <div className="mt-2 flex items-center justify-between gap-2 border-t border-emerald-200/70 pt-2">
+                                  <Label htmlFor={`empty-bottles-${line.key}`} className="text-[11px] font-semibold text-emerald-900">
+                                    Empty {product.looseUnit}s returned:
+                                  </Label>
+                                  <Input
+                                    id={`empty-bottles-${line.key}`}
+                                    type="number"
+                                    min={0}
+                                    max={line.quantity * getCaseQuantity(line)}
+                                    value={line.emptyBottlesProvided === undefined ? (caseEmpties.bottles || '') : caseEmpties.bottles}
+                                    placeholder="0"
+                                    onChange={(e) => updateReturnedEmpties(line, Number(e.target.value))}
                                     className="h-7 w-16 rounded-lg text-center text-xs font-bold border-emerald-300 bg-white"
                                   />
                                 </div>
@@ -1431,7 +1407,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                                     min={0}
                                     max={line.quantity}
                                     value={getMixedCaseShellsReturned(line)}
-                                    onChange={(e) => updateMixedCaseShells(line, Number(e.target.value))}
+                                    onChange={(e) => updateReturnedCases(line, Number(e.target.value))}
                                     className="h-9 w-20 shrink-0 rounded-lg text-center text-sm font-semibold bg-white"
                                   />
                                 </div>
@@ -1649,7 +1625,7 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Empty Containers Returned</span>
-                  <span className="font-medium text-slate-800">{getReceiptEmptyReturnLabel(receipt.items)}</span>
+                  <span className="font-medium text-slate-800">{receiptEmptiesLabel(receipt.items)}</span>
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>{getReceiptDepositLabel(receipt.items)}</span>
@@ -1719,9 +1695,9 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
               <span className="block">
                 Transaction <strong className="text-slate-900">{receipt?.transactionNumber}</strong> will be cancelled and its inventory movements will be reversed.
               </span>
-              {Number(receipt?.emptyBottlesProvided || 0) > 0 ? (
+              {receiptHasEmpties ? (
                 <span className="block font-medium text-amber-700">
-                  Confirm that all accepted empty bottles were returned to the customer or physically corrected before continuing.
+                  Confirm that all accepted empty bottles and cases were returned to the customer or physically corrected before continuing.
                 </span>
               ) : null}
               <span className="block">This action cannot be undone.</span>
@@ -1735,10 +1711,9 @@ export function WarehouseRetailPosView({ warehouseId }: { warehouseId: string })
               disabled={submitting}
               className="rounded-xl bg-red-600 text-white hover:bg-red-700"
               onClick={() => {
-                const hasEmpties = Number(receipt?.emptyBottlesProvided || 0) > 0
                 void mutateReceipt('cancel', 'POST', {
                   reason: 'Cancelled by warehouse staff',
-                  emptiesRestoredToCustomer: hasEmpties,
+                  emptiesRestoredToCustomer: receiptHasEmpties,
                 })
               }}
             >

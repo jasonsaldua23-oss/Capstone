@@ -376,6 +376,54 @@ class RetailPosApiTests(TestCase):
         self.assertEqual((inventory.quantity, inventory.reserved_quantity), (1, 0))
         self.assertEqual(InventoryTransaction.objects.filter(reference_type="retail_sale", type="OUT").count(), 1)
 
+    def test_case_sale_keeps_the_cases_handed_back_apart_from_the_bottles(self):
+        # A customer can hand back an empty case with no bottles, or bottles with no case.
+        # Each costs what is missing, and the receipt shows what came back, not a guess.
+        inventory = Inventory.objects.get(warehouse=self.warehouse, product=self.product)
+        inventory.quantity = 3
+        inventory.save(update_fields=["quantity"])
+        StockBatch.objects.filter(inventory=inventory).update(quantity=3)
+        for key, bottles, cases, deposit in [
+            ("pos-shell-only", 0, 1, "24.00"),
+            ("pos-bottles-only", 12, 0, "24.00"),
+            ("pos-full-case", 12, 1, "0.00"),
+        ]:
+            with self.subTest(bottles=bottles, cases=cases):
+                payload = {
+                    "warehouseId": self.warehouse.id,
+                    "customerType": "WALK_IN",
+                    "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "09171234567"},
+                    "items": [{
+                        "mode": "CASE", "productId": self.product.id, "quantity": 1,
+                        "emptyBottlesProvided": bottles, "emptyCasesProvided": cases,
+                    }],
+                }
+                quoted = self._post_json("/api/retail/quote", payload)
+                self.assertEqual(quoted.status_code, 200, quoted.content)
+                payload.update({"quoteToken": quoted.json()["quoteToken"], "idempotencyKey": key})
+                created = self._post_json("/api/retail/sales", payload)
+                self.assertEqual(created.status_code, 201, created.content)
+                sale = created.json()["sale"]
+                self.assertEqual(sale["deposit"], deposit)
+                self.assertEqual(sale["emptyCasesProvided"], cases)
+                self.assertEqual(
+                    (sale["items"][0]["emptyBottlesProvided"], sale["items"][0]["emptyCasesProvided"]),
+                    (bottles, cases),
+                )
+
+    def test_loose_sale_records_zero_cases_as_its_quote_does(self):
+        payload = {
+            "warehouseId": self.warehouse.id,
+            "customerType": "WALK_IN",
+            "walkIn": {"name": "Juan Dela Cruz", "contactNumber": "09171234567"},
+            "items": [{"mode": "LOOSE", "productId": self.product.id, "quantity": 2, "emptyBottlesProvided": 1}],
+        }
+        payload.update({"quoteToken": self._post_json("/api/retail/quote", payload).json()["quoteToken"], "idempotencyKey": "pos-loose-cases"})
+        created = self._post_json("/api/retail/sales", payload)
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(created.json()["sale"]["items"][0]["emptyCasesProvided"], 0)
+        self.assertEqual(created.json()["sale"]["emptyCasesProvided"], 0)
+
     def test_alcohol_is_deposit_exempt_even_with_glass_packaging(self):
         alcohol = Product.objects.create(
             sku="POS-ALCOHOL-12",

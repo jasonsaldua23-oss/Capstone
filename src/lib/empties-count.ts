@@ -4,8 +4,10 @@
  * Cases are counted as handed over (shell and bottles), with any bottles missing from
  * them counted on their own. A missing bottle is charged the bottle deposit and a
  * missing case its bottles plus the shell, so a case handed back one bottle short
- * costs one bottle's deposit, not a 24th of the case. The same rule prices the
- * warehouse POS, and backend/core/deposit_math.uncovered_deposit settles both.
+ * costs one bottle's deposit, not a 24th of the case. The same pricing,
+ * uncoveredDeposit, prices the warehouse POS, which counts the cases and bottles
+ * handed back apart (src/lib/retail-empties.ts); backend/core/deposit_math.uncovered_deposit
+ * settles both.
  *
  * Pure helpers only, so `node --test` can load this file without the app's aliases.
  */

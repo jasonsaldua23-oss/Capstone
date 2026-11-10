@@ -25,6 +25,7 @@ import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeleto
 import { MixedCaseComponents } from '@/components/portals/shared/mixed-case-components'
 import { ACTION_INSPECT } from '@/components/portals/shared/row-actions'
 import { getOrderDepositAmount, getOrderSalesAmount, getRetailSaleStatus } from '@/lib/report-metrics'
+import { receiptEmptiesLabel, receiptEmptiesTotals } from '@/lib/retail-empties'
 import { safeFetchJson, getCollection } from './shared'
 
 type RetailSaleItem = {
@@ -38,6 +39,9 @@ type RetailSaleItem = {
   depositPerUnit?: string | number
   depositSubtotal?: string | number
   emptyBottlesProvided?: number
+  /** Empty cases taken back, apart from the bottles; null only on older sales. */
+  emptyCasesProvided?: number | null
+  caseCapacity?: number | null
   depositCredit?: string | number
   totalAmount?: string | number
   mixedComponents?: Array<{
@@ -470,6 +474,8 @@ export function RetailTransactionsView() {
                             const itemPrice = item.unitPrice ?? 0
                             const itemSubtotal = item.subtotal ?? item.productSubtotal ?? 0
                             const displayName = getProductDisplayName(item)
+                            // An empty case taken back with no bottles still counts as a return.
+                            const itemReturns = receiptEmptiesTotals([item])
                             // A mixed case has no product of its own; its contents carry the pictures.
                             const imageUrl = String(item.imageUrl || item.product?.imageUrl || '').trim()
                             return (
@@ -487,7 +493,7 @@ export function RetailTransactionsView() {
                                       <div className="font-medium text-slate-900">{displayName}</div>
                                       <div className="text-[11px] text-slate-400">
                                         Mode: {item.mode}
-                                        {item.emptyBottlesProvided ? ` • Returned: ${item.emptyBottlesProvided} empties` : ''}
+                                        {itemReturns.cases || itemReturns.bottles ? ` • Returned: ${receiptEmptiesLabel([item])}` : ''}
                                       </div>
                                       {item.components && item.components.length > 0 ? (
                                         <MixedCaseComponents item={item} compact />
