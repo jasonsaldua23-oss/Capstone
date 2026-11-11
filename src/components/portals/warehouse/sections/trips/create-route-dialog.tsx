@@ -347,203 +347,210 @@ export function WarehouseCreateRouteDialog({
           {/* On phones the trip controls stack above the route preview so neither pane is clipped.
               Fix: below lg both panes take their natural height and this column scrolls; a fixed
               70vh left pane cut off the Create Trip button on a 375x812 phone. */}
-          <div className="flex w-full min-w-0 max-w-none shrink-0 flex-col overflow-hidden border-b bg-white p-2.5 lg:h-full lg:w-[280px] lg:min-w-[260px] lg:max-w-[300px] lg:border-b-0 lg:border-r">
-            <h2 className="mb-2 text-lg font-bold">{editingTripState ? `Edit ${editingTripState.tripNumber}` : 'Create Trip'}</h2>
-            <div className="mb-2">
-              <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">
-                {editingTripState ? 'Trip Delivery Date' : 'Delivery Date'}
-              </label>
-              <Input
-                id="popup-route-date"
-                type="date"
-                value={routeDate}
-                min={getLocalTodayDayKey()}
-                disabled={Boolean(editingTripState)}
-                onChange={(e) => setRouteDate(e.target.value)}
-                className="mt-1 h-9 text-sm"
-              />
-            </div>
-            <Button className="mt-1 mb-2 h-9 w-full bg-blue-600 text-sm text-white hover:bg-blue-700" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
-              {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
-              {editingTripState ? 'Refresh Orders' : 'Filter Orders'}
-            </Button>
-
-            {routePlanMessage && (
-              <div className={`mb-2 rounded-lg p-2 text-[11px] ${routePlanMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                {routePlanMessage.text}
+          <div className="flex w-full min-w-0 max-w-none shrink-0 flex-col overflow-hidden border-b bg-white lg:h-full lg:w-[280px] lg:min-w-[260px] lg:max-w-[300px] lg:border-b-0 lg:border-r">
+            {/* Fix: the trip controls scroll and the action button stays pinned below them. The
+                column used to clip, so a driver-day notice or a long load summary pushed the
+                Create Trip button out of reach on a laptop-height window. */}
+            <div className="flex min-h-0 flex-1 flex-col px-2.5 pt-2.5 pb-2 lg:overflow-y-auto">
+              <h2 className="mb-2 text-lg font-bold">{editingTripState ? `Edit ${editingTripState.tripNumber}` : 'Create Trip'}</h2>
+              <div className="mb-2">
+                <label htmlFor="popup-route-date" className="text-sm font-medium text-gray-700">
+                  {editingTripState ? 'Trip Delivery Date' : 'Delivery Date'}
+                </label>
+                <Input
+                  id="popup-route-date"
+                  type="date"
+                  value={routeDate}
+                  min={getLocalTodayDayKey()}
+                  disabled={Boolean(editingTripState)}
+                  onChange={(e) => setRouteDate(e.target.value)}
+                  className="mt-1 h-9 text-sm"
+                />
               </div>
-            )}
+              <Button className="mt-1 mb-2 h-9 w-full bg-blue-600 text-sm text-white hover:bg-blue-700" onClick={() => createRoutePlan(false, routeDate, routeWarehouseId)} disabled={loadingRoutePlans}>
+                {loadingRoutePlans ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
+                {editingTripState ? 'Refresh Orders' : 'Filter Orders'}
+              </Button>
 
-            {/* Fix: keep the order results in their own mouse/touch scroll area. */}
-            <div className="min-h-[120px] max-h-[45vh] flex-1 overflow-y-scroll overscroll-contain touch-pan-y rounded-lg bg-gray-50 p-2.5 lg:max-h-none">
-              <h3 className="mb-1.5 text-base font-semibold">Orders by City</h3>
-              {routePlans.length === 0 ? (
-                <div className="flex items-center justify-center text-sm text-gray-400 min-h-[80px]">
-                  {loadingRoutePlans ? 'Loading orders...' : editingTripState ? 'No trip orders are available to edit right now' : 'Pick a delivery date and warehouse to view orders by city'}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {routePlans.map((cityGroup) => (
-                    <div key={cityGroup.city}>
-                      <button
-                        onClick={() => setSelectedRouteCity(cityGroup.city)}
-                        className={`mb-1 w-full rounded-lg p-2 text-left text-sm font-semibold transition-colors ${
-                          selectedRouteCity === cityGroup.city
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-white border border-gray-200 text-gray-900 hover:border-blue-400'
-                        }`}
-                      >
-                        {cityGroup.city} ({cityGroup.orders.length} orders)
-                      </button>
-                      {selectedRouteCity === cityGroup.city && (
-                        <div className="mb-2 space-y-1 pl-2">
-                          {cityGroup.orders.map((order) => (
-                            <button
-                              key={order.id}
-                              onClick={() => handleRouteOrderClick(cityGroup.city, order.id)}
-                              className={`w-full rounded p-1 text-left text-[11px] transition-colors ${
-                                selectedRouteOrderIds.includes(order.id)
-                                  ? 'bg-blue-100 text-blue-900 font-medium'
-                                  : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span
-                                  aria-hidden="true"
-                                  className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                                    selectedRouteOrderIds.includes(order.id)
-                                      ? 'border-blue-600 bg-blue-600 text-white'
-                                      : 'border-gray-300 bg-white'
-                                  }`}
-                                >
-                                  {selectedRouteOrderIds.includes(order.id) ? '\u2713' : ''}
-                                </span>
-                                {/* Keep reference numbers complete so staff can identify the replacement. */}
-                                <span className="shrink-0 whitespace-nowrap">{order.orderNumber || order.id}</span>
-                                {(order as any)?.currentTripOrder ? (
-                                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">In Trip</span>
-                                ) : null}
-                                {isWarehouseRescheduledOrder(order) ? (
-                                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Rescheduled Order</span>
-                                ) : null}
-                                {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
-                                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
-                                ) : null}
-                              </div>
-                              <div className="text-xs text-gray-500 truncate">{getOrderBarangayLabel(order.address, order.city)}</div>
-                              {(() => {
-                                const summary = deriveOrderFulfillmentSummary(order)
-                                const isMultiWarehouse = summary.totalLegs > 1
-                                if (!isMultiWarehouse) return null
-                                if (!Array.isArray((order as any)?.productAllocations) || (order as any).productAllocations.length === 0) return null
-                                return (
-                                  <div className="mt-0.5 space-y-0.5">
-                                    {(order as any).productAllocations.map((line: any, index: number) => (
-                                      <div
-                                        key={`${String(line?.itemId || index)}`}
-                                        className={`text-[10px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
-                                      >
-                                        {String(line?.productName || 'Product')}
-                                        {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {formatAllocatedQtyLabel(order, Number(line?.allocatedQtyForSelectedWarehouse || 0), Number(line?.totalQty || 0))}
-                                      </div>
-                                    ))}
-                                  </div>
-                                )
-                              })()}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+              {routePlanMessage && (
+                <div className={`mb-2 rounded-lg p-2 text-[11px] ${routePlanMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                  {routePlanMessage.text}
                 </div>
               )}
+
+              {/* Fix: keep the order results in their own mouse/touch scroll area. */}
+              <div className="min-h-[120px] max-h-[45vh] flex-1 overflow-y-scroll overscroll-contain touch-pan-y rounded-lg bg-gray-50 p-2.5 lg:max-h-none">
+                <h3 className="mb-1.5 text-base font-semibold">Orders by City</h3>
+                {routePlans.length === 0 ? (
+                  <div className="flex items-center justify-center text-sm text-gray-400 min-h-[80px]">
+                    {loadingRoutePlans ? 'Loading orders...' : editingTripState ? 'No trip orders are available to edit right now' : 'Pick a delivery date and warehouse to view orders by city'}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {routePlans.map((cityGroup) => (
+                      <div key={cityGroup.city}>
+                        <button
+                          onClick={() => setSelectedRouteCity(cityGroup.city)}
+                          className={`mb-1 w-full rounded-lg p-2 text-left text-sm font-semibold transition-colors ${
+                            selectedRouteCity === cityGroup.city
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-white border border-gray-200 text-gray-900 hover:border-blue-400'
+                          }`}
+                        >
+                          {cityGroup.city} ({cityGroup.orders.length} orders)
+                        </button>
+                        {selectedRouteCity === cityGroup.city && (
+                          <div className="mb-2 space-y-1 pl-2">
+                            {cityGroup.orders.map((order) => (
+                              <button
+                                key={order.id}
+                                onClick={() => handleRouteOrderClick(cityGroup.city, order.id)}
+                                className={`w-full rounded p-1 text-left text-[11px] transition-colors ${
+                                  selectedRouteOrderIds.includes(order.id)
+                                    ? 'bg-blue-100 text-blue-900 font-medium'
+                                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    aria-hidden="true"
+                                    className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                      selectedRouteOrderIds.includes(order.id)
+                                        ? 'border-blue-600 bg-blue-600 text-white'
+                                        : 'border-gray-300 bg-white'
+                                    }`}
+                                  >
+                                    {selectedRouteOrderIds.includes(order.id) ? '\u2713' : ''}
+                                  </span>
+                                  {/* Keep reference numbers complete so staff can identify the replacement. */}
+                                  <span className="shrink-0 whitespace-nowrap">{order.orderNumber || order.id}</span>
+                                  {(order as any)?.currentTripOrder ? (
+                                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">In Trip</span>
+                                  ) : null}
+                                  {isWarehouseRescheduledOrder(order) ? (
+                                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Rescheduled Order</span>
+                                  ) : null}
+                                  {(Boolean((order as any)?.isScheduledReplacement) || String(order?.orderNumber || '').toUpperCase().startsWith('RPL-')) ? (
+                                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Scheduled Replacement</span>
+                                  ) : null}
+                                </div>
+                                <div className="text-xs text-gray-500 truncate">{getOrderBarangayLabel(order.address, order.city)}</div>
+                                {(() => {
+                                  const summary = deriveOrderFulfillmentSummary(order)
+                                  const isMultiWarehouse = summary.totalLegs > 1
+                                  if (!isMultiWarehouse) return null
+                                  if (!Array.isArray((order as any)?.productAllocations) || (order as any).productAllocations.length === 0) return null
+                                  return (
+                                    <div className="mt-0.5 space-y-0.5">
+                                      {(order as any).productAllocations.map((line: any, index: number) => (
+                                        <div
+                                          key={`${String(line?.itemId || index)}`}
+                                          className={`text-[10px] ${Number(line?.allocatedQtyForSelectedWarehouse || 0) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}
+                                        >
+                                          {String(line?.productName || 'Product')}
+                                          {String(line?.sizeLabel || '').trim() ? ` (${String(line.sizeLabel).trim()})` : ''}: {formatAllocatedQtyLabel(order, Number(line?.allocatedQtyForSelectedWarehouse || 0), Number(line?.totalQty || 0))}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                })()}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="mt-1 space-y-1">
+                {editingTripState ? (
+                  <>
+                    <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
+                    <select
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      title="Assign Driver"
+                      value={selectedRouteDriverId}
+                      onChange={(e) => setSelectedRouteDriverId(e.target.value)}
+                    >
+                      <option value="">Select driver</option>
+                      {drivers.map((driver) => (
+                        <option
+                          key={driver.id}
+                          value={driver.id}
+                          disabled={!isDriverSelectableForTrip(driver, { allowDriverId: editingTripState.originalDriverId, allowVehicleId: editingTripState.originalVehicleId })}
+                        >
+                          {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
+                            const issue = getDriverTripEligibilityLabel(driver, { allowDriverId: editingTripState.originalDriverId, allowVehicleId: editingTripState.originalVehicleId })
+                            return issue ? ` (${issue})` : ''
+                          })()}
+                        </option>
+                      ))}
+                    </select>
+                    {driverAvailability.message ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                        {driverAvailability.message}
+                      </p>
+                    ) : null}
+                    <Input
+                      readOnly
+                      className="h-8 text-xs"
+                      value={selectedDriverAssignedVehicle?.licensePlate || editingTripState.vehiclePlate}
+                    />
+                    {selectedRouteDriverId && selectedRouteDriverId !== editingTripState.originalDriverId && selectedDriverEligibilityIssue ? (
+                      <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
+                    ) : null}
+                    {selectedRouteDriverId ? (
+                      <DriverDayNotice driverId={selectedRouteDriverId} driverName={selectedRouteDriverName} date={routeDate} excludeTripId={editingTripState.tripId} compact />
+                    ) : null}
+                    <p className="text-[11px] text-gray-500">This edit updates the trip orders and driver assignment.</p>
+                  </>
+                ) : (
+                  <>
+                    <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
+                    <select
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      title="Assign Driver"
+                      value={selectedRouteDriverId}
+                      onChange={(e) => setSelectedRouteDriverId(e.target.value)}
+                    >
+                      <option value="">Select driver</option>
+                      {drivers.map((driver) => (
+                        <option key={driver.id} value={driver.id} disabled={!isDriverSelectableForTrip(driver)}>
+                          {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
+                            const issue = getDriverTripEligibilityLabel(driver)
+                            return issue ? ` (${issue})` : ''
+                          })()}
+                        </option>
+                      ))}
+                    </select>
+                    {driverAvailability.message ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                        {driverAvailability.message}
+                      </p>
+                    ) : null}
+                    <Input
+                      readOnly
+                      className="h-8 text-xs"
+                      value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
+                    />
+                    {selectedRouteDriverId && selectedDriverEligibilityIssue ? (
+                      <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
+                    ) : null}
+                    {selectedRouteDriverId ? (
+                      <DriverDayNotice driverId={selectedRouteDriverId} driverName={selectedRouteDriverName} date={routeDate} compact />
+                    ) : null}
+                  </>
+                )}
+                <TripLoadSummary
+                  totalCases={selectedRouteLoad.totalCases}
+                  totalWeight={selectedRouteLoad.totalWeight}
+                  maximumCapacity={selectedVehicleCapacity}
+                  compact
+                />
+              </div>
             </div>
-            <div className="mt-1 space-y-1">
-              {editingTripState ? (
-                <>
-                  <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
-                  <select
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                    title="Assign Driver"
-                    value={selectedRouteDriverId}
-                    onChange={(e) => setSelectedRouteDriverId(e.target.value)}
-                  >
-                    <option value="">Select driver</option>
-                    {drivers.map((driver) => (
-                      <option
-                        key={driver.id}
-                        value={driver.id}
-                        disabled={!isDriverSelectableForTrip(driver, { allowDriverId: editingTripState.originalDriverId, allowVehicleId: editingTripState.originalVehicleId })}
-                      >
-                        {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
-                          const issue = getDriverTripEligibilityLabel(driver, { allowDriverId: editingTripState.originalDriverId, allowVehicleId: editingTripState.originalVehicleId })
-                          return issue ? ` (${issue})` : ''
-                        })()}
-                      </option>
-                    ))}
-                  </select>
-                  {driverAvailability.message ? (
-                    <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
-                      {driverAvailability.message}
-                    </p>
-                  ) : null}
-                  <Input
-                    readOnly
-                    className="h-8 text-xs"
-                    value={selectedDriverAssignedVehicle?.licensePlate || editingTripState.vehiclePlate}
-                  />
-                  {selectedRouteDriverId && selectedRouteDriverId !== editingTripState.originalDriverId && selectedDriverEligibilityIssue ? (
-                    <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
-                  ) : null}
-                  {selectedRouteDriverId ? (
-                    <DriverDayNotice driverId={selectedRouteDriverId} driverName={selectedRouteDriverName} date={routeDate} excludeTripId={editingTripState.tripId} compact />
-                  ) : null}
-                  <p className="text-[11px] text-gray-500">This edit updates the trip orders and driver assignment.</p>
-                </>
-              ) : (
-                <>
-                  <label className="text-[11px] font-medium text-gray-700">Assign Driver</label>
-                  <select
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                    title="Assign Driver"
-                    value={selectedRouteDriverId}
-                    onChange={(e) => setSelectedRouteDriverId(e.target.value)}
-                  >
-                    <option value="">Select driver</option>
-                    {drivers.map((driver) => (
-                      <option key={driver.id} value={driver.id} disabled={!isDriverSelectableForTrip(driver)}>
-                        {(driver.user?.name || driver.name || driver.email || driver.id) + (() => {
-                          const issue = getDriverTripEligibilityLabel(driver)
-                          return issue ? ` (${issue})` : ''
-                        })()}
-                      </option>
-                    ))}
-                  </select>
-                  {driverAvailability.message ? (
-                    <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
-                      {driverAvailability.message}
-                    </p>
-                  ) : null}
-                  <Input
-                    readOnly
-                    className="h-8 text-xs"
-                    value={selectedDriverAssignedVehicle?.licensePlate || 'No assigned vehicle'}
-                  />
-                  {selectedRouteDriverId && selectedDriverEligibilityIssue ? (
-                    <p className="text-[11px] text-amber-600">Selected driver cannot be assigned: {selectedDriverEligibilityIssue}.</p>
-                  ) : null}
-                  {selectedRouteDriverId ? (
-                    <DriverDayNotice driverId={selectedRouteDriverId} driverName={selectedRouteDriverName} date={routeDate} compact />
-                  ) : null}
-                </>
-              )}
-              <TripLoadSummary
-                totalCases={selectedRouteLoad.totalCases}
-                totalWeight={selectedRouteLoad.totalWeight}
-                maximumCapacity={selectedVehicleCapacity}
-                compact
-              />
+            <div className="shrink-0 border-t px-2.5 pt-2 pb-2.5">
               <Button
                 className="h-8 w-full bg-blue-600 text-sm text-white hover:bg-blue-700"
                 onClick={() => {
