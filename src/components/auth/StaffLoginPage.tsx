@@ -6,6 +6,7 @@ import { NativeGoogleButton } from '@/components/auth/native-google-button'
 import { forgotPasswordHref, resolvePortalFromUser, type LoginPortal } from '@/components/auth/portal-auth-utils'
 import { apiWrite } from '@/lib/api-write'
 import { clearTabAuthToken, getTabAuthToken, setTabAuthToken } from '@/lib/client-auth'
+import { writeLoginHandoff } from '@/lib/login-handoff'
 import { resolveAppVariant } from '@/lib/app-variant'
 import { getLockedPortal } from '@/lib/native/portal-lock'
 import { isNativeApp } from '@/lib/native/platform'
@@ -179,7 +180,11 @@ export function SystemLoginPage({
     }
 
     persistWelcomeState(portal, user)
-    if (typeof token === 'string' && token) setTabAuthToken(token, { persistent })
+    if (typeof token === 'string' && token) {
+      setTabAuthToken(token, { persistent })
+      // The portal opens with this confirmed user instead of asking the server for it again.
+      writeLoginHandoff(window.sessionStorage, { user, token, rememberMe: persistent })
+    }
     // Added: keep the successful login email separate from credentials removed on logout.
     try {
       if (persistent) {

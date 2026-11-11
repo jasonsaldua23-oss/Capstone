@@ -8,6 +8,22 @@ type ApiWriteOptions = {
 
 const isTransientStatus = (status: number) => [408, 425, 429].includes(status) || status >= 500
 
+// The longest single wait the backoff below ever makes on its own.
+const MAX_SILENT_RETRY_AFTER_SECONDS = 30
+
+/**
+ * A 429 that names a long wait is a lockout, not a hiccup. The sign-in throttle
+ * locks verification-code sends for 15 minutes after the third; retrying that
+ * silently kept the Log in button spinning, with no message, for the whole time.
+ */
+function isLongLockout(response: Response, payload: any) {
+  if (response.status !== 429) return false
+  const header = Number(response.headers.get('Retry-After'))
+  // Cross-origin replies hide Retry-After unless CORS exposes it; the body still says.
+  const seconds = Number.isFinite(header) && header > 0 ? header : Number(payload?.retryAfter)
+  return Number.isFinite(seconds) && seconds > MAX_SILENT_RETRY_AFTER_SECONDS
+}
+
 async function waitForWriteRetry(delayMs: number, signal?: AbortSignal | null) {
   if (signal?.aborted) throw signal.reason || new DOMException('Request cancelled', 'AbortError')
   await new Promise<void>((resolve, reject) => {
@@ -56,7 +72,8 @@ export async function apiWrite(
       // A 2FA challenge is a confirmed login step, not a transient write failure.
       (payload.success !== false || payload.requiresTwoFactor === true) && !payload.dbUnavailable) return response
 
-    if (isTransientStatus(response.status) || payload?.dbUnavailable || (response.ok && payload === null)) {
+    if ((isTransientStatus(response.status) && !isLongLockout(response, payload)) ||
+      payload?.dbUnavailable || (response.ok && payload === null)) {
       // Retry only unconfirmed/transient outcomes; validation and permission errors
       // still resolve to their existing handlers instead of loading forever.
       const delay = Math.min((options.retryDelayMs ?? 1000) * 2 ** Math.min(attempt++, 5), 30_000)

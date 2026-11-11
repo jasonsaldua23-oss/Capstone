@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { LoginSuccess } from '@/components/shared/login-success'
 import { clearTabAuthToken, getTabAuthToken, setTabAuthToken, hasPersistentTabAuthToken, installTabAuthFetchInterceptor, logoutTabAuthSession } from '@/lib/client-auth'
+import { takeLoginHandoff } from '@/lib/login-handoff'
 import {
   ACTIVITY_REPORT_INTERVAL_MS,
   SESSION_ACTIVITY_URL,
@@ -257,6 +258,9 @@ export default function Home() {
   const [sessionExpiredPortal, setSessionExpiredPortal] = useState<PortalType | null>(null)
   const sessionTimerRef = useRef<number | null>(null)
   const logoutRedirectPortalRef = useRef<PortalType | null>(null)
+  // The user a sign-in in this tab just confirmed; undefined until read. A ref, so a
+  // re-run of the session effect (React's dev double-run included) still sees it.
+  const loginHandoffRef = useRef<AuthUser | null | undefined>(undefined)
   const DRIVER_ACTIVITY_EVENT = 'aab:driver-activity'
 
   // Check for existing session on mount
@@ -271,9 +275,27 @@ export default function Home() {
     setAuthError(null)
 
     async function checkAuth() {
+      // True when the portal opened on a just-confirmed sign-in, before /api/auth/me answers.
+      let openedFromSignIn = false
       try {
         const tabToken = getTabAuthToken()
         const restorePortal = scopedPortal || getRememberedTabLoginPortal(allowedPortals) || lockedPortal
+        if (loginHandoffRef.current === undefined) {
+          loginHandoffRef.current = takeLoginHandoff<AuthUser>(window.sessionStorage, { token: tabToken })
+        }
+        const handedOffUser = loginHandoffRef.current
+        if (handedOffUser) {
+          const handedOffPortal = resolvePortalForUser(handedOffUser)
+          if (allowedPortals.includes(handedOffPortal) && (!restorePortal || handedOffPortal === restorePortal)) {
+            // Start the portal (and its first requests) now; the check below still runs,
+            // and its answer replaces this user or signs the tab out.
+            openedFromSignIn = true
+            setUser(handedOffUser)
+            setPortal(handedOffPortal)
+            rememberTabLoginPortal(handedOffPortal)
+            setIsLoading(false)
+          }
+        }
         // Fix: restore this tab from its own token instead of the browser-wide cookie,
         // which may belong to a different portal that logged in more recently.
         const response = await fetch('/api/auth/me', {
@@ -285,9 +307,16 @@ export default function Home() {
           },
         })
         if (cancelled) return
+        // Used once: a retry or a later restore always asks the server first.
+        loginHandoffRef.current = null
         // A server/network failure is not evidence that the session has expired.
         if (!response.ok && response.status !== 401 && response.status !== 403) {
           throw new Error('Unable to restore your session. Please retry.')
+        }
+        if (!response.ok && openedFromSignIn) {
+          // The server no longer accepts this session: leave for the login page.
+          setUser(null)
+          return
         }
         if (response.ok) {
           const data = await response.json()
@@ -303,7 +332,10 @@ export default function Home() {
             }
             // Fix: pin legacy cookie-only sessions so a later login in another tab cannot replace them.
             if (!tabToken && data.token) setTabAuthToken(data.token, { persistent: Boolean(data.user.rememberMe) })
-            setUser(data.user)
+            // Keep the same object when the server confirms the handed-off user, so the
+            // already-mounted portal does not re-render or refetch for nothing.
+            const confirmsHandoff = openedFromSignIn && JSON.stringify(handedOffUser) === JSON.stringify(data.user)
+            setUser(confirmsHandoff ? handedOffUser : data.user)
             setPortal(userPortal)
             // Keep this tab associated with its portal even after logout or expiry.
             rememberTabLoginPortal(userPortal)
@@ -312,6 +344,12 @@ export default function Home() {
       } catch (error) {
         // Fix: effect cleanup intentionally aborts the auth request; do not surface it as an error overlay.
         if (cancelled) return
+        // A sign-in confirmed seconds ago stays open through a dropped confirmation;
+        // its token still authorises every request the portal makes.
+        if (openedFromSignIn) {
+          console.warn('Session confirmation after sign-in failed:', error)
+          return
+        }
         console.error('Auth check failed:', error)
         setAuthError('Unable to restore your session. Check your connection and retry.')
       } finally {
@@ -543,7 +581,9 @@ export default function Home() {
   }
 
   // A successful login has explicit feedback while its portal session is restored.
-  if (showLoginSuccess && !authError && (isLoading || user)) return <LoginSuccess />
+  // Once the session is confirmed the portal mounts beneath the confirmation, so its
+  // first requests run during the second it stays on screen instead of after it.
+  if (showLoginSuccess && !authError && isLoading) return <LoginSuccess />
 
   // Render loading feedback before hydration too, avoiding an empty navigation frame.
   if (isLoading || !isMounted) {
@@ -589,6 +629,7 @@ export default function Home() {
           {(portal === 'driver' || portal === 'customer') && (
             <InstallAppPrompt portal={portal} enabled={pathname === homePathForPortal(portal)} />
           )}
+          {showLoginSuccess ? <LoginSuccess overlay /> : null}
           <PortalErrorBoundary onRecover={recoverToLogin}>
             {portal === 'admin' && <AdminPortal />}
             {portal === 'driver' && <DriverPortal />}

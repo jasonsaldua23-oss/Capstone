@@ -65,11 +65,14 @@ def _retry_seconds(blocked_until) -> int:
 
 def throttle_response(retry_after: int) -> JsonResponse:
     # The standard header lets browsers and API clients know exactly when to retry.
+    # The body repeats it: a cross-origin caller cannot read Retry-After unless CORS
+    # exposes it, and the web client must see a long lockout to stop retrying it.
+    seconds = max(1, retry_after)
     response = JsonResponse(
-        {"success": False, "error": f"Too many attempts. Try again in {retry_after} seconds."},
+        {"success": False, "error": f"Too many attempts. Try again in {retry_after} seconds.", "retryAfter": seconds},
         status=429,
     )
-    response["Retry-After"] = str(max(1, retry_after))
+    response["Retry-After"] = str(seconds)
     return response
 
 

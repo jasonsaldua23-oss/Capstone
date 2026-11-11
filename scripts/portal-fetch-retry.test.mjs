@@ -338,6 +338,7 @@ function restoreFunction(path, name, globals) {
 test('Admin refresh rejects a Warehouse cookie instead of switching portals or logging out another tab', async () => {
   const routes = [], users = []
   const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    loginHandoffRef: { current: null },
     getTabAuthToken: () => null, scopedPortal: 'admin', lockedPortal: null,
     getRememberedTabLoginPortal: () => 'admin', allowedPortals: ['admin', 'warehouse'],
     fetch: async (url) => { assert.equal(url, '/api/auth/me'); return Response.json({ user: { role: 'WAREHOUSE_STAFF' } }) },
@@ -354,6 +355,7 @@ test('Admin refresh rejects a Warehouse cookie instead of switching portals or l
 test('Admin refresh restores its own token even after another tab logs into Warehouse', async () => {
   let user
   const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    loginHandoffRef: { current: null },
     getTabAuthToken: () => portalToken('admin'), scopedPortal: 'admin', lockedPortal: null,
     getRememberedTabLoginPortal: () => 'admin', allowedPortals: ['admin', 'warehouse'],
     fetch: async (_, init) => {
@@ -374,6 +376,7 @@ test('Admin refresh restores its own token even after another tab logs into Ware
 test('cancelled home auth checks do not report expected cleanup aborts', async () => {
   const errors = []
   const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    loginHandoffRef: { current: null },
     getTabAuthToken: () => null, scopedPortal: 'admin', lockedPortal: null,
     getRememberedTabLoginPortal: () => 'admin', allowedPortals: ['admin', 'warehouse'],
     fetch: async () => { throw new DOMException('signal is aborted without reason', 'AbortError') },
@@ -408,6 +411,7 @@ for (const portal of ['Admin', 'Warehouse', 'Driver', 'Customer']) {
 test('Admin cookie restoration pins the verified token to its tab', async () => {
   let pinned
   const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    loginHandoffRef: { current: null },
     getTabAuthToken: () => null, setTabAuthToken: (token, options) => { pinned = { token, persistent: options.persistent } },
     scopedPortal: 'admin', lockedPortal: null, getRememberedTabLoginPortal: () => 'admin',
     allowedPortals: ['admin', 'warehouse'],
@@ -418,6 +422,78 @@ test('Admin cookie restoration pins the verified token to its tab', async () => 
   })
   await check()
   assert.deepEqual(pinned, { token: portalToken('admin'), persistent: false })
+})
+
+// After a sign-in, the portal opens on the user it just confirmed instead of waiting a
+// whole /api/auth/me round trip; that check still runs and has the last word.
+function signInHandoffCheck({ handedOff, reply, scopedPortal = 'admin' }) {
+  const events = []
+  let releaseReply
+  const replied = new Promise((resolve) => { releaseReply = resolve })
+  const check = restoreFunction('../src/app/page.tsx', 'checkAuth', {
+    loginHandoffRef: { current: handedOff },
+    getTabAuthToken: () => portalToken('admin'), scopedPortal, lockedPortal: null,
+    getRememberedTabLoginPortal: () => 'admin', allowedPortals: ['admin', 'warehouse'],
+    fetch: async () => { events.push('auth/me sent'); await replied; return reply() },
+    cancelled: false, resolvePortalForUser: (user) => user.role === 'ADMIN' ? 'admin' : 'warehouse',
+    defaultPortal: 'admin', setTabAuthToken: () => assert.fail('the tab already holds its token'),
+    setUser: (user) => events.push(['user', user]), setPortal: (portal) => events.push(['portal', portal]),
+    rememberTabLoginPortal: () => {}, setIsLoading: (value) => events.push(['loading', value]),
+    router: { replace: (path) => events.push(['redirect', path]) }, loginPathForPortal: (portal) => `/login/${portal}`,
+    setAuthError: (message) => assert.fail(message), console: { warn: () => {}, error: () => {} },
+  })
+  return { events, run: check(), releaseReply }
+}
+
+test('a just-confirmed sign-in opens the portal before the session check answers', async () => {
+  const admin = { id: 'a1', email: 'admin@example.com', role: 'ADMIN', rememberMe: false }
+  const { events, run, releaseReply } = signInHandoffCheck({
+    handedOff: admin,
+    reply: () => Response.json({ user: { ...admin } }),
+  })
+
+  await setImmediate()
+  // Mounted on the handed-off user while /api/auth/me is still in flight.
+  assert.deepEqual(events, [['user', admin], ['portal', 'admin'], ['loading', false], 'auth/me sent'])
+
+  releaseReply()
+  await run
+  const users = events.filter((event) => event[0] === 'user').map((event) => event[1])
+  // The server agreed: the very same object is kept, so the portal does not re-render.
+  assert.equal(users.at(-1), admin)
+})
+
+test('a sign-in hand-off is signed out when the server rejects the session', async () => {
+  const { events, run, releaseReply } = signInHandoffCheck({
+    handedOff: { id: 'a1', email: 'admin@example.com', role: 'ADMIN' },
+    reply: () => Response.json({ success: false }, { status: 401 }),
+  })
+  releaseReply()
+  await run
+  assert.deepEqual(events.filter((event) => event[0] === 'user').at(-1), ['user', null])
+})
+
+test('a dropped confirmation keeps a just-confirmed sign-in open', async () => {
+  const admin = { id: 'a1', email: 'admin@example.com', role: 'ADMIN' }
+  const { events, run, releaseReply } = signInHandoffCheck({
+    handedOff: admin,
+    reply: () => { throw new TypeError('Failed to fetch') },
+  })
+  releaseReply()
+  await run // setAuthError would have failed the test
+  assert.deepEqual(events.filter((event) => event[0] === 'user'), [['user', admin]])
+})
+
+test('a hand-off for another portal is ignored and the server decides', async () => {
+  const { events, run, releaseReply } = signInHandoffCheck({
+    handedOff: { id: 'w1', email: 'warehouse@example.com', role: 'WAREHOUSE_STAFF' },
+    reply: () => Response.json({ user: { id: 'a1', email: 'admin@example.com', role: 'ADMIN' } }),
+  })
+  await setImmediate()
+  assert.deepEqual(events, ['auth/me sent'])
+  releaseReply()
+  await run
+  assert.equal(events.filter((event) => event[0] === 'user').at(-1)[1].role, 'ADMIN')
 })
 // Every login page must restore only its own portal and retain that session for refresh.
 for (const target of ['Admin', 'Warehouse', 'Driver', 'Customer']) {

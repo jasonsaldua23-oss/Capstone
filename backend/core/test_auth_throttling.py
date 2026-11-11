@@ -57,6 +57,11 @@ class AuthenticationThrottleTests(TestCase):
         account_limited = self._login(self.admin.email, "wrong-password", "203.0.113.11")
         self.assertEqual(account_limited.status_code, 429)
         self.assertIn("Retry-After", account_limited)
+        # The body carries the wait too, so a client that cannot read the header
+        # (cross-origin, or a proxy that drops it) still shows the lockout rather
+        # than retrying until it ends.
+        self.assertEqual(account_limited.json()["retryAfter"], int(account_limited["Retry-After"]))
+        self.assertGreater(account_limited.json()["retryAfter"], 60)
 
         AuthThrottleState.objects.filter(action="password_login", scope="ip").update(
             attempt_count=20,
