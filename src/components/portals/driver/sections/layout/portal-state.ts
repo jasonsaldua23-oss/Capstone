@@ -481,7 +481,14 @@ export function useDriverPortalState() {
     void fetchTrips()
 
     const unsubscribe = subscribeDataSync((message) => {
-      if (message.scopes.includes('orders') || message.scopes.includes('trips') || message.scopes.includes('replacements')) {
+      // 'vehicles': a truck pulled off the road (maintenance, out of service) must block
+      // Start Trip on a trip the driver already has open.
+      if (
+        message.scopes.includes('orders') ||
+        message.scopes.includes('trips') ||
+        message.scopes.includes('replacements') ||
+        message.scopes.includes('vehicles')
+      ) {
         void fetchTrips(true)
       }
     })

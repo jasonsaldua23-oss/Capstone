@@ -23,7 +23,7 @@ from .api_utils import (
 )
 from .empties_verification import record_collected_empties
 from .notification_services import _create_user_notification
-from .fleet_sync import MANUAL_VEHICLE_STATUSES, sync_vehicle_status_for_trip, trip_scheduled_date
+from .fleet_sync import sync_vehicle_status_for_trip, trip_scheduled_date, vehicle_dispatch_block
 from .incident_lifecycle import close_open_incidents, open_incident_numbers, stopped_vehicle_message, stopping_incident
 from .mixed_case import serialize_mixed_component
 from .models import (
@@ -460,6 +460,11 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
     # driver sees the real blocker; re-checked under lock below for races.
     if _driver_has_other_active_trip(t):
         return _err(ACTIVE_TRIP_MESSAGE, 409)
+    # A truck off the road (maintenance, out of service) is named before
+    # Confirm Load, so nobody loads a truck that cannot leave; re-checked under lock below.
+    vehicle_block = vehicle_dispatch_block(t.vehicle)
+    if vehicle_block:
+        return _err(vehicle_block, 409)
 
     body = _json_body(request)
     # Added: the server requires the driver's explicit physical-load
@@ -494,14 +499,9 @@ def trip_start(request: HttpRequest, trip_id: str) -> JsonResponse:
         # Added: a truck pulled for maintenance after planning must not leave the
         # yard. Read under lock so a concurrent fleet edit cannot slip past.
         locked_vehicle = Vehicle.objects.select_for_update().filter(id=t.vehicle_id).first()
-        vehicle_status = str(getattr(locked_vehicle, "status", "") or "").strip().upper()
-        if vehicle_status in MANUAL_VEHICLE_STATUSES:
-            plate = str(getattr(locked_vehicle, "license_plate", "") or "").strip()
-            label = "under maintenance" if vehicle_status == VehicleStatus.MAINTENANCE else "out of service"
-            return _err(
-                f"Vehicle {plate} is {label} and cannot be dispatched. Ask an administrator to assign another vehicle.",
-                409,
-            )
+        vehicle_block = vehicle_dispatch_block(locked_vehicle)
+        if vehicle_block:
+            return _err(vehicle_block, 409)
 
         t.status = TripStatus.IN_PROGRESS
         t.actual_start_at = now

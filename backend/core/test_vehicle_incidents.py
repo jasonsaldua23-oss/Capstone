@@ -358,8 +358,9 @@ class VehicleIncidentTests(TestCase):
         self.assertEqual(body["resolutionOutcomeLabel"], "Vehicle sent for repair")
         # Resolving straight from REPORTED also records who saw it.
         self.assertEqual(body["acknowledgedBy"], "Wally Warehouse")
+        # An accident is not routine maintenance: the truck goes out of service.
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.status, VehicleStatus.MAINTENANCE)
+        self.assertEqual(self.vehicle.status, VehicleStatus.OUT_OF_SERVICE)
         resolved_alert = Notification.objects.get(user=self.driver)
         self.assertEqual(resolved_alert.title, "Incident resolved")
         self.assertIn("Vehicle sent for repair", resolved_alert.message)
@@ -368,6 +369,17 @@ class VehicleIncidentTests(TestCase):
         self.assertEqual(self.act(incident["id"], self.staff, action="RESOLVE", outcome="SENT_FOR_REPAIR", notes="Towed to the shop.").status_code, 200)
         self.assertEqual(self.act(incident["id"], self.staff, action="RESOLVE", outcome="RESUMED", notes="Fine.").status_code, 409)
         self.assertEqual(self.act(incident["id"], self.staff, action="ACKNOWLEDGE").status_code, 409)
+
+    def test_vehicle_damage_sent_for_repair_also_goes_out_of_service(self) -> None:
+        # Even a truck already booked for maintenance: sent for repair means out of service.
+        Vehicle.objects.filter(id=self.vehicle.id).update(status=VehicleStatus.MAINTENANCE)
+        incident = self.report(type="VEHICLE_DAMAGE", description="Radiator leaking; engine overheating.").json()["incident"]
+
+        response = self.act(incident["id"], self.staff, action="RESOLVE", outcome="SENT_FOR_REPAIR", notes="Radiator replaced at the shop.")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.status, VehicleStatus.OUT_OF_SERVICE)
 
     def test_a_resumed_vehicle_keeps_its_status_and_out_of_service_is_never_downgraded(self) -> None:
         incident = self.report().json()["incident"]

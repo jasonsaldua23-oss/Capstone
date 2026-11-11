@@ -77,7 +77,7 @@ export function WarehouseCancelTripDialog({
               <li>
                 {openStops} undelivered {openStops === 1 ? 'order comes' : 'orders come'} back to the warehouse as Rescheduled, with stock still held, ready for another trip. Each customer is told.
               </li>
-              <li>{sendForRepair ? `${plate} goes to Maintenance.` : 'The truck is released for other trips.'}</li>
+              <li>{sendForRepair ? `${plate} is set to Out of Service.` : 'The truck is released for other trips.'}</li>
               {openIncident ? (
                 <li>
                   {incidentTypeLabel(openIncident.type)} report {openIncident.incidentNumber} closes with the trip.
@@ -99,7 +99,7 @@ export function WarehouseCancelTripDialog({
               disabled={isSaving}
               onChange={(event) => setRepairChoice(event.target.checked)}
             />
-            <span>Send {plate} for repair (Maintenance)</span>
+            <span>Send {plate} for repair (Out of Service)</span>
           </label>
         ) : null}
         <div className="space-y-1">

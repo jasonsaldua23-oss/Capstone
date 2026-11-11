@@ -464,23 +464,32 @@ class TripExecutionApiContractTests(TestCase):
         self.vehicle.refresh_from_db()
         self.assertEqual(self.vehicle.status, VehicleStatus.AVAILABLE)
 
-    def test_maintenance_vehicle_cannot_start_a_trip(self) -> None:
-        for manual_status, label in (
-            (VehicleStatus.MAINTENANCE, "under maintenance"),
-            (VehicleStatus.OUT_OF_SERVICE, "out of service"),
+    def test_a_vehicle_off_the_road_cannot_start_a_trip(self) -> None:
+        for manual_status, reason in (
+            (VehicleStatus.MAINTENANCE, "is under maintenance"),
+            (VehicleStatus.OUT_OF_SERVICE, "is out of service"),
         ):
-            Vehicle.objects.filter(id=self.vehicle.id).update(status=manual_status)
-            response = self._start(self.trip)
-            self.assertEqual(response.status_code, 409)
-            self.assertEqual(
-                response.json()["error"],
-                f"Vehicle {self.vehicle.license_plate} is {label} and cannot be dispatched. "
-                "Ask an administrator to assign another vehicle.",
-            )
-            self.trip.refresh_from_db()
-            self.vehicle.refresh_from_db()
-            self.assertEqual(self.trip.status, TripStatus.PLANNED)
-            self.assertEqual(self.vehicle.status, manual_status)
+            with self.subTest(status=manual_status):
+                Vehicle.objects.filter(id=self.vehicle.id).update(status=manual_status)
+                response = self._start(self.trip)
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(
+                    response.json()["error"],
+                    f"Vehicle {self.vehicle.license_plate} {reason} and cannot be dispatched. "
+                    "Ask an administrator to assign another vehicle.",
+                )
+                self.trip.refresh_from_db()
+                self.vehicle.refresh_from_db()
+                self.assertEqual(self.trip.status, TripStatus.PLANNED)
+                self.assertEqual(self.vehicle.status, manual_status)
+
+    def test_a_vehicle_off_the_road_is_named_before_the_load_is_confirmed(self) -> None:
+        # Nobody should load a truck that cannot leave: the truck is the first answer,
+        # ahead of the Confirm Load requirement.
+        Vehicle.objects.filter(id=self.vehicle.id).update(status=VehicleStatus.OUT_OF_SERVICE)
+        response = self._start(self.trip, confirm_load=False)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("is out of service and cannot be dispatched", response.json()["error"])
 
     def test_completing_a_trip_never_overwrites_maintenance(self) -> None:
         self.assertEqual(self._start(self.trip).status_code, 200)
@@ -548,6 +557,9 @@ class TripExecutionApiContractTests(TestCase):
     def test_route_plan_offers_in_use_trucks_but_not_maintenance(self) -> None:
         Vehicle.objects.filter(id=self.vehicle.id).update(status=VehicleStatus.IN_USE)
         Vehicle.objects.filter(id=self.other_vehicle.id).update(status=VehicleStatus.MAINTENANCE)
+        crashed = Vehicle.objects.create(
+            license_plate="EXEC-TRIP-CRASH", type=VehicleType.VAN, status=VehicleStatus.OUT_OF_SERVICE, is_active=True
+        )
 
         response = self.client.get(
             "/api/trips/route-plan",
@@ -558,6 +570,7 @@ class TripExecutionApiContractTests(TestCase):
         vehicle_ids = {row["id"] for row in response.json()["vehicles"]}
         self.assertIn(self.vehicle.id, vehicle_ids)
         self.assertNotIn(self.other_vehicle.id, vehicle_ids)
+        self.assertNotIn(crashed.id, vehicle_ids)
 
     def test_drop_point_update_requires_staff_auth(self) -> None:
         response = self.client.patch(

@@ -20,6 +20,7 @@ import { toast } from 'sonner'
 import { DriverGpsLocation, DropPoint, mergeDropPointIntoTrip, stripPhilippinesFromAddress, TERMINAL_DROP_POINT_STATUSES, Trip } from './trip-detail-helpers'
 import { Phone, Navigation, CheckCircle, AlertCircle, AlertTriangle, Camera, ChevronLeft, Play, Flag, Loader2, Route, LocateFixed, Volume2, VolumeX, Plus, Minus } from 'lucide-react'
 import { incidentProgressLabel, incidentTypeLabel, vehicleStoppedMessage } from '@/lib/vehicle-incidents'
+import { vehicleDispatchBlockMessage } from '@/lib/vehicle-config'
 import { clampEmptiesCount, stepEmptiesCases, uncoveredDeposit, type EmptiesCount, type EmptiesDeclaration } from '@/lib/empties-count'
 import { NavInstructionsPanel, type OsrmStep } from '@/components/shared/NavInstructionsPanel'
 import { isAutomaticallyRetryableWriteStatus, waitForDriverWriteRetry } from './trip-detail-retry'
@@ -154,11 +155,16 @@ export function TripDetailView({
   const hasOtherActiveTrip = driverTrips.some(
     (row) => row?.id !== trip.id && String(row?.status || '').toUpperCase() === 'IN_PROGRESS'
   )
+  // A truck under maintenance or out of service (e.g. after an accident) cannot leave the
+  // yard; trip_start refuses it too, before Confirm Load.
+  const vehicleBlockedReason = vehicleDispatchBlockMessage(trip.vehicle)
   const startBlockedReason = tripIsOverdue
     ? getOverdueTripMessage(trip)
-    : hasOtherActiveTrip
-      ? ACTIVE_TRIP_BLOCK_MESSAGE
-      : null
+    : vehicleBlockedReason
+      ? vehicleBlockedReason
+      : hasOtherActiveTrip
+        ? ACTIVE_TRIP_BLOCK_MESSAGE
+        : null
   const [selectedDropPointForDetails, setSelectedDropPointForDetails] = useState<DropPoint | null>(null)
 
   // Accident or vehicle damage on the road: reported here, flagged on the staff maps.

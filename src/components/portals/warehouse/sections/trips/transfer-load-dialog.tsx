@@ -127,7 +127,7 @@ export function WarehouseTransferLoadDialog({
             disabled={isSaving}
             onChange={(event) => setSendForRepair(event.target.checked)}
           />
-          <span>Send {brokenPlate} for repair (Maintenance). Its incident report closes with the trip either way.</span>
+          <span>Send {brokenPlate} for repair (Out of Service). Its incident report closes with the trip either way.</span>
         </label>
         <div className="space-y-1">
           <Label htmlFor="transfer-reason">Reason</Label>

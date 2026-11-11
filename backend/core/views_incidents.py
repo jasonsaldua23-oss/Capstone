@@ -24,7 +24,8 @@ from django.views.decorators.http import require_http_methods
 from . import views_api as legacy
 from . import views_media as media
 from .api_utils import error as _err, json_body as _json_body, ok as _ok
-from .models import LocationLog, RoleType, Trip, TripStatus, User, Vehicle, VehicleIncident, VehicleStatus
+from .fleet_sync import send_vehicle_for_repair
+from .models import LocationLog, RoleType, Trip, TripStatus, User, VehicleIncident
 
 PHOTO_FOLDER = "incident-photos"
 DESCRIPTION_MAX_LENGTH = 1000
@@ -438,11 +439,7 @@ def incident_detail(request: HttpRequest, incident_id: str) -> JsonResponse:
                 "resolution_outcome", "resolution_notes", "updated_at",
             ])
             if outcome == VehicleIncident.Outcome.SENT_FOR_REPAIR:
-                vehicle = Vehicle.objects.select_for_update().get(id=locked.vehicle_id)
-                # Out of service already says more than maintenance; leave it.
-                if vehicle.status != VehicleStatus.OUT_OF_SERVICE:
-                    vehicle.status = VehicleStatus.MAINTENANCE
-                    vehicle.save(update_fields=["status", "updated_at"])
+                send_vehicle_for_repair(locked.vehicle_id)
             changed = True
 
     incident = _incidents().get(id=incident.id)

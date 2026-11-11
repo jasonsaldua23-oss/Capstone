@@ -192,4 +192,4 @@ class IncidentTripLifecycleTests(TestCase):
         incident.refresh_from_db()
         self.assertEqual(incident.resolution_outcome, "SENT_FOR_REPAIR")
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.status, "MAINTENANCE")
+        self.assertEqual(self.vehicle.status, "OUT_OF_SERVICE")

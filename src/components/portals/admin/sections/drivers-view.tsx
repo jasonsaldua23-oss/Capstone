@@ -9,6 +9,7 @@ import {
   formatPhilippineDriverLicenseInput,
 } from '@/lib/driver-license-restrictions'
 import { getDriverAssignmentIssue, getDriverVehicleLicenseIssue } from '@/lib/driver-eligibility'
+import { OFF_ROAD_VEHICLE_STATUSES } from '@/lib/vehicle-config'
 import { getRequiredLicenseCodeForVehicle } from '@/lib/driver-license-restrictions'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
@@ -108,7 +109,7 @@ export function DriversView() {
 
   const isVehicleAssignable = (vehicle: any) => {
     const status = String(vehicle?.status || '').toUpperCase()
-    return vehicle?.isActive !== false && !['INACTIVE', 'OUT_OF_SERVICE', 'MAINTENANCE'].includes(status)
+    return vehicle?.isActive !== false && status !== 'INACTIVE' && !OFF_ROAD_VEHICLE_STATUSES.has(status)
   }
 
   const fetchDrivers = async () => {

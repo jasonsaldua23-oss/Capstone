@@ -34,6 +34,7 @@ import {
 import { Loader2, Truck, Menu, Bell, ChevronDown, Settings, LogOut, Clock, CheckCircle, XCircle, MapPin, TrendingUp, UserCheck, MessageSquare, AlertTriangle, Eye, EyeOff, CircleCheck, BarChart3, ShoppingCart, Package, Archive, Building2, Database, FileText, Users, Star, Download, Pencil, Trash2, Lock } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import {
+  OFF_ROAD_VEHICLE_STATUSES,
   VEHICLE_STATUS_OPTIONS,
   getVehicleTypes,
   getClassificationsForType,
@@ -283,7 +284,7 @@ export function TransportationView({ notificationReferenceType = '', notificatio
 
   const isVehicleAssignable = (vehicle: any) => {
     const status = String(vehicle?.status || '').toUpperCase()
-    return vehicle?.isActive !== false && !['INACTIVE', 'OUT_OF_SERVICE', 'MAINTENANCE'].includes(status)
+    return vehicle?.isActive !== false && status !== 'INACTIVE' && !OFF_ROAD_VEHICLE_STATUSES.has(status)
   }
 
   const resetVehicleForm = () => {

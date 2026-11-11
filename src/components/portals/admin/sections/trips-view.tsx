@@ -21,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { PortalTableSkeleton } from '@/components/portals/shared/loading-skeletons'
 import { TripLoadSummary } from '@/components/shared/trip-load-summary'
+import { OFF_ROAD_VEHICLE_STATUSES } from '@/lib/vehicle-config'
 import { TRIP_LIST_SORT_OPTIONS, sortTripsForList, tripListSortParam, type TripListSort } from '@/components/portals/shared/trip-list-sort'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -65,7 +66,7 @@ const AddressMapPicker = dynamic(
 // Fix: a truck is IN_USE while it is out on today's trip, but it can still be
 // planned for a later date. Only vehicles that cannot drive at all are excluded.
 const isVehiclePlannable = (vehicle: any) =>
-  vehicle?.isActive !== false && !['MAINTENANCE', 'OUT_OF_SERVICE'].includes(String(vehicle?.status || '').toUpperCase())
+  vehicle?.isActive !== false && !OFF_ROAD_VEHICLE_STATUSES.has(String(vehicle?.status || '').toUpperCase())
 
 export function TripsView() {
   const [selectedTrip, setSelectedTrip] = useState<any | null>(null)

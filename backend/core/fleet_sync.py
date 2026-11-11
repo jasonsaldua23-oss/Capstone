@@ -15,8 +15,37 @@ from .models import Trip, TripStatus, Vehicle, VehicleStatus
 # Drop points in these states no longer need the driver to do anything.
 TERMINAL_DROP_POINT_STATUSES = frozenset({"COMPLETED", "FAILED", "SKIPPED", "CANCELLED"})
 
-# Vehicle states an operator set by hand; the trip lifecycle never overrides them.
+# Vehicle states an operator set by hand; the trip lifecycle never overrides them,
+# and a truck in one of them cannot be dispatched.
 MANUAL_VEHICLE_STATUSES = frozenset({VehicleStatus.MAINTENANCE, VehicleStatus.OUT_OF_SERVICE})
+
+# Why a truck in each manual state cannot leave the yard (src/lib/vehicle-config.ts says the same).
+_DISPATCH_BLOCK_REASONS = {
+    VehicleStatus.MAINTENANCE: "is under maintenance",
+    VehicleStatus.OUT_OF_SERVICE: "is out of service",
+}
+
+
+def vehicle_dispatch_block(vehicle: Vehicle | None) -> str | None:
+    """The reason this truck cannot start a trip, or None when it can."""
+    status = str(getattr(vehicle, "status", "") or "").strip().upper()
+    reason = _DISPATCH_BLOCK_REASONS.get(status)
+    if reason is None:
+        return None
+    plate = str(getattr(vehicle, "license_plate", "") or "").strip()
+    return f"Vehicle {plate} {reason} and cannot be dispatched. Ask an administrator to assign another vehicle."
+
+
+def send_vehicle_for_repair(vehicle_id: str) -> None:
+    """Take a truck off the road after an accident or damage report. Call inside the transaction.
+
+    It goes OUT_OF_SERVICE - routine maintenance does not describe a truck damaged
+    on the road - until staff put it back in service.
+    """
+    vehicle = Vehicle.objects.select_for_update().get(id=vehicle_id)
+    if vehicle.status != VehicleStatus.OUT_OF_SERVICE:
+        vehicle.status = VehicleStatus.OUT_OF_SERVICE
+        vehicle.save(update_fields=["status", "updated_at"])
 
 
 def local_date_of(value: datetime | date | None) -> date | None:

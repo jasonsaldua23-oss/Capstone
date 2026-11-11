@@ -21,7 +21,7 @@ from .api_utils import (
     ok as _ok,
     to_float_or_none as _to_float_or_none,
 )
-from .fleet_sync import local_date_of, sync_vehicle_status_for_trip, trip_scheduled_date
+from .fleet_sync import local_date_of, send_vehicle_for_repair, sync_vehicle_status_for_trip, trip_scheduled_date
 from .incident_lifecycle import close_open_incidents
 from .models import (
     DriverStatus,
@@ -1392,14 +1392,6 @@ OPEN_DROP_POINT_STATUSES = ["PENDING", "IN_TRANSIT", "ARRIVED"]
 CANCELLATION_REASON_MAX_LENGTH = 500
 
 
-def _send_vehicle_for_repair(vehicle_id: str) -> None:
-    """Set the truck to Maintenance; Out of Service already says more, so it stays."""
-    vehicle = Vehicle.objects.select_for_update().get(id=vehicle_id)
-    if vehicle.status != VehicleStatus.OUT_OF_SERVICE:
-        vehicle.status = VehicleStatus.MAINTENANCE
-        vehicle.save(update_fields=["status", "updated_at"])
-
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_cancel(request: HttpRequest, trip_id: str) -> JsonResponse:
@@ -1411,8 +1403,8 @@ def trip_cancel(request: HttpRequest, trip_id: str) -> JsonResponse:
       - once under way, the order is on the truck, so it comes back to the warehouse
         as Rescheduled with its stock still held - as when a driver reschedules a
         failed delivery - and the customer is told.
-    The truck is released unless it is under maintenance - or, with
-    ``sendVehicleForRepair``, sent there - and the driver is told. The trip's open
+    The truck is released unless it is under maintenance or out of service - or, with
+    ``sendVehicleForRepair``, taken out of service - and the driver is told. The trip's open
     incident report closes with it (incident_lifecycle).
     Deleting a planned trip (trip_detail) remains for trips created by mistake.
     """
@@ -1497,7 +1489,7 @@ def trip_cancel(request: HttpRequest, trip_id: str) -> JsonResponse:
             "actual_end_at", "completed_drop_points", "updated_at",
         ])
         if send_for_repair and locked_trip.vehicle_id:
-            _send_vehicle_for_repair(locked_trip.vehicle_id)
+            send_vehicle_for_repair(locked_trip.vehicle_id)
         close_open_incidents(
             locked_trip.id,
             outcome=VehicleIncident.Outcome.SENT_FOR_REPAIR if send_for_repair else VehicleIncident.Outcome.TRIP_ENDED,
@@ -1708,7 +1700,7 @@ def trip_transfer(request: HttpRequest, trip_id: str) -> JsonResponse:
         source.save(update_fields=update_fields)
 
         if send_for_repair and source.vehicle_id:
-            _send_vehicle_for_repair(source.vehicle_id)
+            send_vehicle_for_repair(source.vehicle_id)
         # The trip has ended, so its report closes either way (incident_lifecycle).
         close_open_incidents(
             source.id,

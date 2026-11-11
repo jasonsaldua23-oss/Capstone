@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  INCIDENT_OUTCOME_OPTIONS,
   incidentLocationNote,
   incidentOutcomeLabel,
   incidentProgressLabel,
@@ -141,4 +142,10 @@ test('progress and location notes say what happens next and where the position c
     incidentLocationNote({ latitude: null, longitude: null, locationSource: null, locationRecordedAt: null }, time),
     'No GPS position was available when this was reported'
   )
+})
+
+test('a vehicle sent for repair goes out of service, whatever was reported', () => {
+  // fleet_sync.send_vehicle_for_repair: accident or damage alike, the truck stays in the yard.
+  const repair = INCIDENT_OUTCOME_OPTIONS.find((option) => option.value === 'SENT_FOR_REPAIR')
+  assert.equal(repair?.hint, 'The vehicle is set to Out of Service and cannot be dispatched until it is back in service.')
 })

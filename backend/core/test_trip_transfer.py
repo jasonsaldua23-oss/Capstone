@@ -135,7 +135,8 @@ class TripTransferTests(TestCase):
         incident.refresh_from_db()
         self.broken.refresh_from_db()
         self.assertEqual((incident.status, incident.resolution_outcome), ("RESOLVED", "SENT_FOR_REPAIR"))
-        self.assertEqual(self.broken.status, "MAINTENANCE")
+        # Damage or accident alike, a truck sent for repair goes out of service.
+        self.assertEqual(self.broken.status, "OUT_OF_SERVICE")
         # The rescue driver is sent to the reported spot.
         rescue = Trip.objects.get(transferred_from=self.trip)
         self.assertEqual((rescue.transfer_latitude, rescue.transfer_longitude), (10.80, 122.97))

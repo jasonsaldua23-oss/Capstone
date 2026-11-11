@@ -36,7 +36,30 @@ export const VEHICLE_CAPACITY_RULES: Record<string, VehicleTypeOption> = {
 export const VEHICLE_STATUS_OPTIONS = [
   { value: 'AVAILABLE', label: 'Available' },
   { value: 'MAINTENANCE', label: 'Maintenance' },
+  // E.g. damaged in an accident: routine maintenance does not describe it.
+  { value: 'OUT_OF_SERVICE', label: 'Out of Service' },
 ]
+
+/** Set by staff; the truck stays in the yard (backend fleet_sync.MANUAL_VEHICLE_STATUSES). */
+export const OFF_ROAD_VEHICLE_STATUSES: ReadonlySet<string> = new Set(['MAINTENANCE', 'OUT_OF_SERVICE'])
+
+const DISPATCH_BLOCK_REASONS: Record<string, string> = {
+  MAINTENANCE: 'is under maintenance',
+  OUT_OF_SERVICE: 'is out of service',
+}
+
+/**
+ * Why this truck cannot start a trip, worded as trip_start refuses it
+ * (fleet_sync.vehicle_dispatch_block), or null when nothing here stops it.
+ */
+export function vehicleDispatchBlockMessage(
+  vehicle: { licensePlate?: string | null; status?: string | null } | null | undefined,
+): string | null {
+  const reason = DISPATCH_BLOCK_REASONS[String(vehicle?.status || '').trim().toUpperCase()]
+  if (!reason) return null
+  const plate = String(vehicle?.licensePlate || '').trim()
+  return `${plate ? `Vehicle ${plate}` : 'The vehicle'} ${reason} and cannot be dispatched. Ask an administrator to assign another vehicle.`
+}
 
 export function getVehicleTypes(): Array<{ value: string; label: string }> {
   return Object.values(VEHICLE_CAPACITY_RULES).map((entry) => ({

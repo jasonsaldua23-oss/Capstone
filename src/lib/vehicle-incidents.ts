@@ -64,7 +64,7 @@ export const INCIDENT_OUTCOME_OPTIONS: ReadonlyArray<{ value: VehicleIncidentOut
   {
     value: 'SENT_FOR_REPAIR',
     label: 'Vehicle sent for repair',
-    hint: 'The vehicle is set to Maintenance and cannot be dispatched until it is back in service.',
+    hint: 'The vehicle is set to Out of Service and cannot be dispatched until it is back in service.',
   },
 ]
 
