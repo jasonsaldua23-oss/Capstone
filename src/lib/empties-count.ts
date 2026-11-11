@@ -1,9 +1,9 @@
 /**
  * The driver's count of the empties a customer declared, and what a shortfall costs.
  *
- * Cases are counted as handed over (shell and bottles), with any bottles missing from
- * them counted on their own. A missing bottle is charged the bottle deposit and a
- * missing case its bottles plus the shell, so a case handed back one bottle short
+ * Cases and bottles are counted apart: a customer can hand back an empty case with
+ * no bottles in it, or bottles without their case. A missing bottle is charged the
+ * bottle deposit and a missing case its shell, so a case handed back one bottle short
  * costs one bottle's deposit, not a 24th of the case. The same pricing,
  * uncoveredDeposit, prices the warehouse POS, which counts the cases and bottles
  * handed back apart (src/lib/retail-empties.ts); backend/core/deposit_math.uncovered_deposit
@@ -25,34 +25,32 @@ export type EmptiesDeclaration = {
 }
 
 export type EmptiesCount = {
-  /** Cases handed over, each in its shell. */
+  /** Case shells handed over, whatever is in them. */
   cases: number
-  /** Bottles missing from those cases. */
-  missingBottles: number
-  looseBottles: number
+  /** Bottles handed over, in a case or not. */
+  bottles: number
 }
 
 const whole = (value: number) => Math.max(0, Math.floor(Number(value) || 0))
 
-/** Keep a count within the declaration; missing bottles can only come out of counted cases. */
+/** Keep each count within what the customer declared; neither limits the other. */
 export function clampEmptiesCount(count: EmptiesCount, declaration: EmptiesDeclaration): EmptiesCount {
-  const perCase = Math.max(1, whole(declaration.containersPerCase))
-  const cases = Math.min(whole(count.cases), whole(declaration.declaredCases))
   return {
-    cases,
-    missingBottles: perCase > 1 ? Math.min(whole(count.missingBottles), cases * perCase) : 0,
-    looseBottles: Math.min(whole(count.looseBottles), whole(declaration.declaredLooseBottles)),
+    cases: Math.min(whole(count.cases), whole(declaration.declaredCases)),
+    bottles: Math.min(whole(count.bottles), whole(declaration.declaredBottles)),
   }
 }
 
-/** Containers handed over, which is what the settlement records. */
-export function countedBottles(count: EmptiesCount, declaration: EmptiesDeclaration): number {
-  const clamped = clampEmptiesCount(count, declaration)
+/**
+ * Change the cases handed over, taking a full case of bottles with each one, so the
+ * usual shortfall of whole cases is one tap. The driver corrects the bottles after
+ * when a case came back empty or bottles came without their case.
+ */
+export function stepEmptiesCases(count: EmptiesCount, nextCases: number, declaration: EmptiesDeclaration): EmptiesCount {
+  const current = clampEmptiesCount(count, declaration)
+  const cases = Math.min(whole(nextCases), whole(declaration.declaredCases))
   const perCase = Math.max(1, whole(declaration.containersPerCase))
-  return Math.min(
-    whole(declaration.declaredBottles),
-    clamped.cases * perCase - clamped.missingBottles + clamped.looseBottles,
-  )
+  return clampEmptiesCount({ cases, bottles: current.bottles + (cases - current.cases) * perCase }, declaration)
 }
 
 /**

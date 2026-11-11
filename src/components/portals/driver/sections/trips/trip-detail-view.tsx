@@ -20,7 +20,7 @@ import { toast } from 'sonner'
 import { DriverGpsLocation, DropPoint, mergeDropPointIntoTrip, stripPhilippinesFromAddress, TERMINAL_DROP_POINT_STATUSES, Trip } from './trip-detail-helpers'
 import { Phone, Navigation, CheckCircle, AlertCircle, AlertTriangle, Camera, ChevronLeft, Play, Flag, Loader2, Route, LocateFixed, Volume2, VolumeX, Plus, Minus } from 'lucide-react'
 import { incidentProgressLabel, incidentTypeLabel, vehicleStoppedMessage } from '@/lib/vehicle-incidents'
-import { clampEmptiesCount, countedBottles, uncoveredDeposit, type EmptiesCount, type EmptiesDeclaration } from '@/lib/empties-count'
+import { clampEmptiesCount, stepEmptiesCases, uncoveredDeposit, type EmptiesCount, type EmptiesDeclaration } from '@/lib/empties-count'
 import { NavInstructionsPanel, type OsrmStep } from '@/components/shared/NavInstructionsPanel'
 import { isAutomaticallyRetryableWriteStatus, waitForDriverWriteRetry } from './trip-detail-retry'
 import {
@@ -120,8 +120,6 @@ export function TripDetailView({
     containerTypeName: string
     returnedQuantity: number
     returnedCases?: number
-    missingBottles?: number
-    returnedLooseBottles?: number
   }>>>({})
 
   // Failed-delivery decision flow state.
@@ -1009,16 +1007,10 @@ export function TripDetailView({
       count: EmptiesCount,
       declaration: EmptiesDeclaration,
     ) => {
-      // Keep the driver's breakdown while submitting the combined bottle quantity used
-      // by the deposit settlement and bottle inventory records, plus the cases, which
-      // settle the shell deposits.
+      // The bottles settle the bottle deposits and the bottle inventory records; the
+      // cases, counted apart, settle the shell deposits.
       const next = clampEmptiesCount(count, declaration)
-      const row = {
-        returnedQuantity: countedBottles(next, declaration),
-        returnedCases: next.cases,
-        missingBottles: next.missingBottles,
-        returnedLooseBottles: next.looseBottles,
-      }
+      const row = { returnedQuantity: next.bottles, returnedCases: next.cases }
       setReturnedEmptiesByDropPoint(prev => {
         const current = prev[dropPointId] || []
         const existingIdx = current.findIndex(e => (e.declarationId || e.containerTypeId) === declarationId)
@@ -1033,12 +1025,31 @@ export function TripDetailView({
     }
 
     const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
-    const renderCounter = (label: string, noun: string, onStep: (delta: number) => void, canDecrease: boolean, canIncrease: boolean) => (
+    // `typed` makes the number typeable, so an empty case is not 24 taps.
+    const renderCounter = (label: string, noun: string, onStep: (delta: number) => void, canDecrease: boolean, canIncrease: boolean, typed?: { value: number; max: number; onType: (value: number) => void }) => (
       <div className="flex shrink-0 items-center space-x-2 rounded-lg border bg-white px-1 py-1">
         <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" aria-label={`Fewer ${noun}`} onClick={(e) => { e.stopPropagation(); onStep(-1) }} disabled={!canDecrease}>
           <Minus className="h-3.5 w-3.5" />
         </Button>
-        <span className="min-w-[5rem] text-center text-sm font-medium">{label}</span>
+        {typed ? (
+          <span className="flex min-w-[5rem] items-center justify-center gap-1 text-sm font-medium">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={typed.max}
+              value={typed.value}
+              aria-label={`Number of ${noun}`}
+              onClick={(e) => e.stopPropagation()}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => typed.onType(Number(e.target.value))}
+              className="h-7 w-12 rounded-md border border-slate-200 bg-white text-center text-sm font-medium [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+            {label}
+          </span>
+        ) : (
+          <span className="min-w-[5rem] text-center text-sm font-medium">{label}</span>
+        )}
         <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-600" aria-label={`More ${noun}`} onClick={(e) => { e.stopPropagation(); onStep(1) }} disabled={!canIncrease}>
           <Plus className="h-3.5 w-3.5" />
         </Button>
@@ -1049,7 +1060,7 @@ export function TripDetailView({
       <div className="space-y-3 border-t border-b border-slate-200 py-3 mb-3 bg-slate-50/50 -mx-4 px-4">
         <div>
           <p className="text-sm font-semibold text-slate-800">Empties collected</p>
-          <p className="text-xs text-slate-500">Count what the customer actually hands over, including any bottles missing from a case. Anything short of the declared amount is charged back on this order.</p>
+          <p className="text-xs text-slate-500">Count the cases and the bottles the customer actually hands over. A case can come back empty, and bottles can come without their case. Anything short of the declared amount is charged back on this order.</p>
         </div>
         {Array.from(containerTypesMap.entries()).map(([declarationId, {
           containerTypeId: cTypeId,
@@ -1074,20 +1085,18 @@ export function TripDetailView({
           // An untouched counter agrees with the declaration.
           const count = clampEmptiesCount(
             stored
-              ? { cases: Number(stored.returnedCases ?? 0), missingBottles: Number(stored.missingBottles ?? 0), looseBottles: Number(stored.returnedLooseBottles ?? 0) }
-              : { cases: declaredCases, missingBottles: 0, looseBottles: declaredLooseBottles },
+              ? { cases: Number(stored.returnedCases ?? 0), bottles: Number(stored.returnedQuantity ?? 0) }
+              : { cases: declaredCases, bottles: declared },
             declaration,
           )
-          const collected = countedBottles(count, declaration)
           const shortCases = Math.max(0, declaredCases - count.cases)
-          const shortBottles = count.missingBottles + Math.max(0, declaredLooseBottles - count.looseBottles)
-          const shortfall = uncoveredDeposit(declaration, { bottles: collected, cases: count.cases })
-          const step = (change: Partial<EmptiesCount>) => handleUpdateCount(declarationId, cTypeId, typeName, { ...count, ...change }, declaration)
+          const shortBottles = Math.max(0, declared - count.bottles)
+          const shortfall = uncoveredDeposit(declaration, count)
+          const update = (next: EmptiesCount) => handleUpdateCount(declarationId, cTypeId, typeName, next, declaration)
           const formatBreakdown = (cases: number, bottles: number) => [
             cases > 0 ? plural(cases, 'case') : '',
             bottles > 0 ? plural(bottles, 'loose bottle') : '',
           ].filter(Boolean).join(' + ') || '0 bottles'
-          const countsMissingBottles = declaredCases > 0 && containersPerCase > 1
           return (
             <div key={declarationId} className="space-y-2">
               <div className="flex items-center justify-between gap-3">
@@ -1102,8 +1111,9 @@ export function TripDetailView({
                   </div>
                   <p className="text-xs text-slate-500">
                     Customer declared: {formatBreakdown(declaredCases, declaredLooseBottles)}
+                    {declaredCases > 0 ? ` (${plural(declared, 'bottle')} in all)` : ''}
                   </p>
-                  {collected < declared ? (
+                  {shortCases > 0 || shortBottles > 0 ? (
                     <p className="text-xs font-semibold text-[#b42318]">
                       {[shortCases > 0 ? plural(shortCases, 'case') : '', shortBottles > 0 ? plural(shortBottles, 'bottle') : ''].filter(Boolean).join(' + ')} short -{' '}
                       {formatCurrency(shortfall)} added to this order
@@ -1111,29 +1121,20 @@ export function TripDetailView({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-2">
+                  {/* A case tapped off takes its bottles with it; the bottles are then corrected on their own. */}
                   {declaredCases > 0
-                    ? renderCounter(plural(count.cases, 'case'), 'cases', (delta) => step({ cases: count.cases + delta }), count.cases > 0, count.cases < declaredCases)
+                    ? renderCounter(plural(count.cases, 'case'), 'cases', (delta) => update(stepEmptiesCases(count, count.cases + delta, declaration)), count.cases > 0, count.cases < declaredCases)
                     : null}
-                  {declaredLooseBottles > 0
-                    ? renderCounter(plural(count.looseBottles, 'bottle'), 'loose bottles', (delta) => step({ looseBottles: count.looseBottles + delta }), count.looseBottles > 0, count.looseBottles < declaredLooseBottles)
-                    : null}
+                  {declared > 0 ? renderCounter(
+                    count.bottles === 1 ? 'bottle' : 'bottles',
+                    'bottles',
+                    (delta) => update({ ...count, bottles: count.bottles + delta }),
+                    count.bottles > 0,
+                    count.bottles < declared,
+                    { value: count.bottles, max: declared, onType: (value) => update({ ...count, bottles: value }) },
+                  ) : null}
                 </div>
               </div>
-              {countsMissingBottles ? (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-slate-700">Missing bottles</p>
-                    <p className="text-xs text-slate-500">Bottles not in the cases handed over</p>
-                  </div>
-                  {renderCounter(
-                    plural(count.missingBottles, 'bottle'),
-                    'missing bottles',
-                    (delta) => step({ missingBottles: count.missingBottles + delta }),
-                    count.missingBottles > 0,
-                    count.missingBottles < count.cases * containersPerCase,
-                  )}
-                </div>
-              ) : null}
             </div>
           )
         })}

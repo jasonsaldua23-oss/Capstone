@@ -1,15 +1,34 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Route, CalendarClock, Trophy, RotateCcw } from 'lucide-react'
+import { Route, CalendarClock, Trophy, RotateCcw, MapPin } from 'lucide-react'
 import { WelcomePopup } from '@/components/portals/shared/welcome-popup'
 import { useDriverTripsSnapshot, type DriverTripStats } from '../layout/portal-state'
 import { getTripScheduledDateKey, isTripOverdue, toManilaDateKey } from '../trips/trip-detail-format'
 
 type Trip = any
+
+function normalizeServiceAreas(raw: unknown): string[] {
+  if (!raw) return []
+  const list = Array.isArray(raw) ? raw : [raw]
+  const seen = new Set<string>()
+  const formatted: string[] = []
+  for (const item of list) {
+    const cityRaw = typeof item === 'string' ? item : item && typeof item === 'object' ? (item as any).city : ''
+    const cleaned = String(cityRaw || '').trim().replace(/\s+/g, ' ')
+    if (!cleaned) continue
+    const key = cleaned.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    formatted.push(
+      key.replace(/\b\w/g, (char) => char.toUpperCase())
+    )
+  }
+  return formatted
+}
 
 export function HomeView({
   user: _user,
@@ -54,6 +73,49 @@ export function HomeView({
     }
   })
   const [showWelcomePopup, setShowWelcomePopup] = useState(welcomeState.open)
+  const [profileServiceAreas, setProfileServiceAreas] = useState<string[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadDriverServiceAreas() {
+      try {
+        const response = await fetch('/api/driver/profile', { cache: 'no-store', credentials: 'include' })
+        if (!response.ok) return
+        const payload = await response.json().catch(() => ({}))
+        const profile = payload?.driver || payload?.profile || {}
+        const areas = normalizeServiceAreas(
+          profile?.serviceAreas ??
+          profile?.service_areas ??
+          profile?.user?.serviceAreas ??
+          profile?.user?.service_areas
+        )
+        if (!cancelled) setProfileServiceAreas(areas)
+      } catch {
+        // Fall back to trip or user payload when offline.
+      }
+    }
+    void loadDriverServiceAreas()
+    return () => {
+      cancelled = true
+    }
+  }, [_user?.id, _user?.userId])
+
+  const userAreas = normalizeServiceAreas(
+    _user?.serviceAreas ?? _user?.service_areas ?? _user?.serviceArea ?? _user?.service_area
+  )
+  const tripAreas = normalizeServiceAreas(
+    trips.find((trip) => Array.isArray(trip?.driver?.serviceAreas) && trip.driver.serviceAreas.length > 0)?.driver?.serviceAreas ??
+    trips.find((trip) => Array.isArray(trip?.driver?.service_areas) && trip.driver.service_areas.length > 0)?.driver?.service_areas
+  )
+  const resolvedServiceAreas =
+    profileServiceAreas && profileServiceAreas.length > 0
+      ? profileServiceAreas
+      : userAreas.length > 0
+        ? userAreas
+        : tripAreas.length > 0
+          ? tripAreas
+          : profileServiceAreas ?? []
+  const serviceAreaLabel = resolvedServiceAreas.length > 0 ? resolvedServiceAreas.join(', ') : 'Unassigned'
 
   // Fix: the tiles come from the server's stats, which cover every trip of this
   // driver; the portal only holds the latest 50, so counting them here drifted.
@@ -141,6 +203,11 @@ export function HomeView({
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1f3558]">DRIVER DASHBOARD</p>
             <h2 className="mt-1 text-[2rem] font-black leading-tight tracking-[-0.02em] text-[#0a1435]">Driver Dashboard</h2>
             <p className="text-[1.12rem] leading-relaxed text-[#223c5d]">Here is your delivery overview for today.</p>
+            <div className="mt-2.5 inline-flex items-center gap-2 rounded-xl border border-slate-200/80 bg-[#f8f8f2] px-3 py-1.5 text-sm font-medium text-[#1f3558] shadow-sm">
+              <MapPin className="h-4 w-4 shrink-0 text-[#0f4f8f]" />
+              <span>Service Delivery Area:</span>
+              <span className="font-bold text-[#0a1435]">{serviceAreaLabel}</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

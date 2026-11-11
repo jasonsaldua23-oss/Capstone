@@ -56,6 +56,7 @@ export function CustomerOrdersView(props: any) {
     cancelOrder,
     requestCancelReplacement,
     openRatingDialog,
+    reviewByOrderId,
     openReviewDetails,
     openOrderDetail,
     setSelectedOrder,
@@ -819,8 +820,22 @@ export function CustomerOrdersView(props: any) {
             const isDelivered = normalizedStatus === 'DELIVERED'
             const isReviewed = reviewedOrderIds.has(o.id)
             const shouldOpenReviewDirectly = ordersTab === 'TO_REVIEW' && isDelivered && !isReviewed && !isReplacementOrder(o)
-            const submittedRating = Number(orderRatings[o.id] || 0)
-            const hasSubmittedRating = submittedRating >= 1 && submittedRating <= 5
+            // A review is two ratings; show both, each labelled with what it rated.
+            // A review from before the split has only the delivery rating.
+            const orderReviews = reviewByOrderId?.[o.id] || {}
+            const toStars = (value: unknown) => {
+              const rating = Math.round(Number(value || 0))
+              return rating >= 1 && rating <= 5 ? rating : 0
+            }
+            const submittedRatings = [
+              { key: 'product', label: 'Product', rating: toStars(orderReviews.PRODUCT?.rating) },
+              {
+                key: 'service',
+                label: isReplacementOrder(o) ? 'Handling' : 'Delivery',
+                rating: toStars(orderReviews.SERVICE?.rating)
+                  || (orderReviews.PRODUCT ? 0 : toStars(orderRatings[o.id])),
+              },
+            ].filter((entry) => entry.rating > 0)
             const deliveryIssue = deliveryIssuesByOrderId[o.id]
             const hasCompletedReplacement = hasCompletedReplacementCase(o)
             const hasActiveReplacement = hasActiveReplacementCase(o)
@@ -931,20 +946,29 @@ export function CustomerOrdersView(props: any) {
                     <p className="mt-1 text-[26px] font-extrabold leading-none tracking-[-0.02em] text-emerald-700">
                       {formatPeso(getOrderTotalWithEmpties(o))}
                     </p>
-                    {hasSubmittedRating ? (
-                      <div className="mt-2 flex items-center gap-2">
-                        <div className="flex items-center gap-0.5">
-                          {Array.from({ length: 5 }).map((_, index) => {
-                            const value = index + 1
-                            const isActive = value <= submittedRating
-                            return (
-                              <Star
-                                key={`submitted-rating-${o.id}-${value}`}
-                                className={`h-3.5 w-3.5 ${isActive ? 'fill-amber-500 text-amber-500' : 'text-slate-300'}`}
-                              />
-                            )
-                          })}
-                        </div>
+                    {submittedRatings.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        {submittedRatings.map((entry) => (
+                          <div
+                            key={`submitted-rating-${o.id}-${entry.key}`}
+                            className="flex items-center gap-2"
+                            aria-label={`${entry.label} rating: ${entry.rating} out of 5`}
+                          >
+                            <div className="flex items-center gap-0.5">
+                              {Array.from({ length: 5 }).map((_, index) => {
+                                const value = index + 1
+                                const isActive = value <= entry.rating
+                                return (
+                                  <Star
+                                    key={`submitted-rating-${o.id}-${entry.key}-${value}`}
+                                    className={`h-3.5 w-3.5 ${isActive ? 'fill-amber-500 text-amber-500' : 'text-slate-300'}`}
+                                  />
+                                )
+                              })}
+                            </div>
+                            <span className="text-[11px] font-medium text-slate-600">{entry.label}</span>
+                          </div>
+                        ))}
                       </div>
                     ) : null}
                   </div>
